@@ -54,6 +54,17 @@ class AnalysisJob(TimestampMixin, Base):
     log_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
 
+    # Exact argument vectors executed (one list per external command), so a run
+    # can be reproduced outside ARVA.
+    commands: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    tool_path: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    # Small structured results (e.g. SeqKit rows, fastp before/after summary).
+    result_summary: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    # A job launched automatically by another job (e.g. statistics of filtered reads).
+    parent_job_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("analysis_jobs.id", ondelete="SET NULL"), nullable=True
+    )
+
     sample: Mapped["Sample"] = relationship("Sample", back_populates="analysis_jobs")
     qc_results: Mapped[list["QCResult"]] = relationship(
         "QCResult", back_populates="analysis_job", cascade="all, delete-orphan"

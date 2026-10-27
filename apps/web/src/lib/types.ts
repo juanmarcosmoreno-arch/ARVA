@@ -60,6 +60,95 @@ export interface RawFile {
   is_valid: boolean;
   validation_message: string | null;
   uploaded_at: string;
+  origin: "imported" | "derived";
+  parent_file_id: string | null;
+  produced_by_job_id: string | null;
+  description: string | null;
+}
+
+export type ToolStatus = "available" | "not_installed" | "incompatible" | "failed";
+
+export interface Tool {
+  id: string;
+  name: string;
+  description: string;
+  homepage: string;
+  license: string;
+  citation: string;
+  citation_url: string;
+  categories: string[];
+  input_formats: string[];
+  output_formats: string[];
+  min_version: string;
+  tested_versions: string[];
+  install: Record<string, string>;
+  status: ToolStatus;
+  path: string | null;
+  version: string | null;
+  version_validated: boolean;
+  message: string;
+}
+
+export interface FastpParams {
+  adapter_trimming: boolean;
+  detect_adapter_for_pe: boolean;
+  quality_filtering: boolean;
+  qualified_quality_phred: number;
+  unqualified_percent_limit: number;
+  n_base_limit: number;
+  average_qual: number;
+  length_filtering: boolean;
+  length_required: number;
+  cut_front: boolean;
+  cut_tail: boolean;
+  cut_window_size: number;
+  cut_mean_quality: number;
+  poly_g: "auto" | "force" | "disable";
+  dedup: boolean;
+}
+
+export interface FiltlongParams {
+  min_length: number | null;
+  max_length: number | null;
+  min_mean_q: number | null;
+  min_window_q: number | null;
+  keep_percent: number | null;
+  target_bases: number | null;
+  length_weight: number;
+  mean_q_weight: number;
+  window_q_weight: number;
+  window_size: number;
+}
+
+export interface FastpSummary {
+  fastp_version: string;
+  sequencing: string;
+  before_filtering: { total_reads: number; total_bases: number; q20_rate: number; q30_rate: number; gc_content: number };
+  after_filtering: { total_reads: number; total_bases: number; q20_rate: number; q30_rate: number; gc_content: number };
+  filtering_result: Record<string, number>;
+  adapter_trimmed_reads: number | null;
+  adapter_trimmed_bases: number | null;
+  read1_adapter_sequence: string | null;
+  read2_adapter_sequence: string | null;
+  duplication_rate: number | null;
+  insert_size_peak: number | null;
+}
+
+export interface FastqcSummary {
+  fastqc_version: string | null;
+  modules: { status: "PASS" | "WARN" | "FAIL" | string; module: string }[];
+  basic_statistics: Record<string, string>;
+}
+
+export interface CrossCheck {
+  raw_file_id: string;
+  tool: string;
+  tool_version: string | null;
+  arva_job_id: string | null;
+  tool_job_id: string | null;
+  rows: { metric: string; arva: number | null; tool: number | null; tolerance: number; agrees: boolean | null }[];
+  all_agree: boolean | null;
+  note: string;
 }
 
 export interface UploadResult {
@@ -167,6 +256,10 @@ export interface AnalysisJob {
   log_text: string | null;
   error_message: string | null;
   created_at: string;
+  commands: string[][] | null;
+  tool_path: string | null;
+  result_summary: Record<string, unknown> | null;
+  parent_job_id: string | null;
 }
 
 export interface AnalysisJobDetail extends AnalysisJob {

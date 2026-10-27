@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app import __version__
-from app.api.routes import analyses, dashboard, files, projects, reports, samples
+from app.api.routes import analyses, dashboard, files, projects, reports, samples, tools
 from app.core.config import get_settings
 from app.storage.local import StoragePathError
 
@@ -32,7 +32,7 @@ def create_app() -> FastAPI:
     def health():
         return {"status": "ok", "version": __version__}
 
-    for module in (dashboard, projects, samples, files, analyses, reports):
+    for module in (dashboard, projects, samples, files, analyses, tools, reports):
         app.include_router(module.router, prefix=settings.api_v1_prefix)
     return app
 

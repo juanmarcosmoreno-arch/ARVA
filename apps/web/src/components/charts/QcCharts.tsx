@@ -80,7 +80,12 @@ export function LengthHistogramChart({ stats, prefix }: { stats: SequenceStats; 
 
 export function ReadQualityChart({ quality, prefix }: { quality: QualitySection; prefix: string }) {
   const t = useChartTheme();
-  const data = quality.read_quality_histogram;
+  // Dense integer bins so empty quality ranges keep their true width on the axis.
+  const counts = new Map(quality.read_quality_histogram.map((d) => [d.quality, d.reads]));
+  const qs = quality.read_quality_histogram.map((d) => d.quality);
+  const lo = qs.length ? Math.min(...qs) : 0;
+  const hi = qs.length ? Math.max(...qs) : 0;
+  const data = Array.from({ length: hi - lo + 1 }, (_, i) => ({ quality: lo + i, reads: counts.get(lo + i) ?? 0 }));
   const option: EChartsOption = {
     ...baseOption(t),
     tooltip: {
@@ -103,7 +108,7 @@ export function ReadQualityChart({ quality, prefix }: { quality: QualitySection;
       explain="read_quality"
       option={option}
       filePrefix={prefix}
-      table={{ columns: ["Quality bin", "Reads"], rows: data.map((d) => [`Q${d.quality}–${d.quality + 1}`, d.reads]) }}
+      table={{ columns: ["Quality bin", "Reads"], rows: quality.read_quality_histogram.map((d) => [`Q${d.quality}–${d.quality + 1}`, d.reads]) }}
     />
   );
 }
@@ -250,7 +255,8 @@ export function CumulativeYieldChart({ stats, prefix }: { stats: SequenceStats; 
       {
         type: "line",
         data: pts.map((d) => [d.min_length, d.bases]),
-        showSymbol: false,
+        showSymbol: pts.length <= 2,
+        symbolSize: 8,
         step: "start",
         lineStyle: { width: 2, color: t.primary },
         itemStyle: { color: t.primary },

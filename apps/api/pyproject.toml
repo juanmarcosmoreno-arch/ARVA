@@ -1,6 +1,6 @@
 [project]
 name = "arva-api"
-version = "0.1.0"
+version = "0.2.0"
 description = "ARVA — Integrated Genomic Discovery Platform API"
 requires-python = ">=3.11"
 dependencies = [
@@ -15,6 +15,7 @@ dependencies = [
     "redis>=5.0",
     "rq>=2.0",
     "arva-core",
+    "arva-tools",
 ]
 
 [project.optional-dependencies]

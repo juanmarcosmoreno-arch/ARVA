@@ -1,12 +1,16 @@
 import type {
   AnalysisJob,
   AnalysisJobDetail,
+  CrossCheck,
   DashboardSummary,
+  FastpParams,
+  FiltlongParams,
   Project,
   ProjectInput,
   RawFile,
   Sample,
   SampleInput,
+  Tool,
   UploadResult,
 } from "./types";
 
@@ -98,4 +102,15 @@ export const api = {
   reportUrl: (sampleId: string, format: "html" | "json" | "csv") =>
     `${BASE}/samples/${sampleId}/report?format=${format}`,
   fileDownloadUrl: (fileId: string) => `${BASE}/files/${fileId}/download`,
+
+  tools: (refresh = false) => request<Tool[]>(`/tools${refresh ? "?refresh=true" : ""}`),
+  runPerFileTool: (sampleId: string, tool: "seqkit" | "fastqc", fileIds: string[]) =>
+    request<AnalysisJob[]>(`/samples/${sampleId}/analyses/${tool}`, json("POST", { raw_file_ids: fileIds })),
+  runFastp: (sampleId: string, body: { read1_file_id: string; read2_file_id?: string | null; params: FastpParams }) =>
+    request<AnalysisJob>(`/samples/${sampleId}/filtering/fastp`, json("POST", body)),
+  runFiltlong: (sampleId: string, body: { file_id: string; params: FiltlongParams }) =>
+    request<AnalysisJob>(`/samples/${sampleId}/filtering/filtlong`, json("POST", body)),
+  crosscheck: (fileId: string) => request<CrossCheck>(`/files/${fileId}/crosscheck`),
+  jobOutputUrl: (jobId: string, name: string, download = false) =>
+    `${BASE}/jobs/${jobId}/outputs/${encodeURIComponent(name)}${download ? "?download=true" : ""}`,
 };

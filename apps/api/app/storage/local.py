@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import os
 import re
+import shutil
 import stat
 from dataclasses import dataclass
 from pathlib import Path
@@ -88,6 +89,31 @@ class LocalStorage:
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(content, encoding="utf-8")
         return relative_path
+
+    def seal(self, relative_path: str) -> StoredFile:
+        """Checksum a file written by a tool and make it read-only (immutable from now on)."""
+        target = self.resolve(relative_path)
+        digest = hashlib.sha256()
+        size = 0
+        with open(target, "rb") as fh:
+            while chunk := fh.read(CHUNK_SIZE):
+                size += len(chunk)
+                digest.update(chunk)
+        target.chmod(stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH)
+        return StoredFile(relative_path, size, digest.hexdigest())
+
+    def remove_tree(self, relative_path: str) -> None:
+        """Delete partial outputs of a failed job. Original data (raw/) can never be removed."""
+        if not relative_path.startswith(("results/", "processed/")):
+            raise StoragePathError(f"refusing to delete outside results/ or processed/: {relative_path!r}")
+        target = self.resolve(relative_path)
+        if not target.exists():
+            return
+        for dirpath, _dirs, files in os.walk(target):
+            os.chmod(dirpath, stat.S_IRWXU)
+            for f in files:
+                os.chmod(os.path.join(dirpath, f), stat.S_IRUSR | stat.S_IWUSR)
+        shutil.rmtree(target)
 
     def usage_bytes(self) -> int:
         total = 0

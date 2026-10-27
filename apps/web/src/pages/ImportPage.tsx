@@ -14,7 +14,7 @@ import type { UploadResult } from "@/lib/types";
 const FORMATS = [
   { name: "FASTQ / FASTQ.gz", status: "Supported", note: "Illumina, Nanopore, PacBio reads (Phred+33)" },
   { name: "FASTA / FASTA.gz", status: "Supported", note: "Nucleotide sequences (e.g. assemblies, references)" },
-  { name: "POD5", status: "Phase 2+", note: "Requires basecalling with Dorado before analysis" },
+  { name: "POD5", status: "Planned", note: "Requires basecalling with Dorado before analysis" },
   { name: "BAM / CRAM / SAM", status: "Planned", note: "Alignments; needs samtools-based import" },
   { name: "GFF3 / GTF / GenBank / EMBL", status: "Planned", note: "Annotations (Phase 4)" },
   { name: "VCF / BED / Newick", status: "Planned", note: "Variants, intervals and trees (Phases 7–8)" },

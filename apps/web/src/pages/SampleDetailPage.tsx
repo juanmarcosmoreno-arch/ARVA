@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, ChevronDown, Copy, Download, FileText, Loader2, Play } from "lucide-react";
-import { useMemo, useState } from "react";
+import { AlertTriangle, ChevronDown, Copy, CornerDownRight, Download, ExternalLink, FileText, Filter, Loader2, Play } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import {
   CumulativeYieldChart,
@@ -12,6 +12,10 @@ import {
 } from "@/components/charts/QcCharts";
 import { AnalysisTimeline, JobStatusBadge, MetricTile, type Stage } from "@/components/domain/bits";
 import { FileDropzone } from "@/components/domain/FileDropzone";
+import { BeforeAfter } from "@/components/filtering/BeforeAfter";
+import { FilterDialog } from "@/components/filtering/FilterDialog";
+import { CrossCheckCard, FastqcCard } from "@/components/qc/ToolCards";
+import { useTools } from "@/components/tools/useTools";
 import { SampleMetadataEditor } from "@/components/domain/SampleForm";
 import { Explain } from "@/components/guide/Explain";
 import { Badge } from "@/components/ui/badge";
@@ -22,10 +26,12 @@ import { EmptyState, ErrorNote, PageHeader, Skeleton, Tabs } from "@/components/
 import { useT } from "@/i18n";
 import { api } from "@/lib/api";
 import { fmtBases, fmtBytes, fmtDate, fmtDuration, fmtInt, fmtNum, formatLabel, technologyLabel } from "@/lib/format";
-import type { AnalysisJobDetail, QCResult, RawFile } from "@/lib/types";
+import { lineageOrder } from "@/lib/filters";
+import { FILTER_JOBS, JOB_LABEL, basename, latestResults } from "@/lib/results";
+import type { AnalysisJobDetail, RawFile, SequencingTechnology } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-type Tab = "files" | "qc" | "history" | "metadata";
+type Tab = "files" | "qc" | "filtering" | "history" | "metadata";
 
 export function SampleDetailPage() {
   const { sampleId = "" } = useParams();
@@ -42,9 +48,20 @@ export function SampleDetailPage() {
     refetchInterval: (q) => (q.state.data?.some((j) => j.status === "pending" || j.status === "running") ? 1500 : false),
   });
 
-  const active = jobs.data?.filter((j) => j.status === "pending" || j.status === "running") ?? [];
-  const completed = jobs.data?.filter((j) => j.status === "completed") ?? [];
-  const latestFailed = jobs.data?.[0]?.status === "failed";
+  const isActive = (j: AnalysisJobDetail) => j.status === "pending" || j.status === "running";
+  const allJobs = jobs.data ?? [];
+  const qcJobs = allJobs.filter((j) => !FILTER_JOBS.has(j.job_type));
+  const filterJobs = allJobs.filter((j) => FILTER_JOBS.has(j.job_type));
+  const completed = qcJobs.filter((j) => j.status === "completed");
+  const latestFailed = qcJobs[0]?.status === "failed";
+  const [filterOpen, setFilterOpen] = useState(false);
+  const queryClient = useQueryClient();
+  const finishedCount = allJobs.filter((j) => j.status === "completed" || j.status === "failed").length;
+  useEffect(() => {
+    // Jobs can create derived files and cross-check data; refresh them whenever a job finishes.
+    queryClient.invalidateQueries({ queryKey: ["files", sampleId] });
+    queryClient.invalidateQueries({ queryKey: ["crosscheck"] });
+  }, [finishedCount, sampleId, queryClient]);
 
   const stages: Stage[] = [
     {
@@ -56,10 +73,15 @@ export function SampleDetailPage() {
     {
       key: "qc",
       label: "Read QC",
-      state: active.length ? "running" : latestFailed ? "failed" : completed.length ? "done" : "ready",
-      detail: active.length ? "Computing…" : completed.length ? `${completed.length} run(s)` : "Not run",
+      state: qcJobs.some(isActive) ? "running" : latestFailed ? "failed" : completed.length ? "done" : "ready",
+      detail: qcJobs.some(isActive) ? "Computing…" : completed.length ? `${completed.length} run(s)` : "Not run",
     },
-    { key: "filtering", label: "Filtering", state: "planned", phase: 2 },
+    {
+      key: "filtering",
+      label: "Filtering",
+      state: filterJobs.some(isActive) ? "running" : filterJobs[0]?.status === "failed" ? "failed" : filterJobs.some((j) => j.status === "completed") ? "done" : "ready",
+      detail: filterJobs.some(isActive) ? "Running…" : filterJobs.length ? `${filterJobs.filter((j) => j.status === "completed").length} run(s)` : "Optional",
+    },
     { key: "assembly", label: "Assembly", state: "planned", phase: 3 },
     { key: "polishing", label: "Polishing", state: "planned", phase: 3 },
     { key: "annotation", label: "Annotation", state: "planned", phase: 4 },
@@ -92,7 +114,11 @@ export function SampleDetailPage() {
       />
 
       <Card className="px-4 pb-2 pt-5">
-        <AnalysisTimeline stages={stages} selected={tab === "files" ? "raw" : tab === "qc" ? "qc" : undefined} onSelect={(k) => setTab(k === "raw" ? "files" : "qc")} />
+        <AnalysisTimeline
+          stages={stages}
+          selected={tab === "files" ? "raw" : tab === "qc" ? "qc" : tab === "filtering" ? "filtering" : undefined}
+          onSelect={(k) => setTab(k === "raw" ? "files" : k === "filtering" ? "filtering" : "qc")}
+        />
       </Card>
 
       <Tabs<Tab>
@@ -101,13 +127,34 @@ export function SampleDetailPage() {
         items={[
           { value: "files", label: t("sample.files") },
           { value: "qc", label: t("sample.qc") },
+          { value: "filtering", label: `${t("sample.filtering")}${filterJobs.length ? ` (${filterJobs.length})` : ""}` },
           { value: "history", label: `${t("sample.history")}${jobs.data?.length ? ` (${jobs.data.length})` : ""}` },
           { value: "metadata", label: t("sample.metadata") },
         ]}
       />
 
-      {tab === "files" && <FilesTab sampleId={s.id} files={files.data ?? []} loading={files.isLoading} onStarted={() => setTab("qc")} />}
-      {tab === "qc" && <QcTab jobs={jobs.data ?? []} files={files.data ?? []} sampleCode={s.sample_code} onGoFiles={() => setTab("files")} activeCount={active.length} />}
+      {tab === "files" && (
+        <FilesTab
+          sampleId={s.id}
+          files={files.data ?? []}
+          loading={files.isLoading}
+          onStarted={() => setTab("qc")}
+          onFilter={() => setFilterOpen(true)}
+        />
+      )}
+      {tab === "qc" && (
+        <QcTab
+          sampleId={s.id}
+          jobs={allJobs}
+          files={files.data ?? []}
+          sampleCode={s.sample_code}
+          onGoFiles={() => setTab("files")}
+          activeCount={qcJobs.filter(isActive).length}
+        />
+      )}
+      {tab === "filtering" && (
+        <FilteringTab jobs={allJobs} files={files.data ?? []} onNew={() => setFilterOpen(true)} technology={s.sequencing_technology} />
+      )}
       {tab === "history" && <HistoryTab jobs={jobs.data ?? []} files={files.data ?? []} openJob={params.get("job")} />}
       {tab === "metadata" && (
         <Card>
@@ -116,6 +163,14 @@ export function SampleDetailPage() {
           </CardBody>
         </Card>
       )}
+      <FilterDialog
+        open={filterOpen}
+        onOpenChange={setFilterOpen}
+        sampleId={s.id}
+        files={files.data ?? []}
+        technology={s.sequencing_technology}
+        onStarted={() => setTab("filtering")}
+      />
     </div>
   );
 }
@@ -150,11 +205,38 @@ function ReportMenu({ sampleId, disabled }: { sampleId: string; disabled: boolea
 
 // --- Raw data ---------------------------------------------------------------
 
-function FilesTab({ sampleId, files, loading, onStarted }: { sampleId: string; files: RawFile[]; loading: boolean; onStarted: () => void }) {
+function FilesTab({
+  sampleId,
+  files,
+  loading,
+  onStarted,
+  onFilter,
+}: {
+  sampleId: string;
+  files: RawFile[];
+  loading: boolean;
+  onStarted: () => void;
+  onFilter: () => void;
+}) {
   const qc = useQueryClient();
   const analysable = files.filter((f) => f.file_format !== "unknown");
   const [selected, setSelected] = useState<Set<string> | null>(null);
-  const chosen = selected ?? new Set(analysable.map((f) => f.id));
+  const chosen = selected ?? new Set(analysable.filter((f) => f.origin === "imported").map((f) => f.id));
+  const tools = useTools();
+  const toolStatus = (id: string) => tools.data?.find((t) => t.id === id);
+  const runTool = useMutation({
+    mutationFn: (tool: "seqkit" | "fastqc") =>
+      api.runPerFileTool(
+        sampleId,
+        tool,
+        [...chosen].filter((id) => tool === "seqkit" || files.find((f) => f.id === id)?.file_format.startsWith("fastq")),
+      ),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["jobs", sampleId] });
+      onStarted();
+    },
+  });
+  const hasFastq = files.some((f) => f.file_format.startsWith("fastq") && f.is_valid);
   const [genomeMbp, setGenomeMbp] = useState("");
   const [bins, setBins] = useState("50");
 
@@ -199,8 +281,9 @@ function FilesTab({ sampleId, files, loading, onStarted }: { sampleId: string; f
               <p className="text-sm text-muted-foreground">No files yet.</p>
             ) : (
               <ul className="divide-y">
-                {files.map((f) => (
-                  <li key={f.id} className="flex items-start gap-3 py-3">
+                {lineageOrder(files).map(({ file: f, depth }) => (
+                  <li key={f.id} className="flex items-start gap-3 py-3" style={{ paddingLeft: depth * 24 }}>
+                    {depth > 0 && <CornerDownRight className="mt-1 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />}
                     <input
                       type="checkbox"
                       className="mt-1 h-4 w-4 accent-[#00B4A6]"
@@ -214,6 +297,7 @@ function FilesTab({ sampleId, files, loading, onStarted }: { sampleId: string; f
                         <span className="truncate text-sm font-medium">{f.original_filename}</span>
                         <Badge tone={f.file_format === "unknown" ? "danger" : "teal"}>{formatLabel[f.file_format]}</Badge>
                         {f.read_mate && <Badge tone="blue">{f.read_mate}</Badge>}
+                        {f.origin === "derived" && <Badge tone="neutral">Derived</Badge>}
                         {!f.is_valid && f.file_format !== "unknown" && (
                           <Badge tone="warning">
                             <AlertTriangle className="h-3 w-3" /> Invalid
@@ -223,6 +307,7 @@ function FilesTab({ sampleId, files, loading, onStarted }: { sampleId: string; f
                       <div className="mt-0.5 text-xs text-muted-foreground">
                         {fmtBytes(f.size_bytes)} · {fmtDate(f.uploaded_at)} · SHA-256 <Checksum value={f.checksum_sha256} />
                       </div>
+                      {f.description && <div className="mt-0.5 text-xs text-foreground/80">{f.description}</div>}
                       <div className={cn("mt-0.5 text-xs", f.is_valid ? "text-muted-foreground" : "text-amber-700 dark:text-warning")}>{f.validation_message}</div>
                     </div>
                     <a href={api.fileDownloadUrl(f.id)} className="rounded-md p-1.5 text-muted-foreground hover:bg-muted" aria-label={`Download ${f.original_filename}`}>
@@ -259,6 +344,43 @@ function FilesTab({ sampleId, files, loading, onStarted }: { sampleId: string; f
           </Button>
         </CardBody>
       </Card>
+
+      <Card className="h-fit xl:col-start-3">
+        <CardHeader title="Quality control tools" description="External tools run on the selected files. Their versions and exact commands are recorded." />
+        <CardBody className="space-y-3">
+          {(
+            [
+              { id: "seqkit", label: "Independent check (SeqKit)", explain: "crosscheck" },
+              { id: "fastqc", label: "FastQC report", explain: "fastqc_flags" },
+            ] as const
+          ).map((t) => {
+            const info = toolStatus(t.id);
+            const ok = info?.status === "available";
+            return (
+              <div key={t.id} className="flex items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-1.5 text-sm">
+                    {t.label} <Explain id={t.explain} compact />
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    {info ? (ok ? `${info.name} ${info.version}` : `${info.name}: not installed`) : "Checking…"}
+                  </div>
+                </div>
+                <Button size="sm" variant="outline" disabled={!ok || !chosen.size || runTool.isPending} onClick={() => runTool.mutate(t.id)}>
+                  <Play className="h-3.5 w-3.5" /> Run
+                </Button>
+              </div>
+            );
+          })}
+          <ErrorNote error={runTool.error} />
+          <div className="border-t pt-3">
+            <Button variant="outline" className="w-full" disabled={!hasFastq} onClick={onFilter}>
+              <Filter className="h-4 w-4" /> Filter reads…
+            </Button>
+            <p className="mt-1.5 text-xs text-muted-foreground">fastp (short reads) or Filtlong (long reads). Creates a new derived file; originals are kept.</p>
+          </div>
+        </CardBody>
+      </Card>
     </div>
   );
 }
@@ -284,22 +406,15 @@ function Checksum({ value }: { value: string | null }) {
 
 // --- Read statistics --------------------------------------------------------
 
-function latestResults(jobs: AnalysisJobDetail[]) {
-  const map = new Map<string, { job: AnalysisJobDetail; qc: QCResult }>();
-  for (const job of jobs) {
-    if (job.status !== "completed") continue;
-    for (const qc of job.qc_results) if (!map.has(qc.raw_file_id)) map.set(qc.raw_file_id, { job, qc });
-  }
-  return map;
-}
-
 function QcTab({
+  sampleId,
   jobs,
   files,
   sampleCode,
   onGoFiles,
   activeCount,
 }: {
+  sampleId: string;
   jobs: AnalysisJobDetail[];
   files: RawFile[];
   sampleCode: string;
@@ -345,6 +460,7 @@ function QcTab({
                 <option key={f.id} value={f.id}>
                   {f.original_filename}
                   {f.read_mate ? ` (${f.read_mate})` : ""}
+                  {f.origin === "derived" ? " · derived" : ""}
                 </option>
               ))}
             </Select>
@@ -416,6 +532,11 @@ function QcTab({
       )}
 
       <div className="grid gap-6 lg:grid-cols-2">
+        <CrossCheckCard sampleId={sampleId} file={file} jobs={jobs} />
+        {m.file.format === "fastq" ? <FastqcCard sampleId={sampleId} file={file} jobs={jobs} /> : <div />}
+      </div>
+
+      <div className="grid gap-6 lg:grid-cols-2">
         <LengthHistogramChart stats={m} prefix={prefix} />
         {q ? <ReadQualityChart quality={q} prefix={prefix} /> : <GcChart stats={m} prefix={prefix} />}
         {q && <QualityVsLengthChart stats={m} prefix={prefix} />}
@@ -426,7 +547,7 @@ function QcTab({
 
       <p className="text-xs text-muted-foreground">
         All values are computed from every record in the file. ARVA does not apply pass/fail thresholds: suitable values depend on the
-        technology, chemistry and intended analysis. Before/after filtering comparison arrives with read filtering in Phase 2.
+        technology, chemistry and intended analysis. Compare original and filtered reads in the Filtering tab.
       </p>
       <FailedJobs jobs={failed} />
     </div>
@@ -468,7 +589,8 @@ function HistoryTab({ jobs, files, openJob }: { jobs: AnalysisJobDetail[]; files
                 <ChevronDown className={cn("h-4 w-4 shrink-0 text-muted-foreground transition", expanded && "rotate-180")} />
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-sm font-medium">
-                    Read statistics · {inputs.map((f) => f?.original_filename ?? "deleted file").join(", ")}
+                    {JOB_LABEL[j.job_type] ?? j.job_type} · {inputs.map((f) => f?.original_filename ?? "deleted file").join(", ")}
+                    {j.parent_job_id && <span className="ml-2 text-xs font-normal text-muted-foreground">(started automatically)</span>}
                   </div>
                   <div className="text-xs text-muted-foreground">
                     {fmtDate(j.created_at)} · {j.tool_name} {j.tool_version} · {fmtDuration(j.duration_seconds)}
@@ -482,6 +604,7 @@ function HistoryTab({ jobs, files, openJob }: { jobs: AnalysisJobDetail[]; files
                     {[
                       ["Analysis job ID", <code className="text-xs">{j.id}</code>],
                       ["Tool", `${j.tool_name} ${j.tool_version}`],
+                      ["Executable", j.tool_path ? <code className="text-xs">{j.tool_path}</code> : "built into ARVA"],
                       ["Database", j.database_name ? `${j.database_name} ${j.database_version ?? ""}` : "None (no reference database used)"],
                       ["Queued", fmtDate(j.created_at)],
                       ["Started / finished", `${fmtDate(j.started_at)} → ${fmtDate(j.finished_at)}`],
@@ -513,18 +636,40 @@ function HistoryTab({ jobs, files, openJob }: { jobs: AnalysisJobDetail[]; files
                     <div className="mb-1 text-xs text-muted-foreground">Parameters</div>
                     <pre className="overflow-x-auto rounded-lg bg-muted p-3 text-xs">{JSON.stringify(j.parameters, null, 2)}</pre>
                   </div>
+                  {j.commands?.length ? (
+                    <div>
+                      <div className="mb-1 text-xs text-muted-foreground">Exact command{j.commands.length > 1 ? "s" : ""} executed</div>
+                      {j.commands.map((c, i) => (
+                        <pre key={i} className="overflow-x-auto whitespace-pre-wrap break-all rounded-lg bg-muted p-3 text-[11px]">
+                          {c.map((a) => (/^[\w@%+=:,./-]+$/.test(a) ? a : `'${a.replace(/'/g, `'"'"'`)}'`)).join(" ")}
+                        </pre>
+                      ))}
+                    </div>
+                  ) : null}
                   {j.output_paths?.length ? (
                     <div>
                       <div className="mb-1 text-xs text-muted-foreground">Outputs (relative to the ARVA data directory)</div>
-                      <ul className="text-xs">
+                      <ul className="space-y-0.5 text-xs">
                         {j.output_paths.map((p) => (
-                          <li key={p}>
+                          <li key={p} className="flex flex-wrap items-center gap-2">
                             <code>{p}</code>
+                            {!p.startsWith("processed/") && (
+                              <a className="inline-flex items-center gap-1 text-arva-royal hover:underline dark:text-arva-cyan" href={api.jobOutputUrl(j.id, basename(p), !p.endsWith(".html"))} target={p.endsWith(".html") ? "_blank" : undefined} rel="noreferrer">
+                                {p.endsWith(".html") ? <ExternalLink className="h-3 w-3" /> : <Download className="h-3 w-3" />}
+                                {p.endsWith(".html") ? "open" : "download"}
+                              </a>
+                            )}
                           </li>
                         ))}
                       </ul>
                     </div>
                   ) : null}
+                  {j.result_summary && j.job_type !== "sequence_stats" && (
+                    <details>
+                      <summary className="cursor-pointer text-xs text-muted-foreground">Structured result summary</summary>
+                      <pre className="mt-1 max-h-72 overflow-auto rounded-lg bg-muted p-3 text-[11px]">{JSON.stringify(j.result_summary, null, 2)}</pre>
+                    </details>
+                  )}
                   {j.error_message && <ErrorNote error={j.error_message} />}
                   <div>
                     <div className="mb-1 text-xs text-muted-foreground">Log</div>
@@ -537,5 +682,99 @@ function HistoryTab({ jobs, files, openJob }: { jobs: AnalysisJobDetail[]; files
         })}
       </ul>
     </Card>
+  );
+}
+
+// --- Filtering --------------------------------------------------------------
+
+function FilteringTab({
+  jobs,
+  files,
+  onNew,
+  technology,
+}: {
+  jobs: AnalysisJobDetail[];
+  files: RawFile[];
+  onNew: () => void;
+  technology: SequencingTechnology;
+}) {
+  const filterJobs = jobs.filter((j) => FILTER_JOBS.has(j.job_type));
+  const derived = files.filter((f) => f.origin === "derived" && f.parent_file_id);
+  const [selected, setSelected] = useState<string | null>(null);
+  const current = derived.find((f) => f.id === selected) ?? derived[0];
+  const results = useMemo(() => latestResults(jobs), [jobs]);
+  const byId = new Map(files.map((f) => [f.id, f]));
+  const pending = jobs.some((j) => j.job_type === "sequence_stats" && (j.status === "pending" || j.status === "running"));
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="max-w-2xl text-sm text-muted-foreground">
+          Filtering creates new derived files and never changes the originals. Each run below lists the tool, version and exact settings;
+          ARVA statistics are computed automatically for every output so you can compare before and after.
+          {technology === "unknown" && " Set the sequencing technology in Metadata to get the right tool suggested."}
+        </p>
+        <Button onClick={onNew}>
+          <Filter className="h-4 w-4" /> New filtering run
+        </Button>
+      </div>
+
+      {filterJobs.length === 0 ? (
+        <EmptyState icon={<Filter className="h-7 w-7" />} title="No filtering runs yet">
+          Filtering is optional. Review the read statistics first, then decide whether it is needed. <Explain id="filtering" />
+        </EmptyState>
+      ) : (
+        <Card>
+          <CardHeader title="Filtering runs" action={<Explain id="filtering" />} />
+          <CardBody className="pt-3">
+            <ul className="divide-y">
+              {filterJobs.map((j) => {
+                const outs = files.filter((f) => f.produced_by_job_id === j.id);
+                return (
+                  <li key={j.id} className="flex flex-wrap items-start justify-between gap-3 py-3">
+                    <div className="min-w-0 text-sm">
+                      <div className="font-medium">
+                        {j.tool_name} {j.tool_version}
+                        <span className="ml-2 text-xs font-normal text-muted-foreground">{fmtDate(j.created_at)}</span>
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        {(j.input_raw_file_ids ?? []).map((id) => byId.get(id)?.original_filename ?? "deleted file").join(" + ")}
+                        {outs.length > 0 && <> → {outs.map((o) => o.original_filename).join(" + ")}</>}
+                      </div>
+                      {j.error_message && <div className="text-xs text-danger">{j.error_message}</div>}
+                    </div>
+                    <JobStatusBadge status={j.status} />
+                  </li>
+                );
+              })}
+            </ul>
+          </CardBody>
+        </Card>
+      )}
+
+      {current && (
+        <>
+          {derived.length > 1 && (
+            <Field label="Compare filtered file with its original" className="max-w-xl">
+              <Select value={current.id} onChange={(e) => setSelected(e.target.value)}>
+                {derived.map((f) => (
+                  <option key={f.id} value={f.id}>
+                    {f.original_filename}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+          )}
+          <BeforeAfter
+            parent={byId.get(current.parent_file_id!)!}
+            derived={current}
+            parentStats={results.get(current.parent_file_id!)?.qc.metrics}
+            derivedStats={results.get(current.id)?.qc.metrics}
+            filterJob={jobs.find((j) => j.id === current.produced_by_job_id)}
+            pending={pending}
+          />
+        </>
+      )}
+    </div>
   );
 }

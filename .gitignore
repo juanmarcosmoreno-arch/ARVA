@@ -30,3 +30,6 @@ playwright-report/
 
 # Local Redis snapshots
 dump.rdb
+
+# Vite caches
+.vite/

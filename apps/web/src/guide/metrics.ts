@@ -45,7 +45,13 @@ export type GuideId =
   | "gc_content"
   | "cumulative_yield"
   | "coverage"
-  | "ambiguous";
+  | "ambiguous"
+  | "filtering"
+  | "fastp"
+  | "filtlong"
+  | "crosscheck"
+  | "fastqc_flags"
+  | "before_after";
 
 const REF = {
   phred: { label: "Ewing & Green (1998) Genome Research 8:186–194 — Phred error probabilities", url: "https://doi.org/10.1101/gr.8.3.186" },
@@ -58,6 +64,10 @@ const REF = {
   iupac: { label: "Cornish-Bowden (1985) Nucleic Acids Research 13:3021–3030 — IUPAC nucleotide codes", url: "https://doi.org/10.1093/nar/13.9.3021" },
   sha: { label: "NIST FIPS 180-4 — Secure Hash Standard (SHA-256)", url: "https://doi.org/10.6028/NIST.FIPS.180-4" },
   wick: { label: "Wick, Judd & Holt (2019) Genome Biology 20:129 — Nanopore basecaller accuracy", url: "https://doi.org/10.1186/s13059-019-1727-y" },
+  fastp: { label: "Chen et al. (2018) Bioinformatics 34:i884–i890 — fastp", url: "https://doi.org/10.1093/bioinformatics/bty560" },
+  filtlong: { label: "Filtlong documentation (R. Wick) — method and read scoring", url: "https://github.com/rrwick/Filtlong" },
+  seqkit: { label: "Shen et al. (2016) PLoS ONE 11:e0163962 — SeqKit", url: "https://doi.org/10.1371/journal.pone.0163962" },
+  fastqcHome: { label: "FastQC project page and documentation (Babraham Bioinformatics)", url: "https://www.bioinformatics.babraham.ac.uk/projects/fastqc/" },
 } satisfies Record<string, Reference>;
 
 export const GUIDE: GuideEntry[] = [
@@ -399,6 +409,156 @@ export const GUIDE: GuideEntry[] = [
       next: "Si es inesperado, revisa el basecalling o el ensamblaje que generó el archivo.",
       mistakes: ["Incluir las N en el denominador del GC: ARVA las excluye."],
       limitations: "En esta versión no se reporta la posición de las bases ambiguas.",
+    },
+  },
+  {
+    id: "filtering",
+    references: [REF.fastp, REF.filtlong],
+    en: {
+      title: "Read filtering and trimming",
+      what: "Removing reads (filtering) or parts of reads (trimming) that are unlikely to be useful: very short reads, low-quality reads, adapter sequence left over from library preparation.",
+      why: "Poor reads and adapters can fragment assemblies and create false variants. But every removed read is information lost, so filtering is a trade-off, not a default.",
+      how: "ARVA runs established tools (fastp for short reads, Filtlong for long reads). Every threshold is shown before running and recorded in the exact command line. Original files are never changed: the kept reads are saved as a new derived file linked to its parent.",
+      interpret: "Compare before and after: how many reads and bases were kept, and how the length and quality distributions changed. Large losses deserve a reason.",
+      next: "Use the filtered file for downstream analyses only if the comparison shows the trade-off is acceptable for your goal; the original stays available.",
+      mistakes: ["Filtering aggressively 'just in case' and losing coverage of difficult regions.", "Forgetting which file (original or filtered) was used later — check the lineage shown for each file."],
+      limitations: "Filtering decisions depend on technology, chemistry, genome and purpose; ARVA does not choose thresholds for you.",
+      advanced: "fastp short-read filters apply per read/pair; Filtlong ranks whole reads by a combined length/quality score and keeps the best subset.",
+    },
+    es: {
+      title: "Filtrado y recorte de lecturas",
+      what: "Eliminar lecturas (filtrado) o partes de lecturas (recorte) que probablemente no sean útiles: lecturas muy cortas, de baja calidad o con restos de adaptadores de la librería.",
+      why: "Las lecturas malas y los adaptadores pueden fragmentar ensamblajes y crear variantes falsas. Pero cada lectura eliminada es información perdida: filtrar es un compromiso, no un paso automático.",
+      how: "ARVA ejecuta herramientas establecidas (fastp para lecturas cortas, Filtlong para largas). Todos los umbrales se muestran antes de ejecutar y quedan registrados en la línea de comando exacta. Los archivos originales nunca se modifican: las lecturas conservadas se guardan como un archivo derivado nuevo, vinculado a su origen.",
+      interpret: "Compara antes y después: cuántas lecturas y bases se conservaron y cómo cambiaron las distribuciones de longitud y calidad. Las pérdidas grandes necesitan una justificación.",
+      next: "Usa el archivo filtrado solo si la comparación muestra que el compromiso es aceptable para tu objetivo; el original sigue disponible.",
+      mistakes: ["Filtrar agresivamente «por si acaso» y perder cobertura de regiones difíciles.", "Olvidar qué archivo (original o filtrado) se usó después: revisa el linaje de cada archivo."],
+      limitations: "Las decisiones de filtrado dependen de la tecnología, la química, el genoma y el objetivo; ARVA no elige los umbrales por ti.",
+      advanced: "Los filtros de fastp actúan por lectura/par; Filtlong ordena lecturas completas por una puntuación combinada de longitud y calidad y conserva el mejor subconjunto.",
+    },
+  },
+  {
+    id: "fastp",
+    references: [REF.fastp],
+    en: {
+      title: "fastp (short reads)",
+      what: "A fast preprocessor for Illumina-type reads that trims adapters, filters reads by quality, N content and length, and writes an HTML/JSON report.",
+      why: "Adapter read-through and low-quality reads are common in short-read libraries; fastp handles both in one pass, for single-end or paired-end data.",
+      how: "Adapters are detected automatically (for paired-end data by overlapping the two mates). A read is removed when more than the allowed percentage of its bases are below the 'qualified' quality, when it has too many N, or when it ends up shorter than the minimum length. For pairs, both mates are removed together.",
+      interpret: "The 'removed because' counts show which filter acted. Adapter-trimmed reads are kept (shorter), not removed.",
+      next: "If many reads are lost to one filter, review that threshold rather than the others.",
+      mistakes: ["Running fastp on Nanopore/PacBio reads — it is designed for short reads.", "Assuming fastp does nothing by default: without options it already filters (Q15, 40 % unqualified, 5 N, 15 bp) — ARVA always passes these values explicitly."],
+      limitations: "Automatic adapter detection can miss rare or custom adapters; poly-G trimming is applied automatically only for two-colour instruments (NextSeq/NovaSeq) unless forced or disabled.",
+      advanced: "Defaults verified from `fastp --help` (0.23.4): --qualified_quality_phred 15, --unqualified_percent_limit 40, --n_base_limit 5, --length_required 15, --average_qual 0 (off).",
+    },
+    es: {
+      title: "fastp (lecturas cortas)",
+      what: "Un preprocesador rápido para lecturas tipo Illumina que recorta adaptadores, filtra lecturas por calidad, contenido de N y longitud, y genera un informe HTML/JSON.",
+      why: "Los restos de adaptador y las lecturas de baja calidad son frecuentes en librerías de lecturas cortas; fastp trata ambos en una pasada, para datos single-end o paired-end.",
+      how: "Los adaptadores se detectan automáticamente (en paired-end, solapando los dos mates). Una lectura se elimina si supera el porcentaje permitido de bases por debajo de la calidad «aceptable», si tiene demasiadas N o si queda más corta que la longitud mínima. En pares, ambos mates se eliminan juntos.",
+      interpret: "Los recuentos «eliminadas por» muestran qué filtro actuó. Las lecturas con adaptador recortado se conservan (más cortas), no se eliminan.",
+      next: "Si se pierden muchas lecturas por un filtro, revisa ese umbral antes que los demás.",
+      mistakes: ["Usar fastp con lecturas Nanopore/PacBio: está diseñado para lecturas cortas.", "Suponer que fastp no hace nada por defecto: sin opciones ya filtra (Q15, 40 % no aceptables, 5 N, 15 pb). ARVA siempre pasa estos valores explícitamente."],
+      limitations: "La detección automática puede no encontrar adaptadores raros o personalizados; el recorte poli-G solo se aplica automáticamente en equipos de dos colores (NextSeq/NovaSeq) salvo que se fuerce o desactive.",
+      advanced: "Valores por defecto verificados en `fastp --help` (0.23.4): --qualified_quality_phred 15, --unqualified_percent_limit 40, --n_base_limit 5, --length_required 15, --average_qual 0 (desactivado).",
+    },
+  },
+  {
+    id: "filtlong",
+    references: [REF.filtlong],
+    en: {
+      title: "Filtlong (long reads)",
+      what: "A filter for Nanopore and PacBio reads that removes reads failing hard thresholds and can keep only the best part of the data.",
+      why: "Long-read sets often contain many short or low-accuracy reads that add little to an assembly.",
+      how: "Hard thresholds (minimum/maximum length, minimum mean or window quality) remove reads outright. 'Keep percent' and 'target bases' then keep the best-scoring reads, measured in bases, using a score that combines length and quality. Reads are kept or dropped whole.",
+      interpret: "Filtlong quality thresholds are percent identities, not Phred: 90 means 90 % expected accuracy ≈ Q10, 95 ≈ Q13, 99 ≈ Q20. ARVA shows the Phred equivalent next to the value.",
+      next: "Check the yield curve before and after: target bases is ideal to cap very large datasets while keeping the longest, most accurate reads.",
+      mistakes: ["Typing a Phred value (e.g. 10) as --min_mean_q — that would mean 10 % identity and remove almost nothing.", "Using 'keep percent' as a read-count fraction — it is measured in bases."],
+      limitations: "Without an external reference, quality comes from the basecaller's Phred scores, whose calibration varies.",
+      advanced: "Mean identity = 100 × (1 − mean per-base error probability), so identity X ⇔ Q = −10·log10(1 − X/100) — the same error-averaged quality ARVA reports per read.",
+    },
+    es: {
+      title: "Filtlong (lecturas largas)",
+      what: "Un filtro para lecturas Nanopore y PacBio que elimina lecturas que no superan umbrales y puede conservar solo la mejor parte de los datos.",
+      why: "Los conjuntos de lecturas largas suelen contener muchas lecturas cortas o poco exactas que aportan poco al ensamblaje.",
+      how: "Los umbrales duros (longitud mínima/máxima, calidad media o de ventana mínima) eliminan lecturas directamente. Después, «porcentaje a conservar» y «bases objetivo» conservan las lecturas con mejor puntuación, medidas en bases, usando una puntuación que combina longitud y calidad. Las lecturas se conservan o eliminan completas.",
+      interpret: "Los umbrales de calidad de Filtlong son identidades porcentuales, no Phred: 90 significa 90 % de exactitud esperada ≈ Q10, 95 ≈ Q13, 99 ≈ Q20. ARVA muestra el equivalente Phred junto al valor.",
+      next: "Revisa la curva de rendimiento antes y después: «bases objetivo» es ideal para limitar conjuntos muy grandes conservando las lecturas más largas y exactas.",
+      mistakes: ["Escribir un valor Phred (p. ej., 10) como --min_mean_q: significaría 10 % de identidad y casi no eliminaría nada.", "Interpretar «porcentaje a conservar» como fracción de lecturas: se mide en bases."],
+      limitations: "Sin referencia externa, la calidad proviene de las puntuaciones Phred del basecaller, cuya calibración varía.",
+      advanced: "Identidad media = 100 × (1 − probabilidad media de error por base), así que identidad X ⇔ Q = −10·log10(1 − X/100), la misma calidad promediada por error que ARVA reporta por lectura.",
+    },
+  },
+  {
+    id: "crosscheck",
+    references: [REF.seqkit],
+    en: {
+      title: "Independent cross-check (SeqKit)",
+      what: "The same file is summarised by a second, independent program (SeqKit) and the results are compared metric by metric with ARVA's own statistics.",
+      why: "Agreement between two independent implementations is strong evidence that the numbers are correct; a disagreement points to a bug or an edge case worth investigating.",
+      how: "Counts and lengths must match exactly. Mean length and percentages are allowed only the difference caused by SeqKit's rounding. Quartiles are not compared because some SeqKit versions report them incorrectly; GC is compared only when the file has no ambiguous bases.",
+      interpret: "All metrics agreeing means ARVA's statistics were reproduced independently. Any 'differs' row is reported, never hidden.",
+      next: "If a metric differs, note both tool versions and report it; do not rely on that metric until resolved.",
+      mistakes: ["Expecting identical decimals from tools that round differently."],
+      limitations: "Two tools can share the same misunderstanding of a malformed file; ARVA's validation step guards against that separately.",
+    },
+    es: {
+      title: "Verificación independiente (SeqKit)",
+      what: "Un segundo programa independiente (SeqKit) resume el mismo archivo y sus resultados se comparan métrica por métrica con las estadísticas de ARVA.",
+      why: "La coincidencia entre dos implementaciones independientes es una prueba sólida de que los números son correctos; una discrepancia señala un error o un caso límite que conviene investigar.",
+      how: "Los recuentos y longitudes deben coincidir exactamente. La longitud media y los porcentajes solo admiten la diferencia causada por el redondeo de SeqKit. Los cuartiles no se comparan porque algunas versiones de SeqKit los calculan mal; el GC solo se compara si el archivo no tiene bases ambiguas.",
+      interpret: "Si todas las métricas coinciden, las estadísticas de ARVA se reprodujeron de forma independiente. Cualquier fila «difiere» se muestra, nunca se oculta.",
+      next: "Si una métrica difiere, anota ambas versiones y repórtalo; no te bases en esa métrica hasta resolverlo.",
+      mistakes: ["Esperar decimales idénticos de herramientas que redondean distinto."],
+      limitations: "Dos herramientas pueden compartir la misma interpretación errónea de un archivo mal formado; la validación de ARVA protege contra eso por separado.",
+    },
+  },
+  {
+    id: "fastqc_flags",
+    references: [REF.fastqcHome, REF.fastqc],
+    en: {
+      title: "FastQC report and its PASS/WARN/FAIL flags",
+      what: "FastQC runs a set of modules (per-base quality, sequence content, duplication, adapter content…) and marks each PASS, WARN or FAIL.",
+      why: "It is the most widely used QC report and a common reference point between labs and in publications.",
+      how: "ARVA runs FastQC unchanged, stores its HTML and ZIP outputs and shows the module flags. The original report can be opened inside ARVA (with network access blocked) or downloaded.",
+      interpret: "The flags are FastQC's own heuristics, designed for diverse whole-genome shotgun libraries. A WARN or FAIL is a prompt to look at that module, not a verdict on your data; for example, amplicon or long-read data routinely 'fail' some modules.",
+      next: "Open the module that is flagged and decide whether the pattern is expected for your library type.",
+      mistakes: ["Discarding a dataset because of FAIL flags alone.", "Treating PASS as proof that the data are suitable for every analysis."],
+      limitations: "FastQC is designed for short reads; on long reads some modules are slow or not meaningful.",
+    },
+    es: {
+      title: "Informe FastQC y sus indicadores PASS/WARN/FAIL",
+      what: "FastQC ejecuta una serie de módulos (calidad por base, composición, duplicación, contenido de adaptadores…) y marca cada uno como PASS, WARN o FAIL.",
+      why: "Es el informe de QC más usado y un punto de referencia común entre laboratorios y en publicaciones.",
+      how: "ARVA ejecuta FastQC sin modificarlo, guarda sus salidas HTML y ZIP y muestra los indicadores de cada módulo. El informe original puede abrirse dentro de ARVA (sin acceso a la red) o descargarse.",
+      interpret: "Los indicadores son heurísticas propias de FastQC, pensadas para librerías diversas de secuenciación del genoma completo. Un WARN o FAIL invita a revisar ese módulo, no es un veredicto sobre tus datos; por ejemplo, los amplicones o las lecturas largas suelen «fallar» algunos módulos.",
+      next: "Abre el módulo marcado y decide si el patrón es esperable para tu tipo de librería.",
+      mistakes: ["Descartar un conjunto de datos solo por indicadores FAIL.", "Tomar PASS como prueba de que los datos sirven para cualquier análisis."],
+      limitations: "FastQC está diseñado para lecturas cortas; con lecturas largas algunos módulos son lentos o poco significativos.",
+    },
+  },
+  {
+    id: "before_after",
+    references: [REF.nanopack, REF.fastp],
+    en: {
+      title: "Before/after comparison",
+      what: "Side-by-side statistics of an original file and the file derived from it by filtering, computed with exactly the same ARVA method.",
+      why: "It shows precisely what a filter removed, so the decision to use filtered data is informed and documented.",
+      how: "When a filtering job finishes, ARVA automatically computes read statistics for the new file (and for the original if missing). The table shows both values, the difference and the percentage retained; the charts overlay the two distributions on the same axes.",
+      interpret: "Expect fewer reads and bases, and usually higher mean quality and length. Check that the bases retained are still enough for your planned depth.",
+      next: "Proceed with the filtered file, adjust thresholds and run again (the earlier result is kept), or continue with the original.",
+      mistakes: ["Judging a filter only by the increase in mean quality while ignoring how much data was lost."],
+      limitations: "Statistics describe the reads, not whether the removed reads carried biologically important sequence (e.g. plasmids with unusual coverage).",
+    },
+    es: {
+      title: "Comparación antes/después",
+      what: "Estadísticas lado a lado de un archivo original y del archivo derivado tras el filtrado, calculadas exactamente con el mismo método de ARVA.",
+      why: "Muestra con precisión qué eliminó un filtro, para que la decisión de usar datos filtrados quede informada y documentada.",
+      how: "Cuando termina un filtrado, ARVA calcula automáticamente las estadísticas del archivo nuevo (y del original si faltan). La tabla muestra ambos valores, la diferencia y el porcentaje conservado; los gráficos superponen ambas distribuciones en los mismos ejes.",
+      interpret: "Es esperable tener menos lecturas y bases, y normalmente mayor calidad y longitud media. Comprueba que las bases conservadas siguen siendo suficientes para la profundidad prevista.",
+      next: "Continúa con el archivo filtrado, ajusta los umbrales y vuelve a ejecutar (el resultado anterior se conserva) o sigue con el original.",
+      mistakes: ["Valorar un filtro solo por la mejora de calidad media ignorando cuántos datos se perdieron."],
+      limitations: "Las estadísticas describen las lecturas, no si las eliminadas contenían secuencias biológicamente importantes (p. ej., plásmidos con cobertura inusual).",
     },
   },
 ];

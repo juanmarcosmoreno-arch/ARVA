@@ -19,12 +19,18 @@ class FileFormat(str, enum.Enum):
     unknown = "unknown"
 
 
-class RawFile(Base):
-    """An immutable raw sequencing/reference file registered against a sample.
+class FileOrigin(str, enum.Enum):
+    imported = "imported"
+    derived = "derived"
 
-    The original file content is never modified once stored; downstream
-    processing always reads from this file and writes derived artifacts
-    elsewhere (see AnalysisJob / QCResult).
+
+class RawFile(Base):
+    """An immutable sequence file registered against a sample.
+
+    `imported` files are the user's originals. `derived` files (e.g. filtered
+    reads) are written by an analysis job and link back to their parent file
+    and producing job, forming the lineage raw → processing → derived file.
+    No file content is ever modified after it is stored.
     """
 
     __tablename__ = "raw_files"
@@ -48,5 +54,17 @@ class RawFile(Base):
     validation_message: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     uploaded_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+    origin: Mapped[FileOrigin] = mapped_column(
+        Enum(FileOrigin, native_enum=False), default=FileOrigin.imported,
+        server_default=FileOrigin.imported.value, nullable=False,
+    )
+    parent_file_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("raw_files.id", ondelete="SET NULL"), nullable=True
+    )
+    produced_by_job_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("analysis_jobs.id", ondelete="SET NULL"), nullable=True
+    )
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     sample: Mapped["Sample"] = relationship("Sample", back_populates="raw_files")

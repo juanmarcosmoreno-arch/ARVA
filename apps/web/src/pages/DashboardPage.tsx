@@ -134,7 +134,7 @@ export function DashboardPage() {
                       {m.plannedPhase !== undefined ? <Badge>Phase {m.plannedPhase}</Badge> : <Badge tone="success">Available</Badge>}
                     </div>
                     <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
-                      {m.description ?? (m.key === "import" ? "Import FASTQ/FASTA with validation and checksums." : "Read statistics, distributions and quality plots.")}
+                      {m.description ?? (m.key === "import" ? "Import FASTQ/FASTA with validation and checksums." : "Read statistics, FastQC, SeqKit cross-check and fastp/Filtlong filtering.")}
                     </p>
                   </div>
                   <ArrowRight className="mt-1 h-4 w-4 text-muted-foreground transition group-hover:translate-x-0.5" />

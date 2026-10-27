@@ -1,10 +1,10 @@
 """API request/response schemas."""
 import datetime as dt
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.models import FileFormat, JobStatus, SequencingTechnology
+from app.models import FileFormat, FileOrigin, JobStatus, SequencingTechnology
 
 
 class ORMModel(BaseModel):
@@ -101,6 +101,10 @@ class RawFileRead(ORMModel):
     is_valid: bool
     validation_message: str | None
     uploaded_at: dt.datetime
+    origin: FileOrigin
+    parent_file_id: str | None
+    produced_by_job_id: str | None
+    description: str | None
 
 
 # --- Analysis jobs / QC -------------------------------------------------------
@@ -137,10 +141,102 @@ class AnalysisJobRead(ORMModel):
     log_text: str | None
     error_message: str | None
     created_at: dt.datetime
+    commands: list[list[str]] | None = None
+    tool_path: str | None = None
+    result_summary: dict[str, Any] | None = None
+    parent_job_id: str | None = None
 
 
 class AnalysisJobDetail(AnalysisJobRead):
     qc_results: list[QCResultRead] = []
+
+
+# --- External tools -------------------------------------------------------------
+
+class ToolRead(BaseModel):
+    id: str
+    name: str
+    description: str
+    homepage: str
+    license: str
+    citation: str
+    citation_url: str
+    categories: list[str]
+    input_formats: list[str]
+    output_formats: list[str]
+    min_version: str
+    tested_versions: list[str]
+    install: dict[str, str]
+    status: str
+    path: str | None
+    version: str | None
+    version_validated: bool
+    message: str
+
+
+class FilesRequest(BaseModel):
+    raw_file_ids: list[str] = Field(min_length=1)
+
+
+class FastpParamsIn(BaseModel):
+    adapter_trimming: bool = True
+    detect_adapter_for_pe: bool = True
+    quality_filtering: bool = True
+    qualified_quality_phred: int = Field(default=15, ge=0, le=93)
+    unqualified_percent_limit: int = Field(default=40, ge=0, le=100)
+    n_base_limit: int = Field(default=5, ge=0)
+    average_qual: int = Field(default=0, ge=0, le=93)
+    length_filtering: bool = True
+    length_required: int = Field(default=15, ge=0)
+    cut_front: bool = False
+    cut_tail: bool = False
+    cut_window_size: int = Field(default=4, ge=1, le=1000)
+    cut_mean_quality: int = Field(default=20, ge=1, le=36)
+    poly_g: Literal["auto", "force", "disable"] = "auto"
+    dedup: bool = False
+
+
+class FastpRequest(BaseModel):
+    read1_file_id: str
+    read2_file_id: str | None = None
+    params: FastpParamsIn = FastpParamsIn()
+
+
+class FiltlongParamsIn(BaseModel):
+    min_length: int | None = Field(default=None, ge=1)
+    max_length: int | None = Field(default=None, ge=1)
+    min_mean_q: float | None = Field(default=None, ge=0, lt=100)
+    min_window_q: float | None = Field(default=None, ge=0, lt=100)
+    keep_percent: float | None = Field(default=None, gt=0, le=100)
+    target_bases: int | None = Field(default=None, ge=1)
+    length_weight: float = Field(default=1.0, ge=0)
+    mean_q_weight: float = Field(default=1.0, ge=0)
+    window_q_weight: float = Field(default=1.0, ge=0)
+    window_size: int = Field(default=250, ge=1)
+
+
+class FiltlongRequest(BaseModel):
+    file_id: str
+    params: FiltlongParamsIn
+
+
+class CrossCheckRow(BaseModel):
+    metric: str
+    arva: float | None
+    tool: float | None
+    tolerance: float
+    agrees: bool | None
+
+
+class CrossCheckRead(BaseModel):
+    raw_file_id: str
+    tool: str
+    tool_version: str | None
+    arva_job_id: str | None
+    tool_job_id: str | None
+    rows: list[CrossCheckRow]
+    all_agree: bool | None
+    note: str
 
 
 class SequenceStatsRequest(BaseModel):

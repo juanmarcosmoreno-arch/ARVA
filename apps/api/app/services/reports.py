@@ -4,6 +4,7 @@ from __future__ import annotations
 import csv
 import io
 import json
+import shlex
 from datetime import UTC, datetime
 from html import escape
 from typing import Any
@@ -13,7 +14,8 @@ from sqlalchemy.orm import Session
 
 from app import __version__ as ARVA_VERSION
 from app.models import AnalysisJob, JobStatus, RawFile, Sample
-from app.services.jobs import FASTQ_STATS_JOB
+from app.services import crosscheck
+from app.services.jobs import FASTP_JOB, FASTQ_STATS_JOB, FASTQC_JOB, FILTLONG_JOB, SEQKIT_JOB
 
 LIMITATIONS = [
     "Statistics describe the reads as provided; they do not assess biological content, "
@@ -45,6 +47,7 @@ def collect_report_data(db: Session, sample: Sample) -> dict[str, Any]:
         for qc in job.qc_results:
             latest.setdefault(qc.raw_file_id, (job, qc))
 
+    by_id = {f.id: f for f in files}
     entries = []
     for f in files:
         job, qc = latest.get(f.id, (None, None))
@@ -59,6 +62,10 @@ def collect_report_data(db: Session, sample: Sample) -> dict[str, Any]:
                     "sha256": f.checksum_sha256,
                     "is_valid": f.is_valid,
                     "validation_message": f.validation_message,
+                    "origin": f.origin.value,
+                    "derived_from": by_id[f.parent_file_id].original_filename
+                    if f.parent_file_id in by_id else None,
+                    "produced_by_job_id": f.produced_by_job_id,
                 },
                 "analysis": None
                 if job is None
@@ -79,6 +86,7 @@ def collect_report_data(db: Session, sample: Sample) -> dict[str, Any]:
 
     project = sample.project
     return {
+        "processing": _processing_steps(db, sample, latest),
         "report_type": "sequencing_data",
         "generated_at": datetime.now(UTC).isoformat(timespec="seconds"),
         "arva_version": ARVA_VERSION,
@@ -102,10 +110,68 @@ def collect_report_data(db: Session, sample: Sample) -> dict[str, Any]:
     }
 
 
+def _processing_steps(db: Session, sample: Sample, latest: dict) -> list[dict[str, Any]]:
+    tool_jobs = db.scalars(
+        select(AnalysisJob)
+        .where(
+            AnalysisJob.sample_id == sample.id,
+            AnalysisJob.status == JobStatus.completed,
+            AnalysisJob.job_type.in_([FASTP_JOB, FILTLONG_JOB, SEQKIT_JOB, FASTQC_JOB]),
+        )
+        .order_by(AnalysisJob.finished_at)
+    ).all()
+    names = {f.id: f.original_filename for f in sample.raw_files}
+    steps = []
+    for j in tool_jobs:
+        summary = j.result_summary or {}
+        step: dict[str, Any] = {
+            "job_id": j.id,
+            "job_type": j.job_type,
+            "tool": j.tool_name,
+            "tool_version": j.tool_version,
+            "inputs": [names.get(i, i) for i in j.input_raw_file_ids or []],
+            "commands": [shlex.join(c) for c in j.commands or []],
+            "finished_at": j.finished_at.isoformat() if j.finished_at else None,
+            "highlights": [],
+        }
+        if j.job_type == FASTP_JOB and summary:
+            b, a = summary["before_filtering"], summary["after_filtering"]
+            fr = summary.get("filtering_result", {})
+            step["highlights"] = [
+                f"Reads {b['total_reads']:,} → {a['total_reads']:,}; bases {b['total_bases']:,} → {a['total_bases']:,}",
+                f"Removed: low quality {fr.get('low_quality_reads', 0):,}, too many N {fr.get('too_many_N_reads', 0):,}, "
+                f"too short {fr.get('too_short_reads', 0):,}",
+                f"Reads with adapter trimmed: {summary.get('adapter_trimmed_reads') or 0:,}",
+            ]
+        elif j.job_type == FILTLONG_JOB:
+            chosen = {k: v for k, v in (j.parameters or {}).items() if v is not None and not k.endswith(("weight", "window_size"))}
+            step["highlights"] = ["Thresholds: " + ", ".join(f"{k}={v}" for k, v in chosen.items())]
+        elif j.job_type == SEQKIT_JOB and summary:
+            file_id = (j.input_raw_file_ids or [None])[0]
+            qc = latest.get(file_id, (None, None))[1]
+            if qc is not None:
+                rows = crosscheck.compare(qc.metrics, summary["seqkit_stats"])
+                decided = [r for r in rows if r["agrees"] is not None]
+                bad = [r["metric"] for r in decided if not r["agrees"]]
+                step["highlights"] = [
+                    f"Independent check: {len(decided) - len(bad)}/{len(decided)} metrics agree with ARVA"
+                    + (f" (differ: {', '.join(bad)})" if bad else "")
+                ]
+        elif j.job_type == FASTQC_JOB and summary:
+            flags = {}
+            for m in summary.get("modules", []):
+                flags.setdefault(m["status"], []).append(m["module"])
+            step["highlights"] = [
+                f"FastQC flags — {status}: {', '.join(mods)}" for status, mods in sorted(flags.items())
+            ]
+        steps.append(step)
+    return steps
+
+
 # --- CSV ----------------------------------------------------------------------
 
 CSV_COLUMNS = [
-    "sample_code", "filename", "format", "read_mate", "sha256", "reads", "total_bases",
+    "sample_code", "filename", "origin", "derived_from", "format", "read_mate", "sha256", "reads", "total_bases",
     "min_length", "max_length", "mean_length", "median_length", "n50", "n90", "gc_percent",
     "ambiguous_percent", "mean_read_quality", "median_read_quality", "q20_bases_percent",
     "q30_bases_percent", "estimated_depth", "tool", "tool_version", "job_id", "finished_at",
@@ -127,6 +193,8 @@ def render_csv(data: dict[str, Any]) -> str:
             {
                 "sample_code": data["sample"]["sample_code"],
                 "filename": entry["file"]["filename"],
+                "origin": entry["file"]["origin"],
+                "derived_from": entry["file"]["derived_from"] or "",
                 "format": entry["file"]["format"],
                 "read_mate": entry["file"]["read_mate"] or "",
                 "sha256": entry["file"]["sha256"],
@@ -253,10 +321,12 @@ def _charts(m: dict[str, Any]) -> str:
     )
     q = m.get("quality")
     if q and q["read_quality_histogram"]:
+        counts = {b["quality"]: b["reads"] for b in q["read_quality_histogram"]}
+        dense = range(min(counts), max(counts) + 1)
         charts.append(
             _bar_chart(
-                [f"Q{b['quality']}" for b in q["read_quality_histogram"]],
-                [b["reads"] for b in q["read_quality_histogram"]],
+                [f"Q{v}" for v in dense],
+                [counts.get(v, 0) for v in dense],
                 "Per-read mean quality",
                 "Mean read quality (Phred)",
                 "Reads",
@@ -300,6 +370,9 @@ def render_html(data: dict[str, Any]) -> str:
             f"<p class='muted'>{escape(f['format'].upper().replace('_GZ', ' (gzip)'))}"
             f"{' · ' + escape(f['read_mate']) if f['read_mate'] else ''} · {_fmt_bytes(f['size_bytes'])}"
             f" · SHA-256 <code>{escape(f['sha256'] or '')}</code></p>"
+            + (f"<p class='muted'>Derived file — produced from <b>{escape(f['derived_from'] or 'a deleted file')}</b> "
+               f"by analysis job <code>{escape(f['produced_by_job_id'] or '')}</code></p>"
+               if f["origin"] == "derived" else "")
         )
         if m is None:
             sections.append(
@@ -331,6 +404,14 @@ def render_html(data: dict[str, Any]) -> str:
         else ""
     )
     limitations = "".join(f"<li>{escape(x)}</li>" for x in data["limitations"])
+    steps = "".join(
+        f"<h3>{escape(st['tool'])} {escape(st['tool_version'])}</h3>"
+        f"<p class='muted'>Inputs: {escape(', '.join(st['inputs']))} · finished {escape(st['finished_at'] or '')}"
+        f" · job <code>{escape(st['job_id'])}</code></p>"
+        + "".join(f"<p>{escape(h)}</p>" for h in st["highlights"])
+        + "".join(f"<pre>{escape(c)}</pre>" for c in st["commands"])
+        for st in data.get("processing", [])
+    )
     return f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -347,6 +428,7 @@ def render_html(data: dict[str, Any]) -> str:
  th, td {{ text-align: left; padding: 6px 8px; border-bottom: 1px solid #EEF2F7; vertical-align: top; }}
  th {{ width: 38%; color:#475569; font-weight: 500; }}
  code {{ font-size: 11px; word-break: break-all; }}
+ pre {{ font-size: 11px; background:#F1F5F9; padding: 8px; border-radius: 6px; white-space: pre-wrap; word-break: break-all; }}
  .muted {{ color:#64748B; font-size: 12px; margin: 0; }}
  .charts {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; }}
  .chart {{ border:1px solid #EEF2F7; border-radius: 8px; padding: 8px; }}
@@ -364,6 +446,7 @@ Generated {escape(data['generated_at'])} · ARVA {escape(data['arva_version'])}<
 <h2>Sample</h2><table>{meta_rows}</table>
 <h2>Read statistics</h2>
 {''.join(sections) or '<p>No files registered.</p>'}
+{('<h2>Processing and independent checks</h2>' + steps) if steps else ''}
 <h2>Methods</h2>
 <p>Each file was streamed in full by the ARVA scientific core (<code>arva-core.seqstats</code>), which
 validates FASTQ/FASTA structure record by record and computes counts, length distribution

@@ -28,6 +28,10 @@ class Settings(BaseSettings):
     # Upload limits
     max_upload_size_bytes: int = 20 * 1024 * 1024 * 1024  # 20 GB per file
 
+    # External tools
+    tool_threads: int = 4
+    tool_timeout_seconds: int = 12 * 3600
+
     @property
     def raw_dir(self) -> Path:
         return self.storage_root / "raw"

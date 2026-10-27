@@ -62,7 +62,7 @@ const CONTEXT: Record<string, { title: TranslationKey; subtitle: string; tab?: s
   samples: { title: "samples.title", subtitle: "", icon: FlaskConical },
   qc: {
     title: "nav.qc",
-    subtitle: "Choose a sample to compute read statistics and explore quality plots. Read filtering (fastp, Filtlong) and FastQC/NanoPlot integration arrive in Phase 2.",
+    subtitle: "Choose a sample to compute read statistics, run FastQC or the SeqKit cross-check, and filter reads with fastp or Filtlong.",
     tab: "qc",
     icon: BarChart3,
   },

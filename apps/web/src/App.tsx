@@ -10,6 +10,7 @@ import { ProjectsPage } from "@/pages/ProjectsPage";
 import { SampleDetailPage } from "@/pages/SampleDetailPage";
 import { SamplesPage } from "@/pages/SamplesPage";
 import { SettingsPage } from "@/pages/SettingsPage";
+import { ToolsPage } from "@/pages/ToolsPage";
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { staleTime: 5_000, retry: 1, refetchOnWindowFocus: false } },
@@ -30,6 +31,7 @@ export const routes = [
       { path: "reports", element: <SamplesPage context="reports" /> },
       { path: "guide", element: <GuidePage /> },
       { path: "settings", element: <SettingsPage /> },
+      { path: "tools", element: <ToolsPage /> },
       { path: "modules/:key", element: <PlannedModulePage /> },
       { path: "*", element: <NotFoundPage /> },
     ],
