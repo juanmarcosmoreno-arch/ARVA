@@ -1,0 +1,153 @@
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { AlertTriangle, CheckCircle2, UploadCloud, XCircle } from "lucide-react";
+import { useRef, useState, type DragEvent } from "react";
+import { ErrorNote } from "@/components/ui/misc";
+import { useT } from "@/i18n";
+import { api, type UploadProgress } from "@/lib/api";
+import { fmtBytes, formatLabel } from "@/lib/format";
+import type { UploadResult } from "@/lib/types";
+import { cn } from "@/lib/utils";
+
+const ACCEPT = ".fastq,.fq,.fasta,.fa,.fna,.fas,.gz";
+
+/** Collect files from a drop, descending into dropped folders. */
+async function filesFromDrop(e: DragEvent): Promise<File[]> {
+  const items = Array.from(e.dataTransfer.items ?? []);
+  const entries = items.map((i) => i.webkitGetAsEntry?.()).filter(Boolean) as FileSystemEntry[];
+  if (entries.length === 0) return Array.from(e.dataTransfer.files);
+  const out: File[] = [];
+  const walk = async (entry: FileSystemEntry): Promise<void> => {
+    if (entry.isFile) {
+      out.push(await new Promise<File>((res, rej) => (entry as FileSystemFileEntry).file(res, rej)));
+    } else if (entry.isDirectory) {
+      const reader = (entry as FileSystemDirectoryEntry).createReader();
+      let batch: FileSystemEntry[];
+      do {
+        batch = await new Promise<FileSystemEntry[]>((res, rej) => reader.readEntries(res, rej));
+        for (const child of batch) await walk(child);
+      } while (batch.length > 0);
+    }
+  };
+  for (const entry of entries) await walk(entry);
+  return out.filter((f) => !f.name.startsWith("."));
+}
+
+export function FileDropzone({ sampleId, onUploaded }: { sampleId: string; onUploaded?: (r: UploadResult) => void }) {
+  const t = useT();
+  const qc = useQueryClient();
+  const input = useRef<HTMLInputElement>(null);
+  const [dragging, setDragging] = useState(false);
+  const [progress, setProgress] = useState<UploadProgress | null>(null);
+  const [result, setResult] = useState<UploadResult | null>(null);
+  const [pending, setPending] = useState<File[]>([]);
+
+  const upload = useMutation({
+    mutationFn: (files: File[]) => api.uploadFiles(sampleId, files, setProgress),
+    onSuccess: (r) => {
+      setResult(r);
+      qc.invalidateQueries({ queryKey: ["files", sampleId] });
+      qc.invalidateQueries({ queryKey: ["sample", sampleId] });
+      qc.invalidateQueries({ queryKey: ["dashboard"] });
+      onUploaded?.(r);
+    },
+    onSettled: () => {
+      setProgress(null);
+      setPending([]);
+    },
+  });
+
+  const start = (files: File[]) => {
+    if (files.length === 0 || upload.isPending) return;
+    setResult(null);
+    setPending(files);
+    upload.mutate(files);
+  };
+
+  const pct = progress && progress.total ? Math.round((100 * progress.loaded) / progress.total) : 0;
+
+  return (
+    <div className="space-y-3">
+      <div
+        role="button"
+        tabIndex={0}
+        onClick={() => input.current?.click()}
+        onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && input.current?.click()}
+        onDragOver={(e) => {
+          e.preventDefault();
+          setDragging(true);
+        }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={async (e) => {
+          e.preventDefault();
+          setDragging(false);
+          start(await filesFromDrop(e));
+        }}
+        className={cn(
+          "flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed px-6 py-10 text-center transition-colors",
+          dragging ? "border-arva-teal bg-arva-teal/5" : "hover:border-arva-teal/60 hover:bg-muted/50",
+          upload.isPending && "pointer-events-none opacity-80",
+        )}
+      >
+        <UploadCloud className={cn("mb-3 h-9 w-9", dragging ? "text-arva-teal" : "text-muted-foreground")} />
+        <p className="text-sm font-medium">{t("import.drop")}</p>
+        <p className="mt-1 max-w-md text-xs text-muted-foreground">{t("import.dropHint")}</p>
+        <input
+          ref={input}
+          type="file"
+          multiple
+          accept={ACCEPT}
+          className="hidden"
+          onChange={(e) => {
+            start(Array.from(e.target.files ?? []));
+            e.target.value = "";
+          }}
+        />
+      </div>
+
+      {upload.isPending && (
+        <div className="rounded-lg border bg-surface p-3" aria-live="polite">
+          <div className="mb-2 flex justify-between text-xs">
+            <span>
+              Uploading {pending.length} file{pending.length > 1 ? "s" : ""} ({fmtBytes(pending.reduce((a, f) => a + f.size, 0))})
+            </span>
+            <span className="tabular-nums">{pct < 100 ? `${pct}%` : "Checksumming & validating…"}</span>
+          </div>
+          <div className="h-1.5 overflow-hidden rounded-full bg-muted">
+            <div className="h-full bg-arva-teal transition-all" style={{ width: `${pct}%` }} />
+          </div>
+        </div>
+      )}
+
+      <ErrorNote error={upload.error} />
+
+      {result && (
+        <ul className="space-y-1.5 text-sm" aria-live="polite">
+          {result.files.map((f) => (
+            <li key={f.id} className="flex items-start gap-2 rounded-lg border bg-surface px-3 py-2">
+              {f.is_valid ? (
+                <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-success" />
+              ) : (
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
+              )}
+              <div className="min-w-0">
+                <div className="truncate font-medium">
+                  {f.original_filename} <span className="font-normal text-muted-foreground">· {formatLabel[f.file_format]} · {fmtBytes(f.size_bytes)}</span>
+                </div>
+                <div className="text-xs text-muted-foreground">{f.validation_message}</div>
+              </div>
+            </li>
+          ))}
+          {result.rejected.map((r) => (
+            <li key={r.filename} className="flex items-start gap-2 rounded-lg border border-danger/30 bg-danger/5 px-3 py-2">
+              <XCircle className="mt-0.5 h-4 w-4 shrink-0 text-danger" />
+              <div>
+                <div className="font-medium">{r.filename}</div>
+                <div className="text-xs text-muted-foreground">{r.reason}</div>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}

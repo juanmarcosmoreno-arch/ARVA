@@ -174,7 +174,7 @@ def _fmt_bytes(n: int) -> str:
 
 
 def _bar_chart(labels: list[str], values: list[float], title: str, x_label: str, y_label: str,
-               color: str = "#1F3B8A") -> str:
+               color: str = "#2B54C4") -> str:
     """Minimal, dependency-free SVG bar chart."""
     w, h, ml, mb, mt, mr = 560, 240, 64, 44, 28, 12
     pw, ph = w - ml - mr, h - mt - mb
@@ -260,7 +260,7 @@ def _charts(m: dict[str, Any]) -> str:
                 "Per-read mean quality",
                 "Mean read quality (Phred)",
                 "Reads",
-                color="#00B4A6",
+                color="#008C82",
             )
         )
     gc = {b["gc_percent"]: b["reads"] for b in m["gc_histogram"]}
@@ -271,7 +271,7 @@ def _charts(m: dict[str, Any]) -> str:
             "Per-read GC content",
             "GC (%)",
             "Reads",
-            color="#7CC8FF",
+            color="#2B54C4",
         )
     )
     return "".join(f'<div class="chart">{c}</div>' for c in charts)

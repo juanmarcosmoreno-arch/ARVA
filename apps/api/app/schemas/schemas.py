@@ -85,6 +85,7 @@ class SampleRead(ORMModel, SampleBase):
     created_at: dt.datetime
     updated_at: dt.datetime
     file_count: int = 0
+    project_name: str | None = None
 
 
 # --- Raw files ----------------------------------------------------------------

@@ -63,6 +63,8 @@ def test_sample_crud_and_unique_code(client):
     assert client.get(f"{API}/projects/{p['id']}").json()["sample_count"] == 1
     r = client.patch(f"{API}/samples/{s['id']}", json={"notes": "MRSA suspected"})
     assert r.json()["notes"] == "MRSA suspected"
+    everything = client.get(f"{API}/samples").json()
+    assert [(x["id"], x["project_name"]) for x in everything] == [(s["id"], p["name"])]
 
 
 def test_upload_validate_and_analyse_fastq(client, storage_root):

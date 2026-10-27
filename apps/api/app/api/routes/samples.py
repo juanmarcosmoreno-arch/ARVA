@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy import func, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.api.deps import project_or_404, sample_or_404
 from app.db.session import get_db
@@ -24,7 +24,9 @@ def to_sample_read(db: Session, samples: list[Sample]) -> list[SampleRead]:
         else {}
     )
     return [
-        SampleRead.model_validate(s).model_copy(update={"file_count": counts.get(s.id, 0)})
+        SampleRead.model_validate(s).model_copy(
+            update={"file_count": counts.get(s.id, 0), "project_name": s.project.name}
+        )
         for s in samples
     ]
 
@@ -35,6 +37,14 @@ def _ensure_unique_code(db: Session, project_id: str, code: str, exclude_id: str
         query = query.where(Sample.id != exclude_id)
     if db.scalar(query):
         raise HTTPException(status.HTTP_409_CONFLICT, f"Sample ID '{code}' already exists in this project")
+
+
+@router.get("/samples", response_model=list[SampleRead])
+def list_all_samples(db: Session = Depends(get_db)):
+    samples = db.scalars(
+        select(Sample).options(selectinload(Sample.project)).order_by(Sample.updated_at.desc())
+    ).all()
+    return to_sample_read(db, list(samples))
 
 
 @router.get("/projects/{project_id}/samples", response_model=list[SampleRead])

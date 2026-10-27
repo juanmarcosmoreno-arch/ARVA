@@ -1,0 +1,57 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 210 40% 98%;      /* #F8FAFC */
+    --foreground: 227 59% 11%;      /* #0B132B */
+    --surface: 0 0% 100%;
+    --surface-2: 214 32% 96%;
+    --muted: 214 32% 95%;
+    --muted-foreground: 215 16% 42%;
+    --border: 220 13% 91%;          /* #E5E7EB */
+    --primary: 224 63% 33%;         /* #1F3B8A */
+    --primary-foreground: 0 0% 100%;
+    --accent: 176 100% 35%;         /* #00B4A6 */
+    --ring: 224 63% 45%;
+    color-scheme: light;
+  }
+
+  .dark {
+    --background: 222 59% 8%;       /* #080F1F */
+    --foreground: 214 32% 94%;
+    --surface: 224 50% 11%;
+    --surface-2: 224 42% 14%;
+    --muted: 224 36% 17%;
+    --muted-foreground: 215 20% 68%;
+    --border: 224 30% 21%;
+    --primary: 205 100% 74%;        /* #7CC8FF */
+    --primary-foreground: 227 59% 11%;
+    --accent: 176 100% 38%;
+    --ring: 205 100% 74%;
+    color-scheme: dark;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    font-feature-settings: "cv11", "ss01";
+  }
+
+  :focus-visible {
+    @apply outline-none ring-2 ring-ring ring-offset-2 ring-offset-background;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
