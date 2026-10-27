@@ -1,9 +1,8 @@
 """Creation and dispatch of analysis jobs."""
 from __future__ import annotations
 
-from sqlalchemy.orm import Session
-
 from arva_core.seqstats import TOOL_NAME, TOOL_VERSION
+from sqlalchemy.orm import Session
 
 from app.models import AnalysisJob, JobStatus, RawFile, Sample
 from app.services.queue import get_queue

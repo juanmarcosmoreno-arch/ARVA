@@ -1,1 +1,93 @@
-# ARVA
+<p align="center">
+  <img src="apps/web/public/arva-logo.png" width="96" alt="ARVA logo">
+</p>
+
+<h1 align="center">ARVA</h1>
+<p align="center"><b>Integrated Genomic Discovery Platform</b><br><i>From Sequence to Discovery.</i></p>
+
+ARVA is a local-first platform for analysing sequencing data, starting with bacterial
+genomics. It is built around six principles: **scientific integrity** (every result comes
+from a real computation with recorded provenance), **beginner friendliness**, **expert
+control**, **visual first**, **reproducibility** and **modularity**.
+
+> **Status: Phase 1 — Foundation (v0.1.0).** Projects, samples, FASTQ/FASTA import with
+> validation, read statistics with interactive figures, analysis history, reports and the
+> ARVA Guide are functional. Assembly, annotation and later modules are listed in the
+> interface as *planned* and never show simulated results. See [docs/roadmap.md](docs/roadmap.md).
+
+## What works today
+
+| Capability | Details |
+|---|---|
+| Projects & samples | Create, edit, search; rich sample metadata (organism, host, origin, dates, technology, run, notes) |
+| Raw data import | Drag-and-drop files or folders; content-based FASTQ/FASTA + gzip detection; SHA-256 checksums; duplicate detection; R1/R2 recognition; originals stored read-only |
+| Validation | Quick structural check at import; full record-by-record validation (with line numbers) during analysis |
+| Read statistics | Reads, bases, length distribution, N50/N90, GC, ambiguous bases, Phred quality (error-probability averaging), Q20/Q30, per-position quality, reads above quality thresholds, yield by length, optional depth estimate |
+| Visualisation | Six interactive figures (ECharts) with tooltips, table views and SVG/PNG export, light/dark |
+| Provenance | Every run records tool, version, parameters, input checksums, environment, timings, outputs and log |
+| Execution | Analyses run in a separate worker process via a Redis queue — never in the HTTP process |
+| Reports | HTML (figures, methods, limitations), CSV and JSON per sample |
+| ARVA Guide | “What does this mean?” on every metric: beginner / intermediate / advanced, English & Spanish, with references |
+| Analysis Timeline | Raw data → QC → Filtering → Assembly → Polishing → Annotation → Biology, per sample |
+
+## Quick start
+
+### Docker (recommended)
+
+```bash
+docker compose up -d --build
+open http://localhost:8080        # API docs: http://localhost:8000/docs
+```
+
+Services bind to `127.0.0.1` only. Data persist in Docker volumes (`ARVA_DATA_DIR` to use a host folder).
+
+### Local development (macOS / Linux)
+
+Requires Python ≥ 3.11, Node ≥ 20, PostgreSQL ≥ 14 and Redis.
+
+```bash
+createdb arva                     # or: psql -c 'CREATE DATABASE arva'
+scripts/setup-dev.sh              # venv, npm install, .env, migrations
+scripts/dev.sh                    # API :8000 · worker · web :5173
+```
+
+Try it with the synthetic reads in [`examples/synthetic`](examples/README.md).
+Full instructions: [docs/installation.md](docs/installation.md).
+
+## Repository layout
+
+```
+apps/
+  api/              FastAPI service, SQLAlchemy models, Alembic migrations, report generation
+  workers/          RQ worker entry point (executes analysis jobs)
+  web/              React + TypeScript + Vite + Tailwind interface
+scientific-core/    arva_core: pure-Python validation & statistics (no web/DB dependencies)
+workflows/          nextflow/ and tool-adapters/ — Phase 3+
+visualizations/     shared visualisation specs — planned
+databases/          reference database manifests — planned
+docker/             Dockerfiles and nginx configuration
+docs/               architecture, installation, methods, developer guide, roadmap
+examples/           synthetic example reads
+scripts/            setup, dev runner, test runner, data generator
+tests/e2e/          browser end-to-end test
+```
+
+## Tests
+
+```bash
+scripts/test-all.sh               # core + API (PostgreSQL) + web typecheck/unit
+ARVA_E2E=1 scripts/test-all.sh    # also the browser golden path (stack must be running)
+```
+
+## Documentation
+
+- [Architecture](docs/architecture.md)
+- [Installation](docs/installation.md)
+- [Scientific methods](docs/scientific-methods.md)
+- [Developer guide](docs/developer-guide.md)
+- [Roadmap & current limitations](docs/roadmap.md)
+- API reference: interactive OpenAPI at `/docs` on the running API
+
+## Privacy
+
+ARVA runs entirely locally. Sequence data are never sent to external services.

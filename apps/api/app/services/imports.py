@@ -4,11 +4,10 @@ from __future__ import annotations
 import re
 from typing import BinaryIO
 
-from sqlalchemy import select
-from sqlalchemy.orm import Session
-
 from arva_core.formats import SequenceFormat
 from arva_core.seqstats import quick_validate
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.db.base import new_uuid

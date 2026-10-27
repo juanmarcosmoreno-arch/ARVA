@@ -1,14 +1,19 @@
+from typing import TYPE_CHECKING
+
 from sqlalchemy import JSON, BigInteger, Float, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, TimestampMixin, new_uuid
+
+if TYPE_CHECKING:
+    from app.models.analysis_job import AnalysisJob
 
 
 class QCResult(TimestampMixin, Base):
     """Structured statistics computed from a single raw file.
 
     `metrics` carries the full computed payload (see
-    scientific_core.fastq_stats.FastqStats); the indexed columns below
+    arva_core.seqstats.compute_sequence_stats); the indexed columns below
     duplicate the headline numbers for fast querying/sorting across samples.
     """
 

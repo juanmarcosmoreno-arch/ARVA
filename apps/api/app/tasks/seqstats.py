@@ -10,10 +10,9 @@ import json
 import platform
 import time
 import traceback
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import numpy as np
-
 from arva_core.seqstats import SequenceFormatError, StatsParameters, compute_sequence_stats
 
 from app.db.session import SessionLocal
@@ -22,7 +21,7 @@ from app.storage import get_storage
 
 
 def _now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 class _JobLog:
@@ -106,7 +105,7 @@ def run_sequence_stats_job(job_id: str) -> str:
                 raw.is_valid = False
                 raw.validation_message = f"Full validation failed: {exc}"
             log(f"ERROR: {job.error_message}")
-        except Exception as exc:  # noqa: BLE001 - record any failure on the job
+        except Exception as exc:
             job.status = JobStatus.failed
             job.error_message = f"{type(exc).__name__}: {exc}"
             log("ERROR: unexpected failure\n" + traceback.format_exc())

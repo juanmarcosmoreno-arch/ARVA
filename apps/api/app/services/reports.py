@@ -4,7 +4,7 @@ from __future__ import annotations
 import csv
 import io
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from html import escape
 from typing import Any
 
@@ -80,7 +80,7 @@ def collect_report_data(db: Session, sample: Sample) -> dict[str, Any]:
     project = sample.project
     return {
         "report_type": "sequencing_data",
-        "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "generated_at": datetime.now(UTC).isoformat(timespec="seconds"),
         "arva_version": ARVA_VERSION,
         "project": {"id": project.id, "name": project.name, "is_demo": project.is_demo},
         "sample": {

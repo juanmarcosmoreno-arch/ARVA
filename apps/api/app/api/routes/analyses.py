@@ -1,8 +1,7 @@
+from arva_core.seqstats import StatsParameters
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
-
-from arva_core.seqstats import StatsParameters
 
 from app.api.deps import job_or_404, sample_or_404
 from app.db.session import get_db

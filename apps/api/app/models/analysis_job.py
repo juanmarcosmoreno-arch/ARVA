@@ -1,10 +1,15 @@
 import datetime as dt
 import enum
+from typing import TYPE_CHECKING
 
 from sqlalchemy import JSON, DateTime, Enum, Float, ForeignKey, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, TimestampMixin, new_uuid
+
+if TYPE_CHECKING:
+    from app.models.qc_result import QCResult
+    from app.models.sample import Sample
 
 
 class JobStatus(str, enum.Enum):

@@ -194,7 +194,7 @@ class _Accumulator:
         gc_pct: float | None = None
         if gc + at:
             gc_pct = 100.0 * gc / (gc + at)
-            self.gc_hist[int(round(gc_pct))] += 1
+            self.gc_hist[round(gc_pct)] += 1
 
         mean_q: float | None = None
         if self.has_quality and qual is not None:
@@ -302,8 +302,8 @@ class _Accumulator:
         q_min, q_max = int(observed.min()), int(observed.max())
         if q_min >= 31 and 45 < q_max <= 72:
             warnings.append(
-                "Quality values look shifted (minimum Q%d, maximum Q%d); the file may use legacy "
-                "Phred+64 encoding. ARVA interprets qualities as Phred+33." % (q_min, q_max)
+                f"Quality values look shifted (minimum Q{q_min}, maximum Q{q_max}); the file may use "
+                "legacy Phred+64 encoding. ARVA interprets qualities as Phred+33."
             )
 
         read_q_bins: Counter[int] = Counter()
@@ -410,7 +410,7 @@ def _linear_histogram(asc: list[tuple[int, int]], bins: int) -> dict[str, Any]:
 def _log_histogram(asc: list[tuple[int, int]], bins: int) -> dict[str, Any] | None:
     lo, hi = asc[0][0], asc[-1][0]
     if lo <= 0:
-        positive = [(l, c) for l, c in asc if l > 0]
+        positive = [(length, c) for length, c in asc if length > 0]
         if not positive:
             return None
         lo = positive[0][0]
@@ -418,7 +418,7 @@ def _log_histogram(asc: list[tuple[int, int]], bins: int) -> dict[str, Any] | No
     if hi / lo < 10:
         return None
     edges = np.logspace(math.log10(lo), math.log10(hi + 1), bins + 1)
-    lengths = np.array([l for l, _ in asc], dtype=np.float64)
+    lengths = np.array([length for length, _ in asc], dtype=np.float64)
     counts = np.array([c for _, c in asc], dtype=np.float64)
     reads, _ = np.histogram(lengths, bins=edges, weights=counts)
     bases, _ = np.histogram(lengths, bins=edges, weights=counts * lengths)
@@ -451,8 +451,8 @@ def _length_thresholds(desc: list[tuple[int, int]], total: int) -> list[dict[str
     for t in LENGTH_THRESHOLDS:
         if t > max_len:
             break
-        reads = sum(c for l, c in desc if l >= t)
-        bases = sum(l * c for l, c in desc if l >= t)
+        reads = sum(c for length, c in desc if length >= t)
+        bases = sum(length * c for length, c in desc if length >= t)
         out.append(
             {
                 "min_length": t,

@@ -11,10 +11,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "api"))
 
-from redis import Redis  # noqa: E402
-from rq import Queue, SimpleWorker, Worker  # noqa: E402
+from redis import Redis
+from rq import Queue, SimpleWorker, Worker
 
-from app.core.config import get_settings  # noqa: E402
+from app.core.config import get_settings
 
 
 def main() -> None:

@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import Enum
 
 from fastapi import APIRouter, Depends, Query
@@ -37,7 +37,7 @@ def sample_report(
     """Generate, archive and download a sequencing-data report for one sample."""
     sample = sample_or_404(db, sample_id)
     content = _RENDER[fmt](collect_report_data(db, sample))
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     filename = f"ARVA_{sanitize_filename(sample.sample_code)}_sequencing_report_{stamp}.{fmt.value}"
     get_storage().write_text(f"reports/{sample.project_id}/{sample.id}/{filename}", content)
     return Response(

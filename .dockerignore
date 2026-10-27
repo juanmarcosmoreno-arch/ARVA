@@ -1,0 +1,13 @@
+**/.venv
+**/node_modules
+**/dist
+**/__pycache__
+**/.pytest_cache
+**/*.egg-info
+data
+apps/api/data
+.git
+dump.rdb
+docs/brand
+examples
+tests

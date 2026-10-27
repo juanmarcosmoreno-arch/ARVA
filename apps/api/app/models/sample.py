@@ -1,10 +1,16 @@
 import datetime as dt
 import enum
+from typing import TYPE_CHECKING
 
 from sqlalchemy import JSON, Date, Enum, ForeignKey, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, TimestampMixin, new_uuid
+
+if TYPE_CHECKING:
+    from app.models.analysis_job import AnalysisJob
+    from app.models.project import Project
+    from app.models.raw_file import RawFile
 
 
 class SequencingTechnology(str, enum.Enum):
