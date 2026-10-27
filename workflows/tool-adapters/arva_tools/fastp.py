@@ -1,6 +1,6 @@
 """fastp — short-read quality control, adapter trimming and filtering.
 
-Every option below was checked against `fastp --help` of fastp 0.23.4.
+Every option below was checked against `fastp --help` of fastp 0.23.4 and 0.23.2.
 ARVA always passes every filtering option explicitly — including values equal
 to fastp's defaults — so the recorded command fully describes what was removed.
 """
@@ -76,7 +76,7 @@ class FastpAdapter(ToolAdapter):
         input_formats=("fastq", "fastq.gz"),
         output_formats=("fastq.gz", "json", "html"),
         min_version="0.23.0",
-        tested_versions=("0.23.4",),
+        tested_versions=("0.23.2", "0.23.4"),
         install={"conda": "bioconda::fastp", "apt": "fastp"},
     )
     version_pattern = re.compile(r"fastp\s+v?(\d+\.\d+(?:\.\d+)?)", re.IGNORECASE)

@@ -1,0 +1,16 @@
+# External QC tools for running ARVA natively (macOS Intel/Apple Silicon or Linux).
+#   mamba env create -f workflows/tool-adapters/environment.yml
+#   export ARVA_TOOLS_PATH="$(conda info --base)/envs/arva-tools/bin"
+#
+# Versions are the ones validated with ARVA where Bioconda provides them for every
+# platform. SeqKit 2.3.x has no Apple Silicon build; 2.8.2 is the earliest that does
+# and ARVA reports it as "version not validated" until it has been tested.
+name: arva-tools
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - fastp=0.23.4
+  - filtlong=0.2.1
+  - fastqc=0.12.1
+  - seqkit=2.8.2

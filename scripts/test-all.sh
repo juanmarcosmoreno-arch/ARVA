@@ -7,6 +7,9 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 echo "==> scientific-core"
 (cd "$ROOT/scientific-core" && "$ROOT/apps/api/.venv/bin/pytest" -q)
 
+echo "==> tool adapters (real-tool tests are skipped for tools that are not installed)"
+(cd "$ROOT/workflows/tool-adapters" && "$ROOT/apps/api/.venv/bin/pytest" -q)
+
 echo "==> api"
 (cd "$ROOT/apps/api" && .venv/bin/pytest -q)
 

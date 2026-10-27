@@ -6,7 +6,8 @@
  *
  * Creates a project and sample, uploads the synthetic paired Illumina reads,
  * runs read statistics in the background worker, checks the results, the
- * guide dialog, history/provenance and all report formats.
+ * guide dialog, history/provenance and all report formats, then (when the tools
+ * are installed) the SeqKit cross-check and a fastp before/after comparison.
  */
 const path = require("node:path");
 const assert = require("node:assert/strict");
@@ -59,12 +60,38 @@ const DATA = path.resolve(__dirname, "../../examples/synthetic");
   await page.getByText("sha256:").first().waitFor();
 
   const sampleId = page.url().split("/samples/")[1].split("?")[0];
+  // Each file is analysed by its own job; wait until both have finished before reporting.
+  for (let i = 0; i < 120; i++) {
+    const jobs = await (await page.request.get(`${BASE}/api/v1/samples/${sampleId}/jobs`)).json();
+    if (jobs.filter((j) => j.job_type === "sequence_stats" && j.status === "completed").length >= 2) break;
+    await page.waitForTimeout(500);
+  }
   for (const fmt of ["html", "csv", "json"]) {
     const res = await page.request.get(`${BASE}/api/v1/samples/${sampleId}/report?format=${fmt}`);
     assert.equal(res.status(), 200, `report ${fmt}`);
   }
   const csv = await (await page.request.get(`${BASE}/api/v1/samples/${sampleId}/report?format=csv`)).text();
   assert.equal(csv.trim().split("\n").length, 3, "CSV has header + 2 files");
+
+  const tools = await (await page.request.get(`${BASE}/api/v1/tools`)).json();
+  const available = (id) => tools.some((t) => t.id === id && t.status === "available");
+  if (available("seqkit")) {
+    await page.getByRole("tab", { name: "Raw data" }).click();
+    await page.getByRole("button", { name: "Run", exact: true }).first().click();
+    await page.getByRole("tab", { name: "Read statistics", selected: true }).waitFor();
+    await page.getByText("All compared metrics agree").waitFor({ timeout: 90_000 });
+  }
+  if (available("fastp")) {
+    await page.getByRole("tab", { name: "Raw data" }).click();
+    await page.getByRole("button", { name: "Filter reads…" }).click();
+    const fdlg = page.getByRole("dialog");
+    await fdlg.getByText("Remove reads with > 40% of bases below Q15").waitFor();
+    await fdlg.getByText("I have reviewed these settings").click();
+    await fdlg.getByRole("button", { name: "Run fastp" }).click();
+    await page.getByText("Reads kept").first().waitFor({ timeout: 120_000 });
+    const files = await (await page.request.get(`${BASE}/api/v1/samples/${sampleId}/files`)).json();
+    assert.equal(files.filter((f) => f.origin === "derived").length, 2, "two derived files");
+  }
 
   assert.deepEqual(errors, [], "no browser console errors");
   await browser.close();

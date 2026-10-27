@@ -10,10 +10,11 @@ genomics. It is built around six principles: **scientific integrity** (every res
 from a real computation with recorded provenance), **beginner friendliness**, **expert
 control**, **visual first**, **reproducibility** and **modularity**.
 
-> **Status: Phase 1 — Foundation (v0.1.0).** Projects, samples, FASTQ/FASTA import with
-> validation, read statistics with interactive figures, analysis history, reports and the
-> ARVA Guide are functional. Assembly, annotation and later modules are listed in the
-> interface as *planned* and never show simulated results. See [docs/roadmap.md](docs/roadmap.md).
+> **Status: Phase 2 — Raw data and QC (v0.2.0).** Projects, samples, FASTQ/FASTA import with
+> validation, read statistics, SeqKit cross-checks, FastQC reports, fastp/Filtlong filtering with
+> file lineage and before/after comparison, analysis history, reports and the ARVA Guide are
+> functional. Assembly, annotation and later modules are listed in the interface as *planned*
+> and never show simulated results. See [docs/roadmap.md](docs/roadmap.md).
 
 ## What works today
 
@@ -25,8 +26,14 @@ control**, **visual first**, **reproducibility** and **modularity**.
 | Read statistics | Reads, bases, length distribution, N50/N90, GC, ambiguous bases, Phred quality (error-probability averaging), Q20/Q30, per-position quality, reads above quality thresholds, yield by length, optional depth estimate |
 | Visualisation | Six interactive figures (ECharts) with tooltips, table views and SVG/PNG export, light/dark |
 | Provenance | Every run records tool, version, parameters, input checksums, environment, timings, outputs and log |
-| Execution | Analyses run in a separate worker process via a Redis queue — never in the HTTP process |
-| Reports | HTML (figures, methods, limitations), CSV and JSON per sample |
+| Independent check | SeqKit summarises the same file; ARVA compares every robust metric and shows any disagreement |
+| FastQC | Unmodified FastQC report (opened in a network-isolated sandbox) plus its module flags, labelled as FastQC heuristics |
+| Filtering | fastp (short reads, single/paired-end) and Filtlong (long reads); every threshold visible, passed explicitly and recorded; explicit confirmation required |
+| Lineage | Filtered reads become new read-only derived files linked to their original and the producing job; originals never change |
+| Before/after | Statistics for filter outputs are computed automatically; metrics table with changes and overlaid distributions |
+| Tools & Databases | Detected tools with version (validated or not), executable, licence, citation and install commands; ARVA never installs software |
+| Execution | Analyses run in a separate worker process via a Redis queue — never in the HTTP process; external tools run without a shell, with timeouts and a credential-free environment |
+| Reports | HTML (figures, methods, processing steps with exact commands, limitations), CSV and JSON per sample |
 | ARVA Guide | “What does this mean?” on every metric: beginner / intermediate / advanced, English & Spanish, with references |
 | Analysis Timeline | Raw data → QC → Filtering → Assembly → Polishing → Annotation → Biology, per sample |
 
@@ -43,7 +50,9 @@ Services bind to `127.0.0.1` only. Data persist in Docker volumes (`ARVA_DATA_DI
 
 ### Local development (macOS / Linux)
 
-Requires Python ≥ 3.11, Node ≥ 20, PostgreSQL ≥ 14 and Redis.
+Requires Python ≥ 3.11, Node ≥ 20, PostgreSQL ≥ 14 and Redis. The QC tools are optional:
+`sudo apt install seqkit fastqc fastp filtlong` (Debian/Ubuntu) or
+`mamba env create -f workflows/tool-adapters/environment.yml` (macOS/Linux).
 
 ```bash
 createdb arva                     # or: psql -c 'CREATE DATABASE arva'
@@ -62,7 +71,9 @@ apps/
   workers/          RQ worker entry point (executes analysis jobs)
   web/              React + TypeScript + Vite + Tailwind interface
 scientific-core/    arva_core: pure-Python validation & statistics (no web/DB dependencies)
-workflows/          nextflow/ and tool-adapters/ — Phase 3+
+workflows/
+  tool-adapters/    arva_tools: adapters for SeqKit, FastQC, fastp, Filtlong (+ conda environment)
+  nextflow/         multi-step pipelines — Phase 3+
 visualizations/     shared visualisation specs — planned
 databases/          reference database manifests — planned
 docker/             Dockerfiles and nginx configuration
@@ -75,7 +86,7 @@ tests/e2e/          browser end-to-end test
 ## Tests
 
 ```bash
-scripts/test-all.sh               # core + API (PostgreSQL) + web typecheck/unit
+scripts/test-all.sh               # core + tool adapters + API (PostgreSQL) + web typecheck/unit
 ARVA_E2E=1 scripts/test-all.sh    # also the browser golden path (stack must be running)
 ```
 

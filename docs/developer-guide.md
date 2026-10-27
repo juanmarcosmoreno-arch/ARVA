@@ -53,13 +53,33 @@ cd apps/api && .venv/bin/uvicorn app.main:app --reload
 .venv/bin/pytest -q
 # Web
 cd apps/web && npm run dev | npm run typecheck | npm test | npm run build
+# Tool adapters
+cd workflows/tool-adapters && ../../apps/api/.venv/bin/pytest -q
 # Example data
 python3 scripts/make_synthetic_reads.py examples/synthetic
 ```
 
-## Integrating external tools (Phase 2+ checklist)
+## Integrating an external tool
 
-Before adding any tool: confirm licence and redistribution terms; check macOS ARM64 and Linux
-availability (native, Bioconda, or container); pin the exact version; read the official
-documentation for every parameter exposed; record database names/versions where applicable; add a
-small real-format test dataset with known expected output.
+Follow the existing adapters in `workflows/tool-adapters/arva_tools/` (fastp is the most complete):
+
+1. **Verify first.** Install the tool, read its `--help` and official documentation, run it on
+   `examples/synthetic`, and inspect the real outputs. Record which version you verified in the module
+   docstring. Check licence, redistribution terms and Bioconda/apt availability for linux-64,
+   linux-aarch64, osx-64 and osx-arm64.
+2. **Adapter.** Subclass `ToolAdapter` with a `ToolInfo` (licence, citation, homepage, formats,
+   `min_version`, `tested_versions`, install hints you have verified) and a `version_pattern`.
+   Model parameters as a dataclass with `validate()`; build commands as argument lists in which every
+   option that can remove or change data is passed explicitly, even at its default.
+3. **Parsers.** Parse outputs by field name, not position; tolerate extra fields from newer versions.
+4. **Tests.** Command construction and validation (`tests/test_adapters.py`), parsing from small
+   fixtures, and a real-tool test skipped when the tool is absent (`tests/test_real_tools.py`).
+   Add a version to `tested_versions` only after the real-tool tests pass with it.
+5. **Job.** Add a task in `apps/api/app/tasks/tools.py` using `run_job`: resolve the tool, record
+   `commands`, write outputs under `ctx.results_rel` / `ctx.processed_rel`, register derived files with
+   `_register_derived`, store a compact `result_summary`, and queue follow-up work via
+   `ctx.after_commit`.
+6. **API + UI + Guide.** Endpoint returning `202` with the job; UI showing every parameter and a
+   plain-language summary; Guide entries in English and Spanish with references.
+7. **Docker.** Add the tool to `docker/api.Dockerfile`, rebuild, and run the real-tool tests inside
+   the image before declaring its version validated.

@@ -1,5 +1,23 @@
 # Roadmap and current status
 
+## Phase 2 — Raw data and QC ✅ (v0.2.0)
+
+Tool adapter framework (`workflows/tool-adapters`) with safe execution and version validation;
+SeqKit independent cross-check of ARVA statistics; FastQC reports (served sandboxed) with module
+flags; fastp (single- and paired-end) and Filtlong filtering with every parameter visible and
+recorded; derived files with lineage; automatic statistics of filter outputs; before/after
+comparison (metrics table and overlaid distributions); Tools & Databases page; Guide entries for
+filtering, fastp, Filtlong, cross-check, FastQC flags and comparison; reports include processing
+steps with exact commands; Docker image ships the tools (Debian packages, amd64/arm64).
+
+### Still open from the original Phase 2 scope
+
+- **MultiQC** project-level aggregation: the Ubuntu 1.18 package produced reports missing a
+  JavaScript asset in testing, so it was not integrated yet.
+- **NanoPlot** reports (ARVA already draws the equivalent long-read plots itself).
+- **POD5** detection and optional **Dorado** basecalling.
+- Import from a server-side folder; CSV/Excel metadata import.
+
 ## Phase 1 — Foundation ✅ (v0.1.0)
 
 Monorepo; FastAPI + PostgreSQL + Alembic; Redis/RQ worker; React interface with ARVA identity
@@ -8,13 +26,17 @@ duplicate detection and validation; read statistics with six interactive figures
 and provenance; HTML/CSV/JSON reports; ARVA Guide; Analysis Timeline; Docker Compose deployment;
 unit, API and end-to-end tests.
 
-### Known limitations of v0.1.0
+### Known limitations (v0.2.0)
 
 - Read statistics are computed by ARVA's own Python engine (≈ 7 Mbp/s short reads, ≈ 25 Mbp/s long
-  reads on one core). Very large runs take minutes; SeqKit/NanoPlot integration is planned.
+  reads on one core). Very large runs take minutes; SeqKit provides a much faster independent summary.
 - Uploads go through the browser as multipart requests (the server spools them before storing);
   importing directly from a server-side folder is not yet available.
-- No read-ID uniqueness check, adapter detection or duplication analysis.
+- No read-ID uniqueness check by ARVA; adapter detection and a duplication estimate come from fastp.
+- fastp's HTML report loads plotly.js from public CDNs; ARVA blocks external requests, so its charts
+  do not draw inside ARVA (tables do; the file can be downloaded).
+- The conda environment for macOS (`workflows/tool-adapters/environment.yml`) has not been run on a
+  Mac by the test suite; SeqKit is 2.8.2 there and is reported as not validated.
 - PDF export: print the HTML report from the browser; native PDF is planned.
 - No authentication: intended for single-user local use (bound to localhost).
 - CSV/Excel metadata import, sample tags/cohorts, project duplication/import/export and change
@@ -24,18 +46,12 @@ unit, API and end-to-end tests.
   the UI/report label DEMO projects. Synthetic example reads are provided in `examples/synthetic`.
 - Only FASTQ/FASTA(.gz) are accepted; other formats are listed in the Import screen as planned.
 
-## Phase 2 — Raw data and QC (next)
+## Next recommended step — Phase 3 (assembly)
 
-Recommended next step. Integrate real tools through the adapter pattern:
-
-1. Tool adapter framework (`workflows/tool-adapters/`): version detection, argument-vector commands,
-   container/Bioconda resolution with architecture checks.
-2. **SeqKit** stats and **NanoPlot** / **FastQC** reports attached to jobs; **MultiQC** per project.
-3. Filtering: **fastp** (Illumina) and **Filtlong** (long reads) with explicit, user-visible
-   parameters; before/after comparison charts; derived FASTQ stored as new files linked to their
-   parent and the job.
-4. Folder import from the server filesystem, CSV/Excel metadata import.
-5. POD5 detection and optional **Dorado** basecalling (CPU / Apple Metal where supported).
+Integrate Flye for long-read assembly through a new adapter (and Nextflow where multi-step), QUAST
+evaluation, contig statistics and plots, with the filtered or original reads selected explicitly by
+lineage. Before that, the small remaining Phase 2 items above (MultiQC, folder import, CSV metadata)
+can be added independently.
 
 ## Later phases
 

@@ -1,9 +1,8 @@
-# Workflows (Phase 3+)
+# Workflows
 
-- `nextflow/` — Nextflow DSL2 pipelines for multi-step analyses (assembly, annotation, batch runs).
-- `tool-adapters/` — one adapter per external tool: version detection, typed inputs/outputs,
-  parameters validated against the tool's official documentation, and commands built as argument
-  vectors (never shell strings). Each adapter execution is recorded as an `AnalysisJob`.
-
-Empty in v0.1.0: the only analysis so far (`arva-core.seqstats`) is implemented in
-`scientific-core/`. See `docs/developer-guide.md` for the integration checklist.
+- `tool-adapters/` — the `arva_tools` package: one adapter per external tool (SeqKit, FastQC, fastp,
+  Filtlong) with executable discovery, version detection and validation, argument-vector commands
+  (never shell strings), safe execution and output parsers. `environment.yml` installs the tools with
+  conda/mamba. See `docs/developer-guide.md` → "Integrating an external tool".
+- `nextflow/` — Nextflow DSL2 pipelines for multi-step analyses (assembly, annotation, batch runs);
+  planned for Phase 3.

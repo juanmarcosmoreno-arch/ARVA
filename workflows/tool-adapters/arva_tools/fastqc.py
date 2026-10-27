@@ -1,6 +1,6 @@
 """FastQC — per-file quality control report.
 
-Options verified against `fastqc --help` of FastQC v0.12.1.
+Options verified against `fastqc --help` of FastQC v0.12.1 and v0.11.9.
 FastQC's PASS/WARN/FAIL flags are heuristics designed for whole-genome
 shotgun Illumina libraries; ARVA reports them as FastQC's flags, not verdicts.
 """
@@ -29,7 +29,7 @@ class FastqcAdapter(ToolAdapter):
         input_formats=("fastq", "fastq.gz", "bam", "sam"),
         output_formats=("html", "zip"),
         min_version="0.11.0",
-        tested_versions=("0.12.1",),
+        tested_versions=("0.11.9", "0.12.1"),
         install={"conda": "bioconda::fastqc", "apt": "fastqc"},
     )
     version_pattern = re.compile(r"FastQC\s+v?(\d+\.\d+(?:\.\d+)?)")

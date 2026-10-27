@@ -53,6 +53,27 @@ scripts/dev.sh           # http://localhost:5173
 `scripts/dev.sh` starts three processes: the API (`uvicorn`, port 8000), the analysis worker and the
 Vite dev server (port 5173, proxying `/api` to the API).
 
+## External QC tools
+
+ARVA detects tools but never installs them. Without them, ARVA's own read statistics still work;
+SeqKit, FastQC, fastp and Filtlong features show as unavailable on the **Tools & Databases** page.
+
+- **Docker**: the API/worker image already contains them (Debian packages: SeqKit 2.3.0 binary,
+  FastQC 0.11.9, fastp 0.23.2, Filtlong 0.2.1 — all validated with ARVA).
+- **Ubuntu 24.04 / Debian**: `sudo apt install seqkit fastqc fastp filtlong`
+  (Ubuntu 24.04: SeqKit 2.3.0, FastQC 0.12.1, fastp 0.23.4, Filtlong 0.2.1 — validated).
+- **macOS (Apple Silicon or Intel) / any Linux with conda**:
+  ```bash
+  mamba env create -f workflows/tool-adapters/environment.yml
+  export ARVA_TOOLS_PATH="$(conda info --base)/envs/arva-tools/bin"
+  ```
+  This environment pins validated versions where Bioconda builds them for every platform; SeqKit is
+  2.8.2 because 2.3.x has no Apple Silicon build, and ARVA will mark it "version not validated". The
+  conda route has not yet been exercised on a Mac by the ARVA test suite.
+
+Resolution order for each tool: `ARVA_TOOL_<ID>` (absolute path, e.g. `ARVA_TOOL_FASTP`), then the
+folders in `ARVA_TOOLS_PATH`, then `PATH`. Re-detect from the Tools page after installing.
+
 ## Configuration
 
 Environment variables (prefix `ARVA_`), also read from `apps/api/.env`:
@@ -64,6 +85,10 @@ Environment variables (prefix `ARVA_`), also read from `apps/api/.env`:
 | `ARVA_STORAGE_ROOT` | `./data` | Raw files, results, reports, logs |
 | `ARVA_MAX_UPLOAD_SIZE_BYTES` | 20 GB | Per-file upload limit |
 | `ARVA_CORS_ORIGINS` | `["http://localhost:5173","http://localhost:4173"]` | Allowed web origins (JSON list) |
+| `ARVA_TOOLS_PATH` | — | Extra folders (`:`-separated) searched for external tools |
+| `ARVA_TOOL_<ID>` | — | Explicit executable for one tool (`SEQKIT`, `FASTQC`, `FASTP`, `FILTLONG`) |
+| `ARVA_TOOL_THREADS` | 4 | Maximum threads given to a tool run |
+| `ARVA_TOOL_TIMEOUT_SECONDS` | 43200 | A tool run is stopped after this time |
 
 ## Running tests
 
@@ -85,3 +110,5 @@ The API test suite **drops and recreates** the schema of the test database — n
 | macOS worker crashes with `objc[...] +[__NSCFConstantString initialize]` | Use the bundled worker script (it selects `SimpleWorker` on macOS) |
 | Upload rejected as duplicate | The identical file (same SHA-256) is already registered for that sample |
 | File marked *Unrecognised* | Content does not start with `@` (FASTQ) or `>` (FASTA) after decompression |
+| A tool shows *Not installed* | Install it (see above) or point `ARVA_TOOL_<ID>`/`ARVA_TOOLS_PATH` at it, then **Re-detect** |
+| fastp report shows tables but no charts inside ARVA | Expected: its charts load plotly.js from the internet, which ARVA blocks; ARVA's own comparison charts cover the same data, and the original report can be downloaded |
