@@ -10,13 +10,18 @@ comparison (metrics table and overlaid distributions); Tools & Databases page; G
 filtering, fastp, Filtlong, cross-check, FastQC flags and comparison; reports include processing
 steps with exact commands; Docker image ships the tools (Debian packages, amd64/arm64).
 
+Import paths and capacity: server-side folder import (`ARVA_IMPORT_ROOTS`, read-only sources, one
+background job per import with per-file results); bulk import on the project page with sample IDs
+inferred from Illumina/SRA/ONT file names; free-space checks (`ARVA_MIN_FREE_BYTES`, HTTP 507 before
+the body is received, per-file re-checks); notice when identical content exists in another sample.
+
 ### Still open from the original Phase 2 scope
 
 - **MultiQC** project-level aggregation: the Ubuntu 1.18 package produced reports missing a
   JavaScript asset in testing, so it was not integrated yet.
 - **NanoPlot** reports (ARVA already draws the equivalent long-read plots itself).
 - **POD5** detection and optional **Dorado** basecalling.
-- Import from a server-side folder; CSV/Excel metadata import.
+- CSV/Excel metadata import.
 
 ## Phase 1 — Foundation ✅ (v0.1.0)
 
@@ -30,8 +35,10 @@ unit, API and end-to-end tests.
 
 - Read statistics are computed by ARVA's own Python engine (≈ 7 Mbp/s short reads, ≈ 25 Mbp/s long
   reads on one core). Very large runs take minutes; SeqKit provides a much faster independent summary.
-- Uploads go through the browser as multipart requests (the server spools them before storing);
-  importing directly from a server-side folder is not yet available.
+- Browser uploads are multipart requests (the server spools them before storing); for very large
+  runs use server-folder import. Bulk import names samples from file names only: ONT output split
+  into many chunk files per barcode is proposed as one sample per chunk (folder names are not used
+  yet), so such barcodes are better imported from their sample page or a server folder.
 - No read-ID uniqueness check by ARVA; adapter detection and a duplication estimate come from fastp.
 - fastp's HTML report loads plotly.js from public CDNs; ARVA blocks external requests, so its charts
   do not draw inside ARVA (tables do; the file can be downloaded).
@@ -50,8 +57,8 @@ unit, API and end-to-end tests.
 
 Integrate Flye for long-read assembly through a new adapter (and Nextflow where multi-step), QUAST
 evaluation, contig statistics and plots, with the filtered or original reads selected explicitly by
-lineage. Before that, the small remaining Phase 2 items above (MultiQC, folder import, CSV metadata)
-can be added independently.
+lineage. Before that, the small remaining Phase 2 items above (MultiQC, CSV metadata) can be added
+independently.
 
 ## Later phases
 

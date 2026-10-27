@@ -5,6 +5,8 @@ detected at that moment) and executed by the worker.
 """
 from __future__ import annotations
 
+from pathlib import Path
+
 from arva_core.seqstats import TOOL_NAME, TOOL_VERSION
 from arva_tools import DetectedTool, ToolStatus
 from arva_tools.fastp import FastpParams
@@ -13,6 +15,7 @@ from arva_tools.registry import detect
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app import __version__
 from app.core.config import get_settings
 from app.models import AnalysisJob, JobStatus, RawFile, Sample
 from app.services.queue import get_queue
@@ -22,6 +25,8 @@ SEQKIT_JOB = "seqkit_stats"
 FASTQC_JOB = "fastqc"
 FASTP_JOB = "fastp"
 FILTLONG_JOB = "filtlong"
+SERVER_IMPORT_JOB = "server_import"
+SERVER_IMPORT_TOOL = "arva-import"
 
 
 class ToolUnavailableError(RuntimeError):
@@ -144,5 +149,26 @@ def create_filtlong_job(db: Session, sample: Sample, f: RawFile, params: Filtlon
     db.add(job)
     db.commit()
     _enqueue([job], run_filtlong_job)
+    db.refresh(job)
+    return job
+
+
+def create_server_import_job(db: Session, sample: Sample, root: Path, paths: list[str]) -> AnalysisJob:
+    """One job copies every selected file of a server folder into the sample."""
+    from app.tasks.server_import import run_server_import_job
+
+    job = AnalysisJob(
+        sample_id=sample.id,
+        job_type=SERVER_IMPORT_JOB,
+        tool_name=SERVER_IMPORT_TOOL,
+        tool_version=__version__,
+        parameters={"root": str(root), "paths": paths},
+        input_raw_file_ids=[],
+        status=JobStatus.pending,
+        log_text="",
+    )
+    db.add(job)
+    db.commit()
+    _enqueue([job], run_server_import_job)
     db.refresh(job)
     return job

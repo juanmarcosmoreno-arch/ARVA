@@ -1,6 +1,6 @@
 """API request/response schemas."""
 import datetime as dt
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -260,6 +260,47 @@ class UploadRejection(BaseModel):
 class UploadResult(BaseModel):
     files: list[RawFileRead]
     rejected: list[UploadRejection]
+
+
+# --- Storage capacity and server-folder import ----------------------------------
+
+class StorageCapacityRead(BaseModel):
+    storage_root: str
+    free_bytes: int
+    total_bytes: int
+    min_free_bytes: int
+    available_for_data_bytes: int
+
+
+class ImportRootRead(BaseModel):
+    index: int
+    name: str
+    path: str
+    exists: bool
+
+
+class ImportEntryRead(BaseModel):
+    name: str
+    path: str
+    type: Literal["dir", "file"]
+    size_bytes: int | None
+    kind: Literal["fastq", "fasta", "pod5", "other"]
+    modified_at: dt.datetime
+
+
+class ImportListingRead(BaseModel):
+    root: int
+    path: str
+    parent: str | None
+    entries: list[ImportEntryRead]
+    truncated: bool
+
+
+class ServerImportRequest(BaseModel):
+    root: int = Field(ge=0, description="Index of the import folder (GET /imports/roots)")
+    paths: list[Annotated[str, Field(min_length=1, max_length=4096)]] = Field(
+        min_length=1, max_length=500, description="File paths relative to the import folder"
+    )
 
 
 # --- Dashboard ----------------------------------------------------------------

@@ -7,6 +7,7 @@ from app.api.deps import raw_file_or_404, sample_or_404
 from app.db.session import get_db
 from app.models import RawFile
 from app.schemas.schemas import RawFileRead, UploadRejection, UploadResult
+from app.services.capacity import InsufficientStorageError
 from app.services.imports import DuplicateFileError, register_raw_file
 from app.storage import get_storage
 from app.storage.local import FileTooLargeError
@@ -28,8 +29,9 @@ def upload_files(
     for upload in files:
         name = upload.filename or "upload"
         try:
-            stored.append(register_raw_file(db, sample, name, upload.file))
-        except (DuplicateFileError, FileTooLargeError) as exc:
+            # Re-checked per file: the spooled request body may live on another filesystem.
+            stored.append(register_raw_file(db, sample, name, upload.file, expected_size=upload.size))
+        except (DuplicateFileError, FileTooLargeError, InsufficientStorageError) as exc:
             rejected.append(UploadRejection(filename=name, reason=str(exc)))
         finally:
             upload.file.close()

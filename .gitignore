@@ -19,6 +19,10 @@ dist/
 data/
 apps/api/data/
 
+# Server-side import folder (docker-compose mounts it read-only at /import)
+import/*
+!import/README.md
+
 # OS / editors
 .DS_Store
 .idea/

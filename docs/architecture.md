@@ -106,6 +106,11 @@ therefore do not draw inside ARVA, while its tables do, and the original file ca
 - API and web bind to `127.0.0.1` by default; nothing is exposed to the network.
 - Upload filenames cannot influence storage paths; resolution is checked against the root.
 - Originals are written once (`open(..., "xb")`), then chmod read-only.
+- Server-folder import (`app/services/import_roots.py`) only reads inside `ARVA_IMPORT_ROOTS`: paths
+  are root-relative, `..`/absolute/hidden names are refused, real paths are checked against the root
+  (symlinks leaving it are rejected), and sources are opened `O_RDONLY | O_NOFOLLOW` and never altered.
+- Uploads whose `Content-Length` exceeds the usable free space are answered with 507 by an ASGI
+  middleware before the body is read; each file is re-checked before it is stored.
 - User-supplied text is HTML-escaped in reports; the React UI never injects raw HTML from data.
 - External tools run from argument vectors only (no shell), with a credential-free environment,
   timeouts and process-group termination. User-supplied names appear in commands only inside

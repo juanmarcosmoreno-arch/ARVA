@@ -2,6 +2,7 @@
 from functools import lru_cache
 from pathlib import Path
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -27,6 +28,11 @@ class Settings(BaseSettings):
 
     # Upload limits
     max_upload_size_bytes: int = 20 * 1024 * 1024 * 1024  # 20 GB per file
+    # Uploads and imports must leave at least this much free space on the storage filesystem.
+    min_free_bytes: int = Field(default=1024 * 1024 * 1024, ge=0)
+
+    # Server folders that may be browsed and imported from (JSON list). Empty disables the feature.
+    import_roots: list[Path] = []
 
     # External tools
     tool_threads: int = 4

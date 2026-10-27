@@ -5,11 +5,14 @@ import type {
   DashboardSummary,
   FastpParams,
   FiltlongParams,
+  ImportListing,
+  ImportRoot,
   Project,
   ProjectInput,
   RawFile,
   Sample,
   SampleInput,
+  StorageCapacity,
   Tool,
   UploadResult,
 } from "./types";
@@ -91,6 +94,13 @@ export const api = {
 
   files: (sampleId: string) => request<RawFile[]>(`/samples/${sampleId}/files`),
   uploadFiles,
+
+  storage: () => request<StorageCapacity>("/system/storage"),
+  importRoots: () => request<ImportRoot[]>("/imports/roots"),
+  browseImport: (root: number, path: string) =>
+    request<ImportListing>(`/imports/browse?${new URLSearchParams({ root: String(root), path })}`),
+  importFromServer: (sampleId: string, body: { root: number; paths: string[] }) =>
+    request<AnalysisJob>(`/samples/${sampleId}/files/import-server`, json("POST", body)),
 
   startSequenceStats: (
     sampleId: string,

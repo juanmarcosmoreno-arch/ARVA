@@ -278,3 +278,42 @@ export interface DashboardSummary {
   recent_jobs: AnalysisJob[];
   recent_projects: Project[];
 }
+
+export interface StorageCapacity {
+  storage_root: string;
+  free_bytes: number;
+  total_bytes: number;
+  min_free_bytes: number;
+  available_for_data_bytes: number;
+}
+
+export interface ImportRoot {
+  index: number;
+  name: string;
+  path: string;
+  exists: boolean;
+}
+
+export type ImportEntryKind = "fastq" | "fasta" | "pod5" | "other";
+
+export interface ImportEntry {
+  name: string;
+  path: string;
+  type: "dir" | "file";
+  size_bytes: number | null;
+  kind: ImportEntryKind;
+  modified_at: string;
+}
+
+export interface ImportListing {
+  root: number;
+  path: string;
+  parent: string | null;
+  entries: ImportEntry[];
+  truncated: boolean;
+}
+
+export interface ServerImportSummary {
+  imported: { file_id: string; name: string; path: string; size_bytes: number }[];
+  rejected: { path: string; reason: string }[];
+}

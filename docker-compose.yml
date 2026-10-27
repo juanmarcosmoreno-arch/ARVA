@@ -7,6 +7,9 @@ x-arva-env: &arva-env
   ARVA_REDIS_URL: redis://redis:6379/0
   ARVA_STORAGE_ROOT: /data
   ARVA_CORS_ORIGINS: '["http://localhost:8080"]'
+  # Host folder mounted read-only at /import for server-side import (see import/README.md).
+  ARVA_IMPORT_ROOTS: '["/import"]'
+  ARVA_MIN_FREE_BYTES: ${ARVA_MIN_FREE_BYTES:-1073741824}
 
 services:
   postgres:
@@ -38,6 +41,7 @@ services:
     environment: *arva-env
     volumes:
       - ${ARVA_DATA_DIR:-arva-data}:/data
+      - ${ARVA_IMPORT_DIR:-./import}:/import:ro
     depends_on:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
@@ -55,6 +59,7 @@ services:
     environment: *arva-env
     volumes:
       - ${ARVA_DATA_DIR:-arva-data}:/data
+      - ${ARVA_IMPORT_DIR:-./import}:/import:ro
     depends_on:
       api: { condition: service_healthy }
     restart: unless-stopped

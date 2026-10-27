@@ -21,7 +21,7 @@ control**, **visual first**, **reproducibility** and **modularity**.
 | Capability | Details |
 |---|---|
 | Projects & samples | Create, edit, search; rich sample metadata (organism, host, origin, dates, technology, run, notes) |
-| Raw data import | Drag-and-drop files or folders; content-based FASTQ/FASTA + gzip detection; SHA-256 checksums; duplicate detection; R1/R2 recognition; originals stored read-only |
+| Raw data import | Drag-and-drop files or folders; bulk import with sample IDs inferred from file names; import from a server folder without the browser; free-space checks; content-based FASTQ/FASTA + gzip detection; SHA-256 checksums; duplicate detection; R1/R2 recognition; originals stored read-only |
 | Validation | Quick structural check at import; full record-by-record validation (with line numbers) during analysis |
 | Read statistics | Reads, bases, length distribution, N50/N90, GC, ambiguous bases, Phred quality (error-probability averaging), Q20/Q30, per-position quality, reads above quality thresholds, yield by length, optional depth estimate |
 | Visualisation | Six interactive figures (ECharts) with tooltips, table views and SVG/PNG export, light/dark |

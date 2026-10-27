@@ -27,7 +27,7 @@ import { useT } from "@/i18n";
 import { api } from "@/lib/api";
 import { fmtBases, fmtBytes, fmtDate, fmtDuration, fmtInt, fmtNum, formatLabel, technologyLabel } from "@/lib/format";
 import { lineageOrder } from "@/lib/filters";
-import { FILTER_JOBS, JOB_LABEL, basename, latestResults } from "@/lib/results";
+import { FILTER_JOBS, IMPORT_JOBS, JOB_LABEL, basename, latestResults } from "@/lib/results";
 import type { AnalysisJobDetail, RawFile, SequencingTechnology } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -50,8 +50,9 @@ export function SampleDetailPage() {
 
   const isActive = (j: AnalysisJobDetail) => j.status === "pending" || j.status === "running";
   const allJobs = jobs.data ?? [];
-  const qcJobs = allJobs.filter((j) => !FILTER_JOBS.has(j.job_type));
+  const qcJobs = allJobs.filter((j) => !FILTER_JOBS.has(j.job_type) && !IMPORT_JOBS.has(j.job_type));
   const filterJobs = allJobs.filter((j) => FILTER_JOBS.has(j.job_type));
+  const importing = allJobs.some((j) => IMPORT_JOBS.has(j.job_type) && isActive(j));
   const completed = qcJobs.filter((j) => j.status === "completed");
   const latestFailed = qcJobs[0]?.status === "failed";
   const [filterOpen, setFilterOpen] = useState(false);
@@ -67,8 +68,8 @@ export function SampleDetailPage() {
     {
       key: "raw",
       label: "Raw data",
-      state: files.data?.length ? "done" : "ready",
-      detail: files.data?.length ? `${files.data.length} file(s)` : "Import reads",
+      state: importing ? "running" : files.data?.length ? "done" : "ready",
+      detail: importing ? "Importing…" : files.data?.length ? `${files.data.length} file(s)` : "Import reads",
     },
     {
       key: "qc",
@@ -426,7 +427,7 @@ function QcTab({
   const [fileId, setFileId] = useState<string | null>(null);
   const currentId = fileId && results.has(fileId) ? fileId : withResults[0]?.id;
   const current = currentId ? results.get(currentId) : undefined;
-  const failed = jobs.filter((j) => j.status === "failed").slice(0, 3);
+  const failed = jobs.filter((j) => j.status === "failed" && !IMPORT_JOBS.has(j.job_type)).slice(0, 3);
 
   if (!current) {
     return (
@@ -589,7 +590,10 @@ function HistoryTab({ jobs, files, openJob }: { jobs: AnalysisJobDetail[]; files
                 <ChevronDown className={cn("h-4 w-4 shrink-0 text-muted-foreground transition", expanded && "rotate-180")} />
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-sm font-medium">
-                    {JOB_LABEL[j.job_type] ?? j.job_type} · {inputs.map((f) => f?.original_filename ?? "deleted file").join(", ")}
+                    {JOB_LABEL[j.job_type] ?? j.job_type} ·{" "}
+                    {IMPORT_JOBS.has(j.job_type)
+                      ? `${((j.parameters?.paths as string[] | undefined) ?? []).length} file(s) from ${String(j.parameters?.root ?? "")}`
+                      : inputs.map((f) => f?.original_filename ?? "deleted file").join(", ")}
                     {j.parent_job_id && <span className="ml-2 text-xs font-normal text-muted-foreground">(started automatically)</span>}
                   </div>
                   <div className="text-xs text-muted-foreground">

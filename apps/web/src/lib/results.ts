@@ -23,8 +23,10 @@ export const JOB_LABEL: Record<string, string> = {
   fastqc: "FastQC report",
   fastp: "Filtering (fastp)",
   filtlong: "Filtering (Filtlong)",
+  server_import: "Import from server folder",
 };
 
 export const FILTER_JOBS = new Set(["fastp", "filtlong"]);
+export const IMPORT_JOBS = new Set(["server_import"]);
 
 export const basename = (p: string) => p.split("/").pop() ?? p;

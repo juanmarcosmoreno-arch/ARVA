@@ -6,6 +6,7 @@
 **/*.egg-info
 data
 apps/api/data
+import
 .git
 dump.rdb
 docs/brand

@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.db.base import new_uuid
 from app.models import FileFormat, RawFile, Sample
+from app.services.capacity import ensure_space
 from app.storage import get_storage
 from app.storage.local import sanitize_filename
 
@@ -41,10 +42,36 @@ def _to_file_format(fmt: SequenceFormat, compressed: bool) -> FileFormat:
     return FileFormat.unknown
 
 
-def register_raw_file(db: Session, sample: Sample, filename: str, stream: BinaryIO) -> RawFile:
-    """Store an uploaded file immutably, checksum it, and record a quick validation."""
+def _same_content_elsewhere(db: Session, sample: Sample, sha256: str) -> tuple[str, str] | None:
+    """(sample code, filename) of the first file with this content in another sample of the project."""
+    row = db.execute(
+        select(Sample.sample_code, RawFile.original_filename)
+        .join(RawFile, RawFile.sample_id == Sample.id)
+        .where(
+            Sample.project_id == sample.project_id,
+            Sample.id != sample.id,
+            RawFile.checksum_sha256 == sha256,
+        )
+        .order_by(RawFile.uploaded_at)
+        .limit(1)
+    ).first()
+    return (row[0], row[1]) if row else None
+
+
+def register_raw_file(
+    db: Session,
+    sample: Sample,
+    filename: str,
+    stream: BinaryIO,
+    *,
+    expected_size: int | None = None,
+    description: str | None = None,
+) -> RawFile:
+    """Store a file immutably, checksum it, and record a quick validation."""
     settings = get_settings()
     storage = get_storage()
+    if expected_size is not None:
+        ensure_space(expected_size)
     file_id = new_uuid()
     safe_name = sanitize_filename(filename)
     rel = f"raw/{sample.project_id}/{sample.id}/{file_id}__{safe_name}"
@@ -60,6 +87,10 @@ def register_raw_file(db: Session, sample: Sample, filename: str, stream: Binary
         raise DuplicateFileError(duplicate)
 
     check = quick_validate(storage.resolve(rel))
+    message = check.message
+    twin = _same_content_elsewhere(db, sample, stored.sha256)
+    if twin is not None:
+        message += f" Note: identical content is already registered in sample {twin[0]} as {twin[1]}."
     raw = RawFile(
         id=file_id,
         sample_id=sample.id,
@@ -70,7 +101,8 @@ def register_raw_file(db: Session, sample: Sample, filename: str, stream: Binary
         size_bytes=stored.size_bytes,
         checksum_sha256=stored.sha256,
         is_valid=check.is_valid,
-        validation_message=check.message,
+        validation_message=message,
+        description=description,
     )
     db.add(raw)
     db.commit()

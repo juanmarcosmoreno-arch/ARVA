@@ -1,7 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { FlaskConical, Pencil, Plus, Trash2 } from "lucide-react";
+import { FlaskConical, Pencil, Plus, Trash2, UploadCloud } from "lucide-react";
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
+import { BulkImportDialog } from "@/components/domain/BulkImportDialog";
 import { ProjectFormDialog } from "@/components/domain/ProjectFormDialog";
 import { SampleFormDialog } from "@/components/domain/SampleForm";
 import { Badge } from "@/components/ui/badge";
@@ -21,6 +22,7 @@ export function ProjectDetailPage() {
   const qc = useQueryClient();
   const [editing, setEditing] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [bulk, setBulk] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const project = useQuery({ queryKey: ["project", projectId], queryFn: () => api.project(projectId) });
   const samples = useQuery({ queryKey: ["samples", projectId], queryFn: () => api.samples(projectId) });
@@ -59,6 +61,9 @@ export function ProjectDetailPage() {
             <Button variant="ghost" onClick={() => setConfirmDelete(true)} aria-label="Delete project">
               <Trash2 className="h-4 w-4" />
             </Button>
+            <Button variant="outline" onClick={() => setBulk(true)}>
+              <UploadCloud className="h-4 w-4" /> {t("bulk.button")}
+            </Button>
             <Button onClick={() => setCreating(true)}>
               <Plus className="h-4 w-4" /> {t("samples.new")}
             </Button>
@@ -85,6 +90,7 @@ export function ProjectDetailPage() {
 
       <ProjectFormDialog open={editing} onOpenChange={setEditing} project={p} />
       <SampleFormDialog open={creating} onOpenChange={setCreating} projectId={p.id} />
+      <BulkImportDialog open={bulk} onOpenChange={setBulk} projectId={p.id} samples={samples.data ?? []} />
       <Dialog open={confirmDelete} onOpenChange={setConfirmDelete} title="Delete project?">
         <p className="text-sm text-muted-foreground">
           This removes the project, its {p.sample_count} sample(s) and their analysis records from ARVA. Raw files already stored on disk are
