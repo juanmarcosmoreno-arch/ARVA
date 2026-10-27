@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "arva-core"
+version = "0.1.0"
+description = "ARVA scientific core: format detection, validation and sequence statistics"
+requires-python = ">=3.11"
+dependencies = ["numpy>=1.26"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.3"]
+
+[tool.setuptools.packages.find]
+include = ["arva_core*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
