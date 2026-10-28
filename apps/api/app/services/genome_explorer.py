@@ -9,6 +9,7 @@ profiles). Read depth or k-mer coverage reported by an assembler is per contig a
 from __future__ import annotations
 
 import hashlib
+import math
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -16,8 +17,10 @@ from typing import Any
 from arva_core.annotation import region_features, tool_contig
 from arva_core.formats import open_sequence_file
 from arva_core.genome_view import (
+    MAX_POINTS,
     auto_window,
     depth_points,
+    gc_counts,
     gc_fraction,
     gc_windows,
     protein_check,
@@ -35,8 +38,11 @@ from app.storage import get_storage
 MAX_SEQUENCE = 1_000_000
 MAX_LAYOUT_FEATURES = 50_000
 DEFAULT_POINTS = 1_000
+MAP_POINTS = 1_440
+REPORT_MAP_POINTS = 720
 LAYOUT_FIELDS = ("id", "locus_tag", "tool_id", "type", "start", "end", "strand", "length", "edge", "gene", "product",
                  "hypothetical", "pseudo", "partial")
+MAP_FIELDS = ("contig", *LAYOUT_FIELDS)
 
 
 # --- Sequences -----------------------------------------------------------------------------------------------
@@ -217,6 +223,64 @@ def layout(annotation: Annotation, name: str) -> dict[str, Any]:
                          f"{MAX_LAYOUT_FEATURES:,}")
     return {"contig": record["id"], "contig_in_assembly": record.get("original_id") or record["id"],
             "length": record["length"], "total": len(items), "items": items}
+
+
+def genome_map(db: Session, annotation: Annotation, names: list[str], points: int,
+               window: int | None) -> dict[str, Any]:
+    """What a circular map of the named sequences (default: all, in the annotator's order) draws: their features, GC
+    content and GC skew in windows of one length for every sequence (default: a 1-2-5 length giving about `points`
+    windows over all of them), and read depth in about the same windows where reads were aligned to exactly this
+    assembly."""
+    records = [] if names else list(annotation.sequences)
+    for name in names:
+        r = contig(annotation, name)
+        if r not in records:
+            records.append(r)
+    if not records:
+        raise LookupError("no sequences")
+    total = sum(r["length"] for r in records)
+    auto = window is None
+    window = window or auto_window(total, points)
+    windows = sum(-(-r["length"] // window) for r in records)
+    if windows > MAX_POINTS:
+        raise ValueError(f"{windows:,} windows of {window:,} bp (a map draws at most {MAX_POINTS:,}): use a larger "
+                         "window")
+    profile, coverage_source = depth_profile(db, annotation)
+    by_name = {c["name"]: c for c in profile["contigs"]} if profile is not None else {}
+    sequences, counts, source = [], [0, 0], None
+    for r in records:
+        seq, source = contig_sequence(annotation, r)
+        n = -(-r["length"] // window)
+        gc = gc_windows(seq, 0, r["length"], window, window, n)
+        g_c, acgt = gc_counts(seq)
+        counts[0] += g_c
+        counts[1] += acgt
+        assembly_name = r.get("original_id") or r["id"]
+        coverage: dict[str, Any] = {"available": False, "reason": coverage_source.get("reason")}
+        if profile is not None:
+            entry = by_name.get(assembly_name)
+            if entry is None or entry["length"] != r["length"]:
+                coverage = {"available": False, "reason": "contig_mismatch"}
+            else:
+                pts = depth_points(entry["sums"], entry["length"], profile["resolution"], 0, r["length"],
+                                   min(MAX_POINTS, max(1, math.ceil(r["length"] / max(window, profile["resolution"])))))
+                coverage = {"available": True, "contig_mean_depth": entry["mean_depth"],
+                            **{k: pts[k] for k in ("start", "end", "mean")}}
+        sequences.append({"contig": r["id"], "contig_in_assembly": assembly_name, "length": r["length"],
+                          "topology": r.get("topology"),
+                          "gc": {"contig_gc": round(g_c / acgt, 6) if acgt else None, **{k: gc[k] for k in ("start", "end", "gc", "skew")}},
+                          "coverage": coverage})
+    ids = {r["id"] for r in records}
+    items = [{k: f[k] for k in MAP_FIELDS} for f in annotation_svc.features_of(annotation) if f["contig"] in ids]
+    if len(items) > MAX_LAYOUT_FEATURES:
+        raise ValueError(f"{len(items):,} features on these sequences; a map draws at most {MAX_LAYOUT_FEATURES:,}")
+    available = any(s["coverage"]["available"] for s in sequences)
+    return {"total_length": total, "points": points, "sequence_source": source,
+            "gc": {"window": window, "step": window, "auto": auto,
+                   "genome_gc": round(counts[0] / counts[1], 6) if counts[1] else None},
+            "coverage": {"available": available, "reason": None if available else coverage_source.get("reason")
+                         or "contig_mismatch", "source": coverage_source if available else None},
+            "sequences": sequences, "total": len(items), "features": items}
 
 
 def region_ids(annotation: Annotation, name: str, start: int, end: int) -> list[int]:

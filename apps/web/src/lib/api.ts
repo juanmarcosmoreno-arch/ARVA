@@ -1,5 +1,6 @@
 import type {
   Annotation,
+  AnnotationCharts,
   AnnotationExportFormat,
   AnnotationFeatureDetail,
   AnnotationFeaturePage,
@@ -7,6 +8,7 @@ import type {
   AnnotationPlan,
   AnnotationRegion,
   FeatureLayout,
+  GenomeMap,
   GenomeSequence,
   GenomeTracks,
   BaktaRequest,
@@ -280,6 +282,17 @@ export const api = {
   },
   annotationFeature: (id: string, featureId: number) => request<AnnotationFeatureDetail>(`/annotations/${id}/features/${featureId}`),
   allAnnotations: () => request<AnnotationListRow[]>("/annotations"),
+  annotationMap: (id: string, q: { contigs: string[]; points: number }) => {
+    const params = new URLSearchParams({ points: String(q.points) });
+    for (const c of q.contigs) params.append("contig", c);
+    return request<GenomeMap>(`/annotations/${id}/map?${params}`);
+  },
+  annotationCharts: (id: string, q: { lengthBin?: number | null; window?: number | null } = {}) => {
+    const params = new URLSearchParams();
+    if (q.lengthBin) params.set("length_bin", String(q.lengthBin));
+    if (q.window) params.set("window", String(q.window));
+    return request<AnnotationCharts>(`/annotations/${id}/charts?${params}`);
+  },
   annotationLayout: (id: string, contig: string) => request<FeatureLayout>(`/annotations/${id}/layout?${new URLSearchParams({ contig })}`),
   annotationTracks: (id: string, q: { contig: string; start: number; end: number; bins: number; window: number | null; step: number | null }) => {
     const params = new URLSearchParams({ contig: q.contig, start: String(q.start), end: String(q.end), bins: String(q.bins) });

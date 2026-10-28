@@ -125,6 +125,16 @@
   sequence with the fields needed to draw it (at most 50,000); feature details add `checks` (the annotator's gene
   and protein sequences against the genome). Polishing jobs keep `comparison/{draft,polished}.depth_profile.json`
   (samtools depth summed in 25 bp bins; path and SHA-256 in `result_summary.indirect.{before,after}.depth_profile`).
+  `/map?contig=…&points=&window=` serves the circular map: the features of the chosen sequences (default all, in
+  the annotator's order; at most 50,000), GC and GC skew in windows of one length on every sequence (at most 5,000
+  windows) with the mean GC of the drawn sequences, and coverage per window when a depth profile exists. The web
+  draws it (`apps/web/src/lib/circular.ts` for the geometry, `components/explorer/CircularMap.tsx` for the SVG);
+  the HTML report draws a static copy server-side (`app/services/circular_svg.py`, every text escaped), since a
+  report is a single self-contained file. `GET /annotations/{id}/charts?length_bin=&window=` returns the numbers
+  behind the annotation charts (`arva_core.annotation_stats`: gene lengths, gene density per window, strand,
+  COG categories as reported, hypothetical and characterised CDS, features by type), computed from the feature
+  index on request rather than stored, so existing annotations get them and the definitions live in one place.
+  The sample report collects the same numbers (`charts`, `map` in the JSON; the map's SVG only in the HTML).
 - **QCResult**: structured output of a sequence-statistics job for one raw file. Headline metrics are
   indexed columns; the full payload is JSON (also written to `results/…/sequence_stats.json`).
 

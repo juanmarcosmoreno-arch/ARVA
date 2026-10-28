@@ -226,7 +226,7 @@ ends are polished less well, and Racon may trim them); the graph view draws at m
 Bandage) and does not draw a segment's link to itself; coverage, circularity and repeat flags are the
 assembler's own values.
 
-## Phase 4 — Annotation (in progress)
+## Phase 4 — Annotation ✅
 
 **4A Database Manager** ✅: catalogue with verified facts (Bakta database 6.0 light and full from Zenodo
 record 14916843; AMRFinderPlus and CheckM2 listed as planned, without numbers); download as a cancellable,
@@ -264,15 +264,42 @@ Exports: region FASTA (either strand, up to 1 Mb), the features overlapping a re
 of genes or proteins, TSV), and the view as SVG. API: `GET /annotations`, `/annotations/{id}/tracks`, `/sequence`,
 `/layout`, and region exports. Guide entries `genome_explorer` and `gc_skew` (EN/ES). `samtools depth` was run with
 samtools 1.19.2 (Ubuntu 24.04); the Docker image's samtools 1.16.1 was not run. Coverage exists only for polishing
-runs made from 4C on. Next: the circular view.
+runs made from 4C on.
+
+**4D Circular map, annotation charts, reports** ✅: the Genome Explorer's *Circular map* view (own SVG): rings for the
+sequence (with features that have no strand), genes on strand + and −, a custom ring (a feature type, pseudogenes or
+a text search), read coverage when it exists, GC content (difference from the mean of the drawn sequences) and GC
+skew, in windows of one length on every sequence; rings for AMR, virulence and mobile elements listed as available
+after Phase 5 and not drawn; ring toggles; all sequences on one circle or one circle per sequence side by side
+(chromosome and plasmids, up to six) with shared scales; tooltips from the angle and radius, click to open the same
+feature panel as the linear view and “Show in the linear view”; SVG and PNG export with the legend and a caption
+(sample, annotator, version, database; SYNTHETIC note) inside the figure; light and dark. Annotation charts in the
+Annotation tab (ChartCard: validated palette, table view, SVG/PNG): features by type, hypothetical against
+characterised CDS per sequence, gene length distribution by class, gene orientation (strand only: leading and lagging
+need the replication origin), gene density per window along each sequence, and COG categories as reported (named
+from NCBI COG 2020) or a statement that none were reported. API: `GET /annotations/{id}/map` and
+`/annotations/{id}/charts` (numbers from `arva_core.annotation_stats`). The sample HTML report gains the circular map
+as inline SVG (escaped names), a sequence table and the charts' numbers; the JSON report carries the same numbers
+(`charts`, `map`); the CSV report is unchanged. Guide entries `circular_map` and `annotation_charts` (EN/ES).
+
+### What Phase 4 leaves for later
+
+- **Bakta's CDS annotation is not validated here**: Ubuntu 24.04 lacks AMRFinderPlus ≥ 4.2.7 and has DIAMOND 2.1.9
+  (Bakta needs ≥ 2.2.0), so Bakta runs only its RNA and non-coding steps; Prokka is the validated CDS annotator. The
+  Docker image (Debian bookworm) has not been built or run in this phase.
+- **Phase 5**: AMRFinderPlus (and its database, with checksums, through the Database Manager), virulence (VFDB) and
+  mobile-element searches, which will fill the AMR, virulence and mobile-element rings of the circular map;
+  InterProScan for protein domains; MLST and species identification.
+- The circular map has no zoom (the linear view is for detail) and draws at most 50,000 features per map; contigs of a
+  draft assembly on one circle are in the annotator's order, not in genome order.
 
 ## Later phases
 
 | Phase | Scope |
 |---|---|
 | 3 ✅ | Assembly (Flye, SPAdes, Unicycler), QUAST, contig plots, GFA view, polishing (Racon, Pilon), job cancellation and Flye resume, batch QC; Medaka, Polypolish, Raven, Canu, MEGAHIT, BUSCO and CheckM2 not yet integrated (above) |
-| 4 | Annotation (Bakta; Prokka) ✅ 4A, 4B; Genome Explorer: linear ✅ 4C, circular next |
-| 5 | MLST, AMRFinderPlus, virulence (VFDB), BLAST, species identification (Mash/FastANI/Kraken2/GTDB-Tk) |
+| 4 ✅ | Database Manager, annotation (Bakta; Prokka), Genome Explorer (linear and circular), annotation charts and report section |
+| 5 | MLST, AMRFinderPlus (AMR ring), virulence (VFDB) and mobile elements (their rings), InterProScan, BLAST, species identification (Mash/FastANI/Kraken2/GTDB-Tk) |
 | 6 | Comparative genomics: ANI, synteny, dot plots, Genome Region Explorer |
 | 7 | Pangenome (Panaroo), alignments (MAFFT), phylogeny (IQ-TREE), Tree Explorer |
 | 8 | Workflow Builder (Nextflow DSL2), batch processing beyond QC (first step: batch QC, Phase 3), mobilome, variants, ARVA Discover, full reports, optional ARVA Assist, multi-user |

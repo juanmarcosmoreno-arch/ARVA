@@ -301,6 +301,21 @@ Prokka as unable to annotate there. The database volume is `ARVA_DB_DIR` (`/data
 `scripts/test-all.sh` uses `~/.arva-tools/bakta/bin/bakta` when it exists; the real Bakta tests use the light
 database at `ARVA_TEST_BAKTA_DB` (default `~/.arva-db/bakta-light/6.0`) and are skipped without it.
 
+**Disk space for annotation** (measured on the development system, 2026-10-28):
+
+| Item | Where | Size |
+|---|---|---|
+| Bakta 1.12.2 environment | `~/.arva-tools/bakta` (`ARVA_TOOL_BAKTA`) | 319 MB |
+| Distribution packages above (Bakta's programs and Prokka) | system | about 225 MB |
+| Prokka's indexed databases, per running job | the job's folder, removed after the run | about 150 MB |
+| Bakta light database 6.0 | `ARVA_DB_DIR/bakta-light/6.0` (here `ARVA_DB_DIR=~/.arva-db`) | 3,994,877,552 bytes in 47 files and a `latest` link (3.8 GB on disk); the 1,344,199,496-byte archive is needed while it downloads and is deleted after the checked unpacking |
+| Bakta full database 6.0 (not installed here) | `ARVA_DB_DIR/bakta-full/6.0` | 84 Gb unpacked (Bakta README), plus the 31,921,769,288-byte archive while downloading |
+
+Keep `ARVA_DB_DIR` outside the repository and outside `ARVA_STORAGE_ROOT` if the databases should survive a
+reset of the data folder; the API and the worker must see it at the same path. The Genome Explorer's linear and
+circular views, the annotation charts and the report's genome map need no further tools or databases: they are
+drawn by ARVA from the annotator's files.
+
 ### Optional: POD5 run metadata (pod5 library)
 
 ARVA recognises POD5 raw-signal files without any library. To read their run metadata (reads, signal

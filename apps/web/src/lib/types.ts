@@ -1974,3 +1974,89 @@ export interface FeatureQuery {
   limit: number;
   offset: number;
 }
+
+// --- Circular genome map ------------------------------------------------------------------------------------------
+
+export interface MapFeature extends FeatureLayoutItem {
+  contig: string;
+}
+
+export interface MapSequence {
+  contig: string;
+  contig_in_assembly: string;
+  length: number;
+  topology: string | null;
+  gc: { contig_gc: number | null; start: number[]; end: number[]; gc: (number | null)[]; skew: (number | null)[] };
+  coverage: { available: boolean; reason?: string | null; contig_mean_depth?: number | null; start: number[]; end: number[]; mean: (number | null)[] };
+}
+
+export interface GenomeMap {
+  total_length: number;
+  points: number;
+  sequence_source: { file: string; tool: string; sha256: string };
+  gc: { window: number; step: number; auto: boolean; genome_gc: number | null };
+  coverage: { available: boolean; reason: string | null; source: CoverageSource | null };
+  sequences: MapSequence[];
+  total: number;
+  features: MapFeature[];
+}
+
+// --- Annotation charts ---------------------------------------------------------------------------------------------
+
+export type LengthClass = "cds_characterised" | "cds_hypothetical" | "sorf" | "rna";
+
+export interface LengthStats {
+  n: number;
+  min: number | null;
+  median: number | null;
+  mean: number | null;
+  max: number | null;
+}
+
+export interface LengthBin extends Record<LengthClass, number> {
+  min: number;
+  max: number | null;
+}
+
+export interface DensityContig {
+  contig: string;
+  contig_in_assembly: string;
+  length: number;
+  start: number[];
+  end: number[];
+  forward: number[];
+  reverse: number[];
+  unstranded: number[];
+  total: number[];
+  genes: number;
+}
+
+export type StrandCounts = Record<"+" | "-" | ".", number>;
+
+export interface AnnotationCharts {
+  cds_searched: boolean;
+  genes: number;
+  lengths: { width: number | null; bins: LengthBin[]; classes: Record<LengthClass, LengthStats> };
+  density: { window: number; contigs: DensityContig[] };
+  strand: {
+    by_type: Record<string, StrandCounts>;
+    by_contig: ({ contig: string; contig_in_assembly: string } & StrandCounts)[];
+    total: StrandCounts;
+    replication_strand: "not_determined";
+  };
+  cog: {
+    cds_searched: boolean;
+    cds: number | null;
+    reported: boolean;
+    cds_with_category: number;
+    cds_with_cog_id: number;
+    categories: { letter: string; name: string | null; cds: number }[];
+    names_source: string;
+  };
+  hypothetical: {
+    cds_searched: boolean;
+    by_contig: { contig: string; contig_in_assembly: string; characterised: number; hypothetical: number }[];
+    total: { characterised: number; hypothetical: number } | null;
+  };
+  types: { types: string[]; total: Record<string, number>; by_contig: { contig: string; contig_in_assembly: string; counts: Record<string, number> }[] };
+}

@@ -89,7 +89,9 @@ export type GuideId =
   | "trna_rrna"
   | "cog"
   | "genome_explorer"
-  | "gc_skew";
+  | "gc_skew"
+  | "circular_map"
+  | "annotation_charts";
 
 const REF = {
   racon: { label: "Vaser, Sović, Nagarajan & Šikić (2017) Genome Research 27:737–746 — Racon (window consensus)", url: "https://doi.org/10.1101/gr.214270.116" },
@@ -229,6 +231,10 @@ const REF = {
   gff3: { label: "Sequence Ontology — GFF3 specification", url: "https://github.com/The-Sequence-Ontology/Specifications/blob/master/gff3.md" },
   lobry: { label: "Lobry JR (1996) Molecular Biology and Evolution 13:660–665 — Asymmetric substitution patterns in the two DNA strands of bacteria", url: "https://doi.org/10.1093/oxfordjournals.molbev.a025626" },
   grigoriev: { label: "Grigoriev A (1998) Nucleic Acids Research 26:2286–2290 — Analyzing genomes with cumulative skew diagrams", url: "https://doi.org/10.1093/nar/26.10.2286" },
+  cgview: { label: "Stothard & Wishart (2005) Bioinformatics 21:537–539 — Circular genome visualization and exploration using CGView", url: "https://doi.org/10.1093/bioinformatics/bti054" },
+  proksee: { label: "Grant et al. (2023) Nucleic Acids Research 51:W484–W492 — Proksee: characterization and visualization of bacterial genomes", url: "https://doi.org/10.1093/nar/gkad326" },
+  rocha: { label: "Rocha EPC (2008) Annual Review of Genetics 42:211–233 — The organization of the bacterial genome", url: "https://doi.org/10.1146/annurev.genet.42.110807.091653" },
+  cogFun: { label: "NCBI COG 2020: functional category letters and names (fun-20.tab)", url: "https://ftp.ncbi.nih.gov/pub/COG/COG2020/data/fun-20.tab" },
   igv: { label: "Robinson et al. (2011) Nature Biotechnology 29:24–26 — Integrative Genomics Viewer", url: "https://doi.org/10.1038/nbt.1754" },
   jbrowse: { label: "Buels et al. (2016) Genome Biology 17:66 — JBrowse: a dynamic web platform for genome visualization and analysis", url: "https://doi.org/10.1186/s13059-016-0924-1" },
   samtoolsDepth: { label: "samtools-depth manual page (htslib.org)", url: "https://www.htslib.org/doc/samtools-depth.html" },
@@ -1926,7 +1932,7 @@ export const GUIDE: GuideEntry[] = [
         "Comparing coverage from different alignments (draft vs polished, long vs short reads) as one track.",
         "Taking a feature's colour as its function: colours only group feature types.",
       ],
-      limitations: "Linear view only (a circular view is planned); one sequence at a time, without wrapping across the origin of circular sequences (a feature across the origin is drawn as two pieces). Coverage exists only for assemblies ARVA polished, and only for polishing runs made after depth profiles were introduced. On ARVA's synthetic test genomes nothing shown is biology.",
+      limitations: "The linear view shows one sequence at a time, without wrapping across the origin of circular sequences (a feature across the origin is drawn as two pieces); the circular map shows whole sequences side by side or on one circle. Coverage exists only for assemblies ARVA polished, and only for polishing runs made after depth profiles were introduced. On ARVA's synthetic test genomes nothing shown is biology.",
     },
     es: {
       title: "Genome Explorer",
@@ -1940,7 +1946,7 @@ export const GUIDE: GuideEntry[] = [
         "Comparar coberturas de alineamientos distintos (borrador frente a pulido, lecturas largas frente a cortas) como una sola pista.",
         "Tomar el color de un elemento por su función: los colores solo agrupan tipos de elementos.",
       ],
-      limitations: "Solo vista lineal (la vista circular está prevista); una secuencia cada vez, sin dar la vuelta por el origen de las secuencias circulares (un elemento que cruza el origen se dibuja en dos partes). Solo hay cobertura para ensamblajes que ARVA pulió, y solo para pulidos hechos después de introducir los perfiles de profundidad. En los genomas sintéticos de prueba de ARVA nada de lo mostrado es biología.",
+      limitations: "La vista lineal muestra una secuencia cada vez, sin dar la vuelta por el origen de las secuencias circulares (un elemento que cruza el origen se dibuja en dos partes); el mapa circular muestra secuencias completas una al lado de otra o en un círculo. Solo hay cobertura para ensamblajes que ARVA pulió, y solo para pulidos hechos después de introducir los perfiles de profundidad. En los genomas sintéticos de prueba de ARVA nada de lo mostrado es biología.",
     },
   },
   {
@@ -1973,6 +1979,70 @@ export const GUIDE: GuideEntry[] = [
         "Comparar sesgos calculados con tamaños de ventana distintos.",
       ],
       limitations: "ARVA muestra el sesgo por ventanas, no el acumulado, y no predice origen ni término. En los genomas sintéticos de ARVA la secuencia es aleatoria, así que no se espera ninguna señal de replicación.",
+    },
+  },
+  {
+    id: "circular_map",
+    references: [REF.cgview, REF.proksee, REF.lobry],
+    en: {
+      title: "Circular genome map",
+      what: "A map of whole annotated sequences as rings, from the outside in: the sequence itself (with features that have no strand, such as CRISPR arrays and assembly gaps), genes on strand +, genes on strand −, an optional ring of features you choose, read coverage where it exists, GC content and GC skew. All sequences can share one circle, or each can get its own circle side by side (chromosome and plasmids). Rings for antimicrobial resistance, virulence and mobile elements are listed but stay empty until Phase 5, when ARVA runs the searches that find them.",
+      why: "A whole replicon at a glance: how genes are spread over both strands, where RNA genes and gaps lie, regions of unusual composition and how the skew changes along the chromosome.",
+      how: "Positions run clockwise from 12 o'clock, from each sequence's first base. On one circle of several sequences, sequences follow the annotator's order with a small gap between them (all gaps together take at most a tenth of the circle). Genes are coloured by kind (protein-coding, hypothetical protein lighter, RNA gene, other element); neighbouring genes less than about a pixel apart are drawn as one arc, so a genome of thousands of genes stays readable; pointing at a ring finds the gene from the angle. GC content and GC skew use windows of one length on every sequence (a 1-2-5 length giving about 1,440 windows around the circle): GC bars go outward where a window is above the mean GC of the drawn sequences and inward below it; skew bars go outward where G > C and inward where C > G. Each ring's full height is stated in the legend. Coverage is the mean read depth per window from ARVA's polishing alignment to exactly these contigs. The legend and a caption with the sample, annotator, version and database are part of the saved SVG and PNG.",
+      interpret: "A circle does not say that a sequence is circular: the topology the assembler or Bakta reported is written in the centre and in the sequence list. On a complete circular chromosome, the skew changing sign at two roughly opposite points is consistent with the replication origin and terminus (Lobry 1996); on contigs of a draft assembly, sequences drawn next to each other are not known to be neighbours in the genome.",
+      next: "Click a gene to open its details, then “Show in the linear view” to see it base by base; use the custom ring to place, for example, all tRNAs, pseudogenes or genes whose product mentions a word.",
+      mistakes: [
+        "Reading the order of contigs around one circle as their order in the genome.",
+        "Comparing GC or skew bar heights between figures with different scales or windows: the legend gives both.",
+        "Reading an empty AMR, virulence or mobile-element ring as an absence: those searches have not run yet.",
+      ],
+      limitations: "No zoom: use the linear view for detail. Leading and lagging strand are not shown because ARVA does not locate the replication origin. On ARVA's synthetic test genomes nothing shown is biology.",
+    },
+    es: {
+      title: "Mapa circular del genoma",
+      what: "Un mapa de secuencias anotadas completas en anillos, de fuera hacia dentro: la propia secuencia (con los elementos sin hebra, como matrices CRISPR y huecos del ensamblaje), los genes de la hebra +, los de la hebra −, un anillo opcional con los elementos que elija, la cobertura de lecturas cuando existe, el contenido GC y el sesgo GC. Todas las secuencias pueden compartir un círculo o tener cada una el suyo, uno al lado de otro (cromosoma y plásmidos). Los anillos de resistencia a antimicrobianos, virulencia y elementos móviles aparecen en la lista pero quedan vacíos hasta la Fase 5, cuando ARVA ejecute las búsquedas que los detectan.",
+      why: "Un replicón completo de un vistazo: cómo se reparten los genes en las dos hebras, dónde están los genes de RNA y los huecos, las regiones de composición inusual y cómo cambia el sesgo a lo largo del cromosoma.",
+      how: "Las posiciones avanzan en el sentido de las agujas del reloj desde las 12, desde la primera base de cada secuencia. En un círculo de varias secuencias, estas siguen el orden del anotador con un pequeño hueco entre ellas (todos los huecos juntos ocupan como mucho una décima parte del círculo). Los genes se colorean por tipo (codificante de proteína, proteína hipotética más clara, gen de RNA, otro elemento); los genes vecinos a menos de un píxel se dibujan como un solo arco, para que un genoma de miles de genes siga siendo legible; al señalar un anillo, el gen se localiza a partir del ángulo. El contenido GC y el sesgo GC usan ventanas de una misma longitud en todas las secuencias (una longitud 1-2-5 que da unas 1.440 ventanas alrededor del círculo): las barras de GC van hacia fuera donde una ventana supera el GC medio de las secuencias dibujadas y hacia dentro donde queda por debajo; las de sesgo van hacia fuera donde G > C y hacia dentro donde C > G. La altura completa de cada anillo se indica en la leyenda. La cobertura es la profundidad media de lecturas por ventana del alineamiento de pulido de ARVA a estos mismos contigs. La leyenda y un pie con la muestra, el anotador, la versión y la base de datos forman parte del SVG y del PNG guardados.",
+      interpret: "Un círculo no dice que una secuencia sea circular: la topología que indicaron el ensamblador o Bakta se escribe en el centro y en la lista de secuencias. En un cromosoma circular completo, que el sesgo cambie de signo en dos puntos más o menos opuestos es compatible con el origen y el término de replicación (Lobry 1996); en los contigs de un ensamblaje borrador, que dos secuencias se dibujen juntas no significa que sean vecinas en el genoma.",
+      next: "Haga clic en un gen para abrir sus detalles y después en «Mostrar en la vista lineal» para verlo base a base; use el anillo personalizado para situar, por ejemplo, todos los tRNA, los pseudogenes o los genes cuyo producto contiene una palabra.",
+      mistakes: [
+        "Leer el orden de los contigs alrededor de un círculo como su orden en el genoma.",
+        "Comparar alturas de barras de GC o de sesgo entre figuras con escalas o ventanas distintas: la leyenda indica ambas.",
+        "Interpretar un anillo de resistencias, virulencia o elementos móviles vacío como una ausencia: esas búsquedas aún no se han ejecutado.",
+      ],
+      limitations: "Sin zoom: use la vista lineal para el detalle. No se muestran hebra adelantada y retrasada porque ARVA no localiza el origen de replicación. En los genomas sintéticos de prueba de ARVA nada de lo mostrado es biología.",
+    },
+  },
+  {
+    id: "annotation_charts",
+    references: [REF.rocha, REF.cogFun, REF.bakta, REF.prokka],
+    en: {
+      title: "Annotation charts",
+      what: "Counts of the annotator's features: by type; CDS with and without an assigned function (hypothetical); gene lengths; genes on each strand; genes per window along each sequence; and the COG functional categories the annotator reported.",
+      why: "They summarise an annotation in a few figures that can be compared between runs of the same annotator and database, and show where a result looks unusual (many hypothetical proteins, a sequence with few genes).",
+      how: "Genes are CDS, small ORFs, tRNA, tmRNA, rRNA and ncRNA genes (regulatory ncRNA regions, CRISPR arrays, origins and gaps are not genes). Lengths are the bases a gene spans, in 1-2-5 bins up to the 99th percentile, with longer genes in a last open bin. Gene density counts each gene once, in the window that holds its middle base; windows start at each sequence's first base and the last one may be shorter (shown with its length and left out of the summary). Strand is that of the sequence as written. COG categories are the letters the annotator reported for each CDS (a CDS with several counts in each), named as in NCBI's COG 2020 table; ARVA does not assign categories itself. Every chart has a table view and can be saved as SVG or PNG.",
+      interpret: "Hypothetical means no function was assigned, not that the gene is not real or not expressed. Bacterial genes are often more frequent on the leading strand of replication (Rocha 2008), but the strand here is that of the sequence as written, so a share of + genes away from one half says nothing without the origin.",
+      next: "Open a sequence with unusual density or many hypothetical proteins in the Genome Explorer; compare annotations of the same assembly made with different databases.",
+      mistakes: [
+        "Treating a step that was not run (shown as not available) as zero.",
+        "Comparing hypothetical shares between annotators or database types (the light Bakta database assigns fewer functions).",
+        "Reading COG categories as measured functions: they are transferred from orthologues.",
+      ],
+      limitations: "Counts describe predictions on the sequences as assembled; contig breaks split operons and can cut genes. On ARVA's synthetic genomes the counts describe the tools, not biology.",
+    },
+    es: {
+      title: "Gráficos de la anotación",
+      what: "Recuentos de los elementos del anotador: por tipo; CDS con y sin función asignada (hipotéticas); longitudes de los genes; genes en cada hebra; genes por ventana a lo largo de cada secuencia; y las categorías funcionales COG que indicó el anotador.",
+      why: "Resumen una anotación en pocas figuras que pueden compararse entre ejecuciones del mismo anotador y base de datos, y muestran dónde un resultado parece inusual (muchas proteínas hipotéticas, una secuencia con pocos genes).",
+      how: "Son genes las CDS, los ORF pequeños y los genes de tRNA, tmRNA, rRNA y ncRNA (las regiones reguladoras de ncRNA, las matrices CRISPR, los orígenes y los huecos no son genes). Las longitudes son las bases que abarca un gen, en intervalos 1-2-5 hasta el percentil 99, con los genes más largos en un último intervalo abierto. La densidad génica cuenta cada gen una vez, en la ventana que contiene su base central; las ventanas empiezan en la primera base de cada secuencia y la última puede ser más corta (se muestra con su longitud y se excluye del resumen). La hebra es la de la secuencia tal como está escrita. Las categorías COG son las letras que el anotador indicó para cada CDS (una CDS con varias cuenta en cada una), con los nombres de la tabla COG 2020 de NCBI; ARVA no asigna categorías por su cuenta. Todos los gráficos tienen vista de tabla y pueden guardarse como SVG o PNG.",
+      interpret: "Hipotética significa que no se asignó función, no que el gen no sea real o no se exprese. Los genes bacterianos suelen ser más frecuentes en la hebra adelantada de la replicación (Rocha 2008), pero aquí la hebra es la de la secuencia tal como está escrita, así que una proporción de genes + distinta de la mitad no dice nada sin el origen.",
+      next: "Abra en el Genome Explorer una secuencia con densidad inusual o muchas proteínas hipotéticas; compare anotaciones del mismo ensamblaje hechas con bases de datos distintas.",
+      mistakes: [
+        "Tomar como cero un paso que no se ejecutó (se muestra como no disponible).",
+        "Comparar proporciones de hipotéticas entre anotadores o tipos de base de datos (la base de datos light de Bakta asigna menos funciones).",
+        "Leer las categorías COG como funciones medidas: se transfieren de ortólogos.",
+      ],
+      limitations: "Los recuentos describen predicciones sobre las secuencias tal como se ensamblaron; las roturas entre contigs separan operones y pueden cortar genes. En los genomas sintéticos de ARVA los recuentos describen las herramientas, no biología.",
     },
   },
 ];

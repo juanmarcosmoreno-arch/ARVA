@@ -8,7 +8,12 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_or_404
 from app.db.session import get_db
 from app.models import Annotation, Sample
-from app.schemas.schemas import FeatureLayoutRead, GenomeSequenceRead, GenomeTracksRead
+from app.schemas.schemas import (
+    FeatureLayoutRead,
+    GenomeMapRead,
+    GenomeSequenceRead,
+    GenomeTracksRead,
+)
 from app.services import annotation as annotation_svc
 from app.services import genome_explorer as svc
 
@@ -77,3 +82,21 @@ def get_layout(annotation_id: str, contig: str = _Contig, db: Session = Depends(
     """Every feature of one annotated sequence with the fields needed to draw it (at most 50,000)."""
     annotation = get_or_404(db, Annotation, annotation_id, "Annotation")
     return _call(svc.layout, annotation, contig)
+
+
+@router.get("/annotations/{annotation_id}/map", response_model=GenomeMapRead)
+def get_map(
+    annotation_id: str,
+    contig: list[str] = Query(default=[], description="Sequences to draw, either name (repeat for several; default: "
+                              "all, in the annotator's order)"),
+    points: int = Query(default=svc.MAP_POINTS, ge=10, le=5000, description="About this many GC windows in all"),
+    window: int | None = Query(default=None, ge=1, le=10_000_000, description="GC window, bp, on every sequence "
+                               "(default: chosen for the number of points)"),
+    db: Session = Depends(get_db),
+):
+    """What the circular genome map draws: the features of the chosen sequences, their GC content and GC skew in
+    windows of one length, and read depth where reads were aligned to exactly this assembly (polishing)."""
+    annotation = get_or_404(db, Annotation, annotation_id, "Annotation")
+    if len(contig) > len(annotation.sequences) or any(not 1 <= len(c) <= 200 for c in contig):
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Name each sequence once, by either of its names")
+    return _call(svc.genome_map, db, annotation, contig, points, window)

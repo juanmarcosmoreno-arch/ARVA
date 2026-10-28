@@ -2,7 +2,6 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { ArrowDown, ArrowUp, ChevronLeft, ChevronRight, Download, Loader2, Map as MapIcon, Search } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { ChartCard } from "@/components/charts/ChartCard";
 import { MetricTile } from "@/components/domain/bits";
 import { Explain } from "@/components/guide/Explain";
 import { Badge } from "@/components/ui/badge";
@@ -16,6 +15,7 @@ import { api } from "@/lib/api";
 import { fmtBases, fmtBytes, fmtDate, fmtInt, fmtNum } from "@/lib/format";
 import type { Annotation, AnnotationExportFormat, AnnotationFeature, AnalysisJobDetail, FeatureQuery } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { AnnotationChartsPanel } from "./AnnotationCharts";
 import { StepIcon, SyntheticNote } from "./AnnotationDialog";
 import { FeatureDetail, typeLabel } from "./FeatureDetail";
 
@@ -52,6 +52,9 @@ export function AnnotationCard({ annotation, job }: { annotation: Annotation; jo
             >
               <MapIcon className="h-3.5 w-3.5" aria-hidden /> {t("explorer.open")}
             </Link>
+            <Link to={`/explorer/${a.id}?view=circular`} className="inline-flex h-8 items-center gap-1.5 rounded-lg border px-3 text-xs font-medium hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+              {t("circular.view.circular")}
+            </Link>
             <Downloads annotation={a} />
           </span>
         }
@@ -79,7 +82,7 @@ export function AnnotationCard({ annotation, job }: { annotation: Annotation; jo
           />
         </div>
         <StepsList annotation={a} />
-        <FeatureCharts annotation={a} />
+        <AnnotationChartsPanel annotation={a} />
         <FeatureTable annotation={a} />
         {a.files.plot_png && (
           <figure className="space-y-1">
@@ -124,49 +127,6 @@ function StepsList({ annotation }: { annotation: Annotation }) {
         })}
       </ul>
     </section>
-  );
-}
-
-function FeatureCharts({ annotation }: { annotation: Annotation }) {
-  const t = useT();
-  const counts = annotation.summary.counts;
-  const types = FEATURE_TYPES.filter((k) => counts[k]);
-  const cats = Object.entries(annotation.summary.cog_categories ?? {});
-  if (!types.length) return null;
-  return (
-    <div className={cn("grid gap-4", cats.length && "lg:grid-cols-2")}>
-      <ChartCard
-        title={t("annotation.chart.types")}
-        subtitle={t("annotation.chart.typesSub")}
-        filePrefix={`arva_${annotation.tool.toLowerCase()}`}
-        height={240}
-        option={{
-          grid: { left: 110, right: 24, top: 8, bottom: 32 },
-          xAxis: { type: "value", name: t("annotation.chart.features"), nameLocation: "middle", nameGap: 24 },
-          yAxis: { type: "category", data: types.map((k) => typeLabel(t, k)), inverse: true },
-          tooltip: { trigger: "axis" },
-          series: [{ type: "bar", data: types.map((k) => counts[k]), itemStyle: { color: "#1F3B8A" } }],
-        }}
-        table={{ columns: [t("annotation.col.type"), t("annotation.chart.features")], rows: types.map((k) => [typeLabel(t, k), counts[k]]) }}
-      />
-      {cats.length > 0 && (
-        <ChartCard
-          title={t("annotation.chart.cog")}
-          subtitle={t("annotation.chart.cogSub")}
-          explain="cog"
-          filePrefix={`arva_${annotation.tool.toLowerCase()}`}
-          height={240}
-          option={{
-            grid: { left: 40, right: 24, top: 8, bottom: 32 },
-            xAxis: { type: "category", data: cats.map(([c]) => c) },
-            yAxis: { type: "value", name: "CDS" },
-            tooltip: { trigger: "axis" },
-            series: [{ type: "bar", data: cats.map(([, n]) => n), itemStyle: { color: "#00B4A6" } }],
-          }}
-          table={{ columns: ["COG", "CDS"], rows: cats.map(([c, n]) => [c, n]) }}
-        />
-      )}
-    </div>
   );
 }
 

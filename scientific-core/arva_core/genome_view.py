@@ -144,11 +144,16 @@ def gc_windows(seq: bytes, start: int, end: int, window: int, step: int, max_poi
             "skew": _values(sk_mean), "skew_min": _values(sk_min), "skew_max": _values(sk_max)}
 
 
+def gc_counts(seq: bytes) -> tuple[int, int]:
+    """(G + C, A + C + G + T) of the whole sequence, in either case."""
+    counts = np.bincount(_CLASS[np.frombuffer(seq, dtype=np.uint8)], minlength=4)
+    return int(counts[1] + counts[2]), int(counts[1:].sum())
+
+
 def gc_fraction(seq: bytes) -> float | None:
     """(G + C) / (A + C + G + T) of the whole sequence, None without unambiguous bases."""
-    counts = np.bincount(_CLASS[np.frombuffer(seq, dtype=np.uint8)], minlength=4)
-    acgt = int(counts[1:].sum())
-    return round(int(counts[1] + counts[2]) / acgt, 6) if acgt else None
+    gc, acgt = gc_counts(seq)
+    return round(gc / acgt, 6) if acgt else None
 
 
 # --- Sequence slices and proteins -------------------------------------------------------------------------------

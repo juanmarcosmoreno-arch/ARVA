@@ -1295,8 +1295,103 @@ Coordinates are 1-based and inclusive, as in GFF3.
   on the ruler can be saved as FASTA of either strand (from the annotator's sequence file, header with the
   coordinates, strand, sample and annotation) or as the features that overlap it — whole features, cut from the
   annotator's files (GFF3, FASTA of genes or proteins) or ARVA's TSV; genes marked one by one export the same way.
-- **Limits.** Linear view only (circular view planned); one sequence at a time; at most 50,000 features per sequence
-  in the layout. On ARVA's synthetic genomes nothing the explorer shows is biology.
+- **Limits.** The linear view shows one sequence at a time; at most 50,000 features per sequence in the layout. On
+  ARVA's synthetic genomes nothing the explorer shows is biology.
+
+## Circular genome map and annotation charts (Phase 4D)
+
+### Circular map
+
+The Genome Explorer's second view (`apps/web/src/lib/circular.ts`, `components/explorer/CircularMap.tsx`; data from
+`GET /annotations/{id}/map`, `app/services/genome_explorer.genome_map`; the report's static copy in
+`app/services/circular_svg.py`).
+
+- **Geometry.** Angles run clockwise from 12 o'clock. Each sequence starts at its first base; on one circle of several
+  sequences they follow the annotator's order, separated by gaps of 0.02 rad (all gaps together at most a tenth of
+  the circle, so hundreds of contigs still leave room for sequence), with the circle's top in the middle of a gap.
+  A feature across the origin of a circular sequence (start > end) is two arcs, start..end of its sequence and
+  1..end, at both ends of its own sequence's segment; on a circle of one sequence they meet at the top. Every
+  sequence is drawn on a circle whatever its topology, which is stated separately (Bakta's, else the assembler's
+  flag); on a draft assembly, contigs drawn next to each other are not known to be neighbours.
+- **Rings** (outside in): the sequence (alternating shades between sequences, with features that have no strand —
+  CRISPR arrays, gaps — drawn on it); genes on strand +; genes on strand −; an optional custom ring (features of one
+  type, pseudogenes, or features whose locus tag, ID, gene or product contains a text); read coverage, when an
+  alignment to exactly these contigs exists (as in 4C); GC content; GC skew. Rings for antimicrobial resistance,
+  virulence factors and mobile genetic elements are listed and disabled with the explanation that the searches come
+  in Phase 5; they are never filled from product names. Rings can be switched off; the remaining rings share the space.
+- **Genes.** Coloured as in the linear view (protein-coding, RNA genes, other elements: the first three validated
+  palette slots; gaps neutral), hypothetical proteins at 40 % opacity of the protein-coding colour. Per ring and kind,
+  arcs are widened to at least 0.9 px and arcs of the same sequence closer than 0.6 px are merged into one sector, so
+  a genome of thousands of genes is a few hundred sectors; this level of detail is also why a 5 Mb chromosome (about
+  2.6 kb per pixel at a 300 px radius) is not drawn gene by gene. Pointing at a ring finds the feature from the
+  angle and radius (within 3 px), not from drawn elements.
+- **GC content and GC skew.** As defined for the explorer (4C), in windows of one length on every sequence: by
+  default the smallest 1-2-5 length (at least 20 bp) giving at most about 1,440 windows around the whole circle
+  (720 in the report's figure and for each of several circles side by side); a window at the end of a sequence is
+  cut there. GC bars go outward where a window's GC is above the mean GC of the drawn sequences ((G + C) / (A + C +
+  G + T) over all their bases) and inward below it, scaled so the largest difference fills half the ring; skew bars
+  go outward (blue) where G > C and inward (red) where C > G, scaled to the largest absolute skew (at least 0.05).
+  Circles side by side share these scales; the legend states the window, the mean and each full height.
+- **Coverage.** The mean read depth of the polishing alignment's 25 bp bins grouped into about the GC window, from 0
+  to the largest window mean.
+- **Export.** SVG and PNG (3×) of the whole figure, with the legend and a caption (sample, annotator and version,
+  database, "features are the annotator's predictions", SYNTHETIC note) inside it. Text in the SVG comes from
+  sequence and feature names and is set as text nodes (escaped in the report's figure).
+
+### Annotation charts
+
+`arva_core.annotation_stats`, `GET /annotations/{id}/charts`, shown in the Annotation tab and as numbers in the
+reports. All count the annotator's features; a chart whose step did not run (CDS not searched) says so instead of
+drawing zeros.
+
+- **Genes** are features of type CDS, sORF, tRNA, tmRNA, rRNA and ncRNA (regulatory ncRNA regions, CRISPR arrays,
+  origins and gaps are not genes), as in the explorer's intergenic definition.
+- **Features by type** and, per sequence, the same counts.
+- **Hypothetical and characterised CDS**, per sequence and in total. *Hypothetical* is the annotator's call: the CDS
+  has no function assigned (product "hypothetical protein"). *Characterised* means only that the annotator gave
+  another product, transferred from a database match; it is still a prediction.
+- **Gene length distribution** by class (characterised CDS, hypothetical CDS, RNA genes, small ORFs). A gene's length
+  is the bases it spans (both parts for a gene across the origin). Bins of a 1-2-5 width (at least 10 bp) giving about
+  40 bins up to the 99th percentile of the lengths (nearest rank); longer genes go to a last, open bin, so one very
+  long gene does not compress the rest. The width can be chosen. Each class's n, minimum, median, mean and maximum are
+  given.
+- **Gene orientation**: genes per strand of the sequence as written, per type and per sequence. Leading and lagging
+  strand are not computed: they need the replication origin and terminus, which ARVA does not locate.
+- **Gene density**: genes per window along each sequence, by strand. Windows of a 1-2-5 length giving the longest
+  sequence about 100 windows, at least 1 kb (or a chosen length), on a grid from each sequence's first base; a gene
+  counts once, in the window that holds its middle base (for an even length, the base before the middle; for a gene
+  across the origin, along the gene). The last window of a sequence is shorter when the length is not a multiple of
+  the window; it is shown with its length and left out of the min/median/max summary.
+- **COG functional categories**: CDS per category letter the annotator reported (`COG:` cross-references with
+  letters; a CDS with several letters counts in each), in the order of NCBI's COG 2020 table, with the names from
+  that table (`fun-20.tab`, retrieved 2026-10-28 from `https://ftp.ncbi.nih.gov/pub/COG/COG2020/data/fun-20.tab`;
+  26 letters, English names shown in both languages). ARVA does not map COG identifiers to categories: Prokka reports
+  COG identifiers without categories, so for Prokka the chart states that no categories were reported and how many
+  CDS carry an identifier.
+- **Palette and form.** Single-series charts use the primary slot; series keep a fixed slot (characterised 1,
+  hypothetical 2, RNA genes 3, small ORFs 4; strand + 1, strand − 2, no strand 3), so the common case uses the first
+  three validated slots. Every chart has a table view and SVG/PNG export.
+
+### Reports
+
+The sample's HTML report adds, per annotation, the circular map as inline SVG (sequence names escaped), a table of
+the sequences (length, GC, topology and who reported it, genes, CDS, hypothetical share), and the charts' numbers:
+gene lengths per class with a histogram, gene orientation per type, gene density per sequence (with a chart for the
+longest sequence) and the COG categories or the statement that none were reported. When the annotation's features
+or sequence file are missing, the report says which figure could not be drawn and why. The JSON report carries the
+same numbers (`charts`, and `map` with the window, mean GC, coverage availability and each sequence's length, GC
+and topology), without the drawing; the CSV report is unchanged.
+
+### Validation
+
+`scientific-core/tests/test_annotation_stats.py` checks every count against hand-worked values (middle bases across
+the origin, open last bins, shorter last windows, strand and COG counts); `apps/api/tests/test_annotation_charts_api.py`
+checks the numbers on Prokka's real output for the synthetic genome (18 CDS, 3 characterised, 15 hypothetical; 13
+genes on strand +, 7 on −; COG identifiers but no categories) and the report's figure, tables and escaping;
+`test_genome_explorer_api.py` checks the map's windows against counts of the bases, the mean GC and the coverage
+windows; `apps/web/src/test/circular.test.tsx` checks the ring geometry (angles, arc flags, whole rings, features
+across the origin, merging, hit-testing, scales, ticks) and the chart helpers. On ARVA's synthetic genomes these
+figures describe the tools, not biology.
 
 ## What ARVA does not do yet
 

@@ -15,8 +15,10 @@ from sqlalchemy.orm import Session
 
 from app import __version__ as ARVA_VERSION
 from app.models import AnalysisJob, Annotation, Assembly, JobStatus, RawFile, Sample
-from app.services import crosscheck, qc_data
+from app.services import annotation as annotation_svc
+from app.services import crosscheck, genome_explorer, qc_data
 from app.services.annotation import describe_step
+from app.services.circular_svg import circular_map_svg
 from app.services.jobs import (
     FASTP_JOB,
     FASTQ_STATS_JOB,
@@ -73,6 +75,10 @@ ANNOTATION_LIMITATIONS = [
     "Coding density here is ARVA's: bases inside CDS (overlaps once) over non-N bases. Bakta's own 'coding ratio' "
     "counts every feature, gaps included, and is shown separately.",
     "Results on SYNTHETIC test data describe how the tools behave on that data, not any organism.",
+    "The circular map draws every sequence on a circle whatever its topology (given in the sequence table); "
+    "contigs of a draft assembly drawn next to each other are not known to be neighbours in the genome.",
+    "Strand counts are of the sequences as written: leading and lagging strand need the replication origin and "
+    "terminus, which ARVA does not locate. COG categories are shown only as the annotator reported them.",
 ]
 COVERAGE_LABELS = {"read_depth": "mean read depth", "kmer_coverage": "k-mer coverage",
                    "relative_depth": "relative depth", "mapped_read_depth": "mean depth of mapped polishing reads"}
@@ -278,6 +284,7 @@ def _annotations(db: Session, sample: Sample) -> list[dict[str, Any]]:
         job = db.get(AnalysisJob, a.job_id)
         params = {k: v for k, v in (a.parameters or {}).items() if k not in ("assembly",)}
         out.append({
+            **_annotation_figures(db, sample, a),
             "id": a.id, "assembly_id": a.assembly_id, "assembly": (a.parameters or {}).get("assembly"),
             "tool": a.tool, "tool_version": a.tool_version, "created_at": a.created_at.isoformat(),
             "database": {"key": a.database_key, "name": a.database_name, "version": a.database_version,
@@ -296,6 +303,49 @@ def _annotations(db: Session, sample: Sample) -> list[dict[str, Any]]:
             },
         })
     return out
+
+
+def _annotation_figures(db: Session, sample: Sample, a: Annotation) -> dict[str, Any]:
+    """The charts' numbers and the circular map (its summary for JSON, its SVG for HTML) of one annotation; when the
+    annotation's files are missing, why there are none."""
+    out: dict[str, Any] = {"charts": None, "map": None, "map_svg": None, "figures_unavailable": []}
+    try:
+        out["charts"] = annotation_svc.charts(a)
+    except (FileNotFoundError, ValueError) as exc:
+        out["figures_unavailable"].append(f"charts: {exc}")
+    try:
+        m = genome_explorer.genome_map(db, a, [], genome_explorer.REPORT_MAP_POINTS, None)
+    except (LookupError, FileNotFoundError, ValueError) as exc:
+        out["figures_unavailable"].append(f"circular map: {exc}")
+        return out
+    assembly = db.get(Assembly, a.assembly_id)
+    circular = {c["name"]: c.get("circular") for c in (assembly.contigs if assembly else [])}
+    by_id = {s["id"]: s for s in a.sequences}
+    out["map"] = {
+        "gc_window": m["gc"]["window"], "genome_gc": m["gc"]["genome_gc"], "features": m["total"],
+        "coverage": {k: v for k, v in m["coverage"].items() if k != "source"}
+        | {"job_id": (m["coverage"]["source"] or {}).get("job_id")},
+        "sequences": [{"contig": s["contig"], "contig_in_assembly": s["contig_in_assembly"], "length": s["length"],
+                       "gc": s["gc"]["contig_gc"], **_topology(by_id.get(s["contig"], {}), circular, a, assembly),
+                       "mean_depth": s["coverage"].get("contig_mean_depth")} for s in m["sequences"]],
+    }
+    db_name = " ".join(x for x in (a.database_name, a.database_version) if x) or "the annotator's own"
+    caption = (f"{sample.sample_code} · {a.tool} {a.tool_version} · database: {db_name} · features are the "
+               f"annotator's predictions · drawn by ARVA {ARVA_VERSION}")
+    out["map_svg"] = circular_map_svg(m, sample.sample_code, caption,
+                                      bool((a.summary or {}).get("synthetic_evidence")))
+    return out
+
+
+def _topology(record: dict[str, Any], circular: dict[str, bool | None], a: Annotation,
+              assembly: Assembly | None) -> dict[str, Any]:
+    """The topology the annotator reported for a sequence, else the assembler's circularity flag, with its source."""
+    if record.get("topology") in ("circular", "linear"):
+        return {"topology": record["topology"], "topology_source": a.tool}
+    flag = circular.get(record.get("original_id") or record.get("id"))
+    if flag is None:
+        return {"topology": None, "topology_source": None}
+    return {"topology": "circular" if flag else "linear", "topology_source": assembly.assembler if assembly else None}
 
 
 def _polishing(job: AnalysisJob) -> dict[str, Any] | None:
@@ -716,7 +766,9 @@ def render_csv(data: dict[str, Any]) -> str:
 
 
 def render_json(data: dict[str, Any]) -> str:
-    return json.dumps(data, indent=2)
+    """Everything collected, except the map drawing (the HTML report's figure; its numbers are under "map")."""
+    annotations = [{k: v for k, v in a.items() if k != "map_svg"} for a in data.get("annotations", [])]
+    return json.dumps({**data, "annotations": annotations}, indent=2)
 
 
 # --- HTML ---------------------------------------------------------------------
@@ -865,6 +917,12 @@ _ANNOTATION_METHODS = (
     "annotator's own skip options for steps that could not run. The annotators' files are kept unchanged; ARVA's "
     "feature index, counts and coding density (CDS bases over non-N bases) are computed from them, and links are "
     "made only for identifiers the annotator reported.</p>"
+    "<p>The genome map and the charts count the annotator's features (arva_core.annotation_stats). The map draws the "
+    "sequences in the annotator's order clockwise from the top, with GC content ((G + C) / (A + C + G + T)) and GC "
+    "skew ((G − C) / (G + C)) in windows of one length on every sequence, GC as the difference from the mean of the "
+    "drawn sequences. Gene lengths are binned up to the 99th percentile (longer genes in a last open bin); gene "
+    "density counts each gene once, in the window holding its middle base; COG category names are those of NCBI's "
+    "COG 2020 release (fun-20.tab).</p>"
 )
 
 _HEADER_FIELDS = (
@@ -1141,6 +1199,7 @@ def _annotation_html(data: dict[str, Any]) -> str:
             f"<p class='muted'>Annotation <code>{escape(a['id'])}</code> of assembly <code>{escape(a['assembly_id'])}"
             f"</code> · created {escape(a['created_at'])}</p>{synthetic}"
             f"<table>{table}</table><h4>Steps</h4><ul>{steps}</ul>"
+            + _annotation_figures_html(a)
             + "<table>"
             + f"<tr><th>Database</th><td>{escape(db['name'] or 'none')} {escape(db['version'] or '')}"
             + (f"<br>Content checksum <code>{escape(db['checksum'])}</code>" if db["checksum"] else "") + "</td></tr>"
@@ -1154,6 +1213,109 @@ def _annotation_html(data: dict[str, Any]) -> str:
     return ("<h2>Annotation</h2><p>Features are the annotators' predictions; counts are ARVA's counts of the features "
             "each annotator reported. Steps that were not searched are listed with the reason.</p>"
             + "".join(sections))
+
+
+_LENGTH_CLASS_LABELS = (("cds_characterised", "CDS, characterised"), ("cds_hypothetical", "CDS, hypothetical"),
+                        ("rna", "RNA genes"), ("sorf", "Small ORFs"))
+_STRAND_LABELS = (("+", "Strand +"), ("-", "Strand −"), (".", "No strand"))
+
+
+def _pct(part: float, whole: float) -> str:
+    return f"{100 * part / whole:.1f} %" if whole else "—"
+
+
+def _grid(head: list[str], rows: list[list[Any]]) -> str:
+    cells = "".join("<tr>" + "".join(f"<td>{escape(_fmt_value(v))}</td>" for v in r) + "</tr>" for r in rows)
+    return "<table class='grid'><tr>" + "".join(f"<th>{escape(h)}</th>" for h in head) + f"</tr>{cells}</table>"
+
+
+def _annotation_figures_html(a: dict[str, Any]) -> str:
+    """The circular map and the numbers behind the annotation charts, or why they are missing."""
+    out = []
+    missing = "".join(f"<li>{escape(x)}</li>" for x in a.get("figures_unavailable") or [])
+    if missing:
+        out.append(f"<p class='warn'>Not drawn:</p><ul>{missing}</ul>")
+    m, c = a.get("map"), a.get("charts")
+    if a.get("map_svg") and m:
+        cov = m["coverage"]
+        out.append("<h4>Genome map</h4><figure class='map'>" + a["map_svg"] + "<figcaption class='muted'>Rings from "
+                   "the outside in: sequence, genes on strand +, genes on strand −"
+                   + (", read coverage" if cov["available"] else "") + ", GC content, GC skew. GC in windows of "
+                   f"{m['gc_window']:,} bp on every sequence. Positions run clockwise from the top. "
+                   + ("" if cov["available"] else f"No coverage ring: {escape(cov.get('reason') or 'no alignment')}. ")
+                   + "Rings for resistance, virulence and mobile elements come with Phase 5.</figcaption></figure>")
+        genes = {d["contig"]: d["genes"] for d in (c or {}).get("density", {}).get("contigs", [])}
+        hypo = {h["contig"]: h for h in ((c or {}).get("hypothetical") or {}).get("by_contig", [])}
+        rows = []
+        for s in m["sequences"]:
+            h = hypo.get(s["contig"])
+            topo = f"{s['topology']} ({s['topology_source']})" if s["topology"] else "not reported"
+            rows.append([s["contig_in_assembly"], s["length"], "—" if s["gc"] is None else f"{100 * s['gc']:.2f} %",
+                         topo, genes.get(s["contig"], 0),
+                         "—" if h is None else h["characterised"] + h["hypothetical"],
+                         "—" if h is None else _pct(h["hypothetical"], h["characterised"] + h["hypothetical"])])
+        out.append("<h4>Sequences</h4>" + _grid(["Sequence", "Length (bp)", "GC", "Topology (reported by)", "Genes",
+                                                 "CDS", "Hypothetical CDS"], rows))
+    if not c:
+        return "".join(out)
+    out.append("<h4>Annotation charts: the numbers</h4><p class='muted'>Genes are CDS, small ORFs, tRNA, tmRNA, rRNA "
+               "and ncRNA genes, counted as the annotator reported them.</p>")
+    lengths = c["lengths"]
+    if lengths["bins"]:
+        st = lengths["classes"]
+        out.append(_grid(["Gene length (bp)", "n", "Min", "Median", "Mean", "Max"],
+                         [[label, st[k]["n"], st[k]["min"], st[k]["median"], st[k]["mean"], st[k]["max"]]
+                          for k, label in _LENGTH_CLASS_LABELS if st[k]["n"]]))
+        bins = lengths["bins"]
+        labels = [f"≥ {b['min']:,}" if b["max"] is None else f"{b['min']:,}–{b['max'] - 1:,}" for b in bins]
+        out.append("<div class='charts'><div class='chart'>" + _bar_chart(
+            labels, [sum(b[k] for k, _ in _LENGTH_CLASS_LABELS) for b in bins],
+            f"Gene lengths, all genes ({lengths['width']:,} bp bins; last bin open)", "Gene length (bp)", "Genes")
+            + "</div>" + _density_chart(c) + "</div>")
+    strand = c["strand"]
+    if strand["by_type"]:
+        rows = [[_TYPE_LABELS.get(t, t), *(v[k] for k, _ in _STRAND_LABELS), _pct(v["+"], v["+"] + v["-"])]
+                for t, v in strand["by_type"].items()]
+        tot = strand["total"]
+        rows.append(["All genes", *(tot[k] for k, _ in _STRAND_LABELS), _pct(tot["+"], tot["+"] + tot["-"])])
+        out.append(_grid(["Gene orientation", *(label for _, label in _STRAND_LABELS), "Share on +"], rows)
+                   + "<p class='muted'>Strand of the sequences as written; leading and lagging strand are not "
+                     "determined (the replication origin is not located).</p>")
+    d = c["density"]
+    rows = []
+    for x in d["contigs"]:
+        full = sorted(t for t, s, e in zip(x["total"], x["start"], x["end"], strict=True) if e - s + 1 == d["window"])
+        med = (full[len(full) // 2] if len(full) % 2 else (full[len(full) // 2 - 1] + full[len(full) // 2]) / 2
+               ) if full else None
+        rows.append([x["contig_in_assembly"], x["genes"], len(x["total"]), "—" if not full else min(full),
+                     "—" if med is None else med, "—" if not full else max(full)])
+    out.append(_grid([f"Gene density ({d['window']:,} bp windows)", "Genes", "Windows", "Min per full window",
+                      "Median", "Max"], rows))
+    cog = c["cog"]
+    if not cog["cds_searched"]:
+        out.append("<p>COG categories: CDS were not searched in this run.</p>")
+    elif not cog["reported"]:
+        out.append(f"<p>COG categories: none reported by the annotator ({cog['cds_with_cog_id']:,} CDS carry a COG "
+                   "identifier without a category); ARVA assigns none.</p>")
+    else:
+        out.append(_grid(["COG category", "Name (NCBI COG 2020)", "CDS", "Of CDS with a category"],
+                         [[k["letter"], k["name"] or "not a COG 2020 letter", k["cds"],
+                           _pct(k["cds"], cog["cds_with_category"])] for k in cog["categories"]]))
+    return "".join(out)
+
+
+def _density_chart(c: dict[str, Any]) -> str:
+    """Genes per window along the longest sequence that has genes."""
+    contigs = sorted((x for x in c["density"]["contigs"] if x["genes"]), key=lambda x: -x["length"])
+    if not contigs:
+        return ""
+    x = contigs[0]
+    labels = [f"{s:,}–{e:,}" for s, e in zip(x["start"], x["end"], strict=True)]
+    return ("<div class='chart'>" + _bar_chart(labels, x["total"], f"Genes per {c['density']['window']:,} bp window, "
+            f"{x['contig_in_assembly']}", "Window", "Genes", color="#008C82") + "</div>")
+
+
+_TYPE_LABELS = {"cds": "CDS", "sorf": "Small ORF", "trna": "tRNA", "tmrna": "tmRNA", "rrna": "rRNA", "ncrna": "ncRNA"}
 
 
 def _polishing_html(p: dict[str, Any] | None) -> str:
@@ -1296,6 +1458,7 @@ def render_html(data: dict[str, Any]) -> str:
  code {{ font-size: 11px; word-break: break-all; }}
  pre {{ font-size: 11px; background:#F1F5F9; padding: 8px; border-radius: 6px; white-space: pre-wrap; word-break: break-all; }}
  .muted {{ color:#64748B; font-size: 12px; margin: 0; }}
+ figure.map {{ margin: 8px 0; }} figure.map svg {{ max-width: 760px; display: block; margin: 0 auto; }}
  .charts {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; }}
  .chart {{ border:1px solid #EEF2F7; border-radius: 8px; padding: 8px; }}
  table.grid th {{ width: auto; }}

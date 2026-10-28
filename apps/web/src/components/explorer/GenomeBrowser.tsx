@@ -56,7 +56,7 @@ export function groupColour(theme: ChartTheme, group: FeatureGroup): string {
 }
 
 /** The diverging pair for GC skew: blue (G > C) and red (C > G), validated against both chart surfaces. */
-const SKEW = { light: { pos: "#2B54C4", neg: "#e34948" }, dark: { pos: "#4A88EC", neg: "#e66767" } };
+export const SKEW = { light: { pos: "#2B54C4", neg: "#e34948" }, dark: { pos: "#4A88EC", neg: "#e66767" } };
 
 export interface GcSettings {
   window: number | null;

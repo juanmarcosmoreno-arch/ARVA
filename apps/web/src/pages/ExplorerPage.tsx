@@ -3,6 +3,8 @@ import { Map as MapIcon } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { SyntheticNote } from "@/components/annotation/AnnotationDialog";
+import { Segmented } from "@/components/charts/ChartCard";
+import { CircularExplorer } from "@/components/explorer/CircularMap";
 import { FeatureDetail } from "@/components/annotation/FeatureDetail";
 import { ExplorerLegend, ExplorerSearch, MarkedBar, RegionBar } from "@/components/explorer/ExplorerControls";
 import { type GcSettings, GenomeBrowser } from "@/components/explorer/GenomeBrowser";
@@ -15,7 +17,7 @@ import { useT } from "@/i18n";
 import { api } from "@/lib/api";
 import { clampView, contigOptions, regionOf, type View, viewOf, viewOfFeature } from "@/lib/explorer";
 import { fmtBases, fmtDate, fmtInt } from "@/lib/format";
-import type { Annotation, AnnotationFeature, AssemblyContig, FeatureLayoutItem } from "@/lib/types";
+import type { Annotation, AnnotationFeature, AssemblyContig, FeatureLayoutItem, MapFeature } from "@/lib/types";
 
 /** The list of annotations to open (the sidebar's Genome Explorer entry). */
 export function ExplorerListPage() {
@@ -133,7 +135,75 @@ export function ExplorerPage() {
       />
       {a.summary.synthetic_evidence?.length > 0 && <SyntheticNote evidence={a.summary.synthetic_evidence} />}
       <p className="text-xs text-muted-foreground">{t("annotation.predictions")}</p>
-      <Explorer annotation={a} contigs={assembly.data?.contigs} assembler={assembly.data?.assembler} />
+      <ExplorerViews annotation={a} contigs={assembly.data?.contigs} assembler={assembly.data?.assembler} sampleCode={sample.data?.sample_code} />
+    </div>
+  );
+}
+
+type ViewMode = "linear" | "circular";
+
+/** The linear browser or the circular map of the same annotation; the address bar keeps which one, the feature open
+ * in the side panel and its sequence, so switching views keeps the feature. */
+function ExplorerViews({ annotation, contigs, assembler, sampleCode }: { annotation: Annotation; contigs: AssemblyContig[] | undefined; assembler: string | undefined; sampleCode: string | undefined }) {
+  const t = useT();
+  const [params, setParams] = useSearchParams();
+  const view: ViewMode = params.get("view") === "circular" ? "circular" : "linear";
+  const setView = (v: ViewMode) => {
+    const next = new URLSearchParams(v === "circular" ? { view: "circular" } : {});
+    for (const k of v === "circular" ? ["feature", "contig"] : ["feature", "contig", "start", "end"]) {
+      const value = params.get(k);
+      if (value) next.set(k, value);
+    }
+    setParams(next);
+  };
+  return (
+    <div className="space-y-3">
+      <Segmented
+        label={t("circular.view.label")}
+        value={view}
+        onChange={setView}
+        options={[
+          { value: "linear", label: t("circular.view.linear") },
+          { value: "circular", label: t("circular.view.circular") },
+        ]}
+      />
+      {view === "linear" ? (
+        <Explorer annotation={annotation} contigs={contigs} assembler={assembler} />
+      ) : (
+        <CircularView annotation={annotation} contigs={contigs} assembler={assembler} sampleCode={sampleCode} />
+      )}
+    </div>
+  );
+}
+
+function CircularView({ annotation, contigs, assembler, sampleCode }: { annotation: Annotation; contigs: AssemblyContig[] | undefined; assembler: string | undefined; sampleCode: string | undefined }) {
+  const t = useT();
+  const [params, setParams] = useSearchParams();
+  const options = useMemo(() => contigOptions(annotation.sequences, annotation.tool, contigs, assembler), [annotation, contigs, assembler]);
+  const selected = params.get("feature") ? Number(params.get("feature")) : null;
+  const select = (f: { id: number; contig: string } | null) =>
+    setParams(f ? { view: "circular", feature: String(f.id), contig: f.contig } : { view: "circular" }, { replace: true });
+  const showLinear = (f: MapFeature) => setParams({ contig: f.contig, feature: String(f.id) });
+  if (!options.length) return <EmptyState title={t("explorer.noSequences")} />;
+  return (
+    <div className="space-y-3">
+      <ExplorerSearch
+        annotationId={annotation.id}
+        contigs={options}
+        current={params.get("contig") ?? options[0].id}
+        onRegion={(contig, start, end) => setParams({ contig, start: String(start), end: String(end) })}
+        onFeature={(f: AnnotationFeature) => select(f)}
+      />
+      <div className={selected != null ? "grid gap-4 xl:grid-cols-[minmax(0,1fr)_380px] lg:grid-cols-[minmax(0,1fr)_340px]" : ""}>
+        <div className="min-w-0">
+          <CircularExplorer annotation={annotation} contigs={options} sampleCode={sampleCode} selected={selected} onSelect={select} onShowLinear={showLinear} />
+        </div>
+        {selected != null && (
+          <aside className="lg:sticky lg:top-4 lg:self-start">
+            <FeatureDetail annotation={annotation} featureId={selected} onClose={() => select(null)} variant="panel" />
+          </aside>
+        )}
+      </div>
     </div>
   );
 }

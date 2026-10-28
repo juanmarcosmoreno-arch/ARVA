@@ -24,6 +24,7 @@ from arva_core.annotation import (
     query,
     read_jsonl,
 )
+from arva_core.annotation_stats import annotation_charts
 from arva_core.formats import open_sequence_file
 from arva_core.seqstats import SequenceFormatError, iter_fasta
 from arva_tools import ToolStatus
@@ -317,6 +318,16 @@ def features_of(annotation: Annotation) -> list[dict[str, Any]]:
     except OSError:
         raise FileNotFoundError("The features file of this annotation is missing on disk") from None
     return _features(str(path), st.st_mtime_ns, st.st_size)
+
+
+def cds_searched(annotation: Annotation) -> bool:
+    return ((annotation.steps or {}).get("cds") or {}).get("status") == "searched"
+
+
+def charts(annotation: Annotation, length_bin: int | None = None, window: int | None = None) -> dict[str, Any]:
+    """The numbers behind the annotation charts (arva_core.annotation_stats), from the annotator's features."""
+    return annotation_charts(features_of(annotation), annotation.sequences, cds_searched(annotation), length_bin,
+                             window)
 
 
 def original_names(annotation: Annotation) -> dict[str, str]:

@@ -12,6 +12,7 @@ from app.db.session import get_db
 from app.models import Annotation, Assembly, Sample
 from app.schemas.schemas import (
     AnalysisJobRead,
+    AnnotationChartsRead,
     AnnotationExportRequest,
     AnnotationFeatureDetail,
     AnnotationFeaturePage,
@@ -188,6 +189,26 @@ def list_features(
         return svc.query_features(annotation, types=type, contig=contig, start=start, end=end, q=q,
                                   hypothetical=hypothetical, sort=sort, descending=descending, limit=limit,
                                   offset=offset)
+    except FileNotFoundError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc)) from exc
+
+
+@router.get("/annotations/{annotation_id}/charts", response_model=AnnotationChartsRead)
+def get_charts(
+    annotation_id: str,
+    length_bin: int | None = Query(default=None, ge=1, le=100_000, description="Gene length bin, bp (default: about "
+                                   "40 bins up to the 99th percentile)"),
+    window: int | None = Query(default=None, ge=100, le=10_000_000, description="Gene density window, bp (default: "
+                               "about 100 windows on the longest sequence, at least 1 kb)"),
+    db: Session = Depends(get_db),
+):
+    """The numbers behind the annotation charts, counted from the annotator's features: gene lengths, gene density
+    along each sequence, strand, COG categories as reported, hypothetical and characterised CDS, features by type."""
+    annotation = _annotation(db, annotation_id)
+    try:
+        return svc.charts(annotation, length_bin, window)
     except FileNotFoundError as exc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
     except ValueError as exc:

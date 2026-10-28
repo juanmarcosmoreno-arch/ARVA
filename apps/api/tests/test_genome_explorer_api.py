@@ -265,3 +265,53 @@ def test_a_real_prokka_annotation_opens_in_the_explorer(client, setup):  # noqa:
         assert checks["nucleotide"]["status"] == "match"
         if f["type"] == "cds":
             assert checks["protein"]["status"] == "match", f["locus_tag"]
+
+
+# --- Circular map ------------------------------------------------------------------------------------------------
+
+def test_map_draws_every_sequence_in_windows_of_one_length(client, ann):
+    _, _, ann_id = ann
+    seqs = genome()
+    r = client.get(f"{API}/annotations/{ann_id}/map").json()
+    # 18,960 bp in about 1,440 windows: 13.2 bp each -> at least 20 bp (the smallest automatic window)
+    assert r["total_length"] == 18_960 and r["gc"] == {"window": 20, "step": 20, "auto": True,
+                                                      "genome_gc": r["gc"]["genome_gc"]}
+    assert [s["contig"] for s in r["sequences"]] == [CHR, PLASMID]
+    chromosome, plasmid = r["sequences"]
+    assert len(chromosome["gc"]["gc"]) == 876 and len(plasmid["gc"]["gc"]) == 73  # 17,516 / 20 and 1,444 / 20, up
+    assert plasmid["gc"]["start"][-1] == 1_441 and plasmid["gc"]["end"][-1] == 1_444  # the last window is cut
+    w = seqs[CHR][20:40]
+    g, c = w.count("G"), w.count("C")
+    assert chromosome["gc"]["gc"][1] == round((g + c) / sum(w.count(b) for b in "ACGT"), 6)
+    assert chromosome["gc"]["skew"][1] == round((g - c) / (g + c), 6)
+    every = "".join(seqs.values())
+    assert r["gc"]["genome_gc"] == round(sum(every.count(b) for b in "GC") / sum(every.count(b) for b in "ACGT"), 6)
+    assert r["total"] == len(r["features"]) == 20 and r["features"][-1]["contig"] == PLASMID
+    assert r["coverage"] == {"available": False, "reason": "no_alignment", "source": None}
+    assert chromosome["coverage"]["available"] is False and chromosome["coverage"]["reason"] == "no_alignment"
+
+
+def test_map_of_chosen_sequences_and_bounds(client, ann):
+    _, _, ann_id = ann
+    url = f"{API}/annotations/{ann_id}/map"
+    one = client.get(url, params={"contig": [PLASMID, PLASMID], "points": 100}).json()
+    # 1,444 bp in about 100 windows: 14.4 bp -> 20 bp; the plasmid named twice is drawn once
+    assert [s["contig"] for s in one["sequences"]] == [PLASMID] and one["gc"]["window"] == 20
+    assert {f["locus_tag"] for f in one["features"]} == {"SYNT_00019", "SYNT_00020"}
+    coarse = client.get(url, params={"points": 100}).json()
+    assert coarse["gc"]["window"] == 200 and not client.get(url, params={"window": 500}).json()["gc"]["auto"]
+    assert client.get(url, params={"contig": "nope"}).status_code == 404
+    assert client.get(url, params={"window": 1}).status_code == 422  # 18,960 windows, more than a map draws
+    assert client.get(url, params={"points": 5}).status_code == 422
+    assert client.get(url, params={"contig": [CHR, PLASMID, CHR]}).status_code == 422
+
+
+def test_map_coverage_in_the_map_windows(client, ann, storage_root):
+    sample, assembly, ann_id = ann
+    polished_child(sample, assembly["id"], storage_root, profile=True)
+    r = client.get(f"{API}/annotations/{ann_id}/map", params={"window": 100}).json()
+    assert r["coverage"]["available"] and r["coverage"]["source"]["alignment"] == "draft"
+    cov = r["sequences"][0]["coverage"]
+    # 25 bp bins grouped by 4: 100 bp points; the first at depth 10, the rest at 20
+    assert cov["start"][:2] == [1, 101] and cov["end"][:2] == [100, 200] and cov["mean"][:2] == [10.0, 20.0]
+    assert len(cov["mean"]) == 176 and set(r["sequences"][1]["coverage"]["mean"]) == {0.0}

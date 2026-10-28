@@ -1975,3 +1975,146 @@ class FeatureLayoutRead(BaseModel):
     length: int
     total: int
     items: list[FeatureLayoutItem]
+
+
+class MapGcRead(BaseModel):
+    contig_gc: float | None = Field(description="(G+C)/(A+C+G+T) of the whole sequence")
+    start: list[int]
+    end: list[int]
+    gc: list[float | None]
+    skew: list[float | None] = Field(description="(G-C)/(G+C)")
+
+
+class MapCoverageRead(BaseModel):
+    available: bool
+    reason: str | None = None
+    contig_mean_depth: float | None = None
+    start: list[int] = []
+    end: list[int] = []
+    mean: list[float | None] = []
+
+
+class MapSequenceRead(BaseModel):
+    contig: str
+    contig_in_assembly: str
+    length: int
+    topology: str | None
+    gc: MapGcRead
+    coverage: MapCoverageRead
+
+
+class MapWindowRead(BaseModel):
+    window: int = Field(description="Window length, bp, the same on every sequence")
+    step: int
+    auto: bool = Field(description="Window chosen by ARVA for the number of points asked")
+    genome_gc: float | None = Field(description="(G+C)/(A+C+G+T) over the sequences of the map")
+
+
+class MapCoverageSummary(BaseModel):
+    available: bool
+    reason: str | None = None
+    source: dict[str, Any] | None = None
+
+
+class MapFeatureItem(FeatureLayoutItem):
+    contig: str
+
+
+class GenomeMapRead(BaseModel):
+    total_length: int
+    points: int
+    sequence_source: dict[str, Any]
+    gc: MapWindowRead
+    coverage: MapCoverageSummary
+    sequences: list[MapSequenceRead]
+    total: int
+    features: list[MapFeatureItem]
+
+
+# --- Annotation charts ------------------------------------------------------------------------------------------
+
+class LengthClassStats(BaseModel):
+    n: int
+    min: int | None
+    median: float | None
+    mean: float | None
+    max: int | None
+
+
+class LengthBin(BaseModel):
+    min: int
+    max: int | None = Field(description="Exclusive upper bound; None for the last, open bin")
+    cds_characterised: int
+    cds_hypothetical: int
+    sorf: int
+    rna: int
+
+
+class LengthHistogramRead(BaseModel):
+    width: int | None
+    bins: list[LengthBin]
+    classes: dict[str, LengthClassStats]
+
+
+class DensityContigRead(BaseModel):
+    contig: str
+    contig_in_assembly: str
+    length: int
+    start: list[int]
+    end: list[int]
+    forward: list[int]
+    reverse: list[int]
+    unstranded: list[int]
+    total: list[int]
+    genes: int
+
+
+class DensityRead(BaseModel):
+    window: int
+    contigs: list[DensityContigRead]
+
+
+class StrandRead(BaseModel):
+    by_type: dict[str, dict[str, int]]
+    by_contig: list[dict[str, Any]]
+    total: dict[str, int]
+    replication_strand: Literal["not_determined"]
+
+
+class CogCategoryRead(BaseModel):
+    letter: str
+    name: str | None
+    cds: int
+
+
+class CogProfileRead(BaseModel):
+    cds_searched: bool
+    cds: int | None
+    reported: bool
+    cds_with_category: int
+    cds_with_cog_id: int
+    categories: list[CogCategoryRead]
+    names_source: str
+
+
+class HypotheticalRead(BaseModel):
+    cds_searched: bool
+    by_contig: list[dict[str, Any]]
+    total: dict[str, int] | None
+
+
+class TypeCountsRead(BaseModel):
+    types: list[str]
+    total: dict[str, int]
+    by_contig: list[dict[str, Any]]
+
+
+class AnnotationChartsRead(BaseModel):
+    cds_searched: bool
+    genes: int
+    lengths: LengthHistogramRead
+    density: DensityRead
+    strand: StrandRead
+    cog: CogProfileRead
+    hypothetical: HypotheticalRead
+    types: TypeCountsRead
