@@ -33,6 +33,13 @@ a browser, with NanoPlot's statistics labelled by its own definitions, reads and
 against ARVA (zero-length records explained), and N50, quality thresholds and mean quality shown
 side by side or separately because their definitions differ.
 
+Filter options: fastp's minimum and maximum length (discarding longer reads, kept apart from trimming
+reads to a length), fixed 5′/3′ trimming per mate, low-complexity filtering and explicit adapter
+sequences (with a warning when FastQC saw an adapter that fastp's detection missed), and a failed run,
+with nothing registered, when no read passes; Filtlong target bases or a target coverage (depth × a
+user-given genome size, recorded with the run), with the expected kept bases shown before running and
+Filtlong's target outcome and the achieved depth after.
+
 Overviews: a sequencing overview at the top of each sample's QC tab (every imported and derived file
 with its lineage, read statistics, POD5 reads and signal duration, and bases per file) and a QC
 overview on the project page (one row per sample, each value chosen by a stated rule and left empty

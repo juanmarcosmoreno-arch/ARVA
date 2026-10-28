@@ -5,7 +5,7 @@ import { Card, CardBody, CardHeader } from "@/components/ui/card";
 import { type TranslationKey, useT } from "@/i18n";
 import { fmtBases, fmtInt, fmtNum } from "@/lib/format";
 import { pct } from "@/lib/filters";
-import type { AnalysisJobDetail, FastpSummary, RawFile, SequenceStats } from "@/lib/types";
+import type { AnalysisJobDetail, FastpSummary, FiltlongParams, FiltlongSummary, RawFile, SequenceStats } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 type Row = { label: string; before: number | null; after: number | null; fmt: (v: number) => string; retained?: boolean };
@@ -50,6 +50,7 @@ export function BeforeAfter({
   filterJob?: AnalysisJobDetail;
   pending: boolean;
 }) {
+  const t = useT();
   if (!parentStats || !derivedStats) {
     return (
       <Card className="flex items-center gap-3 p-5 text-sm text-muted-foreground">
@@ -64,6 +65,15 @@ export function BeforeAfter({
   const a = derivedStats;
   const prefix = `ARVA_${derived.original_filename}`.replace(/[^A-Za-z0-9._-]+/g, "_");
   const fastp = filterJob?.job_type === "fastp" ? (filterJob.result_summary as unknown as FastpSummary) : null;
+  const filtlong = filterJob?.job_type === "filtlong" ? filterJob : null;
+  // The genome size entered for a Filtlong coverage target, else the one given for the read statistics; never assumed.
+  const genome =
+    (filtlong?.parameters as FiltlongRunParams | null)?.genome_size_bp ??
+    b.coverage_estimate?.expected_genome_size_bp ??
+    a.coverage_estimate?.expected_genome_size_bp ??
+    null;
+  const table = rows(b, a);
+  if (genome) table.splice(2, 0, { label: t("beforeAfter.depth", { genome: fmtInt(genome) }), before: b.total_bases / genome, after: a.total_bases / genome, fmt: (v) => fmtNum(v, 1) });
 
   return (
     <div className="space-y-6">
@@ -99,7 +109,7 @@ export function BeforeAfter({
                 </tr>
               </thead>
               <tbody>
-                {rows(b, a).map((r) =>
+                {table.map((r) =>
                   r.label.startsWith("Min / max") ? (
                     <tr key={r.label} className="border-b border-border/50">
                       <td className="py-1.5 pr-3">{r.label}</td>
@@ -129,6 +139,7 @@ export function BeforeAfter({
       </Card>
 
       {fastp && <FastpBreakdown s={fastp} />}
+      {filtlong && <FiltlongBreakdown job={filtlong} after={a} genome={genome} />}
 
       <div className="grid gap-6 lg:grid-cols-2">
         <CompareYieldChart before={b} after={a} prefix={prefix} />
@@ -199,6 +210,14 @@ function FastpBreakdown({ s }: { s: FastpSummary }) {
               {t("fastpSummary.insertPeak")} <Explain id="insert_size" compact />
             </div>
             <div className="text-lg font-semibold tabular-nums">{fmtInt(s.insert_size_peak)} bp</div>
+            {s.insert_size && s.insert_size.evaluated_pairs > 0 && (
+              <div className="text-[11px] text-muted-foreground">
+                {t("fastpSummary.insertOverlap", {
+                  overlap: fmtNum((100 * s.insert_size.overlapping_pairs) / s.insert_size.evaluated_pairs, 1),
+                  evaluated: fmtInt(s.insert_size.evaluated_pairs),
+                })}
+              </div>
+            )}
             <div className="text-[11px] text-muted-foreground">{t("fastpSummary.insertNote")}</div>
           </div>
         ) : null}
@@ -207,6 +226,57 @@ function FastpBreakdown({ s }: { s: FastpSummary }) {
             <div className="text-xs text-muted-foreground">{t("qcdata.fastp.dupRate")}</div>
             <div className="text-lg font-semibold tabular-nums">{fmtNum(100 * s.duplication_rate, 2)}%</div>
           </div>
+        )}
+      </CardBody>
+    </Card>
+  );
+}
+
+type FiltlongRunParams = Partial<FiltlongParams> & { genome_size_bp?: number | null; target_coverage_x?: number | null };
+
+function FiltlongBreakdown({ job, after, genome }: { job: AnalysisJobDetail; after: SequenceStats; genome: number | null }) {
+  const t = useT();
+  const s = (job.result_summary ?? {}) as FiltlongSummary;
+  const p = (job.parameters ?? {}) as FiltlongRunParams;
+  if (s.target_bases_reported == null) return null;
+  const noRemoval = s.not_enough_reads_for_target ? "filtlongSummary.notEnough" : s.below_target_after_filtering ? "filtlongSummary.below" : null;
+  const hard = [p.min_length, p.max_length, p.min_mean_q, p.min_window_q].some((v) => v != null);
+  const targetDepth = p.target_coverage_x ?? (genome ? s.target_bases_reported / genome : null);
+  return (
+    <Card>
+      <CardHeader title={t("filtlongSummary.title")} description={t("filtlongSummary.subtitle")} action={<Explain id="filtlong" />} />
+      <CardBody className="space-y-3 pt-3">
+        <div className="grid gap-3 sm:grid-cols-3">
+          <div className="rounded-lg border p-3">
+            <div className="text-xs text-muted-foreground">{t("filtlongSummary.target")}</div>
+            <div className="text-lg font-semibold tabular-nums">{fmtInt(s.target_bases_reported)}</div>
+            {p.genome_size_bp != null && p.target_coverage_x != null && (
+              <div className="text-[11px] text-muted-foreground">
+                {t("filtlongSummary.coverage", { depth: fmtNum(p.target_coverage_x, 1), genome: fmtInt(p.genome_size_bp) })}
+              </div>
+            )}
+          </div>
+          {s.kept_bases_reported != null && (
+            <div className="rounded-lg border p-3">
+              <div className="text-xs text-muted-foreground">{t("filtlongSummary.kept")}</div>
+              <div className="text-lg font-semibold tabular-nums">{fmtInt(s.kept_bases_reported)}</div>
+              <div className="text-[11px] text-muted-foreground">{t("filtlongSummary.overshoot")}</div>
+            </div>
+          )}
+          {genome != null && targetDepth != null && (
+            <div className="rounded-lg border p-3">
+              <div className="text-xs text-muted-foreground">{t("filtlongSummary.depth")}</div>
+              <div className="text-lg font-semibold tabular-nums">{fmtNum(after.total_bases / genome, 1)}×</div>
+              <div className="text-[11px] text-muted-foreground">
+                {t("filtlongSummary.depthSub", { target: `${fmtNum(targetDepth, 1)}×`, genome: fmtInt(genome) })}
+              </div>
+            </div>
+          )}
+        </div>
+        {noRemoval && (
+          <p className="text-sm">
+            {t(noRemoval)} {hard && t("filtlongSummary.hardStill")}
+          </p>
         )}
       </CardBody>
     </Card>

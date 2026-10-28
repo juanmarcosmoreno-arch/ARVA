@@ -79,9 +79,9 @@ export function pairedAdapter(p: FastpParams, mate: 1 | 2): { sequence: string }
   return mate === 2 && p.adapter_sequence ? "read1" : "overlap";
 }
 
-/** Read-2 options are sent only for pairs; empty adapter fields mean "not given". */
+/** Read-2 options are sent only for pairs; adapters only with adapter trimming, and an empty field means "not given". */
 export function fastpRequestParams(p: FastpParams, paired: boolean): FastpParams {
-  const adapter = (s: string | null) => (s ? s : null);
+  const adapter = (s: string | null) => (s && p.adapter_trimming ? s : null);
   return {
     ...p,
     adapter_sequence: adapter(p.adapter_sequence),
@@ -185,14 +185,27 @@ export function targetBasesForCoverage(genomeSizeBp: number, coverageX: number):
 }
 
 /**
+ * The target Filtlong will use: --target_bases, or --keep_percent of the input bases, whichever is
+ * smaller when both are set (main.cpp, truncated to an integer); null when it depends on unknown input.
+ */
+export function filtlongTarget(p: Pick<FiltlongParams, "target_bases" | "keep_percent">, inputBases: number | null): number | null {
+  if (p.keep_percent == null) return p.target_bases;
+  if (inputBases == null) return null;
+  const keep = Math.floor((p.keep_percent / 100) * inputBases);
+  return p.target_bases == null ? keep : Math.min(p.target_bases, keep);
+}
+
+/**
  * What Filtlong's --target_bases should keep, from ARVA's statistics of the input. Filtlong keeps the
  * best reads while its running total is below the target, so it can overshoot by up to one read
  * (at most target − 1 + longest read); with a target at or above the input it removes nothing for it.
  */
-export function expectedKeptBases(target: number, input: { bases: number; longest: number } | null) {
-  if (!input) return { kind: "unknown" as const, min: target, max: null };
-  if (target >= input.bases) return { kind: "all" as const, min: input.bases, max: input.bases };
-  return { kind: "target" as const, min: target, max: Math.min(input.bases, target - 1 + input.longest) };
+export type ExpectedKept = { kind: "unknown" } | { kind: "all"; bases: number } | { kind: "target"; min: number; max: number };
+
+export function expectedKeptBases(target: number | null, input: { bases: number; longest: number } | null): ExpectedKept {
+  if (target == null || !input) return { kind: "unknown" };
+  if (target >= input.bases) return { kind: "all", bases: input.bases };
+  return { kind: "target", min: target, max: Math.min(input.bases, target - 1 + input.longest) };
 }
 
 /** The genome size given for the latest statistics of the file (or of the file it was derived from); never assumed. */

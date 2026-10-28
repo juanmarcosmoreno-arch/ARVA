@@ -31,9 +31,9 @@ control**, **visual first**, **reproducibility** and **modularity**.
 | Provenance | Every run records tool, version, parameters, input checksums, environment, timings, outputs and log |
 | Independent check | SeqKit summarises the same file; ARVA compares every robust metric and shows any disagreement |
 | FastQC | Unmodified FastQC report (opened in a network-isolated sandbox) plus its module flags, labelled as FastQC heuristics |
-| Filtering | fastp (short reads, single/paired-end) and Filtlong (long reads); every threshold visible, passed explicitly and recorded; explicit confirmation required |
+| Filtering | fastp (short reads, single/paired-end: quality, N, complexity, minimum length, discard longer reads, trim to a length, fixed 5′/3′ cuts, explicit adapter sequences) and Filtlong (long reads: hard thresholds, keep percent, target bases or a target coverage computed from a user-given genome size); every threshold visible, passed explicitly and recorded; explicit confirmation required; a run that keeps no reads fails and registers nothing |
 | Lineage | Filtered reads become new read-only derived files linked to their original and the producing job; originals never change |
-| Before/after | Statistics for filter outputs are computed automatically; metrics table with changes and overlaid distributions |
+| Before/after | Statistics for filter outputs are computed automatically; metrics table with changes (and depth when a genome size is known) and overlaid distributions; Filtlong's target outcome |
 | Long-read report | NanoPlot 1.48.0 on long-read FASTQ, offline; statistics with NanoPlot's definitions, reads and bases cross-checked against ARVA, differently defined metrics shown side by side |
 | Overviews | Sequencing overview per sample (every imported and derived file with lineage, read statistics, POD5 reads and signal duration, bases per file) and a QC overview per project (one row per sample: totals, N50 and quality of the largest file, pooled Q30/GC, depth only with a user-given genome size, filtering, FastQC heuristics, SeqKit check; sortable, filterable, CSV export) |
 | Project QC report | MultiQC 1.35 report over the latest FastQC, fastp, SeqKit and Filtlong results of a project, run offline, every input checked; general statistics kept with units and the producing tool |

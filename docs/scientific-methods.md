@@ -293,6 +293,36 @@ trimming is fastp's automatic behaviour unless forced (`--trim_poly_g`) or disab
 fastp's own counts of reads removed per reason, adapter-trimmed reads, insert-size peak and
 duplication estimate.
 
+Length, trimming and complexity options (behaviour checked in the fastp 0.23.4 source and on the
+synthetic data; the same options and limits exist in 0.23.2). Each is passed explicitly, also at its
+default, so the recorded command is complete:
+
+| ARVA option | fastp option | What it does |
+|---|---|---|
+| Discard reads shorter than | `--length_required` (15) | Removes reads shorter than N after trimming |
+| Discard reads longer than | `--length_limit` (0 = off) | **Removes** reads longer than N after trimming (`rlen > N`, so N bp is kept). In pairs, the pair goes when either mate is too long, and `too_long_reads` counts reads, both mates included. `--disable_length_filtering` also turns it off, so ARVA rejects a limit without length filtering, and a limit below the minimum length (fastp would accept it and discard every read) |
+| Cut from the 5′ start / 3′ end | `--trim_front1/--trim_tail1` (`-F/-T` for read 2) | Removes a fixed number of bases from every read; fastp accepts 0–30 and 0–100 |
+| Trim reads longer than | `--max_len1` (`--max_len2`) (0 = off) | **Shortens** longer reads to N bp from the 3′ end; no read is removed |
+| Remove low-complexity reads | `--low_complexity_filter --complexity_threshold` (off; 30) | Complexity = share of positions whose base differs from the next one, diff ÷ (length − 1); a read below the threshold % is removed. `low_complexity_reads` appears in fastp.json only when the filter is on |
+| Adapter sequence, read 1 / read 2 | `--adapter_sequence`, `--adapter_sequence_r2` | Single end: replaces auto-detection. Paired end: used only where the mates do not overlap; an unset read-2 adapter is auto-detected with `--detect_adapter_for_pe`, otherwise it is the read-1 adapter. fastp requires more than 3 bases of A/C/G/T; ARVA allows 4–200 |
+
+fastp makes unset read-2 trims and `--max_len2` follow read 1 (`main.cpp`); ARVA writes the read-2
+values out for pairs and rejects read-2 options for single-end input. `--reads_to_process` is not offered:
+it takes the first N reads in file order, which is neither a random subsample nor a number of bases.
+fastp's single-end adapter auto-detection found no adapter in the synthetic R1 file although FastQC
+shows the Illumina Universal Adapter rising to 7.4 % of reads; given the sequence, fastp trimmed 149
+reads. The filter dialog therefore warns when the latest FastQC report of a file shows an adapter
+(other than its PolyA/PolyG rows) above 5 % of reads and the previous fastp run on that file, with
+adapter trimming on, trimmed none. When no read passes, fastp writes 0-byte `.fq.gz` files and exits
+with status 0; ARVA fails the job ("fastp kept no reads with these thresholds; nothing was
+registered", with the counts per reason) and registers no derived file. An output that does not open
+as FASTQ fails the job the same way.
+
+The insert-size peak is an estimate: fastp measures inserts only in the pairs its worker thread 0 reads
+(packs of 1,000 pairs dealt to the threads in turn), so the peak depends on `--thread` and on which
+pairs overlap. ARVA labels it as an estimate everywhere and gives it with the number of pairs evaluated
+and the share that overlapped, in the interface and in the sample report.
+
 Charts from the stored `fastp.json` (format verified for fastp 0.23.4; `GET /jobs/{id}/fastp-data`):
 per-cycle mean quality (arithmetic mean of the Phred scores at each cycle) and GC/N content (fractions,
 shown as %) of read 1 and read 2 before and after filtering, on the axis 1…`total_cycles`, with shorter
@@ -318,13 +348,35 @@ Filtlong formats the counts in its log with the process locale (en_US writes 1,3
 1.362.402, and a locale that is not installed makes it abort), so ARVA runs it with `LC_ALL=C`; logs
 of earlier runs are read with either separator.
 
+**Target bases and target coverage.** `--target_bases N` keeps the best-scoring reads while the running
+total is still below N (`main.cpp`), so the kept bases lie between N and N − 1 + the longest read; on the
+synthetic long reads (400 reads, 1,513,780 bp) `--target_bases 500000` keeps 504,167 bp. With
+`--keep_percent` as well, Filtlong uses the smaller of the two targets. Filtlong logs one of three
+outcomes, which ARVA parses and shows: `keeping N bp`; `not enough reads to reach target` (the target is
+at or above the input bases); `reads already fall below target after filtering` (the reads passing the
+hard thresholds hold no more bases than the target). In the last two, no read is removed to meet the
+target; reads failing the hard thresholds are still removed.
+
+A coverage target is ARVA's own derivation, not a Filtlong option: target bases = round(depth × genome
+size), rounded half up (the interface and the server compute the same value). The genome size is
+pre-filled only from the size the user gave for the file's read statistics, otherwise typed by the user;
+ARVA never assumes one. The request carries `genome_size_bp` and `target_coverage_x`; the server
+recomputes the target, rejects a `target_bases` that does not match, and records all three in the job
+parameters, while Filtlong receives only `--target_bases`. Before running, the dialog shows the target
+and the expected kept bases from ARVA's statistics of the input: between the target and the target plus
+one read (capped at the input), or everything when the input is not larger than the target. After the
+run, ARVA's statistics of the output give the bases actually kept and, with the genome size, the depth
+achieved (bases ÷ genome size), shown in the before/after comparison.
+
 ### Before/after comparison
 
 Both sides are ARVA read statistics computed by the same version of `arva-core`. Overlays use axes
 on which both distributions are exactly defined: yield by minimum read length (exact points;
 each curve equals its total below its own shortest read), per-read mean quality (integer Phred bins)
 and per-read GC (integer percent). Length histograms are not overlaid because each file's bins
-depend on its own length range.
+depend on its own length range. When a genome size is known (entered for a Filtlong coverage target,
+otherwise given for the input's read statistics), the table adds the approximate depth before and after
+(total bases ÷ genome size, the same estimate as in the read statistics).
 
 ### MultiQC (project report)
 

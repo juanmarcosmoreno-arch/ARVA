@@ -185,6 +185,7 @@ export function SampleDetailPage() {
         onOpenChange={setFilterOpen}
         sampleId={s.id}
         files={files.data ?? []}
+        jobs={allJobs}
         technology={s.sequencing_technology}
         onStarted={() => setTab("filtering")}
       />
