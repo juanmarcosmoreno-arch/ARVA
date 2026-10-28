@@ -12,6 +12,21 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends seqkit fastp filtlong fastqc \
     && rm -rf /var/lib/apt/lists/*
 
+# Python report tools, each in its own virtual environment with the versions validated with ARVA.
+# Build with --build-arg ARVA_PYTHON_TOOLS="" for a smaller image without them (about 1.7 GB less).
+ARG ARVA_PYTHON_TOOLS="multiqc nanoplot"
+RUN set -eu; for tool in $ARVA_PYTHON_TOOLS; do \
+      case "$tool" in \
+        multiqc) python -m venv /opt/arva-tools/multiqc \
+                 && /opt/arva-tools/multiqc/bin/pip install "multiqc==1.35" "plotly==5.24.1" ;; \
+        nanoplot) python -m venv /opt/arva-tools/nanoplot \
+                  && /opt/arva-tools/nanoplot/bin/pip install "NanoPlot==1.48.0" "nanoget==1.19.6" ;; \
+        *) echo "Unknown ARVA_PYTHON_TOOLS entry: $tool" >&2; exit 1 ;; \
+      esac; \
+    done
+ENV ARVA_TOOL_MULTIQC=/opt/arva-tools/multiqc/bin/multiqc \
+    ARVA_TOOL_NANOPLOT=/opt/arva-tools/nanoplot/bin/NanoPlot
+
 RUN groupadd --system arva && useradd --system --gid arva --home /opt/arva arva \
     && mkdir -p /data && chown arva:arva /data
 
