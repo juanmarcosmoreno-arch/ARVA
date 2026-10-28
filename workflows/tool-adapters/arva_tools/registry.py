@@ -7,10 +7,13 @@ from arva_tools.base import DetectedTool, ToolAdapter
 from arva_tools.fastp import FastpAdapter
 from arva_tools.fastqc import FastqcAdapter
 from arva_tools.filtlong import FiltlongAdapter
+from arva_tools.multiqc import MultiqcAdapter
+from arva_tools.nanoplot import NanoplotAdapter
 from arva_tools.seqkit import SeqkitAdapter
 
 ADAPTERS: dict[str, ToolAdapter] = {
-    a.info.id: a for a in (SeqkitAdapter(), FastqcAdapter(), FastpAdapter(), FiltlongAdapter())
+    a.info.id: a
+    for a in (SeqkitAdapter(), FastqcAdapter(), FastpAdapter(), FiltlongAdapter(), MultiqcAdapter(), NanoplotAdapter())
 }
 
 _CACHE: dict[str, tuple[float, DetectedTool]] = {}

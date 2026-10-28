@@ -59,8 +59,8 @@ class JobContext:
 
     @property
     def _scope(self) -> str:
-        s = self.job.sample
-        return f"{s.project_id}/{s.id}/{self.job.id}"
+        j = self.job
+        return f"{j.project_id}/{j.sample_id or '_project'}/{j.id}"
 
     @property
     def results_rel(self) -> str:

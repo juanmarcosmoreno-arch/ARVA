@@ -255,6 +255,7 @@ class _Accumulator:
             "parameters": self.params.as_dict(),
             "file": {"format": info.format.value, "compressed": info.compressed},
             "read_count": n,
+            "zero_length_reads": self.zero_length,
             "total_bases": total,
             "min_length": asc[0][0],
             "max_length": asc[-1][0],

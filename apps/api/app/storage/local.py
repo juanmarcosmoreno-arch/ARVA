@@ -128,7 +128,10 @@ class LocalStorage:
         for dirpath, _dirs, files in os.walk(target):
             os.chmod(dirpath, stat.S_IRWXU)
             for f in files:
-                os.chmod(os.path.join(dirpath, f), stat.S_IRUSR | stat.S_IWUSR)
+                path = os.path.join(dirpath, f)
+                # chmod follows links, and jobs link to raw inputs (FastQC, NanoPlot).
+                if not os.path.islink(path):
+                    os.chmod(path, stat.S_IRUSR | stat.S_IWUSR)
         shutil.rmtree(target)
 
     def usage_bytes(self) -> int:

@@ -38,7 +38,9 @@
   never copied into the sample automatically. `file_format` `pod5` marks raw nanopore signal
   (recognised by its start and end signatures); such files are excluded from every read-level
   analysis.
-- **AnalysisJob**: one execution of one tool on declared inputs. Records `tool_name`, `tool_version`,
+- **AnalysisJob**: one execution of one tool on declared inputs. It belongs to a project
+  (`project_id`) and, for per-sample analyses, to a sample (`sample_id`); project-level jobs such as
+  the MultiQC report have no sample and are listed by `GET /projects/{id}/jobs`. Records `tool_name`, `tool_version`,
   optional `database_name`/`database_version`, `parameters`, `input_raw_file_ids`, `output_paths`,
   status, start/finish timestamps, duration, log and error; for external tools also `tool_path`,
   `commands` (the exact argument vectors executed) and `result_summary` (parsed key results).
@@ -48,6 +50,9 @@
   updated / unchanged / skipped counts). The table file itself is not stored.
 - **QCResult**: structured output of a sequence-statistics job for one raw file. Headline metrics are
   indexed columns; the full payload is JSON (also written to `results/…/sequence_stats.json`).
+
+`GET /projects/{id}/qc-overview` (and `.csv`) summarises a project per sample from completed jobs in
+four queries, independent of the number of samples (`app/services/qc_overview.py`).
 
 Traceability chain implemented today: **raw file → processing job → derived file → statistics job →
 result file → report**. Re-running an analysis creates a new job; earlier results are never overwritten.
@@ -62,6 +67,7 @@ safe basename and prefixed with the file's UUID. The layout:
 raw/<project>/<sample>/<file-id>__<name>        read-only originals
 processed/<project>/<sample>/<job-id>/…         read-only derived reads (e.g. filtered FASTQ)
 results/<project>/<sample>/<job-id>/…           analysis outputs and tool reports
+results/<project>/_project/<job-id>/…           project-level outputs (MultiQC report, its staged inputs)
 reports/<project>/<sample>/…                    every generated report is archived
 logs/<job-id>.log
 ```
@@ -99,14 +105,35 @@ On Linux each job runs in a forked process; on macOS the worker uses RQ's `Simpl
 minimum and validated versions, install hints). Executables are resolved from `ARVA_TOOL_<ID>`,
 then `ARVA_TOOLS_PATH`, then `PATH`; ARVA never installs software. `run_command` executes argument
 vectors without a shell, in their own process group (killed on timeout), with stdout/stderr streamed
-to files (optionally gzip-compressed) and an environment stripped of ARVA settings and anything
-resembling a credential. `GET /api/v1/tools` reports status (`available`, `not_installed`,
+to files (optionally gzip-compressed) and an environment stripped of ARVA settings, of `MULTIQC_*`
+configuration variables and of anything resembling a credential; `HOME` and the XDG base directories
+point at a fresh empty folder that is deleted after the run. `GET /api/v1/tools` reports status (`available`, `not_installed`,
 `incompatible`, `failed`) and whether the detected version has been validated.
 
 Tool HTML reports are served by `GET /jobs/{id}/outputs/{name}` with
 `Content-Security-Policy: sandbox …; default-src 'none'`: they render in an opaque origin and cannot
 load anything from the network. (fastp's report references plotly.js on public CDNs; its charts
 therefore do not draw inside ARVA, while its tables do, and the original file can be downloaded.)
+NanoPlot's report embeds plotly.js (`--include-js embedded`) and renders completely under this
+sandbox (`scripts/check_nanoplot_report.cjs`); its jobs also pass `run_command` a job-specific empty
+`home` so ARVA can check afterwards that no browser was downloaded there.
+
+The MultiQC project report is sandboxed too, with
+`sandbox allow-scripts allow-popups; default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline';
+img-src data: blob:; connect-src 'none'; font-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'`.
+Its scripts read `localStorage` (and `document.cookie`), which throw in an opaque origin and would stop
+the plots, so the endpoint inserts a short script at the top of `<head>` that replaces them with
+in-memory stand-ins (`app.services.multiqc.STORAGE_SHIM`); the stored file is unchanged and is what
+`?download=true` returns. Without the sandbox the report would run in ARVA's own origin: markup that
+reaches it unescaped (for example a FastQC overrepresented sequence) could open a same-origin window
+and use the API from there, which `connect-src 'none'` does not prevent. `scripts/check_multiqc_report.cjs`
+and `scripts/check_nanoplot_report.cjs` (shared code in `scripts/report_browser_check.cjs`, run by the
+API tests when node and playwright are available, otherwise reported as skipped) check in headless
+Chromium that the plots render, that requests the bundled code can make (crossref DOI look-ups, AI
+services, CDN images) are blocked, that the page has an opaque origin, and that a window it opens on
+ARVA's origin can neither be scripted nor carries ARVA's origin. Sample names and the title given to
+MultiQC are still reduced to letters, digits and a few punctuation marks (MultiQC does not escape
+them), and the UI opens the report in a new tab with `rel="noopener noreferrer"`.
 
 ## Planned extension points
 

@@ -30,8 +30,15 @@ class AnalysisJob(TimestampMixin, Base):
     __tablename__ = "analysis_jobs"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
-    sample_id: Mapped[str] = mapped_column(
-        String(36), ForeignKey("samples.id", ondelete="CASCADE"), nullable=False
+    project_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("projects.id", ondelete="CASCADE", name="fk_analysis_jobs_project_id"),
+        nullable=False,
+        index=True,
+    )
+    # None for project-level jobs (e.g. the MultiQC project report).
+    sample_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("samples.id", ondelete="CASCADE"), nullable=True
     )
 
     job_type: Mapped[str] = mapped_column(String(100), nullable=False)  # e.g. "fastq_stats"
@@ -65,7 +72,7 @@ class AnalysisJob(TimestampMixin, Base):
         String(36), ForeignKey("analysis_jobs.id", ondelete="SET NULL"), nullable=True
     )
 
-    sample: Mapped["Sample"] = relationship("Sample", back_populates="analysis_jobs")
+    sample: Mapped["Sample | None"] = relationship("Sample", back_populates="analysis_jobs")
     qc_results: Mapped[list["QCResult"]] = relationship(
         "QCResult", back_populates="analysis_job", cascade="all, delete-orphan"
     )

@@ -78,6 +78,63 @@ SeqKit, FastQC, fastp and Filtlong features show as unavailable on the **Tools &
 Resolution order for each tool: `ARVA_TOOL_<ID>` (absolute path, e.g. `ARVA_TOOL_FASTP`), then the
 folders in `ARVA_TOOLS_PATH`, then `PATH`. Re-detect from the Tools page after installing.
 
+Every tool run gets an empty working folder and a new, empty temporary folder as `HOME`,
+`XDG_CONFIG_HOME`, `XDG_CACHE_HOME` and `XDG_DATA_HOME` (removed afterwards), so configuration files in
+your home folder never change a result and nothing is cached there.
+
+### MultiQC (project QC report)
+
+The project page can gather the FastQC, fastp, SeqKit and Filtlong results of all samples into one
+MultiQC report. MultiQC is a Python program: install it from PyPI into its own virtual environment,
+outside the ARVA folder (MultiQC reads a `.env` file found in any folder above its installation, and
+ARVA's folder can hold one), and point ARVA at it in the shell that starts the API and the worker:
+
+```bash
+python3 -m venv ~/.arva-tools/multiqc
+~/.arva-tools/multiqc/bin/pip install "multiqc==1.35" "plotly==5.24.1"
+export ARVA_TOOL_MULTIQC=~/.arva-tools/multiqc/bin/multiqc
+```
+
+Validated: MultiQC 1.35 (GPL-3.0) on Python 3.13, Linux x86-64, with plotly 5.24.1 and kaleido 0.2.1
+(pinned by MultiQC; without the plotly pin pip picks plotly 7, with which MultiQC's image export fails
+silently). PyPI has wheels of every dependency for Linux x86-64/ARM64 (glibc) and macOS Intel/Apple
+Silicon; the environment needs about 1.1 GB. Bioconda also builds MultiQC 1.35, but ARVA has not
+tested that route. The Ubuntu/Debian `multiqc` package (1.18) is reported as *Incompatible version*:
+it has no `--no-version-check` option, contacts multiqc.info over plain HTTP on every run, writes
+reports that miss a JavaScript file and has no SeqKit module. ARVA always runs MultiQC with its
+version check, AI features and uploads switched off, so it makes no network connection.
+`scripts/test-all.sh` uses `~/.arva-tools/multiqc/bin/multiqc` when it exists. The Docker image does
+not include MultiQC yet.
+
+The report embeds sample IDs and file names and is meant for viewing on this computer. ARVA opens it
+in a new tab and serves it with a sandboxing Content-Security-Policy that isolates it from ARVA and
+blocks every network request (settings changed inside the report are therefore not kept); its data
+files (`multiqc_data.json`, `multiqc_sources.txt`) also contain local folder paths. Only results of
+files that ARVA has read in full (Compute read statistics) go into the report.
+
+### NanoPlot (long-read report)
+
+The QC tab of a long-read sample can run NanoPlot on a FASTQ file. Like MultiQC it is a Python program:
+install it from PyPI into its own virtual environment outside the ARVA folder (its package also installs
+modules with generic names such as `scripts` and `extra`, and carries its own modified copy of
+`nanomath`; never install `nanomath` into that environment, it would replace the copy and change
+NanoPlot's mean read quality):
+
+```bash
+python3 -m venv ~/.arva-tools/nanoplot
+~/.arva-tools/nanoplot/bin/pip install "NanoPlot==1.48.0" "nanoget==1.19.6"
+export ARVA_TOOL_NANOPLOT=~/.arva-tools/nanoplot/bin/NanoPlot
+```
+
+Validated: NanoPlot 1.48.0 (MIT; its nanoget dependency is GPL-3.0) with nanoget 1.19.6 and plotly
+6.9.0 on Python 3.13, Linux x86-64; the environment needs about 600 MB. Older versions are reported as
+*Incompatible version*. NanoPlot normally downloads Chrome for Testing (about 360 MB) to draw PNG
+images; ARVA always runs it with `--no_static` and `--only-report`, so it never does, and the job fails
+if browser files appear in its (empty, job-specific) home folder. `scripts/test-all.sh` uses
+`~/.arva-tools/nanoplot/bin/NanoPlot` when it exists. The Docker image does not include NanoPlot yet.
+When it detects NanoPlot, ARVA imports `nanomath` with NanoPlot's own Python and reports the tool as
+*Detection failed* if the bundled copy has been replaced; reinstall the environment as above.
+
 ### Optional: POD5 run metadata (pod5 library)
 
 ARVA recognises POD5 raw-signal files without any library. To read their run metadata (reads, signal
@@ -181,7 +238,7 @@ Environment variables (prefix `ARVA_`), also read from `apps/api/.env`:
 | `ARVA_METADATA_MAX_COLUMNS` | 256 | Columns per metadata table |
 | `ARVA_METADATA_MAX_CELL_CHARS` | 10000 | Characters per cell of a metadata table |
 | `ARVA_TOOLS_PATH` | — | Extra folders (`:`-separated) searched for external tools |
-| `ARVA_TOOL_<ID>` | — | Explicit executable for one tool (`SEQKIT`, `FASTQC`, `FASTP`, `FILTLONG`) |
+| `ARVA_TOOL_<ID>` | — | Explicit executable for one tool (`SEQKIT`, `FASTQC`, `FASTP`, `FILTLONG`, `MULTIQC`, `NANOPLOT`) |
 | `ARVA_TOOL_THREADS` | 4 | Maximum threads given to a tool run |
 | `ARVA_TOOL_TIMEOUT_SECONDS` | 43200 | A tool run is stopped after this time |
 
@@ -212,4 +269,9 @@ The API test suite **drops and recreates** the schema of the test database — n
 | Metadata rows blocked by "ambiguous" dates | Dates such as 03/05/2024: choose the date order in the import dialog, or write dates as YYYY-MM-DD |
 | File marked *Unrecognised* | Content does not start with `@` (FASTQ) or `>` (FASTA) after decompression |
 | A tool shows *Not installed* | Install it (see above) or point `ARVA_TOOL_<ID>`/`ARVA_TOOLS_PATH` at it, then **Re-detect** |
+| MultiQC shows *Incompatible version* 1.18 | That is the Ubuntu/Debian package: install MultiQC 1.35 from PyPI as above and set `ARVA_TOOL_MULTIQC` for the API and the worker |
+| Project QC report fails with "did not report every input exactly once" | MultiQC skipped or merged an input; the job log lists which. Re-run the tool for that file, or leave the sample out |
+| Project QC overview shows "—" with "statistics for 1 of 2 files" | Read totals are only shown when every imported FASTQ/FASTA file of the sample has read statistics: compute them for the remaining files on the sample's Files tab |
+| Project QC overview shows no depth | Enter the expected genome size when computing read statistics, the same size for every imported read file of the sample; ARVA never assumes one |
+| NanoPlot asks to confirm long reads | The sample's sequencing technology is not Nanopore or PacBio: set it in the sample's Metadata tab, or tick the confirmation if the file does hold long reads |
 | fastp report shows tables but no charts inside ARVA | Expected: its charts load plotly.js from the internet, which ARVA blocks; ARVA's own comparison charts cover the same data, and the original report can be downloaded |

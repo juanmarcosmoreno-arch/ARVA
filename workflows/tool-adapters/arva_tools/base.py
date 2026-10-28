@@ -9,7 +9,7 @@ import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from arva_tools.runner import tool_environment
+from arva_tools.runner import isolated_home, tool_environment
 
 
 class ToolStatus(str, enum.Enum):
@@ -45,6 +45,8 @@ class DetectedTool:
     version: str | None = None
     version_validated: bool = False
     message: str = ""
+    # Stable code for a tool-specific message, so the interface can show it in the user's language.
+    reason: str | None = None
 
 
 def parse_version(text: str) -> tuple[int, ...]:
@@ -75,14 +77,16 @@ class ToolAdapter:
         if path is None:
             return DetectedTool(self.info, ToolStatus.not_installed, message="Executable not found")
         try:
-            proc = subprocess.run(
-                [path, *self.version_args],
-                capture_output=True,
-                text=True,
-                timeout=60,
-                env=tool_environment(),
-                stdin=subprocess.DEVNULL,
-            )
+            with isolated_home() as home:
+                proc = subprocess.run(
+                    [path, *self.version_args],
+                    capture_output=True,
+                    text=True,
+                    timeout=60,
+                    env=tool_environment(home),
+                    cwd=home,
+                    stdin=subprocess.DEVNULL,
+                )
         except (OSError, subprocess.TimeoutExpired) as exc:
             return DetectedTool(self.info, ToolStatus.failed, path, message=f"Could not run: {exc}")
         match = self.version_pattern.search(proc.stdout + "\n" + proc.stderr)

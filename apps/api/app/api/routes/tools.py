@@ -2,15 +2,25 @@ from pathlib import Path
 
 from arva_tools.fastp import FastpParams
 from arva_tools.filtlong import FiltlongParams
+from arva_tools.multiqc import REPORT_FILENAME as MULTIQC_REPORT
 from arva_tools.registry import detect_all
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import job_or_404, raw_file_or_404, sample_or_404
+from app.api.deps import job_or_404, project_or_404, raw_file_or_404, sample_or_404
 from app.db.session import get_db
-from app.models import AnalysisJob, FileFormat, JobStatus, QCResult, RawFile, Sample
+from app.models import (
+    AnalysisJob,
+    FileFormat,
+    JobStatus,
+    Project,
+    QCResult,
+    RawFile,
+    Sample,
+    SequencingTechnology,
+)
 from app.schemas.schemas import (
     AnalysisJobRead,
     CrossCheckRead,
@@ -18,15 +28,20 @@ from app.schemas.schemas import (
     FilesRequest,
     FiltlongRequest,
     LibraryRead,
+    MultiqcPlanRead,
+    MultiqcRequest,
+    NanoplotRequest,
     ToolRead,
 )
-from app.services import crosscheck
+from app.services import crosscheck, multiqc
 from app.services.jobs import (
     FASTQ_STATS_JOB,
+    MULTIQC_JOB,
     SEQKIT_JOB,
     ToolUnavailableError,
     create_fastp_job,
     create_filtlong_job,
+    create_multiqc_job,
     create_per_file_tool_jobs,
     create_pod5_jobs,
 )
@@ -36,6 +51,7 @@ from app.storage import get_storage
 router = APIRouter(tags=["tools"])
 
 FASTQ_FORMATS = {FileFormat.fastq, FileFormat.fastq_gz}
+LONG_READ_TECHNOLOGIES = {SequencingTechnology.nanopore, SequencingTechnology.pacbio}
 _TOOL_NAMES = {"seqkit": "SeqKit", "fastqc": "FastQC"}
 
 # Tool HTML reports run in an opaque, sandboxed origin and may not load anything
@@ -44,6 +60,14 @@ REPORT_CSP = (
     "sandbox allow-scripts allow-popups; default-src 'none'; img-src data: blob:; "
     "style-src 'unsafe-inline'; script-src 'unsafe-inline'; font-src data:"
 )
+# MultiQC's report is sandboxed too (it is served with multiqc.STORAGE_SHIM); checked in Chromium by
+# scripts/check_multiqc_report.cjs: plots render, no request leaves the page, it cannot script ARVA's origin.
+MULTIQC_REPORT_CSP = (
+    "sandbox allow-scripts allow-popups; default-src 'none'; script-src 'unsafe-inline'; "
+    "style-src 'unsafe-inline'; img-src data: blob:; connect-src 'none'; font-src 'none'; frame-src 'none'; "
+    "base-uri 'none'; form-action 'none'"
+)
+_REPORT_HEADERS = {"X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer"}
 
 
 @router.get("/tools", response_model=list[ToolRead])
@@ -58,7 +82,7 @@ def list_tools(refresh: bool = Query(default=False)):
                 input_formats=list(i.input_formats), output_formats=list(i.output_formats),
                 min_version=i.min_version, tested_versions=list(i.tested_versions), install=dict(i.install),
                 status=d.status.value, path=d.path, version=d.version,
-                version_validated=d.version_validated, message=d.message,
+                version_validated=d.version_validated, message=d.message, reason=d.reason,
             )
         )
     return out
@@ -142,6 +166,25 @@ def start_pod5_summary(sample_id: str, payload: FilesRequest, db: Session = Depe
     return _tool_call(create_pod5_jobs, db, sample, files)
 
 
+@router.post("/samples/{sample_id}/analyses/nanoplot", response_model=list[AnalysisJobRead],
+             status_code=status.HTTP_202_ACCEPTED)
+def start_nanoplot(sample_id: str, payload: NanoplotRequest, db: Session = Depends(get_db)):
+    """NanoPlot on each selected long-read FASTQ file (one job per file)."""
+    sample = sample_or_404(db, sample_id)
+    files = _sample_files(db, sample, payload.raw_file_ids, "NanoPlot")
+    _require_fastq(files)
+    technology = sample.sequencing_technology
+    if technology not in LONG_READ_TECHNOLOGIES and not payload.long_reads_confirmed:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"NanoPlot is meant for long reads (Oxford Nanopore or PacBio), and this sample's sequencing technology "
+            f"is '{technology.value}'. Set the technology in the sample's metadata, or confirm that the selected "
+            "files contain long reads.",
+        )
+    parameters = {"long_reads_confirmed": payload.long_reads_confirmed, "sequencing_technology": technology.value}
+    return _tool_call(create_per_file_tool_jobs, db, sample, files, "nanoplot", parameters)
+
+
 @router.post("/samples/{sample_id}/analyses/{tool_id}", response_model=list[AnalysisJobRead],
              status_code=status.HTTP_202_ACCEPTED)
 def start_per_file_tool(sample_id: str, tool_id: str, payload: FilesRequest, db: Session = Depends(get_db)):
@@ -178,6 +221,37 @@ def start_filtlong(sample_id: str, payload: FiltlongRequest, db: Session = Depen
     return _tool_call(create_filtlong_job, db, sample, f, params)
 
 
+def _multiqc_plan(db: Session, project: Project, payload: MultiqcRequest) -> multiqc.Plan:
+    try:
+        return multiqc.plan(db, project, payload.sample_ids, payload.include_derived)
+    except multiqc.SelectionError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+
+
+@router.post("/projects/{project_id}/analyses/multiqc/preview", response_model=MultiqcPlanRead)
+def preview_multiqc(project_id: str, payload: MultiqcRequest, db: Session = Depends(get_db)):
+    """Which tool results a MultiQC report would include, and why others would not (nothing is run)."""
+    plan = _multiqc_plan(db, project_or_404(db, project_id), payload)
+    return {**plan.as_dict(), "include_derived": payload.include_derived}
+
+
+@router.post("/projects/{project_id}/analyses/multiqc", response_model=AnalysisJobRead,
+             status_code=status.HTTP_202_ACCEPTED)
+def start_multiqc(project_id: str, payload: MultiqcRequest, db: Session = Depends(get_db)):
+    """One MultiQC report over the latest qualifying FastQC, fastp, SeqKit and Filtlong results."""
+    project = project_or_404(db, project_id)
+    plan = _multiqc_plan(db, project, payload)
+    if not plan.inputs:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "Nothing to aggregate: none of the selected samples has a qualifying FastQC, fastp, SeqKit or "
+            "Filtlong result. " + multiqc.SELECTION_RULE,
+        )
+    file_ids = list(dict.fromkeys(f for i in plan.inputs for f in i.file_ids))
+    parameters = {**plan.as_dict(), "include_derived": payload.include_derived}
+    return _tool_call(create_multiqc_job, db, project, parameters, file_ids)
+
+
 @router.get("/jobs/{job_id}/outputs/{name}")
 def job_output(job_id: str, name: str, download: bool = False, db: Session = Depends(get_db)):
     job = job_or_404(db, job_id)
@@ -188,11 +262,11 @@ def job_output(job_id: str, name: str, download: bool = False, db: Session = Dep
     if not path.is_file():
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Output file is missing on disk")
     if name.endswith(".html") and not download:
-        return FileResponse(
-            path, media_type="text/html; charset=utf-8",
-            headers={"Content-Security-Policy": REPORT_CSP, "X-Content-Type-Options": "nosniff",
-                     "Referrer-Policy": "no-referrer"},
-        )
+        if job.job_type == MULTIQC_JOB and name == MULTIQC_REPORT:
+            return Response(multiqc.sandboxed_report(path.read_bytes()), media_type="text/html; charset=utf-8",
+                            headers={"Content-Security-Policy": MULTIQC_REPORT_CSP, **_REPORT_HEADERS})
+        return FileResponse(path, media_type="text/html; charset=utf-8",
+                            headers={"Content-Security-Policy": REPORT_CSP, **_REPORT_HEADERS})
     media = "text/plain; charset=utf-8" if name.endswith((".log", ".tsv", ".json")) else "application/octet-stream"
     return FileResponse(path, media_type=media, filename=name)
 

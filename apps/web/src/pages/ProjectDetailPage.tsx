@@ -5,6 +5,8 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { BulkImportDialog } from "@/components/domain/BulkImportDialog";
 import { MetadataSection } from "@/components/domain/MetadataImport";
 import { ProjectFormDialog } from "@/components/domain/ProjectFormDialog";
+import { ProjectQcOverview } from "@/components/domain/ProjectQcOverview";
+import { ProjectQcReport } from "@/components/domain/ProjectQcReport";
 import { SampleFormDialog } from "@/components/domain/SampleForm";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -88,6 +90,8 @@ export function ProjectDetailPage() {
           <SamplesTable samples={samples.data ?? []} showProject={false} />
         )}
       </Card>
+      {!!samples.data?.length && <ProjectQcOverview projectId={p.id} />}
+      {!!samples.data?.length && <ProjectQcReport projectId={p.id} samples={samples.data} />}
       <MetadataSection projectId={p.id} />
 
       <ProjectFormDialog open={editing} onOpenChange={setEditing} project={p} />

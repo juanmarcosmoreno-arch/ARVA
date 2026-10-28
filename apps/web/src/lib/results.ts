@@ -33,6 +33,8 @@ export const IMPORT_JOBS = new Set(["server_import"]);
 export const RAW_SIGNAL_JOBS = new Set(["pod5_summary"]);
 
 export function jobLabel(type: string, t: (key: TranslationKey) => string) {
+  if (type === "multiqc") return t("multiqc.jobLabel");
+  if (type === "nanoplot") return t("nanoplot.jobLabel");
   return RAW_SIGNAL_JOBS.has(type) ? t("pod5.jobLabel") : JOB_LABEL[type] ?? type;
 }
 

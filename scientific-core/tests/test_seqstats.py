@@ -69,6 +69,12 @@ def test_fastq_quality(tmp_path):
     assert pp["reads_covering"][4] == 2 and pp["reads_covering"][9] == 1
 
 
+def test_zero_length_records_are_counted_and_reported(tmp_path):
+    stats = compute_sequence_stats(write(tmp_path / "r.fastq", FASTQ + "@empty\n\n+\n\n"))
+    assert (stats["read_count"], stats["zero_length_reads"], stats["total_bases"]) == (4, 1, 20)
+    assert compute_sequence_stats(write(tmp_path / "s.fastq", FASTQ))["zero_length_reads"] == 0
+
+
 def test_mean_read_quality_uses_error_probabilities(tmp_path):
     # One base Q40 and one base Q10: arithmetic mean would be 25,
     # error-probability mean is -10*log10((1e-4 + 1e-1)/2) ~= 13.0

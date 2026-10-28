@@ -1,4 +1,7 @@
+import json
 import os
+import shutil
+import subprocess
 import tempfile
 from pathlib import Path
 
@@ -60,3 +63,22 @@ def client():
 @pytest.fixture
 def storage_root() -> Path:
     return Path(_STORAGE)
+
+
+@pytest.fixture
+def report_browser_check(tmp_path):
+    """Runs scripts/<script> (headless Chromium) on a served tool report; skips visibly without node + playwright."""
+    if shutil.which("node") is None or subprocess.run(["node", "-e", "require('playwright')"],
+                                                      capture_output=True).returncode:
+        pytest.skip("headless Chromium (node with playwright) is not available for the report browser check")
+
+    def check(script: str, response) -> dict:
+        (tmp_path / "report.html").write_bytes(response.content)
+        keep = ("content-type", "content-security-policy", "x-content-type-options", "referrer-policy")
+        (tmp_path / "headers.json").write_text(json.dumps({k: v for k, v in response.headers.items() if k in keep}))
+        run = subprocess.run(["node", str(API_ROOT.parents[1] / "scripts" / script), str(tmp_path / "report.html"),
+                              str(tmp_path / "headers.json")], capture_output=True, text=True, timeout=300)
+        assert run.returncode == 0, run.stdout + run.stderr
+        return json.loads(run.stdout)
+
+    return check

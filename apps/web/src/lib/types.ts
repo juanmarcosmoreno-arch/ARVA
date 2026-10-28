@@ -154,6 +154,8 @@ export interface Tool {
   version: string | null;
   version_validated: boolean;
   message: string;
+  /** Stable code of a tool-specific message (translated as tool.reason.<code>). */
+  reason?: string | null;
 }
 
 export interface Library {
@@ -272,6 +274,103 @@ export interface FastqcSummary {
   basic_statistics: Record<string, string>;
 }
 
+/** NanoStats.txt (--tsv_stats) as parsed by arva_tools.nanoplot: NanoPlot's own definitions. */
+export interface NanoplotStats {
+  number_of_reads: number;
+  number_of_bases: number;
+  median_read_length: number;
+  mean_read_length: number;
+  read_length_stdev: number;
+  n50: number;
+  mean_qual: number;
+  median_qual: number;
+  /** Reads with mean quality strictly above the threshold; megabases rounded by NanoPlot to 0.1. */
+  reads_above_quality: { threshold: number; reads: number; percent: number; megabases: number }[];
+  longest_reads: { rank: number; length: number; quality: number }[];
+  highest_quality_reads: { rank: number; quality: number; length: number }[];
+  unparsed: string[];
+}
+
+export interface NanoplotSummary {
+  nanoplot_version: string;
+  stats: NanoplotStats;
+  /** Only when NanoPlot removed reads itself (length < 20 and quality > 30). */
+  post_filtering: NanoplotStats | null;
+  artefact_reads_removed: number;
+}
+
+export type MultiqcModule = "fastqc" | "fastp" | "seqkit" | "filtlong";
+export type MultiqcExclusionReason =
+  | "no_outputs"
+  | "derived_input"
+  | "filtlong_without_target"
+  | "output_missing"
+  | "input_missing"
+  | "input_invalid"
+  | "input_not_validated";
+
+export interface MultiqcPlannedInput {
+  module: MultiqcModule;
+  /** Sample name in the report: "<sample ID> <file>". */
+  name: string;
+  sample_id: string;
+  sample_code: string;
+  job_id: string;
+  tool_name: string;
+  tool_version: string;
+  finished_at: string | null;
+  file_ids: string[];
+  file_names: string[];
+  output_path: string;
+}
+
+export interface MultiqcExclusion {
+  sample_id: string;
+  sample_code: string;
+  reason: MultiqcExclusionReason;
+  module: MultiqcModule | null;
+  job_id: string | null;
+  file_names: string[];
+}
+
+/** POST /projects/{id}/analyses/multiqc/preview, and the parameters of a MultiQC job. */
+export interface MultiqcPlan {
+  selection_rule: string;
+  modules: MultiqcModule[];
+  sample_ids: string[];
+  include_derived: boolean;
+  inputs: MultiqcPlannedInput[];
+  excluded: MultiqcExclusion[];
+}
+
+/** Unit of the raw value MultiQC parsed (not of the value its HTML table displays). */
+export type MultiqcUnit = "reads" | "sequences" | "bases" | "bp" | "%" | "fraction" | "Phred";
+
+export interface MultiqcColumn {
+  module: MultiqcModule;
+  key: string;
+  title: string;
+  description: string;
+  unit: MultiqcUnit;
+  /** "tool": copied from the tool's output; "multiqc": computed by MultiQC from it. */
+  origin: "tool" | "multiqc";
+  hidden: boolean;
+}
+
+/** result_summary of a multiqc job (apps/api/app/tasks/tools.py). */
+export interface MultiqcSummary {
+  multiqc_version: string;
+  report_creation_date: string | null;
+  modules: MultiqcModule[];
+  samples: { name: string; sample_id: string; sample_code: string }[];
+  versions: { reported_by_multiqc: Record<string, string>; arva_jobs: Record<string, string[]> };
+  general_stats: {
+    columns: MultiqcColumn[];
+    rows: { name: string; values: Partial<Record<MultiqcModule, Record<string, number>>> }[];
+    unmapped: string[];
+  };
+}
+
 export interface CrossCheck {
   raw_file_id: string;
   tool: string;
@@ -283,7 +382,51 @@ export interface CrossCheck {
   note: string;
 }
 
-export type UploadRejectionCode = "duplicate" | "too_large" | "insufficient_storage";
+export type SeqkitCheckStatus = "agree" | "disagree" | "partial" | "not_run";
+
+/** One sample of GET /projects/{id}/qc-overview (apps/api/app/services/qc_overview.py); null = not stated. */
+export interface QcOverviewRow {
+  sample_id: string;
+  sample_code: string;
+  sequencing_technology: SequencingTechnology;
+  imported_files: number;
+  derived_files: number;
+  /** Imported FASTQ/FASTA files (POD5 and unrecognised files excluded). */
+  imported_read_files: number;
+  imported_read_files_with_stats: number;
+  stats_tool_versions: string[];
+  /** Sums over the imported read files, only when every one has ARVA statistics. */
+  total_reads: number | null;
+  total_bases: number | null;
+  largest_file: { file_id: string; filename: string; total_bases: number } | null;
+  n50: number | null;
+  mean_read_quality: number | null;
+  q30_percent: number | null;
+  gc_percent: number | null;
+  expected_genome_size_bp: number | null;
+  genome_size_status: "given" | "not_given" | "inconsistent" | null;
+  estimated_depth: number | null;
+  filtering: {
+    job_id: string;
+    tool_name: string;
+    tool_version: string;
+    finished_at: string | null;
+    runs: number;
+    input_files: string[];
+    output_files: string[];
+    reads_kept_percent: number | null;
+    bases_kept_percent: number | null;
+  } | null;
+  fastqc: { files: number; files_total: number; pass_count: number; warn_count: number; fail_count: number };
+  seqkit: { status: SeqkitCheckStatus; files_checked: number; files_total: number; differing_metrics: string[] };
+}
+
+export interface QcOverview {
+  project_id: string;
+  rows: QcOverviewRow[];
+}
+
+export type UploadRejectionCode ="duplicate" | "too_large" | "insufficient_storage";
 
 export interface UploadResult {
   files: RawFile[];
@@ -326,6 +469,8 @@ export interface SequenceStats {
   parameters: Record<string, unknown>;
   file: { format: "fastq" | "fasta"; compressed: boolean };
   read_count: number;
+  /** Records of length 0 (counted in read_count); absent in statistics computed before ARVA reported it. */
+  zero_length_reads?: number;
   total_bases: number;
   min_length: number;
   max_length: number;
@@ -374,7 +519,9 @@ export interface QCResult {
 
 export interface AnalysisJob {
   id: string;
-  sample_id: string;
+  project_id: string;
+  /** Null for project-level jobs such as the MultiQC report. */
+  sample_id: string | null;
   job_type: string;
   tool_name: string;
   tool_version: string;

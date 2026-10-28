@@ -15,6 +15,7 @@ from app.api.routes import (
     files,
     imports,
     metadata,
+    overview,
     projects,
     reports,
     samples,
@@ -75,7 +76,8 @@ def create_app() -> FastAPI:
     def health():
         return {"status": "ok", "version": __version__}
 
-    for module in (dashboard, projects, samples, files, imports, metadata, analyses, tools, reports, system):
+    for module in (dashboard, projects, samples, files, imports, metadata, analyses, tools, reports, overview,
+                   system):
         app.include_router(module.router, prefix=settings.api_v1_prefix)
     return app
 

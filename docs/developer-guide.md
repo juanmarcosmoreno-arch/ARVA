@@ -68,9 +68,15 @@ Follow the existing adapters in `workflows/tool-adapters/arva_tools/` (fastp is 
    docstring. Check licence, redistribution terms and Bioconda/apt availability for linux-64,
    linux-aarch64, osx-64 and osx-arm64.
 2. **Adapter.** Subclass `ToolAdapter` with a `ToolInfo` (licence, citation, homepage, formats,
-   `min_version`, `tested_versions`, install hints you have verified) and a `version_pattern`.
+   `min_version`, `tested_versions`, install hints you have verified: `conda`, `apt`, or `pip` for a
+   Python tool installed with exact pins into its own virtual environment outside the repository and
+   found through `ARVA_TOOL_<ID>`) and a `version_pattern`.
    Model parameters as a dataclass with `validate()`; build commands as argument lists in which every
    option that can remove or change data is passed explicitly, even at its default.
+   `run_command` already gives each run an empty temporary `HOME`/XDG folder; pass tool-specific
+   variables with `extra_env`, and an empty working directory when the tool reads configuration from it;
+   pass `home=` (an empty job folder) when you need to inspect what the tool wrote there (NanoPlot).
+   Check outputs, not only the exit status (MultiQC, for example, exits 0 when it found nothing).
 3. **Parsers.** Parse outputs by field name, not position; tolerate extra fields from newer versions.
 4. **Tests.** Command construction and validation (`tests/test_adapters.py`), parsing from small
    fixtures, and a real-tool test skipped when the tool is absent (`tests/test_real_tools.py`).

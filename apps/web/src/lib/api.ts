@@ -14,8 +14,10 @@ import type {
   MetadataImportRecord,
   MetadataPreview,
   MetadataTableOptions,
+  MultiqcPlan,
   Project,
   ProjectInput,
+  QcOverview,
   RawFile,
   Sample,
   SampleInput,
@@ -151,11 +153,20 @@ export const api = {
     request<AnalysisJob[]>(`/samples/${sampleId}/analyses/pod5`, json("POST", { raw_file_ids: fileIds })),
   runPerFileTool: (sampleId: string, tool: "seqkit" | "fastqc", fileIds: string[]) =>
     request<AnalysisJob[]>(`/samples/${sampleId}/analyses/${tool}`, json("POST", { raw_file_ids: fileIds })),
+  runNanoplot: (sampleId: string, fileIds: string[], longReadsConfirmed: boolean) =>
+    request<AnalysisJob[]>(`/samples/${sampleId}/analyses/nanoplot`, json("POST", { raw_file_ids: fileIds, long_reads_confirmed: longReadsConfirmed })),
   runFastp: (sampleId: string, body: { read1_file_id: string; read2_file_id?: string | null; params: FastpParams }) =>
     request<AnalysisJob>(`/samples/${sampleId}/filtering/fastp`, json("POST", body)),
   runFiltlong: (sampleId: string, body: { file_id: string; params: FiltlongParams }) =>
     request<AnalysisJob>(`/samples/${sampleId}/filtering/filtlong`, json("POST", body)),
   crosscheck: (fileId: string) => request<CrossCheck>(`/files/${fileId}/crosscheck`),
+  projectJobs: (projectId: string) => request<AnalysisJob[]>(`/projects/${projectId}/jobs`),
+  qcOverview: (projectId: string) => request<QcOverview>(`/projects/${projectId}/qc-overview`),
+  qcOverviewCsvUrl: (projectId: string) => `${BASE}/projects/${projectId}/qc-overview.csv`,
+  multiqcPreview: (projectId: string, body: { sample_ids?: string[]; include_derived: boolean }) =>
+    request<MultiqcPlan>(`/projects/${projectId}/analyses/multiqc/preview`, json("POST", body)),
+  runMultiqc: (projectId: string, body: { sample_ids?: string[]; include_derived: boolean }) =>
+    request<AnalysisJob>(`/projects/${projectId}/analyses/multiqc`, json("POST", body)),
   jobOutputUrl: (jobId: string, name: string, download = false) =>
     `${BASE}/jobs/${jobId}/outputs/${encodeURIComponent(name)}${download ? "?download=true" : ""}`,
 };

@@ -34,6 +34,9 @@ control**, **visual first**, **reproducibility** and **modularity**.
 | Filtering | fastp (short reads, single/paired-end) and Filtlong (long reads); every threshold visible, passed explicitly and recorded; explicit confirmation required |
 | Lineage | Filtered reads become new read-only derived files linked to their original and the producing job; originals never change |
 | Before/after | Statistics for filter outputs are computed automatically; metrics table with changes and overlaid distributions |
+| Long-read report | NanoPlot 1.48.0 on long-read FASTQ, offline; statistics with NanoPlot's definitions, reads and bases cross-checked against ARVA, differently defined metrics shown side by side |
+| Overviews | Sequencing overview per sample (every imported and derived file with lineage, read statistics, POD5 reads and signal duration, bases per file) and a QC overview per project (one row per sample: totals, N50 and quality of the largest file, pooled Q30/GC, depth only with a user-given genome size, filtering, FastQC heuristics, SeqKit check; sortable, filterable, CSV export) |
+| Project QC report | MultiQC 1.35 report over the latest FastQC, fastp, SeqKit and Filtlong results of a project, run offline, every input checked; general statistics kept with units and the producing tool |
 | Tools & Databases | Detected tools with version (validated or not), executable, licence, citation and install commands; ARVA never installs software |
 | Execution | Analyses run in a separate worker process via a Redis queue — never in the HTTP process; external tools run without a shell, with timeouts and a credential-free environment |
 | Reports | HTML (figures, methods, processing steps with exact commands, limitations), CSV and JSON per sample |

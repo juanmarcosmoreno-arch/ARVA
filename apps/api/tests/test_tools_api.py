@@ -42,7 +42,7 @@ def job(client, job_id):
 
 def test_tools_listing(client):
     tools = {t["id"]: t for t in client.get(f"{API}/tools").json()}
-    assert set(tools) == {"seqkit", "fastqc", "fastp", "filtlong"}
+    assert set(tools) == {"seqkit", "fastqc", "fastp", "filtlong", "multiqc", "nanoplot"}
     for t in tools.values():
         assert t["status"] in ("available", "not_installed", "incompatible", "failed")
         assert t["license"] and t["citation_url"].startswith("https://")
@@ -183,3 +183,15 @@ def test_unavailable_tool_returns_conflict(client, sample, monkeypatch, tmp_path
 def test_storage_never_deletes_raw_data():
     with pytest.raises(StoragePathError):
         get_storage().remove_tree("raw/anything")
+
+
+def test_removing_job_outputs_leaves_linked_originals_untouched(storage_root):
+    raw = storage_root / "raw" / "p" / "s" / "f.fastq"
+    raw.parent.mkdir(parents=True)
+    raw.write_text("@r\nA\n+\nI\n")
+    raw.chmod(0o444)
+    link = storage_root / "results" / "p" / "s" / "j" / "input" / "f.fastq"
+    link.parent.mkdir(parents=True)
+    link.symlink_to(raw)
+    get_storage().remove_tree("results/p/s/j")
+    assert not link.parent.exists() and raw.read_text() == "@r\nA\n+\nI\n" and raw.stat().st_mode & 0o777 == 0o444

@@ -58,3 +58,15 @@ export const technologyLabel: Record<string, string> = {
   hybrid: "Hybrid",
   unknown: "Not specified",
 };
+
+/** An argument vector as a POSIX shell line, quoting only what needs it (for display and copy). */
+export function shellJoin(argv: string[]) {
+  return argv.map((a) => (/^[\w@%+=:,./-]+$/.test(a) ? a : `'${a.replace(/'/g, `'"'"'`)}'`)).join(" ");
+}
+
+const HTML_ESCAPES: Record<string, string> = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
+
+/** For user-supplied text inside HTML strings such as chart tooltips (React escapes everything else). */
+export function escapeHtml(text: string) {
+  return text.replace(/[&<>"']/g, (c) => HTML_ESCAPES[c]);
+}

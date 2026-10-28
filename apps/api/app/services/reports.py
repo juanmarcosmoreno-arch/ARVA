@@ -20,6 +20,7 @@ from app.services.jobs import (
     FASTQ_STATS_JOB,
     FASTQC_JOB,
     FILTLONG_JOB,
+    NANOPLOT_JOB,
     POD5_JOB,
     SEQKIT_JOB,
 )
@@ -171,7 +172,7 @@ def _processing_steps(db: Session, sample: Sample, latest: dict) -> list[dict[st
         .where(
             AnalysisJob.sample_id == sample.id,
             AnalysisJob.status == JobStatus.completed,
-            AnalysisJob.job_type.in_([FASTP_JOB, FILTLONG_JOB, SEQKIT_JOB, FASTQC_JOB]),
+            AnalysisJob.job_type.in_([FASTP_JOB, FILTLONG_JOB, SEQKIT_JOB, FASTQC_JOB, NANOPLOT_JOB]),
         )
         .order_by(AnalysisJob.finished_at)
     ).all()
@@ -212,6 +213,17 @@ def _processing_steps(db: Session, sample: Sample, latest: dict) -> list[dict[st
                     f"Independent check: {len(decided) - len(bad)}/{len(decided)} metrics agree with ARVA"
                     + (f" (differ: {', '.join(bad)})" if bad else "")
                 ]
+        elif j.job_type == NANOPLOT_JOB and summary:
+            st = summary["stats"]
+            step["highlights"] = [
+                f"NanoStats.txt: {st['number_of_reads']:,} reads, {st['number_of_bases']:,} bases; N50 {st['n50']:,} bp "
+                "(NanoPlot's definition, ascending cumulative sum); mean read quality "
+                f"Q{st['mean_qual']} (error-probability average of per-read qualities)",
+            ]
+            if summary.get("post_filtering"):
+                step["highlights"].append(
+                    f"NanoPlot removed {summary['artefact_reads_removed']} artefactual read(s) (length < 20, quality > 30) "
+                    "after these statistics; see NanoStats_post_filtering.txt")
         elif j.job_type == FASTQC_JOB and summary:
             flags = {}
             for m in summary.get("modules", []):

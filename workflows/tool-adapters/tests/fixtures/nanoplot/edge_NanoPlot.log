@@ -1,0 +1,17 @@
+2026-10-28 09:49:08,705 Nanoget: Starting to collect statistics from plain fastq file.
+2026-10-28 09:49:08,743 Reduced DataFrame memory usage from 0.00070953369140625Mb to 0.00070953369140625Mb
+2026-10-28 09:49:08,750 Nanoget: Gathered all metrics of 31 reads
+2026-10-28 09:49:08,764 Calculated statistics
+2026-10-28 09:49:08,764 Using sequenced read lengths for plotting.
+2026-10-28 09:49:08,765 Removed 1 artefactual reads with very short length and very high quality.
+2026-10-28 09:49:08,772 Calculated statistics
+2026-10-28 09:49:08,773 NanoPlot:  Valid color #4CB391.
+2026-10-28 09:49:08,773 NanoPlot:  Valid colormap Greens.
+2026-10-28 09:49:08,773 NanoPlot:  Creating length plots for Read length.
+2026-10-28 09:49:08,774 NanoPlot:  Using 30 reads maximum of 2943bp.
+2026-10-28 09:49:08,820 NanoPlot: Creating yield by minimal length plot for Read length.
+2026-10-28 09:49:08,945 Created length plots
+2026-10-28 09:49:08,945 NanoPlot: Creating Read lengths vs Average read quality plots using 30 reads.
+2026-10-28 09:49:08,989 Created LengthvsQual plot
+2026-10-28 09:49:08,989 Writing html report.
+2026-10-28 09:49:09,024 Finished!

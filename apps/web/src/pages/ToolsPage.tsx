@@ -9,6 +9,7 @@ import { Card, CardBody, CardHeader } from "@/components/ui/card";
 import { ErrorNote, PageHeader, Skeleton } from "@/components/ui/misc";
 import { useT, type TranslationKey } from "@/i18n";
 import { api } from "@/lib/api";
+import { toolMessage } from "@/lib/messages";
 import type { Library, Tool } from "@/lib/types";
 
 const STATUS: Record<Tool["status"], { label: string; tone: "success" | "neutral" | "warning" | "danger" }> = {
@@ -103,6 +104,7 @@ export function ToolsPage() {
 }
 
 function ToolCard({ tool }: { tool: Tool }) {
+  const t = useT();
   const st = STATUS[tool.status];
   return (
     <Card className="flex flex-col">
@@ -122,10 +124,10 @@ function ToolCard({ tool }: { tool: Tool }) {
       <CardBody className="flex-1 space-y-3 pt-3 text-sm">
         {tool.status === "available" && !tool.version_validated && (
           <div className="flex gap-2 rounded-lg border border-warning/40 bg-warning/5 p-2.5 text-xs">
-            <AlertTriangle className="h-4 w-4 shrink-0 text-warning" /> {tool.message}
+            <AlertTriangle className="h-4 w-4 shrink-0 text-warning" /> {toolMessage(t, tool)}
           </div>
         )}
-        {tool.status !== "available" && tool.message && <p className="text-xs text-muted-foreground">{tool.message}</p>}
+        {tool.status !== "available" && tool.message && <p className="text-xs text-muted-foreground">{toolMessage(t, tool)}</p>}
         <dl className="grid grid-cols-[110px_1fr] gap-x-3 gap-y-1 text-xs">
           <dt className="text-muted-foreground">Executable</dt>
           <dd className="break-all font-mono">{tool.path ?? "—"}</dd>
@@ -148,12 +150,19 @@ function ToolCard({ tool }: { tool: Tool }) {
         {tool.status !== "available" && (
           <div className="space-y-1.5">
             <div className="text-xs font-medium">Install (run it yourself):</div>
-            {Object.entries(tool.install).map(([kind, pkg]) => (
-              <div key={kind} className="text-xs">
-                <span className="text-muted-foreground">{INSTALL_LABEL[kind] ?? kind}: </span>
-                <code className="rounded bg-muted px-1.5 py-0.5">{installCommand(kind, pkg)}</code>
-              </div>
-            ))}
+            {Object.entries(tool.install).map(([kind, pkg]) =>
+              kind === "pip" ? (
+                <div key={kind} className="text-xs">
+                  <span className="text-muted-foreground">{t("tools.installPip")}: </span>
+                  <code className="mt-1 block whitespace-pre-wrap break-all rounded bg-muted px-1.5 py-1">{pkg}</code>
+                </div>
+              ) : (
+                <div key={kind} className="text-xs">
+                  <span className="text-muted-foreground">{INSTALL_LABEL[kind] ?? kind}: </span>
+                  <code className="rounded bg-muted px-1.5 py-0.5">{installCommand(kind, pkg)}</code>
+                </div>
+              ),
+            )}
           </div>
         )}
         <a href={tool.homepage} target="_blank" rel="noreferrer noopener" className="inline-flex items-center gap-1 text-xs text-arva-royal hover:underline dark:text-arva-cyan">

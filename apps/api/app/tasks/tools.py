@@ -7,22 +7,44 @@ the before/after comparison uses identical methods on both sides.
 """
 from __future__ import annotations
 
+import hashlib
 import re
 import shlex
 import shutil
+from collections import defaultdict
+from collections.abc import Mapping
 from pathlib import Path
 
 from arva_core.seqstats import StatsParameters, quick_validate
-from arva_tools import ToolStatus, run_command
+from arva_tools import ToolExecutionError, ToolStatus, run_command
 from arva_tools.fastp import FastpAdapter, FastpParams
 from arva_tools.fastqc import FastqcAdapter
-from arva_tools.filtlong import FiltlongAdapter, FiltlongParams
+from arva_tools.filtlong import ENVIRONMENT as FILTLONG_ENVIRONMENT
+from arva_tools.filtlong import FiltlongAdapter, FiltlongParams, plain_counts
+from arva_tools.multiqc import (
+    DATA_DIR,
+    DATA_JSON,
+    ENVIRONMENT,
+    REPORT_FILENAME,
+    SOURCES_FILE,
+    VERSIONS_FILE,
+    MultiqcAdapter,
+    ReportInput,
+    staged_name,
+)
+from arva_tools.nanoplot import (
+    NanoplotAdapter,
+    browser_traces,
+    input_name,
+    output_names,
+    output_prefix,
+)
 from arva_tools.registry import detect
 from arva_tools.seqkit import SeqkitAdapter
 
 from app.core.config import get_settings
 from app.db.base import new_uuid
-from app.models import FileFormat, FileOrigin, RawFile
+from app.models import AnalysisJob, FileFormat, FileOrigin, JobStatus, Project, RawFile
 from app.services.imports import header_metadata
 from app.tasks.common import JobContext, JobFailure, run_job
 
@@ -41,12 +63,14 @@ def _resolve_tool(ctx: JobContext, tool_id: str) -> str:
     return d.path
 
 
-def _run(ctx: JobContext, argv: list[str], workdir: Path, log_name: str, stdout: Path | None = None) -> Path:
+def _run(ctx: JobContext, argv: list[str], workdir: Path, log_name: str, stdout: Path | None = None,
+         extra_env: Mapping[str, str] | None = None, log_dir: Path | None = None, home: Path | None = None) -> Path:
     ctx.job.commands = [*(ctx.job.commands or []), argv]
-    ctx.log("Command: " + shlex.join(argv) + (f" > {stdout.name}" if stdout else ""), flush=True)
-    log_path = workdir / log_name
+    env_note = "".join(f"{k}={v} " for k, v in (extra_env or {}).items())
+    ctx.log("Command: " + env_note + shlex.join(argv) + (f" > {stdout.name}" if stdout else ""), flush=True)
+    log_path = (log_dir or workdir) / log_name
     result = run_command(argv, cwd=workdir, stderr_path=log_path, stdout_path=stdout,
-                         timeout_seconds=get_settings().tool_timeout_seconds)
+                         timeout_seconds=get_settings().tool_timeout_seconds, extra_env=extra_env, home=home)
     ctx.log(f"{Path(argv[0]).name} finished in {result.duration_seconds:.1f}s")
     return log_path
 
@@ -99,7 +123,7 @@ def _queue_stats_after(ctx: JobContext, parents: list[RawFile], derived: list[Ra
     ctx.db.flush()
     params = StatsParameters().as_dict()
     targets = files_without_stats(ctx.db, ctx.job.sample_id, parents) + derived
-    jobs = [new_sequence_stats_job(ctx.job.sample_id, f.id, params, ctx.job.id) for f in targets]
+    jobs = [new_sequence_stats_job(ctx.job.sample, f.id, params, ctx.job.id) for f in targets]
     ctx.db.add_all(jobs)
     ctx.after_commit.append(lambda: enqueue_sequence_stats(jobs))
 
@@ -162,6 +186,73 @@ def run_fastqc_job(job_id: str) -> str:
     return run_job(job_id, _fastqc_body)
 
 
+# --- NanoPlot -------------------------------------------------------------------
+
+def _nanoplot_body(ctx: JobContext) -> None:
+    exe = _resolve_tool(ctx, "nanoplot")
+    (f,) = ctx.input_files()
+    _log_inputs(ctx, [f])
+    results = ctx.path(ctx.results_rel)
+    prefix = output_prefix(f.original_filename)
+    names = output_names(prefix)
+    # nanoget picks its reader from the file extension only; ARVA detects gzip from the content.
+    link = results / "input" / input_name(prefix, f.file_format is FileFormat.fastq_gz)
+    work, home = results / "work", results / "home"
+    for d in (link.parent, work, home):
+        d.mkdir(parents=True)
+    link.symlink_to(ctx.path(f.stored_path))
+    argv = NanoplotAdapter.argv(exe, link, results, prefix, int((ctx.job.parameters or {}).get("threads", 1)))
+    try:
+        stderr_log = _run(ctx, argv, work, "nanoplot.stderr.log", log_dir=results, home=home)
+    except ToolExecutionError as exc:
+        fatal = next((line.strip() for line in exc.stderr_tail.splitlines() if line.startswith("FATAL")), None)
+        if fatal is None:
+            raise
+        raise ToolExecutionError(f"{exc}: {fatal}", exc.returncode, exc.stderr_tail) from None
+    finally:
+        shutil.rmtree(link.parent, ignore_errors=True)
+
+    traces = browser_traces(home)
+    if traces:
+        raise JobFailure("NanoPlot created web-browser files in its home folder (" + ", ".join(traces[:5]) + "). "
+                         "ARVA runs it with --no_static so that it never downloads or starts Chrome; the results "
+                         "were discarded")
+    if other := sorted(p.name for p in home.iterdir()):
+        ctx.log(f"Note: NanoPlot wrote to its empty home folder: {', '.join(other)}")
+    shutil.rmtree(work)
+    shutil.rmtree(home)
+
+    stats, report, post_path = results / names.stats, results / names.report, results / names.post_filtering
+    logs = sorted(results.glob(names.log_glob))
+    if not stats.is_file() or not report.is_file() or len(logs) != 1:
+        raise JobFailure("NanoPlot exited without an error but did not write NanoStats.txt, its HTML report and "
+                         "one log file; see the log")
+    try:
+        pre = NanoplotAdapter.parse_stats(stats.read_text())
+        post = NanoplotAdapter.parse_stats(post_path.read_text()) if post_path.is_file() else None
+    except ValueError as exc:
+        raise JobFailure(f"NanoPlot's statistics could not be read: {exc}") from exc
+    removed = NanoplotAdapter.artefact_reads_removed(logs[0].read_text(errors="replace"))
+    ctx.log(f"NanoPlot: {pre['number_of_reads']:,} reads, {pre['number_of_bases']:,} bases in NanoStats.txt "
+            "(every read nanoget kept; it drops zero-length reads)")
+    if post is not None:
+        ctx.log(f"NanoPlot then removed {removed} artefactual read(s) (length < 20 and mean quality > 30); "
+                f"{names.post_filtering} describes the remaining {post['number_of_reads']:,}")
+    if pre["unparsed"]:
+        ctx.log("NanoStats.txt rows ARVA does not interpret (kept in the file): " + ", ".join(pre["unparsed"]))
+    ctx.job.result_summary = {
+        "nanoplot_version": ctx.job.tool_version,
+        "stats": pre,
+        "post_filtering": post,
+        "artefact_reads_removed": removed,
+    }
+    ctx.job.output_paths = [_rel(ctx, p) for p in (report, stats, post_path, logs[0], stderr_log) if p.is_file()]
+
+
+def run_nanoplot_job(job_id: str) -> str:
+    return run_job(job_id, _nanoplot_body)
+
+
 # --- fastp --------------------------------------------------------------------
 
 def _fastp_body(ctx: JobContext) -> None:
@@ -217,7 +308,7 @@ def _filtlong_body(ctx: JobContext) -> None:
     processed.mkdir(parents=True, exist_ok=True)
     out = processed / f"{_stem(f)}.filtlong.fastq.gz"
     log = _run(ctx, FiltlongAdapter.argv(exe, params, ctx.path(f.stored_path)), results, "filtlong.log",
-               stdout=out)
+               stdout=out, extra_env=FILTLONG_ENVIRONMENT)
     ctx.job.result_summary = FiltlongAdapter.parse_log(log.read_text(errors="replace"))
     check = quick_validate(out)
     if check.records_checked == 0:
@@ -230,3 +321,114 @@ def _filtlong_body(ctx: JobContext) -> None:
 
 def run_filtlong_job(job_id: str) -> str:
     return run_job(job_id, _filtlong_body)
+
+
+# --- MultiQC (project level) -----------------------------------------------------
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with open(path, "rb") as fh:
+        while chunk := fh.read(1 << 20):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _stage_multiqc_inputs(ctx: JobContext, planned: list[dict], staged_dir: Path) -> list[ReportInput]:
+    """Copy each chosen output under a name that becomes its sample name (renamed exactly by a TSV)."""
+    staged_dir.mkdir(parents=True)
+    inputs = []
+    for n, item in enumerate(planned, 1):
+        source = ctx.db.get(AnalysisJob, item["job_id"])
+        if source is None or source.status is not JobStatus.completed or item["output_path"] not in (source.output_paths or []):
+            raise JobFailure(f"The {item['module']} result {item['job_id']} of sample {item['sample_code']} "
+                             "is no longer available; start the report again")
+        src = ctx.path(item["output_path"])
+        if not src.is_file():
+            raise JobFailure(f"{item['output_path']} is missing on disk")
+        dst = staged_dir / staged_name(n, item["module"])
+        shutil.copyfile(src, dst)
+        ctx.log(f"Input {n}: '{item['name']}' = {item['module']} result of {', '.join(item['file_names'])} "
+                f"(job {item['job_id']}, {item['tool_name']} {item['tool_version']}; {dst.name}, sha256 {_sha256(dst)})")
+        if item["module"] == "filtlong":
+            # Logs of runs made before ARVA set LC_ALL=C may group digits (1,362,402), which MultiQC cannot read.
+            text = dst.read_bytes().decode("latin-1")
+            if (plain := plain_counts(text)) != text:
+                dst.write_bytes(plain.encode("latin-1"))
+                ctx.log(f"Input {n}: Filtlong wrote its counts with digit grouping; the staged copy has the "
+                        f"separators removed (sha256 {_sha256(dst)})")
+        inputs.append(ReportInput(item["module"], dst, item["name"]))
+    return inputs
+
+
+def _tool_versions(planned: list[dict]) -> dict[str, list[str]]:
+    versions: dict[str, set[str]] = {}
+    for item in planned:
+        versions.setdefault(item["tool_name"], set()).add(item["tool_version"])
+    return {tool: sorted(v) for tool, v in sorted(versions.items())}
+
+
+def _multiqc_body(ctx: JobContext) -> None:
+    exe = _resolve_tool(ctx, "multiqc")
+    params = ctx.job.parameters or {}
+    planned: list[dict] = params.get("inputs") or []
+    if not planned:
+        raise JobFailure("No tool results were selected for the report")
+    # MultiQC joins rows by sample name, so a shared name would merge the values of different files.
+    owners: dict[str, set[tuple[str, ...]]] = defaultdict(set)
+    for item in planned:
+        owners[item["name"]].add((item["sample_id"], *item["file_ids"]))
+    if shared := sorted(name for name, keys in owners.items() if len(keys) > 1):
+        raise JobFailure("These report names would each hold results of different samples or files: "
+                         + ", ".join(shared))
+    project = ctx.db.get(Project, ctx.job.project_id)
+    results = ctx.path(ctx.results_rel)
+    inputs = _stage_multiqc_inputs(ctx, planned, results / "inputs")
+    modules = [m for m in ("fastqc", "fastp", "seqkit", "filtlong") if any(i.module == m for i in inputs)]
+    file_list, config, names = results / "inputs.txt", results / "arva_multiqc_config.yaml", results / "sample_names.tsv"
+    file_list.write_text("".join(f"{i.path}\n" for i in inputs))
+    config.write_text(MultiqcAdapter.config(modules))
+    names.write_text(MultiqcAdapter.replace_names(inputs))
+    argv = MultiqcAdapter.argv(
+        exe, file_list=file_list, outdir=results, config=config, names=names,
+        title=f"{project.name} - ARVA project QC report",
+        comment=f"ARVA analysis job {ctx.job.id}", modules=modules,
+    )
+    # An empty working directory: MultiQC would read a multiqc_config.yaml found there.
+    work = results / "work"
+    work.mkdir()
+    log = _run(ctx, argv, work, "multiqc.stderr.log", extra_env=ENVIRONMENT, log_dir=results)
+    shutil.rmtree(work, ignore_errors=True)
+
+    report, data_dir = results / REPORT_FILENAME, results / DATA_DIR
+    sources = data_dir / SOURCES_FILE
+    if not report.is_file() or not (data_dir / DATA_JSON).is_file() or not sources.is_file():
+        raise JobFailure("MultiQC exited without an error but did not write its report and data files "
+                         "(it does this when it recognises none of the inputs); see the log")
+    problems = MultiqcAdapter.check_sources(inputs, MultiqcAdapter.parse_sources(sources.read_text()))
+    if problems:
+        raise JobFailure("MultiQC did not report every input exactly once: " + "; ".join(problems[:8])
+                         + (f" (and {len(problems) - 8} more)" if len(problems) > 8 else ""))
+    parsed = MultiqcAdapter.parse_data(data_dir)
+    if parsed["multiqc_version"] != ctx.job.tool_version:
+        ctx.log(f"WARNING: the report says MultiQC {parsed['multiqc_version']}; detected {ctx.job.tool_version}")
+    stats = parsed["general_stats"]
+    if stats["unmapped"]:
+        ctx.log("General-statistics columns ARVA does not interpret for this MultiQC version (not stored): "
+                + ", ".join(stats["unmapped"]))
+    ctx.log(f"MultiQC report: {len(inputs)} input(s), modules {', '.join(modules)}; every input found once")
+    samples = {i["name"]: {"name": i["name"], "sample_id": i["sample_id"], "sample_code": i["sample_code"]}
+               for i in planned}
+    ctx.job.result_summary = {
+        "multiqc_version": parsed["multiqc_version"],
+        "report_creation_date": parsed["report_creation_date"],
+        "modules": modules,
+        "samples": sorted(samples.values(), key=lambda s: s["name"]),
+        "versions": {"reported_by_multiqc": parsed["software_versions"], "arva_jobs": _tool_versions(planned)},
+        "general_stats": stats,
+    }
+    extra = [data_dir / n for n in (DATA_JSON, SOURCES_FILE, VERSIONS_FILE, "multiqc.log")]
+    ctx.job.output_paths = [_rel(ctx, p) for p in (report, *extra, file_list, config, names, log) if p.is_file()]
+
+
+def run_multiqc_job(job_id: str) -> str:
+    return run_job(job_id, _multiqc_body)

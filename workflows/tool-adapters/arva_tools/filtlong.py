@@ -4,6 +4,8 @@ Options verified against `filtlong --help` and the v0.2.1 README.
 Important: --min_mean_q and --min_window_q are percent identities (0-100)
 derived from Phred scores, NOT Phred values (README, "Read scoring").
 Filtlong writes the kept reads to stdout; ARVA gzip-streams them to a file.
+Filtlong formats the counts in its log with the process locale (en_US writes 1,362,402, es_ES
+1.362.402, and a locale that is not installed makes it abort), so ARVA runs it with LC_ALL=C.
 """
 from __future__ import annotations
 
@@ -13,6 +15,9 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 
 from arva_tools.base import ToolAdapter, ToolInfo
+
+ENVIRONMENT = {"LC_ALL": "C"}
+_GROUPED = re.compile(r"\b\d{1,3}([,.])\d{3}(?:\1\d{3})*\b")
 
 
 def identity_to_phred(identity_percent: float) -> float:
@@ -113,20 +118,26 @@ class FiltlongAdapter(ToolAdapter):
     @staticmethod
     def parse_log(text: str) -> dict:
         """Extract the totals Filtlong prints to stderr (best effort, informational)."""
+        text = plain_counts(text)
         out = {}
         scoring = text.split("Filtering long reads")[0]
-        counts = re.findall(r"([\d,]+) reads \(([\d,]+) bp\)", scoring)
+        counts = re.findall(r"(\d+) reads \((\d+) bp\)", scoring)
         if counts:
             reads, bases = counts[-1]
-            out["input_reads"] = int(reads.replace(",", ""))
-            out["input_bases"] = int(bases.replace(",", ""))
-        m = re.search(r"target: ([\d,]+) bp", text)
+            out["input_reads"] = int(reads)
+            out["input_bases"] = int(bases)
+        m = re.search(r"target: (\d+) bp", text)
         if m:
-            out["target_bases_reported"] = int(m.group(1).replace(",", ""))
-        m = re.search(r"keeping ([\d,]+) bp", text)
+            out["target_bases_reported"] = int(m.group(1))
+        m = re.search(r"keeping (\d+) bp", text)
         if m:
-            out["kept_bases_reported"] = int(m.group(1).replace(",", ""))
+            out["kept_bases_reported"] = int(m.group(1))
         return out
+
+
+def plain_counts(log: str) -> str:
+    """The log with digit grouping removed from its counts (all integers), as the C locale writes them."""
+    return _GROUPED.sub(lambda m: m.group(0).replace(m.group(1), ""), log)
 
 
 def _num(v: float | int) -> str:

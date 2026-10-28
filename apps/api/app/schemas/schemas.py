@@ -182,7 +182,8 @@ class QCResultRead(ORMModel):
 
 class AnalysisJobRead(ORMModel):
     id: str
-    sample_id: str
+    project_id: str
+    sample_id: str | None = Field(description="None for project-level jobs such as the MultiQC report")
     job_type: str
     tool_name: str
     tool_version: str
@@ -229,6 +230,7 @@ class ToolRead(BaseModel):
     version: str | None
     version_validated: bool
     message: str
+    reason: str | None = None
 
 
 class LibraryRead(BaseModel):
@@ -248,6 +250,14 @@ class LibraryRead(BaseModel):
 
 class FilesRequest(BaseModel):
     raw_file_ids: list[Annotated[str, Field(max_length=64)]] = Field(min_length=1, max_length=1000)
+
+
+class NanoplotRequest(FilesRequest):
+    long_reads_confirmed: bool = Field(
+        default=False,
+        description="The user confirms that the files hold long reads; required unless the sample's "
+        "sequencing technology is nanopore or pacbio.",
+    )
 
 
 class FastpParamsIn(BaseModel):
@@ -292,6 +302,51 @@ class FiltlongRequest(BaseModel):
     params: FiltlongParamsIn
 
 
+MultiqcModule = Literal["fastqc", "fastp", "seqkit", "filtlong"]
+
+
+class MultiqcRequest(BaseModel):
+    sample_ids: list[Annotated[str, Field(max_length=64)]] | None = Field(
+        default=None, min_length=1, max_length=10_000, description="Samples to include; every sample of the project if omitted"
+    )
+    include_derived: bool = Field(
+        default=False, description="Also use results computed on derived (filtered) files"
+    )
+
+
+class MultiqcPlannedInput(BaseModel):
+    module: MultiqcModule
+    name: str = Field(description="Sample name in the report: '<sample ID> <file>'")
+    sample_id: str
+    sample_code: str
+    job_id: str
+    tool_name: str
+    tool_version: str
+    finished_at: dt.datetime | None
+    file_ids: list[str]
+    file_names: list[str]
+    output_path: str
+
+
+class MultiqcExclusion(BaseModel):
+    sample_id: str
+    sample_code: str
+    reason: Literal["no_outputs", "derived_input", "filtlong_without_target", "output_missing", "input_missing",
+                    "input_invalid", "input_not_validated"]
+    module: MultiqcModule | None
+    job_id: str | None
+    file_names: list[str]
+
+
+class MultiqcPlanRead(BaseModel):
+    selection_rule: str
+    modules: list[MultiqcModule]
+    sample_ids: list[str]
+    include_derived: bool
+    inputs: list[MultiqcPlannedInput]
+    excluded: list[MultiqcExclusion]
+
+
 class CrossCheckRow(BaseModel):
     metric: str
     arva: float | None
@@ -309,6 +364,74 @@ class CrossCheckRead(BaseModel):
     rows: list[CrossCheckRow]
     all_agree: bool | None
     note: str
+
+
+class QcOverviewFile(BaseModel):
+    file_id: str
+    filename: str
+    total_bases: int
+
+
+class QcOverviewFiltering(BaseModel):
+    job_id: str
+    tool_name: str
+    tool_version: str
+    finished_at: dt.datetime | None
+    runs: int = Field(description="Completed filtering runs of the sample; the latest one is described")
+    input_files: list[str]
+    output_files: list[str]
+    reads_kept_percent: float | None = Field(
+        description="Reads of the outputs ÷ reads of the inputs × 100, both from ARVA statistics; null until both exist"
+    )
+    bases_kept_percent: float | None
+
+
+class QcOverviewFastqc(BaseModel):
+    files: int = Field(description="Imported FASTQ files with a completed FastQC report (0: FastQC not run)")
+    files_total: int
+    pass_count: int = Field(description="FastQC heuristics, summed over the latest report of each file")
+    warn_count: int
+    fail_count: int
+
+
+class QcOverviewSeqkit(BaseModel):
+    status: Literal["agree", "disagree", "partial", "not_run"]
+    files_checked: int
+    files_total: int
+    differing_metrics: list[str]
+
+
+class QcOverviewRow(BaseModel):
+    sample_id: str
+    sample_code: str
+    sequencing_technology: SequencingTechnology
+    imported_files: int
+    derived_files: int
+    imported_read_files: int = Field(description="Imported FASTQ/FASTA files (POD5 and unrecognised files excluded)")
+    imported_read_files_with_stats: int
+    stats_tool_versions: list[str] = Field(description="arva-core versions of the statistics used")
+    total_reads: int | None = Field(description="Sum over imported read files; null unless every one has statistics")
+    total_bases: int | None
+    largest_file: QcOverviewFile | None = Field(description="Imported read file with the most bases")
+    n50: int | None = Field(description="N50 of the largest imported read file (ARVA)")
+    mean_read_quality: float | None = Field(
+        description="Arithmetic mean of per-read qualities of the largest imported read file (ARVA)"
+    )
+    q30_percent: float | None = Field(description="Bases ≥ Q30, pooled over the imported FASTQ files")
+    gc_percent: float | None = Field(description="G+C of unambiguous bases, pooled over the imported read files")
+    expected_genome_size_bp: int | None
+    genome_size_status: Literal["given", "not_given", "inconsistent"] | None = Field(
+        description="Whether every imported read file's statistics used the same user-supplied genome size"
+    )
+    estimated_depth: float | None = Field(description="total_bases ÷ expected_genome_size_bp")
+    filtering: QcOverviewFiltering | None
+    fastqc: QcOverviewFastqc
+    seqkit: QcOverviewSeqkit
+
+
+class QcOverviewRead(BaseModel):
+    project_id: str
+    rows: list[QcOverviewRow]
 
 
 class SequenceStatsRequest(BaseModel):

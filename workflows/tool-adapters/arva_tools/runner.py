@@ -3,6 +3,10 @@
 * Commands are argument vectors executed without a shell.
 * The child environment excludes ARVA configuration and anything that looks
   like a credential, so tools cannot read database passwords or API keys.
+* HOME and the XDG base directories point at a fresh, empty directory that is
+  removed afterwards (or at an empty directory the caller supplies and can
+  inspect), so no user configuration applies and nothing is cached in the
+  user's home.
 * stdout/stderr go to files, never into memory; stdout can be gzip-streamed.
 * Each tool runs in its own process group so a timeout kills all children.
 """
@@ -13,12 +17,17 @@ import os
 import re
 import signal
 import subprocess
+import tempfile
 import time
-from collections.abc import Sequence
+from collections.abc import Iterator, Mapping, Sequence
+from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass
 from pathlib import Path
 
 _SECRET = re.compile(r"PASSWORD|SECRET|TOKEN|CREDENTIAL|API_?KEY|PRIVATE", re.IGNORECASE)
+# MultiQC reads any MULTIQC_<KEY> variable as configuration.
+_TOOL_CONFIG_PREFIXES = ("ARVA_", "DATABASE", "MULTIQC_")
+HOME_VARIABLES = ("HOME", "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_DATA_HOME")
 CHUNK = 1 << 20
 
 
@@ -42,12 +51,17 @@ class RunResult:
     stdout_path: Path | None
 
 
-def tool_environment() -> dict[str, str]:
-    return {
-        k: v
-        for k, v in os.environ.items()
-        if not k.startswith("ARVA_") and not _SECRET.search(k) and not k.startswith("DATABASE")
-    }
+def tool_environment(home: Path | None = None) -> dict[str, str]:
+    env = {k: v for k, v in os.environ.items() if not k.startswith(_TOOL_CONFIG_PREFIXES) and not _SECRET.search(k)}
+    if home is not None:
+        env.update(dict.fromkeys(HOME_VARIABLES, str(home)))
+    return env
+
+
+@contextmanager
+def isolated_home() -> Iterator[Path]:
+    with tempfile.TemporaryDirectory(prefix="arva-tool-home-") as home:
+        yield Path(home)
 
 
 def _tail(path: Path, limit: int = 4000) -> str:
@@ -67,9 +81,24 @@ def run_command(
     stderr_path: Path,
     stdout_path: Path | None = None,
     timeout_seconds: float = 24 * 3600,
+    extra_env: Mapping[str, str] | None = None,
+    home: Path | None = None,
 ) -> RunResult:
     """Run `argv` and wait. stdout goes to `stdout_path` (gzip if it ends in .gz)
-    or is appended to the stderr log. Raises ToolExecutionError on failure."""
+    or is appended to the stderr log. `home` replaces the temporary HOME. Raises ToolExecutionError on failure."""
+    with nullcontext(home) if home is not None else isolated_home() as tool_home:
+        return _run(argv, cwd, stderr_path, stdout_path, timeout_seconds,
+                    {**tool_environment(tool_home), **(extra_env or {})})
+
+
+def _run(
+    argv: Sequence[str],
+    cwd: Path,
+    stderr_path: Path,
+    stdout_path: Path | None,
+    timeout_seconds: float,
+    env: dict[str, str],
+) -> RunResult:
     if not argv or not all(isinstance(a, str | os.PathLike) for a in argv):
         raise ValueError("argv must be a non-empty sequence of strings or paths")
     argv = [os.fspath(a) for a in argv]
@@ -89,7 +118,7 @@ def run_command(
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.PIPE if gz_out else (out_handle or err),
                 stderr=err,
-                env=tool_environment(),
+                env=env,
                 start_new_session=True,
                 shell=False,
             )

@@ -77,7 +77,10 @@ export function DashboardPage() {
               <ul className="divide-y">
                 {data?.recent_jobs.map((j) => (
                   <li key={j.id}>
-                    <Link to={`/samples/${j.sample_id}?tab=history&job=${j.id}`} className="flex items-center gap-3 rounded-lg px-2 py-2.5 hover:bg-muted/60">
+                    <Link
+                      to={j.sample_id ? `/samples/${j.sample_id}?tab=history&job=${j.id}` : `/projects/${j.project_id}`}
+                      className="flex items-center gap-3 rounded-lg px-2 py-2.5 hover:bg-muted/60"
+                    >
                       <BarChart3 className="h-4 w-4 shrink-0 text-arva-teal" />
                       <div className="min-w-0 flex-1">
                         <div className="truncate text-sm">

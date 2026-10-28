@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
-from app.api.deps import job_or_404, sample_or_404
+from app.api.deps import job_or_404, project_or_404, sample_or_404
 from app.db.session import get_db
 from app.models import AnalysisJob, FileFormat, JobStatus, RawFile
 from app.schemas.schemas import AnalysisJobDetail, AnalysisJobRead, SequenceStatsRequest
@@ -54,6 +54,17 @@ def list_sample_jobs(sample_id: str, db: Session = Depends(get_db)):
         select(AnalysisJob)
         .where(AnalysisJob.sample_id == sample_id)
         .options(selectinload(AnalysisJob.qc_results))
+        .order_by(AnalysisJob.created_at.desc())
+    ).all()
+
+
+@router.get("/projects/{project_id}/jobs", response_model=list[AnalysisJobRead])
+def list_project_jobs(project_id: str, db: Session = Depends(get_db)):
+    """Project-level jobs (e.g. MultiQC reports), newest first; per-sample jobs are under each sample."""
+    project_or_404(db, project_id)
+    return db.scalars(
+        select(AnalysisJob)
+        .where(AnalysisJob.project_id == project_id, AnalysisJob.sample_id.is_(None))
         .order_by(AnalysisJob.created_at.desc())
     ).all()
 

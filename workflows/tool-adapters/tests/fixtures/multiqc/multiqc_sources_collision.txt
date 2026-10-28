@@ -1,0 +1,7 @@
+Module	Section	Sample Name	Source
+FastQC	all_sections	ISO-001 R1	/job/inputs/arva-0001_fastqc.zip
+fastp	all_sections	ISO-001 R1+R2	/job/inputs/arva-0003.fastp.json
+SeqKit	stats	ISO-001 R1	/job/inputs/arva-0004.seqkit_stats.tsv
+SeqKit	stats	ISO-001 R2	/job/inputs/arva-0005.seqkit_stats.tsv
+SeqKit	stats	ISO-002 SYNTHETIC_nanopore_reads	/job/inputs/arva-0006.seqkit_stats.tsv
+Filtlong	all_sections	ISO-002 SYNTHETIC_nanopore_reads	/job/inputs/arva-0007.filtlong.log

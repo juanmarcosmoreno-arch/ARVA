@@ -17,6 +17,8 @@ import { RawSignalSection } from "@/components/domain/RawSignal";
 import { ReadHeadersCard, TechnologySuggestion, useHeaderSummary } from "@/components/domain/ReadHeaders";
 import { BeforeAfter } from "@/components/filtering/BeforeAfter";
 import { FilterDialog } from "@/components/filtering/FilterDialog";
+import { NanoplotCard } from "@/components/qc/NanoplotCard";
+import { SequencingOverview } from "@/components/qc/SequencingOverview";
 import { CrossCheckCard, FastqcCard } from "@/components/qc/ToolCards";
 import { useTools } from "@/components/tools/useTools";
 import { SampleMetadataEditor } from "@/components/domain/SampleForm";
@@ -30,7 +32,8 @@ import { useT } from "@/i18n";
 import { api } from "@/lib/api";
 import { fmtBases, fmtBytes, fmtDate, fmtDuration, fmtInt, fmtNum, formatLabel, technologyLabel } from "@/lib/format";
 import { lineageOrder } from "@/lib/filters";
-import { FILTER_JOBS, IMPORT_JOBS, RAW_SIGNAL_JOBS, basename, hasReads, inProcessTool, jobLabel, latestResults } from "@/lib/results";
+import { NANOPLOT_JOB } from "@/lib/nanoplot";
+import { FILTER_JOBS, IMPORT_JOBS, RAW_SIGNAL_JOBS, basename, hasReads, inProcessTool, jobLabel, latestJobFor, latestResults } from "@/lib/results";
 import type { AnalysisJobDetail, HeaderSummary, RawFile, SequencingTechnology } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -157,6 +160,7 @@ export function SampleDetailPage() {
           jobs={allJobs}
           files={files.data ?? []}
           sampleCode={s.sample_code}
+          technology={s.sequencing_technology}
           onGoFiles={() => setTab("files")}
           activeCount={qcJobs.filter(isActive).length}
         />
@@ -430,6 +434,7 @@ function QcTab({
   jobs,
   files,
   sampleCode,
+  technology,
   onGoFiles,
   activeCount,
 }: {
@@ -437,6 +442,7 @@ function QcTab({
   jobs: AnalysisJobDetail[];
   files: RawFile[];
   sampleCode: string;
+  technology: SequencingTechnology;
   onGoFiles: () => void;
   activeCount: number;
 }) {
@@ -447,10 +453,12 @@ function QcTab({
   const current = currentId ? results.get(currentId) : undefined;
   const failed = jobs.filter((j) => j.status === "failed" && !IMPORT_JOBS.has(j.job_type) && !RAW_SIGNAL_JOBS.has(j.job_type)).slice(0, 3);
   const rawSignal = <RawSignalSection sampleId={sampleId} files={files} jobs={jobs} />;
+  const overview = <SequencingOverview files={files} jobs={jobs} prefix={`ARVA_${sampleCode}`.replace(/[^A-Za-z0-9._-]+/g, "_")} />;
 
   if (!current) {
     return (
       <div className="space-y-4">
+        {overview}
         {activeCount > 0 ? (
           <EmptyState icon={<Loader2 className="h-7 w-7 animate-spin text-arva-teal" />} title={`Computing statistics for ${activeCount} file(s)…`}>
             Results appear here automatically.
@@ -473,6 +481,7 @@ function QcTab({
 
   return (
     <div className="space-y-6">
+      {overview}
       <div className="flex flex-wrap items-end justify-between gap-3">
         {withResults.length > 1 ? (
           <Field label="File" className="w-full max-w-md">
@@ -555,6 +564,9 @@ function QcTab({
       <div className="grid gap-6 lg:grid-cols-2">
         <CrossCheckCard sampleId={sampleId} file={file} jobs={jobs} />
         {m.file.format === "fastq" ? <FastqcCard sampleId={sampleId} file={file} jobs={jobs} /> : <div />}
+        {m.file.format === "fastq" && (technology !== "illumina" || latestJobFor(jobs, NANOPLOT_JOB, file.id, false)) && (
+          <NanoplotCard sampleId={sampleId} file={file} jobs={jobs} arva={m} technology={technology} />
+        )}
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">

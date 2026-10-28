@@ -23,11 +23,23 @@ mapping (English/Spanish names), explicit date handling, one-transaction apply a
 with the file's SHA-256; metadata export to CSV/Excel that is safe against formula injection, and the
 same protection in the report CSV.
 
+Project-level QC: analysis jobs can belong to a project instead of a sample; the project page builds
+a MultiQC 1.35 report (PyPI, own virtual environment) over the latest FastQC, fastp, SeqKit and
+Filtlong results, shows which results it will use and why others are left out, checks that every input
+appears exactly once, and keeps the general statistics with units and the producing tool.
+
+NanoPlot 1.48.0 (PyPI, own virtual environment) for long-read FASTQ files: offline, never downloading
+a browser, with NanoPlot's statistics labelled by its own definitions, reads and bases cross-checked
+against ARVA (zero-length records explained), and N50, quality thresholds and mean quality shown
+side by side or separately because their definitions differ.
+
+Overviews: a sequencing overview at the top of each sample's QC tab (every imported and derived file
+with its lineage, read statistics, POD5 reads and signal duration, and bases per file) and a QC
+overview on the project page (one row per sample, each value chosen by a stated rule and left empty
+when it cannot be stated exactly; sortable, filterable by technology, CSV export).
+
 ### Still open from the original Phase 2 scope
 
-- **MultiQC** project-level aggregation: the Ubuntu 1.18 package produced reports missing a
-  JavaScript asset in testing, so it was not integrated yet.
-- **NanoPlot** reports (ARVA already draws the equivalent long-read plots itself).
 - **Dorado** basecalling is not integrated: Dorado is not distributed through any package channel
   (Bioconda, conda-forge, PyPI, apt or Homebrew), is built for NVIDIA or Apple GPUs and downloads its
   basecalling models while it runs, whereas ARVA only runs packaged tools that work offline. Basecall
@@ -65,6 +77,11 @@ unit, API and end-to-end tests.
   empty cell never clears a stored value, so values are removed by editing the sample (custom fields
   too, in its Metadata tab). The database has no unique constraint on sample IDs, so imports into one
   project are serialised with a row lock instead (taken after the file has been parsed).
+- NanoPlot reads FASTQ only (no BAM, sequencing_summary.txt or POD5); its plots come from unseeded
+  random subsets on large files. It is not in the Docker image yet.
+- MultiQC is not in the Docker image yet (it needs its own ~1.1 GB Python environment). Its report is
+  served from ARVA's own origin with network access blocked, so it shares that origin's local storage
+  (MultiQC keeps only its display settings there); Filtlong runs without a target cannot be included.
 - Read-header platform hints come from the first 1,000 records only, and headers rewritten by tools
   or NCBI SRA carry no platform information (shown as "not inferable", never as a negative result).
 - Deleting a project/sample removes database records but intentionally leaves raw files on disk.
@@ -77,8 +94,7 @@ unit, API and end-to-end tests.
 
 Integrate Flye for long-read assembly through a new adapter (and Nextflow where multi-step), QUAST
 evaluation, contig statistics and plots, with the filtered or original reads selected explicitly by
-lineage. Before that, the small remaining Phase 2 items above (MultiQC, NanoPlot) can be added
-independently.
+lineage.
 
 ## Later phases
 

@@ -3,6 +3,13 @@
 # (ARVA_TEST_DATABASE_URL, default: local arva_test database).
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# MultiQC and NanoPlot live in their own virtual environments (docs/installation.md); use them when installed there.
+if [ -z "${ARVA_TOOL_MULTIQC:-}" ] && [ -x "$HOME/.arva-tools/multiqc/bin/multiqc" ]; then
+  export ARVA_TOOL_MULTIQC="$HOME/.arva-tools/multiqc/bin/multiqc"
+fi
+if [ -z "${ARVA_TOOL_NANOPLOT:-}" ] && [ -x "$HOME/.arva-tools/nanoplot/bin/NanoPlot" ]; then
+  export ARVA_TOOL_NANOPLOT="$HOME/.arva-tools/nanoplot/bin/NanoPlot"
+fi
 
 echo "==> scientific-core"
 (cd "$ROOT/scientific-core" && "$ROOT/apps/api/.venv/bin/pytest" -q)

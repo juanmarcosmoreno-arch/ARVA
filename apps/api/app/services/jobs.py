@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 
 from app import __version__
 from app.core.config import get_settings
-from app.models import AnalysisJob, JobStatus, RawFile, Sample
+from app.models import AnalysisJob, JobStatus, Project, RawFile, Sample
 from app.services.queue import get_queue
 from app.services.raw_signal import POD5_INSTALL, is_raw_signal, pod5_versions
 
@@ -30,6 +30,8 @@ SERVER_IMPORT_JOB = "server_import"
 SERVER_IMPORT_TOOL = "arva-import"
 POD5_JOB = "pod5_summary"
 POD5_TOOL = "pod5"
+MULTIQC_JOB = "multiqc"
+NANOPLOT_JOB = "nanoplot"
 
 
 class ToolUnavailableError(RuntimeError):
@@ -49,9 +51,10 @@ def require_tool(tool_id: str) -> DetectedTool:
     return d
 
 
-def new_sequence_stats_job(sample_id: str, raw_id: str, parameters: dict, parent_job_id: str | None = None) -> AnalysisJob:
+def new_sequence_stats_job(sample: Sample, raw_id: str, parameters: dict, parent_job_id: str | None = None) -> AnalysisJob:
     return AnalysisJob(
-        sample_id=sample_id,
+        project_id=sample.project_id,
+        sample_id=sample.id,
         job_type=FASTQ_STATS_JOB,
         tool_name=TOOL_NAME,
         tool_version=TOOL_VERSION,
@@ -77,7 +80,7 @@ def create_sequence_stats_jobs(
     parent_job_id: str | None = None,
 ) -> list[AnalysisJob]:
     """Create one ARVA statistics job per input file and enqueue them."""
-    jobs = [new_sequence_stats_job(sample.id, raw.id, parameters, parent_job_id) for raw in raw_files]
+    jobs = [new_sequence_stats_job(sample, raw.id, parameters, parent_job_id) for raw in raw_files]
     db.add_all(jobs)
     db.commit()
     enqueue_sequence_stats(jobs)
@@ -101,6 +104,7 @@ def files_without_stats(db: Session, sample_id: str, files: list[RawFile]) -> li
 
 def _tool_job(sample: Sample, job_type: str, tool: DetectedTool, parameters: dict, inputs: list[str]) -> AnalysisJob:
     return AnalysisJob(
+        project_id=sample.project_id,
         sample_id=sample.id,
         job_type=job_type,
         tool_name=tool.info.name,
@@ -113,13 +117,19 @@ def _tool_job(sample: Sample, job_type: str, tool: DetectedTool, parameters: dic
     )
 
 
-def create_per_file_tool_jobs(db: Session, sample: Sample, files: list[RawFile], tool_id: str) -> list[AnalysisJob]:
-    from app.tasks.tools import run_fastqc_job, run_seqkit_job
+def create_per_file_tool_jobs(
+    db: Session, sample: Sample, files: list[RawFile], tool_id: str, parameters: dict | None = None
+) -> list[AnalysisJob]:
+    from app.tasks.tools import run_fastqc_job, run_nanoplot_job, run_seqkit_job
 
-    job_type, func = {"seqkit": (SEQKIT_JOB, run_seqkit_job), "fastqc": (FASTQC_JOB, run_fastqc_job)}[tool_id]
+    job_type, func = {
+        "seqkit": (SEQKIT_JOB, run_seqkit_job),
+        "fastqc": (FASTQC_JOB, run_fastqc_job),
+        "nanoplot": (NANOPLOT_JOB, run_nanoplot_job),
+    }[tool_id]
     tool = require_tool(tool_id)
     threads = get_settings().tool_threads
-    jobs = [_tool_job(sample, job_type, tool, {"threads": threads}, [f.id]) for f in files]
+    jobs = [_tool_job(sample, job_type, tool, {"threads": threads, **(parameters or {})}, [f.id]) for f in files]
     db.add_all(jobs)
     db.commit()
     _enqueue(jobs, func)
@@ -161,6 +171,7 @@ def create_server_import_job(db: Session, sample: Sample, root: Path, paths: lis
     from app.tasks.server_import import run_server_import_job
 
     job = AnalysisJob(
+        project_id=sample.project_id,
         sample_id=sample.id,
         job_type=SERVER_IMPORT_JOB,
         tool_name=SERVER_IMPORT_TOOL,
@@ -188,6 +199,7 @@ def create_pod5_jobs(db: Session, sample: Sample, files: list[RawFile]) -> list[
         )
     jobs = [
         AnalysisJob(
+            project_id=sample.project_id,
             sample_id=sample.id,
             job_type=POD5_JOB,
             tool_name=POD5_TOOL,
@@ -205,3 +217,27 @@ def create_pod5_jobs(db: Session, sample: Sample, files: list[RawFile]) -> list[
     for job in jobs:
         db.refresh(job)
     return jobs
+
+
+def create_multiqc_job(db: Session, project: Project, parameters: dict, file_ids: list[str]) -> AnalysisJob:
+    """One project-level job: the inputs were chosen in the request and are recorded in `parameters`."""
+    from app.tasks.tools import run_multiqc_job
+
+    tool = require_tool("multiqc")
+    job = AnalysisJob(
+        project_id=project.id,
+        sample_id=None,
+        job_type=MULTIQC_JOB,
+        tool_name=tool.info.name,
+        tool_version=tool.version or "unknown",
+        tool_path=tool.path,
+        parameters=parameters,
+        input_raw_file_ids=file_ids,
+        status=JobStatus.pending,
+        log_text="",
+    )
+    db.add(job)
+    db.commit()
+    _enqueue([job], run_multiqc_job)
+    db.refresh(job)
+    return job

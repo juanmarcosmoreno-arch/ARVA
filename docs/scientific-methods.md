@@ -227,6 +227,8 @@ test suite has run against them; other versions run with a recorded warning.
 | FastQC | 0.11.9, 0.12.1 | Per-file QC report (unmodified) and module flags |
 | fastp | 0.23.2, 0.23.4 | Short-read adapter trimming and filtering |
 | Filtlong | 0.2.1 | Long-read filtering |
+| MultiQC | 1.35 | Project-level report gathering the four tools' results |
+| NanoPlot | 1.48.0 | Long-read statistics and interactive report (with nanoget 1.19.6) |
 
 ### Independent cross-check (SeqKit)
 
@@ -276,6 +278,9 @@ Q = −10·log₁₀(1 − X/100), the same definition ARVA uses for per-read me
 95 ≈ Q13.0, 99 ≈ Q20). The interface shows this conversion next to each value and warns when a value
 below 50 looks like a Phred score. `--keep_percent` and `--target_bases` are measured in bases. At
 least one threshold is required. Kept reads (written to stdout by Filtlong) are gzip-compressed by ARVA.
+Filtlong formats the counts in its log with the process locale (en_US writes 1,362,402, es_ES
+1.362.402, and a locale that is not installed makes it abort), so ARVA runs it with `LC_ALL=C`; logs
+of earlier runs are read with either separator.
 
 ### Before/after comparison
 
@@ -284,6 +289,130 @@ on which both distributions are exactly defined: yield by minimum read length (e
 each curve equals its total below its own shortest read), per-read mean quality (integer Phred bins)
 and per-read GC (integer percent). Length histograms are not overlaid because each file's bins
 depend on its own length range.
+
+### MultiQC (project report)
+
+MultiQC reads the outputs of other tools; it measures nothing itself. ARVA uses it as a project-level
+view, never as the source of QC numbers and never as an independent check.
+
+- **Inputs.** For each selected sample: the most recent completed FastQC and SeqKit result of each file
+  and the most recent completed fastp and Filtlong result of each input file or read pair, only for
+  files ARVA has read in full with its own read statistics and found valid (import checks only the
+  start of a file, so a result on a file that later fails full validation, or was never fully read, is
+  left out with the reason). Results on derived (filtered) files are used only when the user asks for
+  them. Filtlong runs without
+  `--target_bases` or `--keep_percent` are left out: only with a target does Filtlong log the totals
+  MultiQC reads. The selection and every exclusion with its reason are shown before running and stored
+  in the job's parameters.
+- **Run.** The chosen files are copied into the job folder as `arva-NNNN<suffix>` and passed as an
+  exact list (`--file-list`), never as a folder to search. Sample names are the staged file names
+  (`--fn_as_s_name --fullnames`) renamed exactly (`--replace-names` with `sample_names_replace_exact`)
+  to `<sample ID> <file>`, where the file is R1/R2 or its name (plus "after fastp/Filtlong" for derived
+  files). One name belongs to one sample and file set in every module, because MultiQC joins
+  general-statistics rows by name: when two samples or files would get the same name after the markup
+  characters MultiQC does not escape are replaced (for example sample IDs `A/1` and `A_1`), the first 8
+  characters of their ARVA IDs are added, and the job refuses a name shared by different samples or
+  files. Filtlong logs with digit grouping, which MultiQC 1.35 cannot read, are staged without the
+  separators (logged). The configuration disables MultiQC's version check (also `--no-version-check` and
+  `MULTIQC_NO_VERSION_CHECK=true`), AI features and analysis paths, keeps counts unscaled and removes
+  DOI badges whose hover queries api.crossref.org. Filtlong's search window is widened to 20 lines
+  because its progress output hides the marker MultiQC looks for.
+- **Checks.** MultiQC exits with status 0 even when it finds nothing or silently drops one of two
+  inputs that received the same name, so ARVA requires the report and its data folder to exist and
+  every input to appear exactly once, under its own name, in `multiqc_sources.txt`; otherwise the job
+  fails and lists the problem. `--require-logs` makes MultiQC itself fail when a requested module
+  finds no file.
+- **Values.** ARVA reads the general statistics from `multiqc_data.json`
+  (`report_general_stats_data`), which holds values before display scaling, and records the unit of each
+  key for MultiQC 1.35: fastp Q30 rate and GC content are fractions (0–1), MultiQC shows them × 100;
+  fastp % passing filter, % adapter and % duplication, FastQC % duplicates, % failed modules, mean and
+  median length are computed by MultiQC and labelled so. Keys ARVA does not know are listed, not
+  parsed. `multiqc_general_stats.txt` (scaled) and `multiqc_fastp.txt` (Python object text, not JSON)
+  are never parsed. Metrics with similar names from different tools (FastQC's integer %GC, SeqKit's
+  GC(%), fastp's GC fraction after filtering) are shown side by side with their own definitions and are
+  not compared.
+- **Provenance.** The job records ARVA's own argument vector (MultiQC's `report_multiqc_command` drops
+  shell quoting), the source job, tool and version of every input and the SHA-256 of each staged copy.
+  SeqKit and Filtlong outputs carry no version, so the versions come from ARVA's job records.
+
+### NanoPlot (long reads)
+
+NanoPlot summarises one long-read FASTQ file. ARVA keeps its numbers as NanoPlot's, with NanoPlot's
+definitions, and compares with its own statistics only what both define identically.
+
+- **Run.** `NanoPlot --fastq <link> --outdir <job> --prefix <name>_ --threads <n> --no_static
+  --only-report --include-js embedded --tsv_stats`, in an empty working folder with HOME and the XDG
+  folders pointing at an empty job folder that is checked afterwards for browser files (without
+  `--no_static` NanoPlot downloads and runs Chrome for Testing). nanoget picks its reader from the file
+  extension only, so the input is a link named `<name>.fastq` or `<name>.fastq.gz` after ARVA's
+  content-based format. `--downsample` (unseeded) and `--info_in_report` (writes folder paths into the
+  report) are never used. NanoPlot is only offered for long reads: the sample's technology must be
+  Nanopore or PacBio, or the user confirms it.
+- **Checks.** Exit status 0 *and* NanoStats.txt, the report and one log file. NanoPlot writes
+  NanoStats.txt before it can stop with "No reads left after filtering" (exit status 1); that message
+  becomes the job's error.
+- **Values.** NanoStats.txt (`--tsv_stats`) is read by row name. It describes every read nanoget kept;
+  nanoget silently skips zero-length records. After writing it NanoPlot removes reads shorter than 20
+  bases with mean quality above 30 as basecaller artefacts and, if there were any, describes the rest in
+  NanoStats_post_filtering.txt (shown as a second column).
+- **Cross-check.** Reads and total bases have identical definitions and are compared exactly; a read
+  count lower by exactly ARVA's number of zero-length records (now reported as `zero_length_reads`) is
+  shown as explained, any other difference as a difference.
+- **Not compared.** NanoPlot's N50 takes the first length at which the cumulative sum of lengths sorted
+  in *ascending* order reaches half the bases (lengths 2, 3, 5: NanoPlot 3, ARVA and SeqKit 5);
+  "Reads >QN" uses a strict `>` where ARVA uses `≥`; the mean read quality averages the per-read
+  qualities again as error probabilities, unweighted by length (ARVA's mean read quality is their
+  arithmetic mean). N50 and the shared quality thresholds are shown side by side with these
+  definitions; NanoPlot's mean and median read quality are shown only on their own. NanoPlot computes
+  them with the modified copy of nanomath its wheel ships (`ave_qual_floats`); a stock nanomath
+  installed into the same environment replaces it silently (same `--version`, mean quality 9.8 instead
+  of 10.2 on the synthetic reads), so detection imports nanomath with NanoPlot's own interpreter and
+  reports NanoPlot as failed when that function is missing.
+- **Report.** The plots are drawn from unseeded random subsets of at most 10,000 reads (2,000 for the
+  density plot), so for larger files they are not byte-reproducible; NanoStats.txt is. The report is
+  served with the standard sandboxed CSP; `scripts/check_nanoplot_report.cjs` (run by the API tests)
+  confirms in headless Chromium that all plots render, no request leaves the page and the page cannot
+  reach ARVA's origin.
+
+## Sequencing overview and project QC overview
+
+Both tables only show results of completed jobs, always the latest completed one per file; a missing
+value is shown as "—" with its reason (not computed, being computed, failed, not applicable). Nothing
+is recomputed from the files.
+
+- **Sample sequencing overview** (QC tab). One row per file in lineage order: imported files, each
+  followed by the files derived from it, labelled with the parent and the producing tool and version.
+  Reads, bases, mean length, N50, mean read quality, bases ≥ Q30 and GC are ARVA's read statistics of
+  that file (arva-core version shown); mean read quality is ARVA's arithmetic mean of per-read
+  qualities, not NanoPlot's dataset mean (see Quality). For a derived file the share of its parent's
+  bases is given, both from ARVA statistics. POD5 files show the read count and the summed signal
+  duration of their latest pod5 job. The bar chart has one value axis (bases); imported and derived
+  files are told apart by colour, by an arrow and indentation under their parent, and in the tooltip.
+- **Project QC overview** (`GET /projects/{id}/qc-overview`, `…/qc-overview.csv`). One row per sample.
+  *Read files* are the imported FASTQ/FASTA files; POD5 and unrecognised files are counted as imported
+  files but hold no reads.
+  - Reads and bases: sums over the read files. They, bases ≥ Q30, GC and depth are reported only when
+    every read file has ARVA statistics, so a partial sum is never presented as a total.
+  - N50 and mean read quality: those of the read file with the most bases (on a tie, the one imported
+    first). Neither can be combined exactly across files, so they are not averaged.
+  - Bases ≥ Q30: Σ(Q30%ᵢ × basesᵢ) ÷ Σ basesᵢ over the FASTQ read files; GC:
+    Σ(GC%ᵢ × (basesᵢ − ambiguousᵢ)) ÷ Σ(basesᵢ − ambiguousᵢ). Both equal ARVA's value for the
+    concatenated files. In a hybrid sample they are dominated by the technology with more bases.
+  - Depth: total bases ÷ the expected genome size the user entered when computing the statistics,
+    only if the same size was entered for every read file (otherwise "no genome size" or "genome
+    sizes differ"). ARVA never assumes a genome size.
+  - Filtering: the latest completed fastp or Filtlong run of the sample and the number of runs; reads
+    and bases kept = ARVA statistics of its output files ÷ those of its input files (empty until both
+    exist). On the synthetic paired-end data this reproduces fastp's own read counts exactly.
+  - FastQC: PASS/WARN/FAIL module flags summed over the latest report of each imported FASTQ file,
+    labelled as FastQC heuristics.
+  - SeqKit check: per imported read file, the comparison of the SeqKit cross-check; *agree* when every
+    read file was checked and agrees, *partial* when only some were checked, *differs* when any metric
+    of any checked file differs (the metrics are listed), *not run* otherwise.
+  - The rows come from four queries whatever the number of samples. The CSV is UTF-8 with BOM, CRLF,
+    every field quoted and text cells neutralised against formula injection (the same sanitiser as the
+    metadata export); column names state the source and the rule (e.g.
+    `n50_bp_largest_file_arva`, `fastqc_heuristics_fail_modules`).
 
 ## What ARVA does not do yet
 
@@ -316,8 +445,10 @@ Read-header grammars: Illumina BaseSpace Help "FASTQ files"; bcl2fastq2 v2.20 So
 files; ONT output specifications (FASTQ v0.1) and Dorado SAM specification; PacBio BAM format
 specification 13.1 (QNAME convention); NCBI sra-tools wiki "HowTo: fasterq-dump" and "Read-Names".
 
+- Ewels P, Magnusson M, Lundin S, Käller M. MultiQC: summarize analysis results for multiple tools and samples in a single report. *Bioinformatics* 2016;32(19):3047–3048. doi:10.1093/bioinformatics/btw354
 - Ewing B, Green P. Base-calling of automated sequencer traces using phred. II. Error probabilities. *Genome Res* 1998;8:186–194. doi:10.1101/gr.8.3.186
 - Cock PJA et al. The Sanger FASTQ file format for sequences with quality scores, and the Solexa/Illumina FASTQ variants. *Nucleic Acids Res* 2010;38:1767–1771. doi:10.1093/nar/gkp1137
+- De Coster W, Rademakers R. NanoPack2: population-scale evaluation of long-read sequencing data. *Bioinformatics* 2023;39(5):btad311. doi:10.1093/bioinformatics/btad311
 - De Coster W et al. NanoPack: visualizing and processing long-read sequencing data. *Bioinformatics* 2018;34:2666–2669. doi:10.1093/bioinformatics/bty149
 - Gurevich A et al. QUAST: quality assessment tool for genome assemblies. *Bioinformatics* 2013;29:1072–1075. doi:10.1093/bioinformatics/btt086
 - Lander ES, Waterman MS. Genomic mapping by fingerprinting random clones: a mathematical analysis. *Genomics* 1988;2:231–239. doi:10.1016/0888-7543(88)90007-9

@@ -1153,15 +1153,18 @@ def export_table(rows: list[dict]) -> tuple[list[str], list[list[str | None]]]:
     return [*ARVA_FIELDS, *custom_keys], table
 
 
-def export_csv(rows: list[dict]) -> bytes:
+def spreadsheet_csv(header: list[str], table: list[list[Any]]) -> bytes:
     """UTF-8 with BOM (so Excel detects the encoding), CRLF, every field quoted and neutralised."""
-    header, table = export_table(rows)
     buf = io.StringIO(newline="")
     writer = csv.writer(buf, quoting=csv.QUOTE_ALL, lineterminator="\r\n")
     writer.writerow([sanitize_spreadsheet_cell(h) for h in header])
     for values in table:
         writer.writerow([sanitize_spreadsheet_cell(v) for v in values])
     return ("﻿" + buf.getvalue()).encode("utf-8")
+
+
+def export_csv(rows: list[dict]) -> bytes:
+    return spreadsheet_csv(*export_table(rows))
 
 
 def write_xlsx_text_cell(ws: Any, row: int, column: int, value: str | None) -> None:

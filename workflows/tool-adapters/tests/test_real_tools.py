@@ -3,6 +3,7 @@
 Skipped automatically for any tool that is not installed.
 """
 import gzip
+import re
 from pathlib import Path
 
 import pytest
@@ -70,6 +71,18 @@ def test_filtlong_keeps_subset(tmp_path):
     assert FiltlongAdapter.parse_log((tmp_path / "filtlong.log").read_text())["input_reads"] == 400
 
 
+def test_filtlong_runs_in_the_c_locale(tmp_path):
+    from arva_tools.filtlong import ENVIRONMENT
+
+    exe = tool("filtlong")
+    # A locale that is not installed makes Filtlong 0.2.1 abort; LC_ALL=C overrides it (and any digit grouping).
+    run_command(FiltlongAdapter.argv(exe, FiltlongParams(keep_percent=90), ONT), cwd=tmp_path,
+                stderr_path=tmp_path / "filtlong.log", stdout_path=tmp_path / "kept.fq.gz",
+                extra_env={"LANG": "xx_XX.UTF-8", **ENVIRONMENT})
+    log = (tmp_path / "filtlong.log").read_text()
+    assert "target: " in log and "," not in log and count_fastq(tmp_path / "kept.fq.gz") > 0
+
+
 def test_fastqc_report(tmp_path):
     exe = tool("fastqc")
     (tmp_path / "tmp").mkdir()
@@ -80,3 +93,214 @@ def test_fastqc_report(tmp_path):
     parsed = FastqcAdapter.parse_zip(tmp_path / zipname)
     assert parsed["basic_statistics"]["Total Sequences"] == "2000"
     assert {m["module"] for m in parsed["modules"]} >= {"Basic Statistics", "Adapter Content"}
+
+
+def _multiqc_inputs(tmp_path):
+    """Real FastQC, fastp, SeqKit and Filtlong outputs of the synthetic reads, staged like ARVA does."""
+    from arva_tools.multiqc import ReportInput, report_text, staged_name
+    from arva_tools.seqkit import SeqkitAdapter
+
+    exes = {t: tool(t) for t in ("fastqc", "fastp", "seqkit", "filtlong")}
+    raw = tmp_path / "raw"
+    (raw / "tmp").mkdir(parents=True)
+    run_command(FastqcAdapter.argv(exes["fastqc"], R1, raw, raw / "tmp"), cwd=raw, stderr_path=raw / "fastqc.log")
+    run_command(FastpAdapter.argv(exes["fastp"], FastpParams(threads=2), R1, raw / "o1.fq.gz", raw / "fastp.json",
+                                  raw / "fastp.html", in2=R2, out2=raw / "o2.fq.gz", title="ARVA fastp report - S1"),
+                cwd=raw, stderr_path=raw / "fastp.log")
+    run_command(SeqkitAdapter.stats_argv(exes["seqkit"], [ONT]), cwd=raw, stderr_path=raw / "s.log",
+                stdout_path=raw / "seqkit_stats.tsv")
+    run_command(FiltlongAdapter.argv(exes["filtlong"], FiltlongParams(keep_percent=90), ONT), cwd=raw,
+                stderr_path=raw / "filtlong.log", stdout_path=raw / "kept.fq.gz")
+    sources = [("fastqc", raw / FastqcAdapter.output_names(R1.name)[1], "S1 <b>R1</b>"),
+               ("fastp", raw / "fastp.json", "S1 R1+R2"),
+               ("seqkit", raw / "seqkit_stats.tsv", "S2 reads"),
+               ("filtlong", raw / "filtlong.log", "S2 reads")]
+    staged = tmp_path / "job" / "inputs"
+    staged.mkdir(parents=True)
+    inputs = []
+    for n, (module, src, name) in enumerate(sources, 1):
+        dst = staged / staged_name(n, module)
+        dst.write_bytes(src.read_bytes())
+        inputs.append(ReportInput(module, dst, report_text(name)))
+    return raw, inputs
+
+
+def _run_multiqc(exe, job, inputs, title="Synthetic <script>x</script>"):
+    from arva_tools.multiqc import ENVIRONMENT, MultiqcAdapter
+
+    modules = [m for m in ("fastqc", "fastp", "seqkit", "filtlong") if any(i.module == m for i in inputs)]
+    (job / "inputs.txt").write_text("".join(f"{i.path}\n" for i in inputs))
+    (job / "config.yaml").write_text(MultiqcAdapter.config(modules))
+    (job / "names.tsv").write_text(MultiqcAdapter.replace_names(inputs))
+    (job / "work").mkdir(exist_ok=True)
+    argv = MultiqcAdapter.argv(exe, file_list=job / "inputs.txt", outdir=job, config=job / "config.yaml",
+                               names=job / "names.tsv", title=title, comment="ARVA test", modules=modules)
+    run_command(argv, cwd=job / "work", stderr_path=job / "multiqc.stderr.log", extra_env=ENVIRONMENT)
+
+
+def test_multiqc_project_report(tmp_path):
+    from arva_tools.multiqc import DATA_DIR, REPORT_FILENAME, SOURCES_FILE, MultiqcAdapter
+
+    exe = tool("multiqc")
+    raw, inputs = _multiqc_inputs(tmp_path)
+    job = tmp_path / "job"
+    _run_multiqc(exe, job, inputs)
+
+    html = (job / REPORT_FILENAME).read_text()
+    data_dir = job / DATA_DIR
+    sources = MultiqcAdapter.parse_sources((data_dir / SOURCES_FILE).read_text())
+    assert MultiqcAdapter.check_sources(inputs, sources) == []
+    assert "<script>x</script>" not in html and "<b>R1</b>" not in html
+    assert '<a class="module-doi' not in html and str(job) not in html and 'class="mqc_analysis_path' not in html
+    debug_log = (data_dir / "multiqc.log").read_text()
+    assert "no_version_check from the environment variable" in debug_log and "api.multiqc.info" not in debug_log
+
+    parsed = MultiqcAdapter.parse_data(data_dir)
+    assert parsed["multiqc_version"] == "1.35"
+    rows = {r["name"]: r["values"] for r in parsed["general_stats"]["rows"]}
+    # The raw values are the tools' own numbers, in the units ARVA records.
+    fastp_json = FastpAdapter.parse_report(raw / "fastp.json")
+    fastp = rows["S1 R1+R2"]["fastp"]
+    assert fastp["filtering_result_passed_filter_reads"] == fastp_json["filtering_result"]["passed_filter_reads"]
+    assert fastp["after_filtering_q30_rate"] == pytest.approx(fastp_json["after_filtering"]["q30_rate"])
+    assert fastp["after_filtering_gc_content"] == pytest.approx(fastp_json["after_filtering"]["gc_content"])
+    assert rows["S1 _b_R1__b_"]["fastqc"]["total_sequences"] == 2000
+    assert rows["S2 reads"]["seqkit"]["num_seqs"] == 400
+    filtlong_log = FiltlongAdapter.parse_log((raw / "filtlong.log").read_text())
+    assert rows["S2 reads"]["filtlong"]["Target bases"] == filtlong_log["target_bases_reported"]
+    assert rows["S2 reads"]["filtlong"]["Bases kept"] == filtlong_log["kept_bases_reported"]
+    assert parsed["software_versions"]["fastp"] and parsed["software_versions"]["FastQC"]
+
+
+def test_multiqc_failures_are_detected(tmp_path):
+    from arva_tools import ToolExecutionError
+    from arva_tools.multiqc import DATA_DIR, SOURCES_FILE, MultiqcAdapter, ReportInput
+
+    exe = tool("multiqc")
+    _, inputs = _multiqc_inputs(tmp_path)
+    job = tmp_path / "job"
+    # Two inputs under one name: MultiQC drops one silently (exit status 0).
+    clash = [inputs[1], ReportInput("fastp", inputs[1].path.with_name("arva-0009.fastp.json"), inputs[1].name)]
+    clash[1].path.write_bytes(inputs[1].path.read_bytes())
+    _run_multiqc(exe, job, clash)
+    sources = MultiqcAdapter.parse_sources((job / DATA_DIR / SOURCES_FILE).read_text())
+    assert len(MultiqcAdapter.check_sources(clash, sources)) == 1
+
+    # A Filtlong log without a target has no totals: --require-logs turns "nothing found" into an error.
+    no_target = tmp_path / "job" / "inputs" / "arva-0010.filtlong.log"
+    run_command(FiltlongAdapter.argv(tool("filtlong"), FiltlongParams(min_length=1000), ONT), cwd=tmp_path,
+                stderr_path=no_target, stdout_path=tmp_path / "kept2.fq.gz")
+    with pytest.raises(ToolExecutionError):
+        _run_multiqc(exe, tmp_path / "job", [ReportInput("filtlong", no_target, "S3 reads")])
+
+
+def test_multiqc_reads_grouped_filtlong_logs_only_after_plain_counts(tmp_path):
+    from arva_tools import ToolExecutionError
+    from arva_tools.filtlong import plain_counts
+    from arva_tools.multiqc import DATA_DIR, MultiqcAdapter
+
+    exe = tool("multiqc")
+    _, inputs = _multiqc_inputs(tmp_path)
+    (staged,) = [i for i in inputs if i.module == "filtlong"]
+    plain = staged.path.read_text()
+    # What Filtlong writes under en_US: MultiQC 1.35's filtlong module crashes on "1,362,402".
+    grouped = re.sub(r"\d{4,}", lambda m: f"{int(m.group(0)):,}", plain)
+    assert grouped != plain and plain_counts(grouped) == plain
+    staged.path.write_text(grouped)
+    with pytest.raises(ToolExecutionError):
+        _run_multiqc(exe, tmp_path / "job", [staged])
+    staged.path.write_text(plain_counts(grouped))
+    _run_multiqc(exe, tmp_path / "job", [staged])
+    rows = {r["name"]: r["values"] for r in MultiqcAdapter.parse_data(tmp_path / "job" / DATA_DIR)["general_stats"]["rows"]}
+    expected = FiltlongAdapter.parse_log(grouped)
+    assert rows[staged.name]["filtlong"] == {"Target bases": expected["target_bases_reported"],
+                                             "Bases kept": expected["kept_bases_reported"]}
+
+
+@pytest.fixture
+def recording_proxy():
+    """A local listener every proxy variable points at: any connection attempt is recorded and refused."""
+    import socket
+    import threading
+
+    server = socket.socket()
+    server.bind(("127.0.0.1", 0))
+    server.listen()
+    seen: list[bytes] = []
+
+    def serve():
+        while True:
+            try:
+                conn, _ = server.accept()
+            except OSError:
+                return
+            with conn:
+                seen.append(conn.recv(200))
+
+    threading.Thread(target=serve, daemon=True).start()
+    url = f"http://127.0.0.1:{server.getsockname()[1]}"
+    env = {k: url for k in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy")}
+    yield {**env, "NO_PROXY": "", "no_proxy": ""}, seen
+    server.close()
+
+
+def _nanoplot(exe, src: Path, job: Path, env, prefix="SYNTHETIC_nanopore_reads_"):
+    from arva_tools.nanoplot import NanoplotAdapter, input_name
+
+    for d in ("input", "work", "home"):
+        (job / d).mkdir(parents=True)
+    link = job / "input" / input_name(prefix, src.suffix == ".gz")
+    link.symlink_to(src)
+    run_command(NanoplotAdapter.argv(exe, link, job, prefix, 2), cwd=job / "work", stderr_path=job / "stderr.log",
+                extra_env=env, home=job / "home")
+
+
+def test_nanoplot_report_offline(tmp_path, recording_proxy):
+    from arva_tools.nanoplot import NanoplotAdapter, browser_traces, output_names
+
+    exe = tool("nanoplot")
+    env, attempts = recording_proxy
+    _nanoplot(exe, ONT, tmp_path, env)
+    names = output_names("SYNTHETIC_nanopore_reads_")
+    assert attempts == [] and browser_traces(tmp_path / "home") == []
+    assert list((tmp_path / "home").iterdir()) == [] and list((tmp_path / "work").iterdir()) == []
+    (log,) = tmp_path.glob(names.log_glob)
+    produced = {p.name for p in tmp_path.iterdir() if p.is_file()}
+    assert produced == {names.report, names.stats, log.name, "stderr.log"}
+
+    s = NanoplotAdapter.parse_stats((tmp_path / names.stats).read_text())
+    # Same file, same counts as ARVA and SeqKit; mean_qual 10.2 also fails if a stock nanomath replaced
+    # the copy NanoPlot ships (it then reports 9.8).
+    assert (s["number_of_reads"], s["number_of_bases"], s["n50"]) == (400, 1513780, 4817)
+    assert (s["mean_qual"], s["median_qual"]) == (10.2, 11.7)
+    html = (tmp_path / names.report).read_text()
+    assert "<script src" not in html.replace(" ", "") and html.count('class="plotly-graph-div"') == 7
+    assert str(tmp_path) not in html and "plotly.js v" in html
+
+
+def test_nanoplot_detection_rejects_a_replaced_nanomath(tmp_path, monkeypatch):
+    from arva_tools.nanoplot import NanoplotAdapter
+
+    tool("nanoplot")
+    # A stock nanomath found first (here through PYTHONPATH, as after `pip install nanomath`) lacks
+    # ave_qual_floats, and NanoPlot would then report a different mean quality under the same version.
+    (tmp_path / "nanomath").mkdir()
+    (tmp_path / "nanomath" / "__init__.py").write_text("def ave_qual(quals): return 0\n")
+    monkeypatch.setenv("PYTHONPATH", str(tmp_path))
+    d = NanoplotAdapter().detect()
+    assert d.status is ToolStatus.failed and d.version == "1.48.0" and "ave_qual_floats" in d.message
+
+
+def test_nanoplot_fails_when_no_reads_are_left(tmp_path, recording_proxy):
+    from arva_tools import ToolExecutionError
+    from arva_tools.nanoplot import output_names
+
+    exe = tool("nanoplot")
+    src = tmp_path / "artefacts.fastq"
+    src.write_text("@a\nAC\n+\nII\n@b\nACG\n+\nIII\n@c\nACGTA\n+\nIIIII\n")
+    job = tmp_path / "job"
+    with pytest.raises(ToolExecutionError) as err:
+        _nanoplot(exe, src, job, recording_proxy[0], prefix="a_")
+    # NanoStats.txt is written before NanoPlot gives up, so its presence alone does not mean success.
+    assert "No reads left after filtering" in err.value.stderr_tail
+    assert (job / output_names("a_").stats).is_file() and not (job / output_names("a_").report).exists()
