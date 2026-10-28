@@ -19,8 +19,9 @@ from collections import defaultdict
 from collections.abc import Callable, Mapping
 from pathlib import Path
 
-from arva_core.assembly_stats import ContigAnnotation
-from arva_core.seqstats import StatsParameters, quick_validate
+from arva_core.assembly_stats import AssemblyFormatError, ContigAnnotation, min_length_summary
+from arva_core.formats import is_gzip
+from arva_core.seqstats import SequenceFormatError, StatsParameters, quick_validate
 from arva_tools import ToolExecutionError, ToolStatus, ToolTimeoutError, run_command
 from arva_tools.fastp import FastpAdapter, FastpParams, removed_reads
 from arva_tools.fastqc import DATA_JSON as FASTQC_DATA_JSON
@@ -54,6 +55,22 @@ from arva_tools.nanoplot import (
     output_names,
     output_prefix,
 )
+from arva_tools.quast import (
+    CONSOLE_LOG,
+    ICARUS_DIR,
+    ICARUS_HTML,
+    LOG,
+    OUT_DIR,
+    REPORT_HTML,
+    REPORT_TSV,
+    REQUIRED_OUTPUTS,
+    TRANSPOSED_TSV,
+    QuastAdapter,
+    QuastParams,
+    aligner,
+)
+from arva_tools.quast import input_name as quast_input_name
+from arva_tools.quast import stages as quast_stages
 from arva_tools.registry import detect
 from arva_tools.seqkit import SeqkitAdapter
 
@@ -61,6 +78,7 @@ from app.core.config import get_settings
 from app.db.base import new_uuid
 from app.models import (
     AnalysisJob,
+    Assembly,
     AssemblyMode,
     FileFormat,
     FileOrigin,
@@ -70,6 +88,7 @@ from app.models import (
 )
 from app.services.assemblies import MAX_CONTIG_ROWS, register_assembly
 from app.services.imports import header_metadata
+from app.services.quast import crosscheck
 from app.tasks.common import JobContext, JobFailure, now, run_job
 
 # How often a running tool's log is read and the job's progress saved.
@@ -653,3 +672,155 @@ def _flye_body(ctx: JobContext) -> None:
 
 def run_flye_job(job_id: str) -> str:
     return run_job(job_id, _flye_body)
+
+
+# --- QUAST (assembly evaluation) ----------------------------------------------------------
+
+def _quast_inputs(ctx: JobContext, links: Path) -> tuple[list[tuple[Path, str]], list[Path], dict[str, str]]:
+    """Link each planned assembly's contigs under the name QUAST needs, after checking it is the file recorded.
+    Returns the (link, label) pairs, the contigs files, and the label of each link path."""
+    assemblies, sources, names = [], [], {}
+    for n, item in enumerate((ctx.job.parameters or {}).get("assemblies") or [], 1):
+        a = ctx.db.get(Assembly, item["assembly_id"])
+        if a is None or a.sample_id != ctx.job.sample_id:
+            raise JobFailure(f"Assembly {item['assembly_id']} ({item['label']}) no longer exists")
+        src = ctx.path(a.contigs_path)
+        if not src.is_file():
+            raise JobFailure(f"The contigs file of {item['label']} is missing on disk")
+        if (digest := _sha256(src)) != item["contigs_sha256"]:
+            raise JobFailure(f"The contigs file of {item['label']} changed since it was registered (sha256 {digest}, "
+                             f"recorded {item['contigs_sha256']})")
+        link = links / quast_input_name("assembly", n, is_gzip(src))
+        link.symlink_to(src)
+        assemblies.append((link, item["label"]))
+        sources.append(src)
+        names[str(link)] = item["label"]
+        ctx.log(f"Assembly {n}: '{item['label']}' = {a.assembler} {a.assembler_version} assembly {a.id} (job {a.job_id}; "
+                f"contigs sha256 {digest}; linked as {link.name})")
+    if not assemblies:
+        raise JobFailure("No assemblies were selected")
+    return assemblies, sources, names
+
+
+def _quast_body(ctx: JobContext) -> None:
+    exe = _resolve_tool(ctx, "quast")
+    params = ctx.job.parameters or {}
+    qp = QuastParams(min_contig=params["min_contig"], threads=params["threads"])
+    reference_files = ctx.input_files()
+    _log_inputs(ctx, reference_files)
+    results = ctx.path(ctx.results_rel)
+    links, out = results / "input", results / OUT_DIR
+    links.mkdir(parents=True)
+    assemblies, sources, names = _quast_inputs(ctx, links)
+    reference = None
+    if reference_files:
+        (f,) = reference_files
+        if f.file_format not in (FileFormat.fasta, FileFormat.fasta_gz):
+            raise JobFailure(f"{f.original_filename} is not a FASTA file")
+        reference = links / quast_input_name("reference", 1, f.file_format is FileFormat.fasta_gz)
+        reference.symlink_to(ctx.path(f.stored_path))
+        names[str(reference)] = f.original_filename
+        found = aligner(exe)
+        if found["provided_by"] == "missing":
+            raise JobFailure("QUAST needs minimap2 2.19 or later on PATH to align contigs to the reference; ARVA does "
+                             "not let QUAST compile its own copy during a run. Install minimap2")
+        ctx.log(f"Reference {f.original_filename} (linked as {reference.name}); QUAST will align with minimap2 "
+                f"{found['version']} ({found['executable']})")
+    try:
+        argv = QuastAdapter.argv(exe, qp, assemblies, out, QuastAdapter.help_options(exe), reference=reference)
+    except (OSError, RuntimeError, subprocess.TimeoutExpired) as exc:
+        raise JobFailure(f"QUAST's --help could not be read to check its options: {exc}") from exc
+    except ValueError as exc:
+        raise JobFailure(f"QUAST cannot run with these settings: {exc}") from exc
+    ctx.log(f"Minimum contig length {qp.min_contig:,} bp: QUAST leaves shorter contigs out of every metric except "
+            "'# contigs (>= 0 bp)' and 'Total length (>= 0 bp)'")
+
+    console = results / CONSOLE_LOG
+    monitor = _StageMonitor(ctx, "QUAST", console, quast_stages(reference is not None), QuastAdapter.stage)
+    monitor()
+    try:
+        _run(ctx, argv, results, console.name, monitor=monitor)
+    except ToolExecutionError as exc:
+        monitor(finished=True)
+        if isinstance(exc, ToolTimeoutError):
+            raise
+        reason = QuastAdapter.failure_reason(console.read_text(errors="replace") if console.is_file() else
+                                             exc.stderr_tail, exc.returncode, names)
+        if reason is None:
+            raise
+        ctx.log("QUAST output (last lines):\n" + exc.stderr_tail.strip())
+        raise JobFailure(reason) from None
+    finally:
+        shutil.rmtree(links, ignore_errors=True)
+    monitor(finished=True)
+
+    if missing := [n for n in REQUIRED_OUTPUTS if not (out / n).is_file()]:
+        raise JobFailure("QUAST exited without an error but did not write " + ", ".join(missing))
+    run = QuastAdapter.parse_console(console.read_text(errors="replace"))
+    expected = [label for _, label in assemblies]
+    try:
+        report = QuastAdapter.parse_report((out / REPORT_TSV).read_text(errors="replace"))
+        transposed = QuastAdapter.parse_transposed_report((out / TRANSPOSED_TSV).read_text(errors="replace"))
+    except ValueError as exc:
+        raise JobFailure(f"QUAST's report cannot be read: {exc}") from exc
+    if report["labels"] != expected:
+        left_out = [s["label"] for s in run["skipped"]] or sorted(set(expected) - set(report["labels"]))
+        raise JobFailure(f"QUAST left out {', '.join(left_out)} (no contig of at least {qp.min_contig:,} bp, or "
+                         "unreadable); nothing was recorded")
+    if report != transposed:
+        raise JobFailure("QUAST's report.tsv and transposed_report.tsv do not hold the same values")
+    if run["quast_version"] and run["quast_version"] != ctx.job.tool_version:
+        ctx.log(f"WARNING: QUAST reports version {run['quast_version']}; detected {ctx.job.tool_version}")
+    for warning in run["warnings"]:
+        ctx.log(f"QUAST warning: {warning}")
+    log_empty = not (out / LOG).is_file() or (out / LOG).stat().st_size == 0
+    if log_empty:
+        ctx.log(f"Note: QUAST left quast.log empty (QUAST 5.2.0 does so under CPython 3.13.15 and later 3.13 releases; "
+                f"this run used Python {run['python_version']}); its console output is kept as {CONSOLE_LOG}")
+
+    used = None
+    if reference is not None:
+        for stderr in sorted((out / "contigs_reports").glob("contigs_report_*.stderr")):
+            if used := QuastAdapter.parse_aligner(stderr.read_text(errors="replace")):
+                break
+        ctx.log(f"QUAST aligned with {used['name']} {used['version']} ({used['executable']})" if used else
+                "Note: QUAST's alignment logs do not name the minimap2 it ran")
+
+    values = {label: {r["field"]: r["values"][i] for r in report["rows"]} for i, label in enumerate(report["labels"])}
+    checks = []
+    for item, src, (_, label) in zip(params["assemblies"], sources, assemblies, strict=True):
+        try:
+            arva = min_length_summary(src, qp.min_contig)
+        except (AssemblyFormatError, SequenceFormatError, OSError) as exc:
+            raise JobFailure(f"ARVA could not read the contigs of {label} for its cross-check: {exc}") from exc
+        rows = crosscheck(values[label], arva)
+        disagree = [r["metric"] for r in rows if r["agrees"] is False]
+        ctx.log(f"Cross-check '{label}': {sum(r['agrees'] is True for r in rows)}/{len(rows)} QUAST metrics equal ARVA's "
+                f"at {qp.min_contig:,} bp" + (f"; differ: {', '.join(disagree)}" if disagree else ""))
+        checks.append({"assembly_id": item["assembly_id"], "label": label, "arva": arva, "rows": rows,
+                       "all_agree": not disagree})
+
+    viewers = sorted((out / ICARUS_DIR).glob("*.html"))
+    ctx.job.result_summary = {
+        "quast_version": run["quast_version"] or ctx.job.tool_version,
+        "python_version": run["python_version"],
+        "min_contig": qp.min_contig,
+        "reference": None if not reference_files else {
+            "file_id": reference_files[0].id, "name": reference_files[0].original_filename,
+            "sha256": reference_files[0].checksum_sha256, "size_bytes": reference_files[0].size_bytes},
+        "assemblies": params["assemblies"],
+        "report": report,
+        "crosscheck": checks,
+        "aligner": used,
+        "warnings": run["warnings"],
+        "quast_log_empty": log_empty,
+        "html": {"report": REPORT_HTML, "icarus": ICARUS_HTML,
+                 "viewers": [f"{ICARUS_DIR}/{p.name}" for p in viewers]},
+    }
+    kept = [out / n for n in (REPORT_HTML, ICARUS_HTML, REPORT_TSV, TRANSPOSED_TSV, "report.txt", LOG)]
+    kept += viewers + [out / "contigs_reports" / n for n in ("misassemblies_report.tsv", "unaligned_report.tsv")]
+    ctx.job.output_paths = [_rel(ctx, p) for p in (*kept, console) if p.is_file()]
+
+
+def run_quast_job(job_id: str) -> str:
+    return run_job(job_id, _quast_body)

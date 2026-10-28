@@ -10,6 +10,9 @@ import {
   QualityVsLengthChart,
   ReadQualityChart,
 } from "@/components/charts/QcCharts";
+import { AssemblyTab } from "@/components/assembly/AssemblyTab";
+import { FlyeDialog } from "@/components/assembly/FlyeDialog";
+import { QuastDialog } from "@/components/assembly/QuastDialog";
 import { AnalysisTimeline, JobStatusBadge, MetricTile, type Stage } from "@/components/domain/bits";
 import { FileDropzone } from "@/components/domain/FileDropzone";
 import { CustomMetadataList } from "@/components/domain/MetadataImport";
@@ -34,13 +37,15 @@ import { useT } from "@/i18n";
 import { api } from "@/lib/api";
 import { fmtBases, fmtBytes, fmtDate, fmtDuration, fmtInt, fmtNum, formatLabel, technologyLabel } from "@/lib/format";
 import { lineageOrder } from "@/lib/filters";
+import { ASSEMBLY_JOBS } from "@/lib/flye";
+import { QUAST_JOB, jobRelativePath } from "@/lib/quast";
 import { NANOPLOT_JOB } from "@/lib/nanoplot";
 import { FASTQC_JOB, fastpJobFor } from "@/lib/qcData";
-import { FILTER_JOBS, IMPORT_JOBS, RAW_SIGNAL_JOBS, basename, hasReads, inProcessTool, jobLabel, latestJobFor, latestResults } from "@/lib/results";
+import { FILTER_JOBS, IMPORT_JOBS, RAW_SIGNAL_JOBS, hasReads, inProcessTool, jobLabel, latestJobFor, latestResults } from "@/lib/results";
 import type { AnalysisJobDetail, HeaderSummary, RawFile, SequencingTechnology } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-type Tab = "files" | "qc" | "filtering" | "history" | "metadata";
+type Tab = "files" | "qc" | "filtering" | "assembly" | "history" | "metadata";
 
 export function SampleDetailPage() {
   const { sampleId = "" } = useParams();
@@ -60,20 +65,27 @@ export function SampleDetailPage() {
 
   const isActive = (j: AnalysisJobDetail) => j.status === "pending" || j.status === "running";
   const allJobs = jobs.data ?? [];
-  const qcJobs = allJobs.filter((j) => !FILTER_JOBS.has(j.job_type) && !IMPORT_JOBS.has(j.job_type) && !RAW_SIGNAL_JOBS.has(j.job_type));
+  const qcJobs = allJobs.filter(
+    (j) => !FILTER_JOBS.has(j.job_type) && !IMPORT_JOBS.has(j.job_type) && !RAW_SIGNAL_JOBS.has(j.job_type) && !ASSEMBLY_JOBS.has(j.job_type),
+  );
   const filterJobs = allJobs.filter((j) => FILTER_JOBS.has(j.job_type));
+  const assemblyJobs = allJobs.filter((j) => ASSEMBLY_JOBS.has(j.job_type));
   const signalJobs = allJobs.filter((j) => RAW_SIGNAL_JOBS.has(j.job_type));
   const importing = allJobs.some((j) => IMPORT_JOBS.has(j.job_type) && isActive(j));
   const readingSignal = signalJobs.some(isActive);
   const completed = qcJobs.filter((j) => j.status === "completed");
   const latestFailed = qcJobs[0]?.status === "failed";
   const [filterOpen, setFilterOpen] = useState(false);
+  const [flyeOpen, setFlyeOpen] = useState(false);
+  const [quastOpen, setQuastOpen] = useState(false);
+  const assemblies = useQuery({ queryKey: ["assemblies", sampleId], queryFn: () => api.assemblies(sampleId), enabled: quastOpen });
   const queryClient = useQueryClient();
   const finishedCount = allJobs.filter((j) => j.status === "completed" || j.status === "failed").length;
   useEffect(() => {
     // Jobs can create derived files and cross-check data; refresh them whenever a job finishes.
     queryClient.invalidateQueries({ queryKey: ["files", sampleId] });
     queryClient.invalidateQueries({ queryKey: ["crosscheck"] });
+    queryClient.invalidateQueries({ queryKey: ["assemblies", sampleId] });
   }, [finishedCount, sampleId, queryClient]);
 
   const stages: Stage[] = [
@@ -95,7 +107,19 @@ export function SampleDetailPage() {
       state: filterJobs.some(isActive) ? "running" : filterJobs[0]?.status === "failed" ? "failed" : filterJobs.some((j) => j.status === "completed") ? "done" : "ready",
       detail: filterJobs.some(isActive) ? "Running…" : filterJobs.length ? `${filterJobs.filter((j) => j.status === "completed").length} run(s)` : "Optional",
     },
-    { key: "assembly", label: "Assembly", state: "planned", phase: 3 },
+    {
+      key: "assembly",
+      label: t("sample.assembly"),
+      state: assemblyJobs.some(isActive) ? "running" : assemblyJobs[0]?.status === "failed" ? "failed" : assemblyJobs.some((j) => j.status === "completed") ? "done" : "ready",
+      detail: assemblyJobs.some(isActive)
+        ? t("assembly.timelineRunning")
+        : assemblyJobs.some((j) => j.status === "completed")
+          ? t("assembly.timelineRuns", { count: assemblyJobs.filter((j) => j.status === "completed" && j.job_type !== QUAST_JOB).length }) +
+            (assemblyJobs.some((j) => j.status === "completed" && j.job_type === QUAST_JOB)
+              ? ` · ${t("quast.timelineEvaluations", { count: assemblyJobs.filter((j) => j.status === "completed" && j.job_type === QUAST_JOB).length })}`
+              : "")
+          : t("assembly.timelineNotRun"),
+    },
     { key: "polishing", label: "Polishing", state: "planned", phase: 3 },
     { key: "annotation", label: "Annotation", state: "planned", phase: 4 },
     { key: "biology", label: "Biological analysis", state: "planned", phase: 5 },
@@ -124,14 +148,19 @@ export function SampleDetailPage() {
             {s.geographic_origin && <span>· {s.geographic_origin}</span>}
           </span>
         }
-        actions={<ReportMenu sampleId={s.id} disabled={!completed.length && !signalJobs.some((j) => j.status === "completed")} />}
+        actions={
+          <ReportMenu
+            sampleId={s.id}
+            disabled={!completed.length && !signalJobs.some((j) => j.status === "completed") && !assemblyJobs.some((j) => j.status === "completed")}
+          />
+        }
       />
 
       <Card className="px-4 pb-2 pt-5">
         <AnalysisTimeline
           stages={stages}
-          selected={tab === "files" ? "raw" : tab === "qc" ? "qc" : tab === "filtering" ? "filtering" : undefined}
-          onSelect={(k) => setTab(k === "raw" ? "files" : k === "filtering" ? "filtering" : "qc")}
+          selected={tab === "files" ? "raw" : tab === "qc" ? "qc" : tab === "filtering" ? "filtering" : tab === "assembly" ? "assembly" : undefined}
+          onSelect={(k) => setTab(k === "raw" ? "files" : k === "filtering" ? "filtering" : k === "assembly" ? "assembly" : "qc")}
         />
       </Card>
 
@@ -142,6 +171,7 @@ export function SampleDetailPage() {
           { value: "files", label: t("sample.files") },
           { value: "qc", label: t("sample.qc") },
           { value: "filtering", label: `${t("sample.filtering")}${filterJobs.length ? ` (${filterJobs.length})` : ""}` },
+          { value: "assembly", label: `${t("sample.assembly")}${assemblyJobs.length ? ` (${assemblyJobs.length})` : ""}` },
           { value: "history", label: `${t("sample.history")}${jobs.data?.length ? ` (${jobs.data.length})` : ""}` },
           { value: "metadata", label: t("sample.metadata") },
         ]}
@@ -171,6 +201,9 @@ export function SampleDetailPage() {
       {tab === "filtering" && (
         <FilteringTab jobs={allJobs} files={files.data ?? []} onNew={() => setFilterOpen(true)} technology={s.sequencing_technology} />
       )}
+      {tab === "assembly" && (
+        <AssemblyTab sampleId={s.id} jobs={allJobs} files={files.data ?? []} onNew={() => setFlyeOpen(true)} onEvaluate={() => setQuastOpen(true)} />
+      )}
       {tab === "history" && <HistoryTab jobs={jobs.data ?? []} files={files.data ?? []} openJob={params.get("job")} />}
       {tab === "metadata" && (
         <Card>
@@ -189,6 +222,18 @@ export function SampleDetailPage() {
         technology={s.sequencing_technology}
         onStarted={() => setTab("filtering")}
       />
+      <FlyeDialog
+        open={flyeOpen}
+        onOpenChange={setFlyeOpen}
+        sampleId={s.id}
+        files={files.data ?? []}
+        jobs={allJobs}
+        technology={s.sequencing_technology}
+        onStarted={() => setTab("assembly")}
+      />
+      {quastOpen && assemblies.data && (
+        <QuastDialog open={quastOpen} onOpenChange={setQuastOpen} sampleId={s.id} assemblies={assemblies.data} files={files.data ?? []} />
+      )}
     </div>
   );
 }
@@ -455,7 +500,9 @@ function QcTab({
   const [fileId, setFileId] = useState<string | null>(null);
   const currentId = fileId && results.has(fileId) ? fileId : withResults[0]?.id;
   const current = currentId ? results.get(currentId) : undefined;
-  const failed = jobs.filter((j) => j.status === "failed" && !IMPORT_JOBS.has(j.job_type) && !RAW_SIGNAL_JOBS.has(j.job_type)).slice(0, 3);
+  const failed = jobs
+    .filter((j) => j.status === "failed" && !IMPORT_JOBS.has(j.job_type) && !RAW_SIGNAL_JOBS.has(j.job_type) && !ASSEMBLY_JOBS.has(j.job_type))
+    .slice(0, 3);
   const rawSignal = <RawSignalSection sampleId={sampleId} files={files} jobs={jobs} />;
   const overview = <SequencingOverview files={files} jobs={jobs} prefix={`ARVA_${sampleCode}`.replace(/[^A-Za-z0-9._-]+/g, "_")} />;
 
@@ -701,7 +748,7 @@ function HistoryTab({ jobs, files, openJob }: { jobs: AnalysisJobDetail[]; files
                           <li key={p} className="flex flex-wrap items-center gap-2">
                             <code>{p}</code>
                             {!p.startsWith("processed/") && (
-                              <a className="inline-flex items-center gap-1 text-arva-royal hover:underline dark:text-arva-cyan" href={api.jobOutputUrl(j.id, basename(p), !p.endsWith(".html"))} target={p.endsWith(".html") ? "_blank" : undefined} rel="noreferrer">
+                              <a className="inline-flex items-center gap-1 text-arva-royal hover:underline dark:text-arva-cyan" href={api.jobOutputUrl(j.id, jobRelativePath(j.id, p), !p.endsWith(".html"))} target={p.endsWith(".html") ? "_blank" : undefined} rel="noreferrer">
                                 {p.endsWith(".html") ? <ExternalLink className="h-3 w-3" /> : <Download className="h-3 w-3" />}
                                 {p.endsWith(".html") ? "open" : "download"}
                               </a>

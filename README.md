@@ -10,11 +10,12 @@ genomics. It is built around six principles: **scientific integrity** (every res
 from a real computation with recorded provenance), **beginner friendliness**, **expert
 control**, **visual first**, **reproducibility** and **modularity**.
 
-> **Status: Phase 2 — Raw data and QC (v0.2.0).** Projects, samples, FASTQ/FASTA import with
-> validation, read statistics, SeqKit cross-checks, FastQC reports, fastp/Filtlong filtering with
-> file lineage and before/after comparison, analysis history, reports and the ARVA Guide are
-> functional. Assembly, annotation and later modules are listed in the interface as *planned*
-> and never show simulated results. See [docs/roadmap.md](docs/roadmap.md).
+> **Status: Phase 3 — Assembly, in progress (v0.2.0 + 3A).** Projects, samples, FASTQ/FASTA import
+> with validation, read statistics, SeqKit cross-checks, FastQC reports, fastp/Filtlong filtering with
+> file lineage and before/after comparison, long-read assembly with Flye, assembly views and QUAST
+> evaluation, analysis history, reports and the ARVA Guide are functional. Short-read and hybrid
+> assembly, polishing, annotation and later modules are listed in the interface as *planned* and never
+> show simulated results. See [docs/roadmap.md](docs/roadmap.md).
 
 ## What works today
 
@@ -27,7 +28,7 @@ control**, **visual first**, **reproducibility** and **modularity**.
 | POD5 raw signal | Recognised by content (truncated files flagged); run metadata — reads, signal duration, sample rate, flow cell, kit, protocol — read with the optional `pod5` library; no basecalling |
 | Validation | Quick structural check at import; full record-by-record validation (with line numbers) during analysis |
 | Read statistics | Reads, bases, length distribution, N50/N90, GC, ambiguous bases, Phred quality (error-probability averaging), Q20/Q30, per-position quality, reads above quality thresholds, yield by length, optional depth estimate |
-| Visualisation | Six interactive figures (ECharts) with tooltips, table views and SVG/PNG export, light/dark |
+| Visualisation | Interactive figures (ECharts) for reads and assemblies, with tooltips, table views and SVG/PNG export, light/dark |
 | Provenance | Every run records tool, version, parameters, input checksums, environment, timings, outputs and log |
 | Independent check | SeqKit summarises the same file; ARVA compares every robust metric and shows any disagreement |
 | FastQC | Unmodified FastQC report (opened in a network-isolated sandbox) plus its module flags, labelled as FastQC heuristics |
@@ -35,6 +36,9 @@ control**, **visual first**, **reproducibility** and **modularity**.
 | Lineage | Filtered reads become new read-only derived files linked to their original and the producing job; originals never change |
 | Before/after | Statistics for filter outputs are computed automatically; metrics table with changes (and depth when a genome size is known) and overlaid distributions; Filtlong's target outcome |
 | Long-read report | NanoPlot 1.48.0 on long-read FASTQ, offline; statistics with NanoPlot's definitions, reads and bases cross-checked against ARVA, differently defined metrics shown side by side |
+| Assembly | Flye (long reads) in an assisted New assembly dialog: the assembler that fits the sample's technology (short-read and hybrid assemblers shown as coming next), reads chosen by lineage (original or filtered copy, with their statistics), every option explained, a labelled heuristic read-type suggestion from base qualities and read headers, genome size never assumed (entered, the sample's expected size, or reads ÷ an assumed depth, recorded with its basis), advanced options collapsed, a "what this run will do" summary and explicit confirmation; options checked against the installed Flye's `--help`; stage stepper, live elapsed time and live log (auto-scroll, pause) while it runs |
+| Assembly results | Contigs, total length, largest, N50/L50, N90/L90, GC, circular contigs and median coverage (ARVA's statistics; coverage and circularity are Flye's), labelled heuristic warnings, a sortable contig table with FASTA download, five charts (length histogram, Nx curve, cumulative length, coverage vs length, GC vs coverage) with tables and SVG/PNG export, an interactive assembly-graph (GFA) explorer, side-by-side comparison of a sample's assemblies, an Assemblies table per project, and an Assembly section in the sample's HTML/JSON/CSV reports |
+| Assembly evaluation | QUAST 5.2.0 on one or more assemblies of a sample (comparison), optionally against a reference FASTA of the sample; offline, every result-changing option explicit, QUAST's metrics read by field name, its contiguity values cross-checked against ARVA's at the same minimum contig length with both definitions shown; QUAST's HTML report and Icarus viewers served sandboxed |
 | Overviews | Sequencing overview per sample (every imported and derived file with lineage, read statistics, POD5 reads and signal duration, bases per file) and a QC overview per project (one row per sample: totals, N50 and quality of the largest file, pooled Q30/GC, depth only with a user-given genome size, filtering, FastQC heuristics, SeqKit check; sortable, filterable, CSV export) |
 | Project QC report | MultiQC 1.35 report over the latest FastQC, fastp, SeqKit and Filtlong results of a project, run offline, every input checked; general statistics kept with units and the producing tool |
 | Tools & Databases | Detected tools with version (validated or not), executable, licence, citation and install commands; ARVA never installs software |

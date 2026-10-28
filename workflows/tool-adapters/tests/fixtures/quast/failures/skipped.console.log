@@ -1,0 +1,54 @@
+WARNING: Python locale settings can't be changed
+/root/.arva-tools/quast/bin/quast.py /job/input/assembly_01.fasta /job/input/assembly_02.fasta --output-dir /job/quast --threads 1 --min-contig 500 --labels short,perfect --contig-thresholds 0,1000,5000,10000,25000,50000 --x-for-Nx 90 --no-plots
+
+Version: 5.2.0
+
+System information:
+  OS: Linux-6.18.44-fc-v180-x86_64-with-glibc2.39 (linux_64)
+  Python version: 3.12.3
+  CPUs number: 4
+
+Started: 2026-10-28 14:39:22
+
+Logging to /job/quast/quast.log
+
+CWD: /job
+Main parameters: 
+  MODE: default, threads: 1, min contig length: 500, min alignment length: 65, min alignment IDY: 95.0, \
+  ambiguity: one, min local misassembly length: 200, min extensive misassembly length: 1000
+
+Contigs:
+  Pre-processing...
+WARNING: Skipping short because it doesn't contain contigs >= 500 bp.
+
+  2  /job/input/assembly_02.fasta ==> perfect
+
+2026-10-28 14:39:22
+Running Basic statistics processor...
+  Contig files: 
+    perfect
+  Calculating N50 and L50...
+    perfect, N50 = 300000, L50 = 1, auN = 286428.6, Total length = 315000, GC % = 49.62, # N's per 100 kbp =  0.00
+Done.
+
+NOTICE: Genes are not predicted by default. Use --gene-finding or --glimmer option to enable it.
+
+2026-10-28 14:39:22
+Creating large visual summaries...
+This may take a while: press Ctrl-C to skip this step..
+  1 of 1: Creating Icarus viewers...
+Done
+
+2026-10-28 14:39:22
+RESULTS:
+  Text versions of total report are saved to /job/quast/report.txt, report.tsv, and report.tex
+  Text versions of transposed total report are saved to /job/quast/transposed_report.txt, transposed_report.tsv, and transposed_report.tex
+  HTML version (interactive tables and plots) is saved to /job/quast/report.html
+  Icarus (contig browser) is saved to /job/quast/icarus.html
+  Log is saved to /job/quast/quast.log
+
+Finished: 2026-10-28 14:39:22
+Elapsed time: 0:00:00.082547
+NOTICEs: 1; WARNINGs: 2; non-fatal ERRORs: 0
+
+Thank you for using QUAST!

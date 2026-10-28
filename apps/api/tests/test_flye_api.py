@@ -422,6 +422,15 @@ def test_flye_assembles_the_synthetic_genome(client, tmp_path, storage_root):
     assert rows[plasmid["name"]]["multiplicity"] == 2 and 1.5 <= plasmid["coverage"] / chromosome["coverage"] <= 2.5
     assert a["warnings"] == []
 
+    # Flye writes one GFA path (P line) per contig: each replicon is a segment that belongs to its circular
+    # contig and is linked to itself, and its coverage tag is dp.
+    g = client.get(f"{API}/assemblies/{a['id']}/graph").json()
+    assert g["coverage_tag"] == "dp" and g["path_count"] == 2
+    by_contig = {n["paths"][0]: n for n in g["nodes"]}
+    assert set(by_contig) == {chromosome["name"], plasmid["name"]}
+    assert all(n["circular"] is True and n["repeat"] is False and len(n["paths"]) == 1 for n in g["nodes"])
+    assert {e["source"] for e in g["edges"] if e["source"] == e["target"]} == {n["id"] for n in g["nodes"]}
+
     # Compare with the true genome: shared 31-mers on either strand.
     def seqs(path):
         opener = gzip.open if str(path).endswith(".gz") else open

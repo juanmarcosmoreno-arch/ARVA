@@ -229,6 +229,7 @@ test suite has run against them; other versions run with a recorded warning.
 | Filtlong | 0.2.1 | Long-read filtering |
 | MultiQC | 1.35 | Project-level report gathering the four tools' results |
 | NanoPlot | 1.48.0 | Long-read statistics and interactive report (with nanoget 1.19.6) |
+| Flye | 2.9.3 | Long-read de novo assembly (Phase 3; with samtools for its `flye-samtools` helper) |
 
 ### Independent cross-check (SeqKit)
 
@@ -518,8 +519,9 @@ FASTA, so the same definitions apply whatever the assembler.
   boundary. Example: lengths 5, 3, 2 give N50 = 5 and L50 = 1 (5 is exactly half of 10).
 - **GC %** = (G + C) ÷ (A + C + G + T) × 100 over unambiguous bases only, for the assembly and for each
   contig (soft-masked lower-case bases count). N and the other IUPAC codes are counted separately
-  (`n_count`, `N per 100 kb`, `other_iupac_count`) and never enter the denominator. QUAST divides by all
-  bases except N, so the two differ only when a contig holds IUPAC codes other than N.
+  (`n_count`, `N per 100 kb`, `other_iupac_count`) and never enter the denominator. QUAST first turns the
+  IUPAC codes M, K, R, Y, W, S, V, B, H, D into N and then divides by all bases except N, so its GC is the
+  same; it does count those codes in its "# N's per 100 kbp" (checked with QUAST 5.2.0, see below).
 - **Also reported**: number of contigs, total length, largest and smallest contig; contigs and total
   length at or above 1 kb and 10 kb (configurable); a length histogram with fixed 1-2-5 bins (0, 100,
   200, 500 bp, 1 kb, 2 kb, … — lower edge inclusive, upper edge exclusive — from the bin of the
@@ -558,12 +560,218 @@ never assumes a genome size; which source was used is stored with the assembly.
 
 ### Assembly graph
 
-`GET /assemblies/{id}/graph` reads the assembler's GFA 1 file (`arva_core/gfa.py`): segments with their
-length and numeric tags, links with orientations and overlap. Tags are returned as written, because
-assemblers define them differently (Flye's `dp` is a mean read depth; Unicycler's `dp` is relative to
-the chromosome; SPAdes' `KC` is a k-mer count). Above `max_nodes` (default 2,000) the longest segments
-are kept and only links between them are returned, at most `max_edges` (default 5,000), with
-`truncated: true`. GFA 2 files and malformed records are rejected with the line number.
+`GET /assemblies/{id}/graph` reads the assembler's GFA 1 file (`arva_core/gfa.py`; GFA 1 specification):
+segments with their length and numeric tags, links with orientations and overlap, and paths (P lines)
+with the segments they run through. Tags are returned as written, because assemblers define them
+differently (Flye's `dp` is a mean read depth; Unicycler's `dp` is relative to the chromosome; SPAdes'
+`KC` is a k-mer count); the API names the tag that holds each assembler's segment coverage
+(`coverage_tag`: Flye `dp`, "mean read depth") and leaves it empty for assemblers it does not know.
+Above `max_nodes` (default 2,000) the longest segments are kept and only links between them are
+returned, at most `max_edges` (default 5,000), with `truncated: true`. GFA 2 files and malformed
+records (including path steps without an orientation) are rejected with the line number.
+
+Contig membership comes from the P lines: Flye 2.9 and later write one P line per contig (Flye's
+release notes; checked on real Flye 2.9.3 output, e.g. `P contig_1 edge_1+ *`). Each segment lists the
+paths through it (at most 20, in file order). Its `circular` and `repeat` flags are derived from the
+assembler's flags of those contigs as stored with the assembly: true when any of them has the flag,
+false when all that report it do not, and null when none reports it (no path, or a contig whose row is
+not stored). These are the assembler's calls about contigs, transferred to segments; ARVA does not
+infer circularity or repeats from the graph topology.
+
+The interface draws the graph with ECharts' force layout from at most the 500 longest segments and
+2,000 links (a truncation notice states how many of each the file has). Node size is 6 + 34 × √(segment
+length ÷ longest drawn segment) px; colour is the segment's class (in a circular contig, in a repeat
+contig, in another contig, no contig information), in that order of precedence; layout positions carry
+no meaning. A link from a segment to itself (Flye writes them for circular contigs) cannot be drawn by
+ECharts 5.5 (both ends are at the same point), so self-links are listed in the tooltip and table and
+counted in a note. For the full graph, the GFA can be downloaded and opened in Bandage (Wick et al., 2015).
+
+### Assembly views, comparison and reports
+
+All values below come from the stored assembly record (ARVA's statistics and the assembler's per-contig
+annotations); nothing is recomputed in the browser except sorting and the chart geometry.
+
+- **Summary tiles**: contigs, total length, largest contig, N50, L50, N90, L90, GC %, circular contigs
+  (of those with a circularity flag, as reported by the assembler) and the length-weighted median of
+  the assembler's coverage. The contig N50 is not the read N50: the definition is the same, the objects
+  (contigs, reads) are not, and the two are never compared.
+- **Contig table**: sortable by rank, name, length, coverage, GC, circular and repeat; contigs without a
+  value always sort last, ties keep the length rank. Flye's multiplicity, alternative group and graph
+  path are shown as Flye wrote them.
+- **Charts** (each with its data table and SVG/PNG export): the length histogram with the 1-2-5 bins of
+  the statistics (weighted by contigs or bases); the Nx curve, where each ranked contig is a horizontal
+  step at its length from 100 × (cumulative length before it) ÷ total to 100 × (cumulative length
+  including it) ÷ total, with N50 and N90 marked (logarithmic length axis when the longest contig is at
+  least 100 × the shortest); the cumulative length by rank, with the expected genome size marked when
+  it is known; coverage against length and GC against coverage, one point per stored contig with a
+  coverage value, split by the assembler's circularity flag, the tooltip naming the contig.
+- **Comparison**: with two or more assemblies of a sample, a table of the same statistics side by side
+  and their cumulative curves on shared axes, for the six newest assemblies (one colour each from the
+  validated categorical palette). Contiguity is compared, not correctness; QUAST with a reference of the
+  same strain addresses correctness.
+- **Project page**: one row per assembly of the project's samples (`GET /projects/{id}/assemblies`),
+  ordered by sample ID and then newest first.
+- **Reports**: the sample report's JSON has an `assemblies` list (inputs with their lineage and SHA-256,
+  the job's exact command, tool path, parameters and timings, the statistics, the 20 longest contigs,
+  the output files with SHA-256, the warnings and every check, and the metrics of each completed QUAST
+  evaluation that included the assembly, with its minimum contig length and reference); the HTML report
+  shows the same in an Assembly section; the CSV adds one row per assembly (`record_type` = `assembly`)
+  with assembly-specific columns (`contig_n50`, `contig_l50`, …) and leaves the read columns empty, so a
+  contig N50 never lands in the read `n50` column. Every text cell of the CSV is neutralised against
+  formula injection (OWASP).
+
+### Flye (long-read assembly)
+
+Implementation: `workflows/tool-adapters/arva_tools/flye.py` (command, option checks, output and log
+parsing, read-type suggestion), `apps/api/app/tasks/tools.py` (job), `apps/api/app/services/flye.py`
+(request checks, suggestion inputs, genome-size options). Options, ranges and behaviour were verified
+against `flye --help`, the Flye 2.9.3 manual and README, and the source of the installed Flye 2.9.3
+(`flye/main.py`, `config/configurator.py`, `assembly/assemble.py`, `utils/sam_parser.py`).
+
+- **Inputs.** One or more FASTQ files of the sample, imported or derived (e.g. Filtlong output),
+  recorded by id with their SHA-256. Refused with a reason (HTTP 400): POD5, non-FASTQ and invalid
+  files; files marked R1/R2 (paired-end, short reads); files whose read headers identify Illumina with
+  high or medium confidence; samples whose technology is Illumina; selections whose files have
+  confidently different long-read platforms (Flye takes one read type per run); selections in which no
+  file has a read longer than 1,000 bp according to ARVA's statistics (Flye only uses reads longer than
+  its minimum overlap, which is at least 1,000 bp, and otherwise stops with "No reads above minimum
+  length threshold"); a read type for one platform when the sample's technology, or a high-confidence
+  header platform, is the other. A sample whose technology is neither Nanopore, PacBio nor hybrid
+  needs the user's confirmation that the files hold long reads. The interface warns when a filtered
+  file and a file it was filtered from are both selected (the reads would count twice).
+- **Command.** `flye --<read type> <reads…> --out-dir <job>/flye --threads <n> --iterations <n>`, plus
+  `--genome-size`, `--min-overlap`, `--asm-coverage`, `--read-error`, `--meta`, `--keep-haplotypes`,
+  `--no-alt-contigs` and `--scaffold` when chosen. Threads and polishing iterations are always passed.
+  Every option used must appear in the installed Flye's own `--help` (checked when the job is created
+  and again in the worker), so an option a version lacks is refused instead of being guessed. Flye's
+  own ranges are enforced: threads 1–128 (capped by `ARVA_TOOL_THREADS`), iterations 0–10, minimum
+  overlap 1,000–10,000 bp; `--asm-coverage` requires `--genome-size` and cannot be combined with
+  `--meta`; `--read-error` (a fraction) only with the corrected, nano-hq and hifi read types. Reads are
+  passed as links named `NN_<name>.fastq[.gz]`, because Flye takes the format from the file name and
+  refuses paths with spaces. `--deterministic` is not offered (see Reproducibility).
+- **Read type: ARVA's suggestion (heuristic).** Flye's descriptions: `--nano-hq` for "Guppy5+ SUP or
+  Q20" reads with < 5 % error, `--nano-raw` for pre-Guppy 5 reads (< 20 %), `--pacbio-hifi` < 1 %,
+  corrected reads < 3 %. ARVA suggests a value, labelled as a heuristic and never applied by itself:
+  the platform comes from the sample's technology, else from the read headers when every file
+  identifies the same long-read platform with high or medium confidence. For Nanopore reads the mean
+  error probability over all bases of the selected files, `Σ_files bases × 10^(−Q̄/10) ÷ Σ bases`
+  where `Q̄` is each file's error-averaged mean base quality, gives `--nano-hq` at ≤ 5 % and
+  `--nano-raw` above; without ARVA statistics, a SUP basecall model in the read headers gives
+  `--nano-hq`, otherwise there is no suggestion. At ≤ 1 % the interface quotes Flye's manual ("For Q20
+  data, use a combination of `--nano-hq` and `--read-error 0.03`"). For PacBio, ≤ 1 % gives
+  `--pacbio-hifi`; without statistics CCS read names give `--pacbio-hifi` and subread names
+  `--pacbio-raw`. Qualities are the basecaller's estimates; the suggestion and its basis are stored
+  with the job (`arva_read_type_suggestion`), next to the read type the user chose.
+- **Genome size.** Optional in Flye 2.9; when given, Flye logs the coverage it implies and warns below
+  5× or above 1,000×, passes it to its disjointig assembler, and uses it with `--asm-coverage` to keep
+  only the longest reads for that stage. ARVA offers three sources and records which one was used
+  (`genome_size_basis`): the sample's expected genome size (from its read statistics, as in "Assembly
+  warnings"), an estimate `round(total read bases ÷ assumed depth)` (half up; needs ARVA statistics
+  for every selected file, and the server recomputes it), or a value typed by the user. ARVA never
+  assumes a size. The same size is used for the assembly's genome-size warning, with its basis shown.
+- **Monitoring.** The worker reads Flye's stderr every 5 s while it runs. Each `>>>STAGE: <name>` line
+  (configure, assembly, consensus, repeat, contigger, polishing — only with iterations > 0 — and
+  finalize, confirmed on real runs) is written to the job log and to `AnalysisJob.progress` (stage,
+  index, expected stages, elapsed time, live log path), which is committed on every read.
+  `GET /jobs/{id}/log?tail=N` (N ≤ 5,000, from the last MiB) returns the live log while it exists and
+  the ARVA job log otherwise; it reads only a log inside the job's own results folder.
+- **Outputs and checks.** Kept: `assembly.fasta`, `assembly_graph.gfa`, `assembly_info.txt`,
+  `flye.log` and `flye.stderr.log`; Flye's stage folders, the read links and `params.json` are removed.
+  `assembly_info.txt` is read by column name (contig, length, coverage, circular, repeat, multiplicity,
+  alternative group, graph path); every contig of `assembly.fasta` must appear there with the same
+  length, or the job fails and nothing is registered. Coverage, circularity and repeat flags go into
+  the assembly record as Flye's; multiplicity, alternative group and graph path are kept per contig in
+  the job's result summary. From `flye.log` ARVA records the total read length, read N50/N90, the
+  minimum overlap Flye chose (when the user set none), the alignment error rates of the consensus and
+  polishing stages, Flye's final summary and its coverage warnings. Statistics and heuristic warnings
+  are then computed as in "Assembly statistics".
+- **Failures.** Flye's own error lines become the job's reason: "No reads above minimum length
+  threshold" (reads too short or minimum overlap too high), "No disjointigs/contigs were assembled"
+  (too few reads or too little coverage, or a read type that does not match the data), out of memory
+  ("Looks like the system ran out of memory", or the process killed by signal 9). Flye's last log
+  lines go into the job log; partial outputs are removed.
+- **`flye-samtools`.** Flye calls a helper named `flye-samtools` (`utils/sam_parser.py`), which
+  upstream installs next to `flye` but Debian's package 2.9.3+dfsg2-1 (also in Ubuntu 24.04) does not
+  ship. Without it the consensus is empty and Flye stops in the repeat stage ("parse error … empty
+  sequence"). When neither `PATH` nor the folder of the `flye` executable provides it, ARVA links
+  `flye-samtools` to `samtools` in the job folder for that run, puts it first on Flye's `PATH`, and
+  records the link and samtools' version in the job log and result summary; detection reports Flye as
+  failed when samtools is missing too.
+- **Reproducibility.** Flye's output can depend on the number of threads and, with more than one
+  thread, differ between runs; ARVA always records the thread count and the job log says so. Measured
+  with Flye 2.9.3 on synthetic genomes: 150 kb chromosome + 15 kb plasmid at two copies (50×): two
+  4-thread runs gave the plasmid at 15 kb (multiplicity 2) with different bytes, while 1-thread and
+  2-thread runs (each pair byte-identical) and two `--deterministic` 4-thread runs (which only make the
+  disjointig stage single-threaded; their bytes still differed) gave a 30 kb circular plasmid dimer at
+  about half coverage. Default genome (300 kb, 50×), 2 threads: two runs with identical chromosome
+  sequence and the plasmid rotated (same sequence, different start).
+- **Recorded result on the synthetic genome.** `make_synthetic_genome.py --ont-depth 30` (default
+  layout: 300 kb chromosome with two 5 kb repeat copies, 15 kb plasmid at two copies), `--nano-hq`
+  (ARVA's suggestion: mean base error 4.08 %), 2 threads, one polishing iteration: contig 1 300,000 bp,
+  circular, 31×; contig 2 15,000 bp, circular, 53×, multiplicity 2; both identical to the reference
+  (minimap2 `-x asm5`, NM 0; reverse strand and rotated start), no heuristic warning; two runs gave
+  identical bytes; 38 s on 2 threads. Tests: `workflows/tool-adapters/tests/test_real_tools.py` and
+  `apps/api/tests/test_flye_api.py` (skipped without Flye).
+
+### QUAST (assembly evaluation)
+
+Implementation: `workflows/tool-adapters/arva_tools/quast.py`, `apps/api/app/services/quast.py`, the
+`quast_evaluation` job in `apps/api/app/tasks/tools.py`. Verified against `quast.py --help`, the source of
+QUAST 5.2.0 (PyPI sdist) and real runs on assemblies with known differences from the synthetic genome
+(`workflows/tool-adapters/tests/fixtures/quast/`).
+
+- **Inputs.** One to ten assemblies of the sample and, optionally, a reference genome chosen among the
+  sample's valid FASTA files. Each assembly's contigs file is checked against the SHA-256 recorded when it
+  was registered and linked as `assembly_NN.fasta[.gz]` (QUAST reads compression from the extension);
+  the label QUAST prints is the assembler, its version and the first 8 characters of the assembly id
+  (letters, digits, spaces and `. _ ( ) + -` only, because QUAST splits `--labels` at commas).
+- **Command.** `quast.py <assemblies> --output-dir <job>/quast --threads <n> --min-contig <bp> --labels
+  <labels> --contig-thresholds 0,1000,5000,10000,25000,50000 --x-for-Nx 90 --no-plots`, and with a
+  reference `-r <reference> --min-alignment 65 --min-identity 95.0 --ambiguity-usage one
+  --extensive-mis-size 1000 --local-mis-size 200 --scaffold-gap-max-size 10000 --unaligned-part-size 500`
+  (QUAST's defaults, passed explicitly). Every option must appear in the installed QUAST's `--help`.
+  `--ambiguity-score` is never passed: QUAST switches `--ambiguity-usage` to `all` whenever it is given,
+  even at its default 0.99 (`options_parser.py`; observed in a run). `--no-plots` only stops the static
+  matplotlib plots, which ARVA does not install; the HTML report draws its own.
+- **Minimum contig length.** QUAST's metrics describe only contigs of at least `--min-contig` bp
+  (default 500), except `# contigs (>= 0 bp)` and `Total length (>= 0 bp)`, which count every contig. An
+  assembly with no such contig is skipped with a warning while QUAST still exits with status 0 when
+  another assembly remains, so ARVA refuses such a request and fails a run whose report lacks a label.
+- **Definitions compared with ARVA's.** Nx/Lx: identical (contigs sorted by decreasing length; QUAST
+  compares in floating point, ARVA in integers). GC: QUAST replaces the IUPAC codes M, K, R, Y, W, S, V,
+  B, H, D with N and divides G + C by all bases except N, which equals ARVA's (G + C) ÷ (A + C + G + T);
+  files with other characters are refused (exit status 4). `# N's per 100 kbp` counts those IUPAC codes
+  as N, so ARVA compares it with its count of N plus other IUPAC codes per 100 kbp of the kept contigs
+  (`ambiguous_per_100kb`), not with the `N per 100 kb` of the assembly card (a contig of
+  `ACGTRYKMSWN` × 100: QUAST 63,636.36, ARVA ambiguous 63,636.36, ARVA N only 9,090.91).
+- **Cross-check.** For each assembly ARVA computes `arva_core.assembly_stats.min_length_summary` on the
+  same contigs file at the same minimum length and compares `# contigs`, `Total length`, `Largest
+  contig`, N50, L50, N90, L90, GC and N's per 100 kbp (values QUAST prints with two decimals count as
+  equal when ARVA's rounds to them) and the two `(>= 0 bp)` rows. Agreement and every difference are
+  shown and logged; a difference does not fail the job. On the fixture assemblies all eleven agree.
+- **Reference mode.** QUAST aligns with minimap2: its compiled bundled copy when present, else minimap2
+  2.19 or later on PATH; failing both it compiles the bundled source (2.24) into its installation during
+  the run, which ARVA refuses before starting. The minimap2 executable and version QUAST ran are read
+  from `contigs_reports/contigs_report_*.stderr`. Reference-based values count every difference from the
+  reference, including real differences between strains. When a contig's best alignment covers more than
+  99 % of it (a fixed threshold in `ca_utils/analyze_contigs.py`), QUAST keeps it alone (with any
+  alignment scoring at least 0.99 times as well) and skips the rest: a chromosome identical to the
+  reference but starting 1,000 bp later (of 300,000) gets a genome fraction of 99.683 %.
+- **Outputs and checks.** QUAST's `report.tsv` and `transposed_report.tsv` are read by field name ("-"
+  as no value, "X + Y part" as full and partial counts) and must hold the same values; the labels must be
+  exactly those requested. Kept and registered: `report.html`, `icarus.html` and `icarus_viewers/*.html`
+  (scripts inline, nothing loaded from the network; served with the sandboxing policy and the storage
+  shim used for MultiQC, because `report.html` reads `document.cookie`), `report.tsv`,
+  `transposed_report.tsv`, `report.txt`, `quast.log`, the misassembly and unaligned reports, and QUAST's
+  console output (`quast.console.log`); QUAST's other files stay in the job folder. Progress follows
+  QUAST's "Running …" lines (basic statistics, contig analyzer, NA-NGA, genome analyzer, visual
+  summaries). Two runs on the same inputs gave identical `report.tsv` files.
+- **Environment.** Runs are offline (checked in a network namespace and with a proxy that records any
+  connection) with an empty HOME, and write nothing outside the job folder or into QUAST's installation.
+  QUAST 5.2.0 leaves `quast.log` empty under CPython 3.13.15 and later 3.13 releases (Logger.removeHandler
+  stopped changing the handler list in place, and QUAST's console set-up loop then also removes its file
+  handler); the job notes it and the console log is kept. QUAST's locale warning (no `en_US.UTF-8`)
+  affects only the dates in the HTML report.
 
 ### Synthetic genome for assembly
 
@@ -588,9 +796,20 @@ chromosome's coverage.
 (lengths, Nx/Lx, GC, Phred error averaging, Q20/Q30, per-position means, histograms conserving
 counts, reproducible sampling) and checks that malformed inputs fail with the correct line numbers.
 `scientific-core/tests/test_assembly_stats.py` and `test_gfa.py` check the assembly statistics, the
-warnings and the graph reader against hand-computed values and malformed inputs;
+warnings and the graph reader (segments, links, paths) against hand-computed values and malformed inputs;
+`apps/api/tests/test_assemblies_api.py` checks the graph's contig flags, the project list and the
+report's Assembly section, CSV rows and escaping;
 `test_synthetic_genome.py` checks the synthetic genome's layout, read geometry (positions, strands,
 inserts, reads across the origin) and that its error rates match its qualities.
+`workflows/tool-adapters/tests/test_flye.py` checks Flye's command for every option, the checks against
+its `--help`, the parsers on real Flye 2.9.3 outputs and failure logs, the samtools helper and the
+read-type suggestion; `apps/api/tests/test_flye_api.py` runs the job lifecycle with a stand-in Flye
+(inputs refused, progress committed while it runs, failures, the live log) and the real Flye end to end.
+`workflows/tool-adapters/tests/test_quast.py` checks QUAST's command, its option and label checks, the
+report parsers on real QUAST 5.2.0 outputs and failure logs, and the minimap2 lookup; the real-tool tests
+run QUAST on assemblies with known differences from the synthetic genome (and on IUPAC codes) and compare
+it with ARVA; `apps/api/tests/test_quast_api.py` runs the job with a stand-in QUAST (requests refused,
+recorded command, cross-check, served pages, failures) and the real QUAST end to end.
 `workflows/tool-adapters/tests/` checks command construction for every option, output parsing,
 safe execution (no shell, no secrets in the tool environment, timeouts) and runs each real tool on
 the synthetic data; `apps/api/tests/test_tools_api.py` runs complete jobs, lineage and reports.
@@ -615,7 +834,17 @@ specification 13.1 (QNAME convention); NCBI sra-tools wiki "HowTo: fasterq-dump"
 - Cock PJA et al. The Sanger FASTQ file format for sequences with quality scores, and the Solexa/Illumina FASTQ variants. *Nucleic Acids Res* 2010;38:1767–1771. doi:10.1093/nar/gkp1137
 - De Coster W, Rademakers R. NanoPack2: population-scale evaluation of long-read sequencing data. *Bioinformatics* 2023;39(5):btad311. doi:10.1093/bioinformatics/btad311
 - De Coster W et al. NanoPack: visualizing and processing long-read sequencing data. *Bioinformatics* 2018;34:2666–2669. doi:10.1093/bioinformatics/bty149
+- Kolmogorov M, Yuan J, Lin Y, Pevzner PA. Assembly of long, error-prone reads using repeat graphs. *Nat Biotechnol* 2019;37(5):540–546. doi:10.1038/s41587-019-0072-8
+- Kolmogorov M et al. metaFlye: scalable long-read metagenome assembly using repeat graphs. *Nat Methods* 2020;17(11):1103–1110. doi:10.1038/s41592-020-00971-x
+- Flye 2.9.3 manual (USAGE.md). https://github.com/mikolmogorov/Flye/blob/2.9.3/docs/USAGE.md
 - Gurevich A et al. QUAST: quality assessment tool for genome assemblies. *Bioinformatics* 2013;29:1072–1075. doi:10.1093/bioinformatics/btt086
+- Mikheenko A, Prjibelski A, Saveliev V, Antipov D, Gurevich A. Versatile genome assembly evaluation with QUAST-LG. *Bioinformatics* 2018;34(13):i142–i150. doi:10.1093/bioinformatics/bty266
+- Mikheenko A, Valin G, Prjibelski A, Saveliev V, Gurevich A. Icarus: visualizer for de novo assembly evaluation. *Bioinformatics* 2016;32(21):3321–3323. doi:10.1093/bioinformatics/btw379
+- QUAST 5.2.0 manual. https://github.com/ablab/quast/blob/quast_5.2.0/manual.html
+- GFA Format Specification, version 1. https://github.com/GFA-spec/GFA-spec/blob/master/GFA1.md
+- Wick RR, Schultz MB, Zobel J, Holt KE. Bandage: interactive visualization of de novo genome assemblies. *Bioinformatics* 2015;31(20):3350–3352. doi:10.1093/bioinformatics/btv383
+- Flye release notes (NEWS.md; 2.9: contig paths in GFA, --nano-hq). https://github.com/mikolmogorov/Flye/blob/flye/docs/NEWS.md
+- Li H. A new metric on assembly contiguity (auN), 2020. https://lh3.github.io/2020/04/08/a-new-metric-on-assembly-contiguity
 - Lander ES, Waterman MS. Genomic mapping by fingerprinting random clones: a mathematical analysis. *Genomics* 1988;2:231–239. doi:10.1016/0888-7543(88)90007-9
 - Chen S, Zhou Y, Chen Y, Gu J. fastp: an ultra-fast all-in-one FASTQ preprocessor. *Bioinformatics* 2018;34:i884–i890. doi:10.1093/bioinformatics/bty560
 - Shen W, Le S, Li Y, Hu F. SeqKit: a cross-platform and ultrafast toolkit for FASTA/Q file manipulation. *PLoS ONE* 2016;11:e0163962. doi:10.1371/journal.pone.0163962

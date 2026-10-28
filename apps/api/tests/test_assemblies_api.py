@@ -28,7 +28,8 @@ NOTES = {"contig_1": ContigAnnotation(coverage=50, circular=False, repeat=False)
          "contig_3": ContigAnnotation(coverage=5, circular=False, repeat=False)}
 INFO = "#seq_name\tlength\tcov.\tcirc.\trepeat\tmult.\talt_group\tgraph_path\n"
 GFA = ("H\tVN:Z:1.0\nS\tedge_1\t" + "ACGT" * 25_000 + "\tdp:i:50\nS\tedge_2\t" + "GGCA" * 1000 + "\tdp:i:250\n"
-       "L\tedge_1\t+\tedge_1\t+\t0M\tRC:i:12\nL\tedge_2\t+\tedge_2\t+\t0M\n")
+       "L\tedge_1\t+\tedge_1\t+\t0M\tRC:i:12\nL\tedge_2\t+\tedge_2\t+\t0M\n"
+       "P\tcontig_1\tedge_1+\t*\nP\tcontig_2\tedge_2+\t*\n")
 
 
 @pytest.fixture
@@ -127,13 +128,48 @@ def test_contigs_download_and_graph(client, sample):
 
     g = client.get(f"{API}/assemblies/{a['id']}/graph").json()
     assert (g["assembly_id"], g["format"], g["segment_count"], g["link_count"], g["truncated"]) == (a["id"], "GFA1", 2, 2, False)
-    assert g["nodes"][0] == {"id": "edge_1", "length": 100_000, "tags": {"dp": 50}}
+    assert (g["assembler"], g["coverage_tag"], g["coverage_meaning"]) == ("TestAssembler", None, None)
+    # Each segment carries the assembler's flags of the contigs whose GFA path runs through it.
+    assert g["nodes"][0] == {"id": "edge_1", "length": 100_000, "tags": {"dp": 50}, "paths": ["contig_1"],
+                             "circular": False, "repeat": False}
+    assert (g["nodes"][1]["paths"], g["nodes"][1]["circular"]) == (["contig_2"], True)
     assert g["edges"][0] == {"source": "edge_1", "source_orientation": "+", "target": "edge_1",
                              "target_orientation": "+", "overlap": "0M", "tags": {"RC": 12}}
     capped = client.get(f"{API}/assemblies/{a['id']}/graph", params={"max_nodes": 1, "max_edges": 0}).json()
     assert ([n["id"] for n in capped["nodes"]], capped["edges"], capped["truncated"]) == (["edge_1"], [], True)
     assert client.get(f"{API}/assemblies/{a['id']}/graph", params={"max_nodes": 0}).status_code == 422
     assert client.get(f"{API}/assemblies/{a['id']}/graph", params={"max_nodes": 20_001}).status_code == 422
+
+
+def test_graph_names_flye_coverage_tag_and_leaves_unknown_flags_null(client, sample, monkeypatch):
+    a = assemble(client, sample, [upload(client, sample["id"], ONT)],
+                 graph="S\tedge_1\tACGT\tdp:i:7\nS\tedge_9\tAC\nP\tcontig_1\tedge_1+\t*\nP\tcontig_x\tedge_9+\t*\n")
+    with SessionLocal() as db:
+        db.get(Assembly, a["id"]).assembler = "Flye"
+        db.commit()
+    g = client.get(f"{API}/assemblies/{a['id']}/graph").json()
+    assert (g["coverage_tag"], g["coverage_meaning"]) == ("dp", "mean read depth")
+    by_id = {n["id"]: n for n in g["nodes"]}
+    assert (by_id["edge_1"]["circular"], by_id["edge_1"]["repeat"]) == (False, False)
+    # contig_x is not a contig of this assembly: nothing is known about it.
+    assert (by_id["edge_9"]["paths"], by_id["edge_9"]["circular"], by_id["edge_9"]["repeat"]) == (["contig_x"], None, None)
+
+
+def test_project_assemblies_list_every_sample(client, sample):
+    other = client.post(f"{API}/projects/{sample['project_id']}/samples", json={"sample_code": "A-0"}).json()
+    a = assemble(client, sample, [upload(client, sample["id"], ONT)])
+    b = assemble(client, other, [upload(client, other["id"], ONT)])
+    c = assemble(client, sample, [upload(client, sample["id"], R1)])
+    rows = client.get(f"{API}/projects/{sample['project_id']}/assemblies").json()
+    assert [(r["sample_code"], r["id"]) for r in rows] == [("A-0", b["id"]), ("ISO 7/A", c["id"]), ("ISO 7/A", a["id"])]
+    r = rows[-1]
+    assert (r["assembler"], r["contig_count"], r["total_length"], r["n50"], r["l50"], r["largest_contig"]) == (
+        "TestAssembler", 3, 106_000, 100_000, 1, 100_000)
+    assert (r["circular_contigs"], r["contigs_with_circularity"], r["median_coverage"]) == (1, 3, 50.0)
+    assert set(r["warning_codes"]) == {w["code"] for w in a["warnings"]}
+    assert client.get(f"{API}/projects/nope/assemblies").status_code == 404
+    empty = client.post(f"{API}/projects", json={"name": "Empty"}).json()
+    assert client.get(f"{API}/projects/{empty['id']}/assemblies").json() == []
 
 
 def test_expected_genome_size_comes_from_parameters_or_consistent_statistics(client, sample):
@@ -214,3 +250,61 @@ def test_deleting_the_sample_or_job_removes_the_record(client, sample):
     b = assemble(client, sample, [upload(client, sample["id"], R1)])
     assert client.delete(f"{API}/samples/{sample['id']}").status_code == 204
     assert client.get(f"{API}/assemblies/{b['id']}").status_code == 404
+
+
+def test_sample_report_has_an_assembly_section(client, sample):
+    import csv
+    import io
+
+    from app.models import FileFormat, FileOrigin, RawFile
+
+    name = "=HYPERLINK(evil)<b>.fastq.gz"
+    r = client.post(f"{API}/samples/{sample['id']}/files", files=[("files", (name, ONT.read_bytes(), "x"))])
+    original = r.json()["files"][0]
+    with SessionLocal() as db:
+        derived = RawFile(sample_id=sample["id"], original_filename="+filtered.fastq.gz", stored_path="raw/x",
+                          file_format=FileFormat.fastq_gz, size_bytes=1, checksum_sha256="ab" * 32, is_valid=True,
+                          origin=FileOrigin.derived, parent_file_id=original["id"])
+        db.add(derived)
+        db.commit()
+        derived_id = derived.id
+    a = assemble(client, sample, [{"id": derived_id}])
+    with SessionLocal() as db:
+        db.add(AnalysisJob(
+            project_id=sample["project_id"], sample_id=sample["id"], job_type="quast_evaluation", tool_name="QUAST",
+            tool_version="5.2.0", parameters={}, input_raw_file_ids=[], status=JobStatus.completed, log_text="",
+            result_summary={
+                "quast_version": "5.2.0", "min_contig": 500, "reference": None,
+                "assemblies": [{"assembly_id": "other", "label": "B"}, {"assembly_id": a["id"], "label": "A"}],
+                "report": {"labels": ["B", "A"], "rows": [{"field": "N50", "values": [7, 100_000]},
+                                                          {"field": "# unaligned contigs",
+                                                           "values": [None, {"full": 1, "partial": 2}]}]},
+                "crosscheck": [{"assembly_id": a["id"], "label": "A", "rows": [], "all_agree": True}],
+            }))
+        db.commit()
+
+    data = client.get(f"{API}/samples/{sample['id']}/report", params={"format": "json"}).json()
+    (asm,) = data["assemblies"]
+    assert (asm["id"], asm["assembler"], asm["read_type"], asm["mode"]) == (a["id"], "TestAssembler", "nano-hq", "long")
+    assert asm["inputs"] == [{"file_id": derived_id, "filename": "+filtered.fastq.gz", "origin": "derived",
+                              "sha256": "ab" * 32, "lineage": ["+filtered.fastq.gz", name], "produced_by_job_id": None}]
+    assert (asm["statistics"]["n50"], asm["statistics"]["l90"], asm["statistics"]["contig_count"]) == (100_000, 1, 3)
+    assert {w["code"] for w in asm["warnings"]} == {w["code"] for w in a["warnings"]}
+    assert len(asm["warning_checks"]) == 6 and asm["job"]["id"] == a["job_id"]
+    (q,) = asm["quast"]
+    assert (q["label"], q["metrics"]["N50"], q["crosscheck_all_agree"], q["assemblies_compared"]) == ("A", 100_000, True, ["B", "A"])
+
+    html = client.get(f"{API}/samples/{sample['id']}/report").text
+    assert "<h2>Assembly</h2>" in html and "Contig N50 / L50" in html and "[heuristic] low_coverage_contigs" in html
+    assert "+filtered.fastq.gz ← =HYPERLINK(evil)&lt;b&gt;.fastq.gz" in html and "<b>.fastq" not in html
+    assert "1 + 2 part" in html and "Assembly N50 describes contigs, read N50 describes reads" in html
+
+    rows = list(csv.DictReader(io.StringIO(client.get(f"{API}/samples/{sample['id']}/report",
+                                                      params={"format": "csv"}).text)))
+    (row,) = [r for r in rows if r["record_type"] == "assembly"]
+    assert (row["assembly_id"], row["contigs"], row["contig_n50"], row["contig_l50"], row["circular_contigs"]) == (
+        a["id"], "3", "100000", "1", "1")
+    assert row["n50"] == "" and row["reads"] == "" and row["filename"] == "assembly.fasta"
+    # Cells that a spreadsheet would read as a formula are neutralised (OWASP CSV injection).
+    assert row["assembly_inputs"] == "'+filtered.fastq.gz" and row["median_contig_coverage"] == "50"
+    assert "low_coverage_contigs" in row["heuristic_warnings"]

@@ -97,11 +97,54 @@ unit, API and end-to-end tests.
 - Reads must be FASTQ/FASTA(.gz). POD5 raw signal is accepted, but only its run metadata are read
   (no basecalling); other formats are listed in the Import screen as planned.
 
-## Next recommended step — Phase 3 (assembly)
+## Phase 3 — Assembly (in progress)
 
-Integrate Flye for long-read assembly through a new adapter (and Nextflow where multi-step), QUAST
-evaluation, contig statistics and plots, with the filtered or original reads selected explicitly by
-lineage.
+### 3A — Long-read assembly, evaluation and assembly views ✅
+
+- **Synthetic test genome** (`scripts/make_synthetic_genome.py`): a SYNTHETIC 300 kb circular
+  chromosome with two identical 5 kb repeats and a 15 kb two-copy plasmid, with simulated Nanopore
+  reads (calibrated qualities) and Illumina pairs; byte-identical for the same seed.
+- **ARVA's own assembly statistics** (`arva_core.assembly_stats`): contig count, total length, N50/L50,
+  N90/L90, GC over unambiguous bases, length histogram, cumulative curve, length-weighted median
+  coverage and six heuristic warnings with stated thresholds (every check stored, also when it could
+  not run); a bounded GFA 1 reader with segments, links and paths (contig membership from P lines).
+- **Flye 2.9.3** for long reads: the New assembly dialog (assisted configuration) names the assembler
+  that fits the sample's technology (short-read and hybrid assemblers listed as coming next, not
+  offered), lists the reads by lineage (original vs filtered copy, with ARVA's statistics), explains
+  each option (read type with a heuristic suggestion, genome size with its basis, threads, polishing;
+  advanced options collapsed), summarises what the run will do and starts only after an explicit
+  confirmation. Running jobs show a stage stepper, live elapsed time and the live log (auto-scroll,
+  pause); ARVA cannot cancel a running job yet, so no cancel button is shown. On the default synthetic
+  genome Flye recovers both replicons, circular and identical to the reference.
+- **Results**: ten summary tiles, heuristic warnings (and checks that could not run), a sortable contig
+  table with Flye's columns and FASTA download, five charts (contig length histogram, Nx curve,
+  cumulative length, coverage vs length, GC vs coverage) with data tables and SVG/PNG export, an
+  assembly-graph explorer (force layout, node size by length, colour by the contigs' circular/repeat
+  flags, zoom/pan, truncation notice), and a comparison table with overlaid cumulative curves when a
+  sample has two or more assemblies.
+- **QUAST 5.2.0** evaluates and compares a sample's assemblies, with or without a reference FASTA of
+  the sample (offline, minimap2 from the system, never compiled during a run); ARVA reads its report by
+  field name, shows its metrics and cross-checks the contiguity metrics against its own statistics at
+  the same minimum contig length; QUAST's HTML report and Icarus viewers are served sandboxed.
+- **Project and reports**: an Assemblies table on the project page; the sample HTML/JSON report has an
+  Assembly section (inputs by lineage, command, version, statistics, warnings, QUAST metrics) and the
+  CSV adds one assembly summary row per assembly (formula-injection safe).
+- **Guide** entries: genome assembly (long, short, hybrid), assembly N50/L50/N90/L90 versus read N50,
+  circularity, contig coverage, the assembly graph (GFA), Flye read types, Flye and QUAST.
+
+### 3B — Next
+
+- Short-read assembly with **SPAdes** and hybrid assembly with **Unicycler** (both packaged in
+  Debian), offered by the same dialog according to the sample's reads.
+- **Polishing** of assemblies, with before/after comparison: candidates are Racon (packaged in
+  Debian), Medaka for Nanopore reads and Polypolish for short reads; each is integrated only once it
+  is confirmed to install from a package channel and run offline.
+- Cancelling a running job, and the Assembly navigation page across projects.
+
+Known limitations of 3A: one assembler (Flye) and long reads only; the Docker image installs Debian
+bookworm's Flye 2.9.1 and minimap2 2.24, which have not been validated (2.9.3 and 2.26 were tested);
+the graph view draws at most 500 segments (the GFA can be downloaded for Bandage) and does not draw a
+segment's link to itself; coverage, circularity and repeat flags are the assembler's own values.
 
 ## Later phases
 

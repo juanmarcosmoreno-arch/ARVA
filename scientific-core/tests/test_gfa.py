@@ -30,9 +30,9 @@ def test_reads_segments_links_and_numeric_tags(tmp_path):
     assert g["total_segment_length"] == 17
     assert g["numeric_tags"] == ["KC", "LN", "dp"]
     assert g["nodes"] == [
-        {"id": "edge_1", "length": 10, "tags": {"dp": 51}},
-        {"id": "edge_2", "length": 4, "tags": {"LN": 4, "dp": 90, "KC": 7}},
-        {"id": "edge_3", "length": 3, "tags": {"dp": 1.5}},
+        {"id": "edge_1", "length": 10, "tags": {"dp": 51}, "paths": ["contig_1"]},
+        {"id": "edge_2", "length": 4, "tags": {"LN": 4, "dp": 90, "KC": 7}, "paths": ["contig_1"]},
+        {"id": "edge_3", "length": 3, "tags": {"dp": 1.5}, "paths": []},
     ]
     assert g["edges"] == [
         {"source": "edge_1", "source_orientation": "+", "target": "edge_2", "target_orientation": "-",
@@ -72,10 +72,24 @@ def test_ties_keep_file_order(tmp_path):
     ("S\ta\tACGT\tbroken\n", "malformed optional field"),
     ("S\ta\tAC\nS\tb\tAC\nL\ta\t+\tb\t?\t0M\n", "line 3: link orientations"),
     ("L\ta\t+\tb\n", "link line needs"),
+    ("S\ta\tAC\nP\tp1\n", "line 2: path line needs a name and a list of segments"),
+    ("S\ta\tAC\nP\tp1\ta+,a\t*\n", "path 'p1': step 'a' is not a segment name followed by"),
 ])
 def test_rejects_malformed_graphs(tmp_path, text, message):
     with pytest.raises(GfaFormatError, match=message):
         read_gfa(write(tmp_path, text))
+
+
+def test_paths_name_the_contigs_of_each_segment(tmp_path):
+    # Real Flye 2.9.3 output: one P line per contig; a segment shared by two paths lists both, once each.
+    text = ("S\tedge_1\tACGT\nS\tedge_2\tAC\nL\tedge_1\t+\tedge_1\t+\t0M\tRC:i:0\n"
+            "P\tcontig_1\tedge_1+\t*\nP\tcontig_2\tedge_2+,edge_1-,edge_2-\t*\nP\tcontig_9\tedge_7+\t*\n")
+    g = read_gfa(write(tmp_path, text))
+    assert g["path_count"] == 3
+    assert {n["id"]: n["paths"] for n in g["nodes"]} == {"edge_1": ["contig_1", "contig_2"], "edge_2": ["contig_2"]}
+    many = "S\ts\tA\n" + "".join(f"P\tp{i}\ts+\t*\n" for i in range(30))
+    (node,) = read_gfa(write(tmp_path, many, name="many.gfa"))["nodes"]
+    assert node["paths"] == [f"p{i}" for i in range(20)]
 
 
 def test_rejects_binary_content(tmp_path):

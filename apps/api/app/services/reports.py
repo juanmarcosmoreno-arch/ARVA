@@ -24,6 +24,7 @@ from app.services.jobs import (
     FLYE_JOB,
     NANOPLOT_JOB,
     POD5_JOB,
+    QUAST_JOB,
     SEQKIT_JOB,
 )
 from app.services.metadata_table import sanitize_spreadsheet_cell
@@ -41,6 +42,18 @@ LIMITATIONS = [
     "Platform hints from read headers are suggestions: read names can be rewritten (e.g. by NCBI SRA), "
     "so headers without platform information say nothing about the platform used.",
 ]
+ASSEMBLY_LIMITATIONS = [
+    "Assembly warnings are heuristics with stated thresholds; they flag results worth checking, not errors.",
+    "Contig coverage, circularity and repeat flags are the assembler's own values; contig lengths, N50/L50, "
+    "N90/L90 and GC are computed by ARVA from the contigs file.",
+    "Assembly N50 describes contigs, read N50 describes reads: the two are not comparable.",
+]
+# QUAST fields copied into the HTML report (the JSON report keeps every field QUAST wrote).
+QUAST_REPORT_FIELDS = (
+    "# contigs", "Total length", "Largest contig", "GC (%)", "N50", "N90", "L50", "L90", "auN", "# N's per 100 kbp",
+    "Genome fraction (%)", "Duplication ratio", "# misassemblies", "# local misassemblies", "# unaligned contigs",
+    "# mismatches per 100 kbp", "# indels per 100 kbp", "NGA50",
+)
 
 
 def _read_headers(meta: dict[str, Any] | None) -> dict[str, Any] | None:
@@ -138,8 +151,90 @@ def collect_report_data(db: Session, sample: Sample) -> dict[str, Any]:
         "files": entries,
         "raw_signal_files": _raw_signal_files(db, sample, files),
         "read_header_summary": build_header_summary(db, sample),
+        "assemblies": _assemblies(db, sample, by_id),
         "limitations": LIMITATIONS,
     }
+
+
+def _lineage(f: RawFile, by_id: dict[str, RawFile]) -> list[str]:
+    """The file's name, then the name of each file it was derived from, back to the imported original."""
+    names, seen = [f.original_filename], {f.id}
+    while f.parent_file_id in by_id and f.parent_file_id not in seen:
+        f = by_id[f.parent_file_id]
+        seen.add(f.id)
+        names.append(f.original_filename)
+    return names
+
+
+def _assemblies(db: Session, sample: Sample, by_id: dict[str, RawFile]) -> list[dict[str, Any]]:
+    """Each assembly with its read inputs by lineage, the exact command, statistics, heuristic warnings and the
+    metrics of every completed QUAST evaluation that included it."""
+    assemblies = db.scalars(
+        select(Assembly).where(Assembly.sample_id == sample.id).order_by(Assembly.created_at)
+    ).all()
+    if not assemblies:
+        return []
+    evaluations = db.scalars(
+        select(AnalysisJob)
+        .where(AnalysisJob.sample_id == sample.id, AnalysisJob.job_type == QUAST_JOB,
+               AnalysisJob.status == JobStatus.completed)
+        .order_by(AnalysisJob.finished_at)
+    ).all()
+    out = []
+    for a in assemblies:
+        job = db.get(AnalysisJob, a.job_id)
+        st = a.stats
+        inputs = []
+        for file_id in a.input_file_ids:
+            f = by_id.get(file_id)
+            inputs.append({"file_id": file_id, "filename": f.original_filename if f else None,
+                           "origin": f.origin.value if f else None, "sha256": f.checksum_sha256 if f else None,
+                           "lineage": _lineage(f, by_id) if f else [],
+                           "produced_by_job_id": f.produced_by_job_id if f else None})
+        quast = []
+        for q in evaluations:
+            summary = q.result_summary or {}
+            entry = next((e for e in summary.get("assemblies", []) if e["assembly_id"] == a.id), None)
+            report = summary.get("report") or {}
+            if entry is None or entry["label"] not in report.get("labels", []):
+                continue
+            i = report["labels"].index(entry["label"])
+            check = next((c for c in summary.get("crosscheck", []) if c["assembly_id"] == a.id), None)
+            quast.append({
+                "job_id": q.id, "quast_version": summary.get("quast_version"), "label": entry["label"],
+                "min_contig": summary.get("min_contig"),
+                "reference": (summary.get("reference") or {}).get("name"),
+                "assemblies_compared": [e["label"] for e in summary.get("assemblies", [])],
+                "metrics": {r["field"]: r["values"][i] for r in report.get("rows", [])},
+                "crosscheck_all_agree": check["all_agree"] if check else None,
+                "finished_at": q.finished_at.isoformat() if q.finished_at else None,
+            })
+        out.append({
+            "id": a.id,
+            "assembler": a.assembler,
+            "assembler_version": a.assembler_version,
+            "mode": a.mode.value,
+            "read_type": a.read_type,
+            "created_at": a.created_at.isoformat(),
+            "inputs": inputs,
+            "job": None if job is None else {
+                "id": job.id, "tool": job.tool_name, "tool_version": job.tool_version, "tool_path": job.tool_path,
+                "commands": [shlex.join(c) for c in job.commands or []], "parameters": job.parameters,
+                "started_at": job.started_at.isoformat() if job.started_at else None,
+                "finished_at": job.finished_at.isoformat() if job.finished_at else None,
+                "duration_seconds": job.duration_seconds,
+            },
+            "statistics": {k: st.get(k) for k in (
+                "tool", "contig_count", "total_length", "largest_contig", "smallest_contig", "n50", "l50", "n90",
+                "l90", "gc_percent", "n_count", "n_per_100kb", "other_iupac_count", "thresholds", "coverage",
+                "circularity", "expected_genome_size", "length_histogram", "contig_rows")},
+            "files": st.get("files"),
+            "longest_contigs": a.contigs[:20],
+            "warnings": a.warnings,
+            "warning_checks": st.get("warning_checks", []),
+            "quast": quast,
+        })
+    return out
 
 
 def _raw_signal_files(db: Session, sample: Sample, files: list[RawFile]) -> list[dict[str, Any]]:
@@ -174,7 +269,8 @@ def _processing_steps(db: Session, sample: Sample, latest: dict) -> list[dict[st
         .where(
             AnalysisJob.sample_id == sample.id,
             AnalysisJob.status == JobStatus.completed,
-            AnalysisJob.job_type.in_([FASTP_JOB, FILTLONG_JOB, SEQKIT_JOB, FASTQC_JOB, NANOPLOT_JOB, FLYE_JOB]),
+            AnalysisJob.job_type.in_([FASTP_JOB, FILTLONG_JOB, SEQKIT_JOB, FASTQC_JOB, NANOPLOT_JOB, FLYE_JOB,
+                                      QUAST_JOB]),
         )
         .order_by(AnalysisJob.finished_at)
     ).all()
@@ -234,6 +330,8 @@ def _processing_steps(db: Session, sample: Sample, latest: dict) -> list[dict[st
                     "after these statistics; see NanoStats_post_filtering.txt")
         elif j.job_type == FLYE_JOB and summary:
             step["highlights"] = _flye_highlights(db, j, summary)
+        elif j.job_type == QUAST_JOB and summary:
+            step["highlights"] = _quast_highlights(summary)
         elif j.job_type == FASTQC_JOB and summary:
             flags = {}
             for m in summary.get("modules", []):
@@ -263,6 +361,32 @@ def _flye_highlights(db: Session, job: AnalysisJob, summary: dict[str, Any]) -> 
         out.append(f"Minimum overlap {log['min_overlap']:,} bp (chosen by Flye from the reads' N90)")
     if (params.get("threads") or 1) > 1:
         out.append(f"{params['threads']} threads: Flye's output can differ between runs and thread counts")
+    return out
+
+
+def _count(value: Any) -> str:
+    return f"{value:,}" if isinstance(value, int) else "—" if value is None else str(value)
+
+
+def _quast_highlights(summary: dict[str, Any]) -> list[str]:
+    ref = summary.get("reference")
+    out = [f"{len(summary['assemblies'])} assembly(ies), minimum contig length {summary['min_contig']:,} bp; "
+           + (f"reference {ref['name']}" if ref else "no reference (contiguity only)")]
+    report = summary["report"]
+    for i, label in enumerate(report["labels"]):
+        v = {r["field"]: r["values"][i] for r in report["rows"]}
+        line = (f"{label}: {_count(v.get('# contigs'))} contigs, {_count(v.get('Total length'))} bp, "
+                f"N50 {_count(v.get('N50'))} bp, L50 {_count(v.get('L50'))}")
+        if "Genome fraction (%)" in v:
+            line += (f"; genome fraction {v['Genome fraction (%)']} %, {v.get('# misassemblies')} misassemblies, "
+                     f"{v.get('# mismatches per 100 kbp')} mismatches and {v.get('# indels per 100 kbp')} indels per "
+                     "100 kbp")
+        out.append(line)
+    for check in summary.get("crosscheck", []):
+        rows = [r for r in check["rows"] if r["agrees"] is not None]
+        bad = [r["metric"] for r in rows if not r["agrees"]]
+        out.append(f"Independent check of {check['label']}: {len(rows) - len(bad)}/{len(rows)} metrics equal ARVA's at "
+                   f"{summary['min_contig']:,} bp" + (f" (differ: {', '.join(bad)})" if bad else ""))
     return out
 
 
@@ -329,6 +453,10 @@ CSV_COLUMNS = [
     "min_length", "max_length", "mean_length", "median_length", "n50", "n90", "gc_percent",
     "ambiguous_percent", "mean_read_quality", "median_read_quality", "q20_bases_percent",
     "q30_bases_percent", "estimated_depth", "tool", "tool_version", "job_id", "finished_at",
+    # Assembly summary rows (record_type "assembly") fill these and leave the read columns empty.
+    "record_type", "assembly_id", "assembly_read_type", "assembly_inputs", "contigs", "assembly_total_length",
+    "largest_contig", "contig_n50", "contig_l50", "contig_n90", "contig_l90", "assembly_gc_percent",
+    "circular_contigs", "median_contig_coverage", "heuristic_warnings",
 ]
 
 
@@ -371,8 +499,37 @@ def render_csv(data: dict[str, Any]) -> str:
                 "tool_version": sanitize_spreadsheet_cell(a["tool_version"]),
                 "job_id": a["job_id"],
                 "finished_at": a["finished_at"],
+                "record_type": "reads",
             }
         )
+    for asm in data.get("assemblies", []):
+        st, contigs = asm["statistics"], (asm["files"] or {}).get("contigs") or {}
+        circ = st["circularity"]
+        median = st["coverage"]["length_weighted_median"]
+        writer.writerow({
+            "sample_code": sanitize_spreadsheet_cell(data["sample"]["sample_code"]),
+            "filename": sanitize_spreadsheet_cell(contigs.get("path", "").rsplit("/", 1)[-1]),
+            "sha256": contigs.get("sha256", ""),
+            "tool": sanitize_spreadsheet_cell(asm["assembler"]),
+            "tool_version": sanitize_spreadsheet_cell(asm["assembler_version"]),
+            "job_id": (asm["job"] or {}).get("id", ""),
+            "finished_at": (asm["job"] or {}).get("finished_at") or asm["created_at"],
+            "record_type": "assembly",
+            "assembly_id": asm["id"],
+            "assembly_read_type": sanitize_spreadsheet_cell(asm["read_type"]),
+            "assembly_inputs": sanitize_spreadsheet_cell("; ".join(i["filename"] or i["file_id"] for i in asm["inputs"])),
+            "contigs": st["contig_count"],
+            "assembly_total_length": st["total_length"],
+            "largest_contig": st["largest_contig"],
+            "contig_n50": st["n50"],
+            "contig_l50": st["l50"],
+            "contig_n90": st["n90"],
+            "contig_l90": st["l90"],
+            "assembly_gc_percent": "" if st["gc_percent"] is None else f"{st['gc_percent']:.3f}",
+            "circular_contigs": circ["circular_contigs"],
+            "median_contig_coverage": "" if median is None else f"{median:g}",
+            "heuristic_warnings": "; ".join(w["code"] for w in asm["warnings"]),
+        })
     return out.getvalue()
 
 
@@ -506,6 +663,16 @@ _POD5_METHODS = (
     "official <code>pod5</code> library from the run-information table and the read table's sample counts and "
     "channels, without decoding signal. Signal duration is the sum over acquisitions of samples divided by the "
     "sample rate.</p>"
+)
+
+_ASSEMBLY_METHODS = (
+    "<p>Assemblies were summarised by the ARVA scientific core (<code>arva-core.assembly_stats</code>) from each "
+    "contigs FASTA: contigs ranked by length (ties keep file order); Nx is the length of the contig at which the "
+    "cumulative length first reaches x % of the total, Lx its rank (QUAST's definitions); GC = (G + C) / (A + C + "
+    "G + T) over unambiguous bases. The median coverage is the coverage of the contig holding the middle base when "
+    "contigs are ordered by the assembler's coverage. Heuristic warnings use fixed thresholds stated with each "
+    "warning; every check, including those that could not run, is stored with the assembly. QUAST values, when "
+    "present, are QUAST's own and describe only contigs of at least its minimum length.</p>"
 )
 
 _HEADER_FIELDS = (
@@ -645,6 +812,117 @@ def _raw_signal_html(data: dict[str, Any]) -> str:
             "Dorado or MinKNOW).</p>" + "".join(sections))
 
 
+def _fmt_value(v: Any) -> str:
+    if v is None:
+        return "—"
+    if isinstance(v, dict) and "full" in v:
+        return f"{v['full']:,} + {v['partial']:,} part"
+    if isinstance(v, int):
+        return f"{v:,}"
+    return str(v)
+
+
+def _quast_html(evaluations: list[dict[str, Any]]) -> str:
+    if not evaluations:
+        return ""
+    head = "".join(
+        f"<th>QUAST {escape(str(q['quast_version']))} · ≥ {q['min_contig']:,} bp · "
+        f"{escape(q['reference'] or 'no reference')}<br><span class='muted'>job <code>{escape(q['job_id'])}</code>"
+        f"</span></th>" for q in evaluations
+    )
+    rows = "".join(
+        f"<tr><th>{escape(field)}</th>"
+        + "".join(f"<td>{escape(_fmt_value(q['metrics'].get(field)))}</td>" for q in evaluations) + "</tr>"
+        for field in QUAST_REPORT_FIELDS if any(field in q["metrics"] for q in evaluations)
+    )
+    return (f"<h4>QUAST evaluation</h4><table class='grid'><tr><th>Metric (QUAST's name)</th>{head}</tr>{rows}</table>"
+            "<p class='muted'>Values as QUAST reported them, for contigs of at least the minimum length shown. "
+            "The JSON report keeps every field.</p>")
+
+
+def _assembly_html(data: dict[str, Any]) -> str:
+    sections = []
+    for a in data.get("assemblies", []):
+        st, job = a["statistics"], a["job"] or {}
+        inputs = "".join(
+            f"<li>{escape(' ← '.join(i['lineage']) or i['file_id'])}"
+            f"{' (filtered copy)' if i['origin'] == 'derived' else ''} · SHA-256 <code>{escape(i['sha256'] or '')}</code>"
+            "</li>" for i in a["inputs"]
+        )
+        g = st["expected_genome_size"]
+        cov = st["coverage"]["length_weighted_median"]
+        rows = [
+            ("Contigs", _fmt_int(st["contig_count"])),
+            ("Total length", f"{st['total_length']:,} bp"),
+            ("Largest / smallest contig", f"{st['largest_contig']:,} / {st['smallest_contig']:,} bp"),
+            ("Contig N50 / L50", f"{st['n50']:,} bp / {st['l50']:,}"),
+            ("Contig N90 / L90", f"{st['n90']:,} bp / {st['l90']:,}"),
+            ("GC content", "—" if st["gc_percent"] is None else f"{st['gc_percent']:.2f} % (unambiguous bases)"),
+            ("N per 100 kb", f"{st['n_per_100kb']:.2f}"),
+            ("Circular contigs", f"{st['circularity']['circular_contigs']} of "
+                                 f"{st['circularity']['contigs_with_circularity']} (as reported by {a['assembler']})"),
+            ("Median contig coverage", "—" if cov is None else
+             f"{cov:g}× (length-weighted; {a['assembler']}'s per-contig coverage)"),
+            ("Expected genome size", f"{g['bp']:,} bp ({(g.get('basis') or g.get('source') or '').replace('_', ' ')})"
+             if g["bp"] else "not known (genome-size check not run)"),
+        ]
+        table = "".join(f"<tr><th>{escape(k)}</th><td>{escape(v)}</td></tr>" for k, v in rows)
+        warnings = "".join(
+            f"<li><b>[heuristic] {escape(w['code'])}</b>: {escape(w['message'])}"
+            + (f" <span class='muted'>({escape(', '.join(w['contigs']))}{' …' if w['contigs_total'] > len(w['contigs']) else ''})</span>"
+               if w["contigs"] else "") + "</li>"
+            for w in a["warnings"]
+        )
+        skipped = "".join(f"<li>{escape(c['code'])}: not evaluated — {escape(c['skipped_reason'] or '')}</li>"
+                          for c in a["warning_checks"] if not c["evaluated"])
+        contigs = "".join(_contig_row(c) for c in a["longest_contigs"])
+        files = "".join(f"<tr><th>{escape(k)}</th><td><code>{escape(v['path'])}</code><br>SHA-256 "
+                        f"<code>{escape(v['sha256'])}</code></td></tr>" for k, v in (a["files"] or {}).items() if v)
+        hist = st["length_histogram"]
+        chart = _bar_chart([f"{b['min_length']:,}" for b in hist], [b["contigs"] for b in hist],
+                           "Contig length distribution", "Contig length (bp, bin start)", "Contigs")
+        sections.append(
+            f"<h3>{escape(a['assembler'])} {escape(a['assembler_version'])} · {escape(a['read_type'])}</h3>"
+            f"<p class='muted'>Assembly <code>{escape(a['id'])}</code> · {escape(a['mode'])}-read assembly · "
+            f"created {escape(a['created_at'])}</p>"
+            f"<h4>Input reads (file ← the file it was derived from)</h4><ul>{inputs}</ul>"
+            f"<h4>Statistics</h4><table>{table}</table>"
+            + (f"<div class='warn'><strong>Heuristic warnings</strong><ul>{warnings}</ul></div>" if warnings
+               else "<p class='muted'>No heuristic warning.</p>")
+            + (f"<p class='muted'>Checks not evaluated:</p><ul class='muted'>{skipped}</ul>" if skipped else "")
+            + f"<div class='charts'><div class='chart'>{chart}</div></div>"
+            + f"<h4>Longest contigs</h4><table class='grid'><tr><th>#</th><th>Contig</th><th>Length (bp)</th>"
+            f"<th>Coverage</th><th>GC (%)</th><th>Circular</th><th>Repeat</th></tr>{contigs}</table>"
+            + (f"<p class='muted'>{len(a['longest_contigs'])} of {st['contig_count']:,} contigs shown; the JSON report "
+               "and the contigs FASTA have them all.</p>" if st["contig_count"] > len(a["longest_contigs"]) else "")
+            + _quast_html(a["quast"])
+            + "<h4>Provenance</h4><table>"
+            + f"<tr><th>Tool</th><td>{escape(job.get('tool') or a['assembler'])} "
+            f"{escape(job.get('tool_version') or a['assembler_version'])}"
+            + (f" (<code>{escape(job['tool_path'])}</code>)" if job.get("tool_path") else "") + "</td></tr>"
+            + f"<tr><th>Parameters</th><td><code>{escape(json.dumps(job.get('parameters'), sort_keys=True))}</code></td></tr>"
+            + f"<tr><th>Analysis job</th><td><code>{escape(job.get('id') or '')}</code></td></tr>"
+            + files + "</table>"
+            + "".join(f"<pre>{escape(c)}</pre>" for c in job.get("commands") or [])
+        )
+    if not sections:
+        return ""
+    return ("<h2>Assembly</h2><p>Contig statistics are computed by ARVA from each contigs file; coverage, "
+            "circularity and repeat flags are the assembler's. Warnings are heuristics with stated thresholds.</p>"
+            + "".join(sections))
+
+
+def _yes_no(v: bool | None) -> str:
+    return "—" if v is None else "yes" if v else "no"
+
+
+def _contig_row(c: dict[str, Any]) -> str:
+    coverage = "—" if c["coverage"] is None else f"{c['coverage']:g}×"
+    gc = "—" if c["gc_percent"] is None else f"{c['gc_percent']:.2f}"
+    return (f"<tr><td>{c['rank']}</td><td><code>{escape(c['name'])}</code></td><td>{c['length']:,}</td>"
+            f"<td>{coverage}</td><td>{gc}</td><td>{_yes_no(c['circular'])}</td><td>{_yes_no(c['repeat'])}</td></tr>")
+
+
 def render_html(data: dict[str, Any]) -> str:
     s = data["sample"]
     meta_rows = "".join(
@@ -706,7 +984,8 @@ def render_html(data: dict[str, Any]) -> str:
         if data["project"]["is_demo"]
         else ""
     )
-    limitations = "".join(f"<li>{escape(x)}</li>" for x in data["limitations"])
+    limitations = "".join(f"<li>{escape(x)}</li>" for x in data["limitations"]
+                          + (ASSEMBLY_LIMITATIONS if data.get("assemblies") else []))
     steps = "".join(
         f"<h3>{escape(st['tool'])} {escape(st['tool_version'])}</h3>"
         f"<p class='muted'>Inputs: {escape(', '.join(st['inputs']))} · finished {escape(st['finished_at'] or '')}"
@@ -735,6 +1014,7 @@ def render_html(data: dict[str, Any]) -> str:
  .muted {{ color:#64748B; font-size: 12px; margin: 0; }}
  .charts {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; }}
  .chart {{ border:1px solid #EEF2F7; border-radius: 8px; padding: 8px; }}
+ table.grid th {{ width: auto; }}
  .warn {{ background:#FFFBEB; border:1px solid #F59E0B55; border-radius:8px; padding:8px 12px; font-size: 13px; }}
  .demo {{ background:#F59E0B; color:#0B132B; font-weight:700; text-align:center; padding:8px; border-radius:8px; margin-bottom:16px; }}
  footer {{ margin-top: 32px; font-size: 11px; color:#64748B; }}
@@ -751,6 +1031,7 @@ Generated {escape(data['generated_at'])} · ARVA {escape(data['arva_version'])}<
 <h2>Read statistics</h2>
 {''.join(sections) or '<p>No read files registered.</p>'}
 {_raw_signal_html(data)}
+{_assembly_html(data)}
 {('<h2>Processing and independent checks</h2>' + steps) if steps else ''}
 <h2>Methods</h2>
 <p>Each file was streamed in full by the ARVA scientific core (<code>arva-core.seqstats</code>), which
@@ -764,6 +1045,7 @@ Illumina, Oxford Nanopore, PacBio and NCBI SRA header grammars (<code>arva_core.
 The resulting platform hint is a suggestion with a stated confidence; it never replaces the
 technology recorded for the sample.</p>
 {_POD5_METHODS if data.get("raw_signal_files") else ""}
+{_ASSEMBLY_METHODS if data.get("assemblies") else ""}
 <h2>Limitations</h2><ul>{limitations}</ul>
 <footer>This report is descriptive. It contains values computed from the input files and does not
 make clinical or biological claims.</footer>

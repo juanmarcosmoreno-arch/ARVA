@@ -62,7 +62,15 @@ export type GuideId =
   | "duplication_levels"
   | "overrepresented_sequences"
   | "per_position_quality_fastp"
-  | "insert_size";
+  | "insert_size"
+  | "flye"
+  | "quast"
+  | "assembly"
+  | "assembly_n50"
+  | "circularity"
+  | "assembly_coverage"
+  | "assembly_graph"
+  | "flye_read_types";
 
 const REF = {
   phred: { label: "Ewing & Green (1998) Genome Research 8:186–194 — Phred error probabilities", url: "https://doi.org/10.1101/gr.8.3.186" },
@@ -85,6 +93,19 @@ const REF = {
     url: "https://doi.org/10.1093/bioinformatics/btad311",
   },
   nanoplotHome: { label: "NanoPlot source code and documentation (W. De Coster)", url: "https://github.com/wdecoster/NanoPlot" },
+  flye: {
+    label: "Kolmogorov, Yuan, Lin & Pevzner (2019) Nature Biotechnology 37:540–546 — Flye (repeat graphs)",
+    url: "https://doi.org/10.1038/s41587-019-0072-8",
+  },
+  metaflye: {
+    label: "Kolmogorov et al. (2020) Nature Methods 17:1103–1110 — metaFlye (--meta mode)",
+    url: "https://doi.org/10.1038/s41592-020-00971-x",
+  },
+  flyeUsage: { label: "Flye 2.9.3 manual (USAGE.md): read types, options and output files", url: "https://github.com/mikolmogorov/Flye/blob/2.9.3/docs/USAGE.md" },
+  quastLg: { label: "Mikheenko et al. (2018) Bioinformatics 34:i142–i150 — QUAST-LG (QUAST 5)", url: "https://doi.org/10.1093/bioinformatics/bty266" },
+  icarus: { label: "Mikheenko et al. (2016) Bioinformatics 32:3321–3323 — Icarus contig viewers", url: "https://doi.org/10.1093/bioinformatics/btw379" },
+  quastManual: { label: "QUAST 5.2.0 manual: metrics, options and output files", url: "https://github.com/ablab/quast/blob/quast_5.2.0/manual.html" },
+  auN: { label: "Li H (2020) A new metric on assembly contiguity (auN)", url: "https://lh3.github.io/2020/04/08/a-new-metric-on-assembly-contiguity" },
   fastqcHome: { label: "FastQC project page and documentation (Babraham Bioinformatics)", url: "https://www.bioinformatics.babraham.ac.uk/projects/fastqc/" },
   illuminaFastq: { label: "Illumina BaseSpace Help — FASTQ files (sequence identifier fields)", url: "https://help.basespace.illumina.com/files-used-by-basespace/fastq-files" },
   bcl2fastq: {
@@ -134,6 +155,19 @@ const REF = {
     label: "Filtlong 0.2.1 source code — main.cpp (target bases: running total, the three logged outcomes)",
     url: "https://github.com/rrwick/Filtlong/blob/v0.2.1/src/main.cpp",
   },
+  korenPhillippy: {
+    label: "Koren & Phillippy (2015) Current Opinion in Microbiology 23:110–120 — One chromosome, one contig: complete microbial genomes from long-read sequencing and assembly",
+    url: "https://doi.org/10.1016/j.mib.2014.11.014",
+  },
+  spades: { label: "Bankevich et al. (2012) Journal of Computational Biology 19:455–477 — SPAdes", url: "https://doi.org/10.1089/cmb.2012.0021" },
+  unicycler: { label: "Wick, Judd, Gorrie & Holt (2017) PLOS Computational Biology 13:e1005595 — Unicycler (hybrid assembly)", url: "https://doi.org/10.1371/journal.pcbi.1005595" },
+  wickBenchmark: {
+    label: "Wick & Holt (2021) F1000Research 8:2138 — Benchmarking of long-read assemblers for prokaryote whole genome sequencing",
+    url: "https://doi.org/10.12688/f1000research.21782.4",
+  },
+  bandage: { label: "Wick, Schultz, Zobel & Holt (2015) Bioinformatics 31:3350–3352 — Bandage: interactive visualization of assembly graphs", url: "https://doi.org/10.1093/bioinformatics/btv383" },
+  gfaSpec: { label: "GFA Format Specification, version 1 (S segment, L link and P path lines)", url: "https://github.com/GFA-spec/GFA-spec/blob/master/GFA1.md" },
+  flyeNews: { label: "Flye release notes (NEWS.md): contig paths in GFA since 2.9; --nano-hq added in 2.9", url: "https://github.com/mikolmogorov/Flye/blob/flye/docs/NEWS.md" },
 } satisfies Record<string, Reference>;
 
 export const GUIDE: GuideEntry[] = [
@@ -979,6 +1013,284 @@ export const GUIDE: GuideEntry[] = [
       ],
       limitations: "Solo los archivos de lecturas importados entran en los valores por muestra; los derivados aparecen en el resumen de la muestra y en la columna de filtrado. Q30 y GC en conjunto ponderan cada archivo por sus bases, así que en una muestra híbrida dominan los de la tecnología con más bases. Las tablas muestran resultados guardados; no vuelven a leer los archivos.",
       advanced: "API: GET /api/v1/projects/{id}/qc-overview (cuatro consultas a la base de datos, sea cual sea el número de muestras) y GET /api/v1/projects/{id}/qc-overview.csv (UTF-8 con BOM, cada celda entre comillas, el texto que empieza por = + - @, tabulador o salto de línea lleva delante un apóstrofo). Q30 en conjunto = Σ(Q30%ᵢ × basesᵢ) ÷ Σ basesᵢ sobre los FASTQ; GC en conjunto = Σ(GC%ᵢ × (basesᵢ − ambiguasᵢ)) ÷ Σ(basesᵢ − ambiguasᵢ). Ambos coinciden con el valor que ARVA calcularía sobre los archivos concatenados.",
+    },
+  },
+  {
+    id: "flye",
+    references: [REF.flye, REF.flyeUsage, REF.metaflye, REF.phred, REF.quast],
+    en: {
+      title: "Long-read assembly with Flye",
+      what: "Flye assembles long reads (Oxford Nanopore or PacBio) de novo: it joins overlapping reads into a repeat graph and resolves the graph into contigs, reporting for each contig its length, its mean read depth (coverage), whether the graph closes it into a circle, whether it is a repeat, and its path through the graph. A bacterial genome often assembles into one circular chromosome plus circular plasmids.",
+      why: "An assembly is the starting point for annotation and most genome analyses. Long reads span most bacterial repeats, so a single run can produce complete, circular replicons where short-read assemblies stay fragmented.",
+      how: "ARVA runs Flye on the selected FASTQ files (originals or filtered copies, recorded by id and checksum) in the job's own folder, as an argument list without a shell, and passes every result-changing option explicitly (read type, threads, polishing iterations, and any option you set). Before running, it checks each option against the installed Flye's --help. While Flye runs, ARVA follows the stages Flye announces in its log (configure, assembly, consensus, repeat, contigger, polishing, finalize) and shows the stage, the elapsed time and the live log. Afterwards it keeps assembly.fasta, assembly_graph.gfa, assembly_info.txt and flye.log, removes Flye's intermediate folders, checks that assembly_info.txt describes exactly the contigs of assembly.fasta, and computes the assembly statistics with its own code. The read type is your choice: ARVA may suggest one from the mean error that the base qualities imply (Flye's --nano-hq is for reads below 5 % error) or from the read headers, labelled as a heuristic.",
+      interpret: "For an isolate, a few contigs whose total length is close to the expected genome size, with the largest one circular, usually mean a complete chromosome; small circular contigs at higher coverage are candidate plasmids (Flye's multiplicity estimates their copy number from coverage). Many contigs, a chromosome-sized contig that is not circular, or contigs with very different coverage or GC are worth checking: ARVA lists such results as heuristic warnings, with their thresholds, not as verdicts. Coverage, circularity, repeat and multiplicity are Flye's; length, N50 and GC are ARVA's.",
+      next: "Compare the total length with the expected genome size, look at circular contigs and coverage, and download the contigs (FASTA) or the graph (GFA). Evaluate the assembly with QUAST; polishing comes next in ARVA's workflow.",
+      mistakes: [
+        "Choosing --nano-hq for old (pre-Guppy 5) Nanopore basecalls, or --nano-raw for recent SUP basecalls: the read type sets Flye's error model.",
+        "Selecting both a file and its filtered copy: the same reads are then assembled twice, which doubles the apparent coverage.",
+        "Expecting identical results from two runs with several threads: Flye's output can differ between runs and thread counts.",
+        "Taking a genome size estimated from an assumed depth as a measured value.",
+      ],
+      limitations: "Flye needs long reads: it ignores reads shorter than its minimum overlap (at least 1,000 bp). A genome size is optional; when given it changes the first stage. With more than one thread, runs can differ: on ARVA's synthetic genome (150 kb chromosome, 15 kb plasmid at two copies), 4 threads gave the plasmid at 15 kb while 1 or 2 threads gave a 30 kb dimer. The Debian/Ubuntu flye package lacks the flye-samtools helper that Flye calls; ARVA then links it to samtools for the run and records it. Coverage is Flye's mean read depth, not ARVA's.",
+      advanced: "Command: flye --<read type> <reads…> --out-dir <job>/flye --threads <n> --iterations <n> [--genome-size <bp>] [--min-overlap <bp>] [--asm-coverage <x>] [--read-error <fraction>] [--meta] [--keep-haplotypes] [--no-alt-contigs] [--scaffold]. Reads are passed as links named NN_<name>.fastq[.gz], because Flye reads the format from the file name and refuses paths with spaces. Progress is stored on the analysis job (GET /api/v1/jobs/{id}) every 5 s and the live log is served by GET /api/v1/jobs/{id}/log?tail=N. When no minimum overlap is set, the value Flye chose from the reads' N90 is recorded. Flye's ranges: threads 1–128, iterations 0–10, minimum overlap 1,000–10,000; --asm-coverage needs --genome-size and cannot be combined with --meta; --read-error is accepted only with the corrected, nano-hq and hifi types.",
+    },
+    es: {
+      title: "Ensamblaje de lecturas largas con Flye",
+      what: "Flye ensambla de novo lecturas largas (Oxford Nanopore o PacBio): une las lecturas que se solapan en un grafo de repeticiones y lo resuelve en contigs, e informa para cada contig su longitud, su profundidad media de lectura (cobertura), si el grafo lo cierra en un círculo, si es una repetición y su camino en el grafo. Un genoma bacteriano suele ensamblarse en un cromosoma circular más plásmidos circulares.",
+      why: "Un ensamblaje es el punto de partida de la anotación y de la mayoría de los análisis genómicos. Las lecturas largas abarcan la mayoría de las repeticiones bacterianas, así que una sola ejecución puede dar replicones completos y circulares donde los ensamblajes de lecturas cortas quedan fragmentados.",
+      how: "ARVA ejecuta Flye sobre los archivos FASTQ seleccionados (originales o copias filtradas, registrados por identificador y suma de verificación) en la carpeta propia del trabajo, como una lista de argumentos sin shell, y pasa explícitamente cada opción que cambia el resultado (tipo de lectura, hilos, iteraciones de pulido y cualquier opción que indiques). Antes de ejecutarlo comprueba cada opción en el --help del Flye instalado. Mientras Flye se ejecuta, ARVA sigue las etapas que Flye anuncia en su registro (configure, assembly, consensus, repeat, contigger, polishing, finalize) y muestra la etapa, el tiempo transcurrido y el registro en vivo. Después conserva assembly.fasta, assembly_graph.gfa, assembly_info.txt y flye.log, elimina las carpetas intermedias de Flye, comprueba que assembly_info.txt describe exactamente los contigs de assembly.fasta y calcula las estadísticas del ensamblaje con su propio código. El tipo de lectura lo eliges tú: ARVA puede sugerir uno a partir del error medio que implican las calidades de base (el --nano-hq de Flye es para lecturas con menos de un 5 % de error) o de las cabeceras de lectura, marcado como heurística.",
+      interpret: "En un aislado, pocos contigs cuya longitud total se acerca al tamaño de genoma esperado, con el mayor circular, suelen indicar un cromosoma completo; los contigs circulares pequeños con más cobertura son posibles plásmidos (la multiplicidad de Flye estima su número de copias a partir de la cobertura). Muchos contigs, un contig de tamaño cromosómico que no es circular o contigs con cobertura o GC muy distintos merecen revisión: ARVA los indica como avisos heurísticos, con sus umbrales, no como veredictos. La cobertura, la circularidad, la repetición y la multiplicidad son de Flye; la longitud, el N50 y el GC son de ARVA.",
+      next: "Compara la longitud total con el tamaño de genoma esperado, revisa los contigs circulares y la cobertura, y descarga los contigs (FASTA) o el grafo (GFA). Evalúa el ensamblaje con QUAST; el pulido es el siguiente paso del flujo de ARVA.",
+      mistakes: [
+        "Elegir --nano-hq para basecalling Nanopore antiguo (anterior a Guppy 5), o --nano-raw para basecalling SUP reciente: el tipo de lectura fija el modelo de error de Flye.",
+        "Seleccionar un archivo y su copia filtrada: las mismas lecturas se ensamblan dos veces y la cobertura aparente se duplica.",
+        "Esperar resultados idénticos de dos ejecuciones con varios hilos: la salida de Flye puede cambiar entre ejecuciones y según el número de hilos.",
+        "Tomar como un valor medido un tamaño de genoma estimado a partir de una profundidad supuesta.",
+      ],
+      limitations: "Flye necesita lecturas largas: ignora las lecturas más cortas que su solapamiento mínimo (al menos 1000 pb). El tamaño del genoma es opcional; si se indica, cambia la primera etapa. Con más de un hilo las ejecuciones pueden diferir: en el genoma sintético de ARVA (cromosoma de 150 kb, plásmido de 15 kb con dos copias), 4 hilos dieron el plásmido de 15 kb y 1 o 2 hilos un dímero de 30 kb. El paquete flye de Debian/Ubuntu no incluye el ayudante flye-samtools que Flye llama; ARVA lo enlaza entonces a samtools para la ejecución y lo registra. La cobertura es la profundidad media de lectura de Flye, no de ARVA.",
+      advanced: "Comando: flye --<tipo de lectura> <lecturas…> --out-dir <trabajo>/flye --threads <n> --iterations <n> [--genome-size <pb>] [--min-overlap <pb>] [--asm-coverage <x>] [--read-error <fracción>] [--meta] [--keep-haplotypes] [--no-alt-contigs] [--scaffold]. Las lecturas se pasan como enlaces llamados NN_<nombre>.fastq[.gz], porque Flye deduce el formato del nombre del archivo y rechaza rutas con espacios. El progreso se guarda en el trabajo de análisis (GET /api/v1/jobs/{id}) cada 5 s y el registro en vivo se sirve en GET /api/v1/jobs/{id}/log?tail=N. Si no se fija el solapamiento mínimo, se registra el valor que Flye eligió a partir del N90 de las lecturas. Rangos de Flye: hilos 1–128, iteraciones 0–10, solapamiento mínimo 1000–10 000; --asm-coverage requiere --genome-size y no puede combinarse con --meta; --read-error solo se acepta con los tipos corregidos, nano-hq y hifi.",
+    },
+  },
+  {
+    id: "quast",
+    references: [REF.quastLg, REF.quast, REF.icarus, REF.quastManual, REF.auN],
+    en: {
+      title: "Assembly evaluation with QUAST",
+      what: "QUAST measures genome assemblies. Without a reference it reports contiguity: how many contigs, how long, N50/N90, L50/L90, auN and GC. With a reference genome it aligns the contigs to it (minimap2) and adds how much of the reference is covered (genome fraction), duplication, misassemblies (contigs whose parts align to distant or differently oriented places), unaligned contigs, and mismatches and indels per 100 kbp. Several assemblies of one sample can be compared side by side.",
+      why: "Two assemblies of the same reads can differ in contiguity and correctness; contig statistics alone cannot show errors, and a reference shows where an assembly disagrees with a known genome. QUAST is a widely used, citable way to report both.",
+      how: "ARVA links each chosen assembly's contigs (checked against the checksum recorded with the assembly) and the optional reference (a FASTA file of the sample) into the job's folder and runs QUAST offline, as an argument list without a shell, passing every option that changes results explicitly at QUAST's defaults. Each assembly is labelled with its assembler, version and the start of its id. ARVA reads QUAST's report.tsv and transposed_report.tsv by field name and checks that they agree and that every assembly is present (QUAST silently skips an assembly with no contig of the minimum length). It then computes its own statistics of the same contigs at the same minimum length and shows both, with each program's definition. QUAST's HTML report and Icarus contig browser are kept and served in a sandbox.",
+      interpret: "Compare assemblies on the same rows. Without a reference, fewer and longer contigs (higher N50, lower L50) mean a more contiguous assembly, not necessarily a more correct one. With a reference of the same strain, a genome fraction near 100 % with few misassemblies, mismatches and indels indicates an assembly that matches it; with a reference of another strain, real biological differences count as misassemblies, unaligned sequence or mismatches, so these values describe the difference from that reference, not errors alone. QUAST's values describe only the contigs of at least the minimum length (500 bp by default), except the '(>= 0 bp)' rows.",
+      next: "Look at the misassembled and unaligned contigs in Icarus or in QUAST's contigs_reports, compare assemblers or settings, and keep the minimum contig length the same when comparing runs.",
+      mistakes: [
+        "Reading misassemblies against a reference of a different strain as assembly errors.",
+        "Comparing N50 between runs evaluated with different minimum contig lengths.",
+        "Expecting QUAST's '# contigs' to equal the assembler's contig count: contigs shorter than the minimum length are left out.",
+        "Taking a genome fraction just under 100 % for a circular replicon as missing sequence: QUAST may drop the short end piece of a contig that starts just past the reference's origin.",
+      ],
+      limitations: "QUAST 5.2.0 only (installed from PyPI in its own Python environment); its gene prediction, BUSCO, read-based and reference-download features are not used. Reference mode needs minimap2 2.19 or later; ARVA does not let QUAST compile its bundled copy during a run. When a contig's best alignment covers more than 99 % of it, QUAST keeps that alignment and skips others, which can lower the genome fraction of rotated circular contigs slightly (99.683 % for a perfect 300 kb chromosome rotated by 1 kb). QUAST works on its own corrected copy of each file (upper case, IUPAC codes turned into N) and refuses files with characters other than A, C, G, T, N and the IUPAC codes. On Python 3.13.15 and later 3.13 releases QUAST 5.2.0 leaves quast.log empty; ARVA keeps its console output instead.",
+      advanced: "Command: quast.py <assemblies…> --output-dir <job>/quast --threads <n> --min-contig <bp> --labels <labels> --contig-thresholds 0,1000,5000,10000,25000,50000 --x-for-Nx 90 --no-plots [-r <reference> --min-alignment 65 --min-identity 95.0 --ambiguity-usage one --extensive-mis-size 1000 --local-mis-size 200 --scaffold-gap-max-size 10000 --unaligned-part-size 500]. --ambiguity-score is never passed because QUAST switches --ambiguity-usage to all whenever it is given. Inputs are linked as assembly_NN.fasta[.gz] and reference.fasta[.gz] because QUAST reads compression from the extension. Progress follows QUAST's 'Running …' lines. The minimap2 executable and version QUAST ran are read from contigs_reports/contigs_report_*.stderr and recorded.",
+    },
+    es: {
+      title: "Evaluación de ensamblajes con QUAST",
+      what: "QUAST mide ensamblajes genómicos. Sin referencia informa de la contigüidad: cuántos contigs, de qué longitud, N50/N90, L50/L90, auN y GC. Con un genoma de referencia alinea los contigs contra él (minimap2) y añade qué parte de la referencia está cubierta (fracción del genoma), la duplicación, los errores de ensamblaje (contigs cuyas partes se alinean en lugares alejados o con orientación distinta), los contigs sin alinear y las diferencias e indels por 100 kpb. Se pueden comparar varios ensamblajes de una muestra lado a lado.",
+      why: "Dos ensamblajes de las mismas lecturas pueden diferir en contigüidad y en exactitud; las estadísticas de contigs por sí solas no muestran errores, y una referencia muestra dónde un ensamblaje discrepa de un genoma conocido. QUAST es una forma muy usada y citable de informar de ambas cosas.",
+      how: "ARVA enlaza en la carpeta del trabajo los contigs de cada ensamblaje elegido (comprobados con la suma de verificación registrada con el ensamblaje) y la referencia opcional (un archivo FASTA de la muestra), y ejecuta QUAST sin conexión, como una lista de argumentos sin shell, pasando explícitamente con los valores por defecto de QUAST cada opción que cambia el resultado. Cada ensamblaje se etiqueta con su ensamblador, versión y el comienzo de su identificador. ARVA lee report.tsv y transposed_report.tsv de QUAST por nombre de campo y comprueba que coinciden y que están todos los ensamblajes (QUAST omite en silencio un ensamblaje sin ningún contig de la longitud mínima). Después calcula sus propias estadísticas de los mismos contigs con la misma longitud mínima y muestra ambas, con la definición de cada programa. El informe HTML de QUAST y el navegador de contigs Icarus se conservan y se sirven en un entorno aislado.",
+      interpret: "Compara los ensamblajes en las mismas filas. Sin referencia, menos contigs y más largos (N50 mayor, L50 menor) indican un ensamblaje más contiguo, no necesariamente más correcto. Con una referencia de la misma cepa, una fracción del genoma cercana al 100 % con pocos errores de ensamblaje, diferencias e indels indica un ensamblaje que se ajusta a ella; con una referencia de otra cepa, las diferencias biológicas reales cuentan como errores de ensamblaje, secuencia sin alinear o diferencias, así que estos valores describen la diferencia con esa referencia, no solo errores. Los valores de QUAST describen solo los contigs de al menos la longitud mínima (500 pb por defecto), salvo las filas '(>= 0 bp)'.",
+      next: "Revisa los contigs con errores de ensamblaje o sin alinear en Icarus o en contigs_reports de QUAST, compara ensambladores o parámetros, y mantén la misma longitud mínima de contig al comparar ejecuciones.",
+      mistakes: [
+        "Interpretar como errores de ensamblaje los errores frente a una referencia de otra cepa.",
+        "Comparar el N50 de ejecuciones evaluadas con longitudes mínimas de contig distintas.",
+        "Esperar que el '# contigs' de QUAST coincida con el número de contigs del ensamblador: los contigs más cortos que la longitud mínima quedan fuera.",
+        "Tomar una fracción del genoma algo inferior al 100 % en un replicón circular como secuencia que falta: QUAST puede descartar el trozo final de un contig que empieza justo después del origen de la referencia.",
+      ],
+      limitations: "Solo QUAST 5.2.0 (instalado desde PyPI en su propio entorno de Python); no se usan su predicción de genes, BUSCO, las funciones con lecturas ni la descarga de referencias. El modo con referencia necesita minimap2 2.19 o posterior; ARVA no deja que QUAST compile su copia incluida durante una ejecución. Cuando el mejor alineamiento de un contig cubre más del 99 % de él, QUAST conserva ese alineamiento y descarta otros, lo que puede rebajar un poco la fracción del genoma de contigs circulares rotados (99,683 % para un cromosoma perfecto de 300 kb rotado 1 kb). QUAST trabaja sobre su propia copia corregida de cada archivo (en mayúsculas, con los códigos IUPAC convertidos en N) y rechaza archivos con caracteres distintos de A, C, G, T, N y los códigos IUPAC. Con Python 3.13.15 y versiones 3.13 posteriores QUAST 5.2.0 deja vacío quast.log; ARVA conserva en su lugar la salida de consola.",
+      advanced: "Comando: quast.py <ensamblajes…> --output-dir <trabajo>/quast --threads <n> --min-contig <pb> --labels <etiquetas> --contig-thresholds 0,1000,5000,10000,25000,50000 --x-for-Nx 90 --no-plots [-r <referencia> --min-alignment 65 --min-identity 95.0 --ambiguity-usage one --extensive-mis-size 1000 --local-mis-size 200 --scaffold-gap-max-size 10000 --unaligned-part-size 500]. Nunca se pasa --ambiguity-score, porque QUAST cambia --ambiguity-usage a all en cuanto se indica. Las entradas se enlazan como assembly_NN.fasta[.gz] y reference.fasta[.gz] porque QUAST deduce la compresión de la extensión. El progreso sigue las líneas 'Running …' de QUAST. El ejecutable y la versión de minimap2 que usó QUAST se leen de contigs_reports/contigs_report_*.stderr y se registran.",
+    },
+  },
+  {
+    id: "assembly",
+    references: [REF.korenPhillippy, REF.flye, REF.spades, REF.unicycler, REF.wickBenchmark],
+    en: {
+      title: "Genome assembly: long, short and hybrid reads",
+      what: "Genome assembly reconstructs a genome's sequence from reads by joining reads that overlap into longer sequences called contigs. Long reads (Oxford Nanopore, PacBio; typically thousands to tens of thousands of bases) are assembled with assemblers such as Flye; short reads (Illumina, e.g. 2 × 150 bp) with de Bruijn graph assemblers such as SPAdes; hybrid assemblers such as Unicycler combine both, using long reads to resolve repeats and short reads for base accuracy.",
+      why: "Repeats longer than the reads (in bacteria, for example rRNA operons and insertion sequences) cannot be placed from the reads alone and break an assembly into pieces. Long reads span most bacterial repeats, so a long-read assembly can give one contig per replicon (chromosome and plasmids); short-read assemblies usually break at repeats but have few base errors.",
+      how: "ARVA runs the assembler on the read files you select — originals or filtered copies, recorded by id and checksum — and keeps the assembler's contigs, graph and logs in the job's folder. It then computes the contig statistics (count, total length, N50/L50, N90/L90, GC) with its own code and lists heuristic warnings with their thresholds. Flye (long reads) is available now; SPAdes (short reads) and Unicycler (hybrid) are planned for the next step.",
+      interpret: "For a bacterial isolate, compare the total length with the expected genome size and look at the largest contigs: a complete long-read assembly often has one circular, chromosome-sized contig plus small circular plasmids. Many short contigs mean fragmentation; an assembly much longer than expected can mean contamination or duplicated sequence. Contiguity is not correctness: evaluate with QUAST, ideally against a reference of the same strain.",
+      next: "Check the heuristic warnings and the charts, look at the assembly graph for unresolved repeats, evaluate with QUAST, and keep the contigs FASTA for polishing and annotation (next phases of ARVA).",
+      mistakes: [
+        "Assembling short Illumina reads with a long-read assembler, or the reverse.",
+        "Judging an assembly by N50 alone: a wrongly joined assembly can have a higher N50 than a correct one.",
+        "Assembling a file together with its filtered copy, which doubles the apparent coverage.",
+        "Treating a long-read assembly as finished without polishing: small errors, mostly short insertions and deletions, can remain.",
+      ],
+      limitations: "ARVA runs one assembler so far (Flye, for long reads). The statistics describe the contigs, not whether they are correct; correctness needs a reference (QUAST) or independent data. Repeats longer than the longest reads stay unresolved whatever the assembler.",
+      advanced: "Each assembly record keeps the exact input file ids (lineage), the assembler's version and parameters, the checksums of the contigs, graph and info files, the statistics and every heuristic check, including those that could not run. API: GET /api/v1/samples/{id}/assemblies, GET /api/v1/assemblies/{id} (per-contig rows), /contigs.fasta and /graph, and GET /api/v1/projects/{id}/assemblies.",
+    },
+    es: {
+      title: "Ensamblaje de genomas: lecturas largas, cortas e híbridas",
+      what: "El ensamblaje reconstruye la secuencia de un genoma a partir de las lecturas, uniendo las que se solapan en secuencias más largas llamadas contigs. Las lecturas largas (Oxford Nanopore, PacBio; normalmente de miles a decenas de miles de bases) se ensamblan con programas como Flye; las cortas (Illumina, p. ej. 2 × 150 pb), con ensambladores de grafos de De Bruijn como SPAdes; los ensambladores híbridos como Unicycler combinan ambas: las largas resuelven las repeticiones y las cortas aportan exactitud de base.",
+      why: "Las repeticiones más largas que las lecturas (en bacterias, por ejemplo los operones de ARNr y las secuencias de inserción) no se pueden situar solo con las lecturas y parten el ensamblaje en trozos. Las lecturas largas abarcan la mayoría de las repeticiones bacterianas, así que un ensamblaje de lecturas largas puede dar un contig por replicón (cromosoma y plásmidos); los de lecturas cortas suelen romperse en las repeticiones pero tienen pocos errores de base.",
+      how: "ARVA ejecuta el ensamblador sobre los archivos de lecturas que eliges — originales o copias filtradas, registrados por identificador y suma de verificación — y conserva los contigs, el grafo y los registros del ensamblador en la carpeta del trabajo. Después calcula con su propio código las estadísticas de los contigs (número, longitud total, N50/L50, N90/L90, GC) y lista avisos heurísticos con sus umbrales. Flye (lecturas largas) está disponible ya; SPAdes (lecturas cortas) y Unicycler (híbrido) están previstos para el siguiente paso.",
+      interpret: "En un aislado bacteriano, compara la longitud total con el tamaño de genoma esperado y mira los contigs más grandes: un ensamblaje completo de lecturas largas suele tener un contig circular del tamaño del cromosoma más plásmidos circulares pequeños. Muchos contigs cortos indican fragmentación; un ensamblaje mucho más largo de lo esperado puede indicar contaminación o secuencia duplicada. La contigüidad no es exactitud: evalúa con QUAST, idealmente frente a una referencia de la misma cepa.",
+      next: "Revisa los avisos heurísticos y los gráficos, mira en el grafo de ensamblaje las repeticiones sin resolver, evalúa con QUAST y conserva el FASTA de contigs para el pulido y la anotación (siguientes fases de ARVA).",
+      mistakes: [
+        "Ensamblar lecturas cortas de Illumina con un ensamblador de lecturas largas, o al revés.",
+        "Juzgar un ensamblaje solo por el N50: un ensamblaje con uniones erróneas puede tener un N50 mayor que uno correcto.",
+        "Ensamblar un archivo junto con su copia filtrada, lo que duplica la cobertura aparente.",
+        "Dar por terminado un ensamblaje de lecturas largas sin pulirlo: pueden quedar errores pequeños, sobre todo inserciones y deleciones cortas.",
+      ],
+      limitations: "Por ahora ARVA ejecuta un solo ensamblador (Flye, para lecturas largas). Las estadísticas describen los contigs, no si son correctos; la exactitud necesita una referencia (QUAST) o datos independientes. Las repeticiones más largas que las lecturas más largas quedan sin resolver sea cual sea el ensamblador.",
+      advanced: "Cada registro de ensamblaje guarda los identificadores exactos de los archivos de entrada (linaje), la versión y los parámetros del ensamblador, las sumas de verificación de los archivos de contigs, grafo e información, las estadísticas y cada comprobación heurística, incluidas las que no se pudieron hacer. API: GET /api/v1/samples/{id}/assemblies, GET /api/v1/assemblies/{id} (filas por contig), /contigs.fasta y /graph, y GET /api/v1/projects/{id}/assemblies.",
+    },
+  },
+  {
+    id: "assembly_n50",
+    references: [REF.quast, REF.quastLg, REF.auN],
+    en: {
+      title: "Assembly N50, L50, N90 and L90 (not the read N50)",
+      what: "Sort the contigs from longest to shortest and add up their lengths. N50 is the length of the contig at which the running total first reaches half of the assembly's total length, and L50 is how many contigs that took. N90 and L90 are the same at 90 %. The read N50 in the read statistics applies the same rule to reads, so it describes the reads, not the assembly.",
+      why: "N50 and L50 summarise contiguity in two numbers: how long the contigs that hold most of the assembly are, and how many of them it takes. For a complete bacterial chromosome that is the longest contig, N50 is the chromosome's length and L50 is 1.",
+      how: "ARVA computes Nx and Lx from the contigs FASTA with integer arithmetic: Lx is the first rank at which 100 × the cumulative length is at least x × the total length, and Nx is that contig's length. Contigs of equal length keep the file order, which does not change the values. QUAST uses the same definitions but counts only contigs of at least its minimum length (500 bp by default), so its N50 can differ from ARVA's when shorter contigs exist; the QUAST card compares both on the same contigs.",
+      interpret: "A higher N50 and a lower L50 mean fewer, longer contigs. N50 depends on the total length — many short extra contigs (or contamination) change it — and it says nothing about whether contigs are joined correctly. NG50 (QUAST) uses the genome size instead of the assembly length, so assemblies of different total length can be compared.",
+      next: "Look at the Nx curve and the cumulative length chart to see the whole distribution rather than one point, and compare assemblies at the same minimum contig length.",
+      mistakes: [
+        "Comparing the read N50 with the assembly N50: they describe different things.",
+        "Comparing N50 values computed with different minimum contig lengths.",
+        "Reading a high N50 as proof of a correct assembly.",
+      ],
+      limitations: "N50 is one point of the length distribution and ignores the order and correctness of the sequence. QUAST's auN summarises the whole Nx curve in one number (Li, 2020).",
+      advanced: "Example: contigs of 100,000, 4,000 and 2,000 bp (total 106,000 bp). The first contig alone holds 94.3 % of the total, so N50 = N90 = 100,000 bp and L50 = L90 = 1. The Nx chart draws each contig as a step at its length, from the share of the total before it to the share including it.",
+    },
+    es: {
+      title: "N50, L50, N90 y L90 del ensamblaje (no el N50 de lecturas)",
+      what: "Ordena los contigs de más largo a más corto y suma sus longitudes. El N50 es la longitud del contig con el que el total acumulado alcanza por primera vez la mitad de la longitud total del ensamblaje, y el L50 es cuántos contigs hicieron falta. N90 y L90 son lo mismo al 90 %. El N50 de lecturas de las estadísticas de lectura aplica la misma regla a las lecturas, así que describe las lecturas, no el ensamblaje.",
+      why: "N50 y L50 resumen la contigüidad en dos números: lo largos que son los contigs que contienen la mayor parte del ensamblaje y cuántos hacen falta. Para un cromosoma bacteriano completo que es el contig más largo, el N50 es la longitud del cromosoma y el L50 es 1.",
+      how: "ARVA calcula Nx y Lx a partir del FASTA de contigs con aritmética entera: Lx es la primera posición en la que 100 × la longitud acumulada es al menos x × la longitud total, y Nx es la longitud de ese contig. Los contigs de igual longitud mantienen el orden del archivo, lo que no cambia los valores. QUAST usa las mismas definiciones pero solo cuenta los contigs de al menos su longitud mínima (500 pb por defecto), así que su N50 puede diferir del de ARVA cuando hay contigs más cortos; la tarjeta de QUAST compara ambos sobre los mismos contigs.",
+      interpret: "Un N50 mayor y un L50 menor indican menos contigs y más largos. El N50 depende de la longitud total — muchos contigs cortos de más (o contaminación) lo cambian — y no dice nada de si los contigs están bien unidos. El NG50 (QUAST) usa el tamaño del genoma en lugar de la longitud del ensamblaje, de modo que se pueden comparar ensamblajes de distinta longitud total.",
+      next: "Mira la curva Nx y el gráfico de longitud acumulada para ver toda la distribución y no un solo punto, y compara ensamblajes con la misma longitud mínima de contig.",
+      mistakes: [
+        "Comparar el N50 de lecturas con el N50 del ensamblaje: describen cosas distintas.",
+        "Comparar valores de N50 calculados con longitudes mínimas de contig distintas.",
+        "Tomar un N50 alto como prueba de que el ensamblaje es correcto.",
+      ],
+      limitations: "El N50 es un punto de la distribución de longitudes e ignora el orden y la exactitud de la secuencia. El auN de QUAST resume toda la curva Nx en un número (Li, 2020).",
+      advanced: "Ejemplo: contigs de 100 000, 4000 y 2000 pb (total 106 000 pb). El primer contig contiene por sí solo el 94,3 % del total, así que N50 = N90 = 100 000 pb y L50 = L90 = 1. El gráfico Nx dibuja cada contig como un escalón a su longitud, desde la parte del total anterior a él hasta la que lo incluye.",
+    },
+  },
+  {
+    id: "circularity",
+    references: [REF.flyeUsage, REF.korenPhillippy, REF.wickBenchmark],
+    en: {
+      title: "Circular contigs",
+      what: "Bacterial chromosomes and most plasmids are circular molecules. An assembler can report a contig as circular when its assembly graph closes the contig on itself, so that its end continues into its start. ARVA shows the assembler's flag; it does not test circularity itself.",
+      why: "A circular contig of chromosome size usually means the chromosome was assembled end to end; small circular contigs are candidate plasmids. A chromosome-sized contig that is not circular may be incomplete or broken at a repeat.",
+      how: "For Flye, ARVA reads the 'circ.' column (Y or N) of assembly_info.txt for each contig and stores it with the contig; the summary counts circular contigs among those with a flag. In the assembly graph, a circular contig appears as a segment linked to itself. The 'chromosome not circular' warning — a heuristic — flags contigs of at least 50 % of the expected genome size (or of the assembly's total length when no size is known) that the assembler did not report as circular.",
+      interpret: "One circular chromosome plus circular plasmids is the typical complete bacterial assembly. Circularity means the graph closes; it does not prove that the sequence is correct, and the start position of a circular contig is arbitrary.",
+      next: "Look at the coverage of the circular contigs (plasmids often differ from the chromosome) and evaluate the assembly with QUAST.",
+      mistakes: [
+        "Expecting circular contigs from short-read assemblies, which rarely close replicons.",
+        "Treating the circular flag as proof that the sequence is correct.",
+        "Comparing positions between assemblies of the same circular replicon without accounting for different start points.",
+      ],
+      limitations: "The flag is the assembler's own call; ARVA does not check the contig ends. Some bacteria have linear chromosomes or plasmids (for example Borrelia and Streptomyces), so 'not circular' is not always a problem.",
+      advanced: "Flye reports a contig as circular when its path in the repeat graph forms a cycle. A plasmid present in two copies can be assembled as a dimer with some settings (on ARVA's synthetic genome, 1 or 2 threads gave a 30 kb dimer of the 15 kb plasmid), and the dimer is still reported as circular.",
+    },
+    es: {
+      title: "Contigs circulares",
+      what: "Los cromosomas bacterianos y la mayoría de los plásmidos son moléculas circulares. Un ensamblador puede marcar un contig como circular cuando su grafo de ensamblaje lo cierra sobre sí mismo, de modo que su final continúa en su principio. ARVA muestra la marca del ensamblador; no comprueba la circularidad por sí mismo.",
+      why: "Un contig circular del tamaño de un cromosoma suele indicar que el cromosoma se ensambló de extremo a extremo; los contigs circulares pequeños son posibles plásmidos. Un contig del tamaño de un cromosoma que no es circular puede estar incompleto o roto en una repetición.",
+      how: "En Flye, ARVA lee la columna 'circ.' (Y o N) de assembly_info.txt para cada contig y la guarda con el contig; el resumen cuenta los contigs circulares entre los que tienen marca. En el grafo de ensamblaje, un contig circular aparece como un segmento enlazado consigo mismo. El aviso 'cromosoma no circular' — una heurística — señala contigs de al menos el 50 % del tamaño de genoma esperado (o de la longitud total del ensamblaje si no se conoce el tamaño) que el ensamblador no marcó como circulares.",
+      interpret: "Un cromosoma circular más plásmidos circulares es el ensamblaje bacteriano completo típico. La circularidad significa que el grafo se cierra; no demuestra que la secuencia sea correcta, y la posición de inicio de un contig circular es arbitraria.",
+      next: "Mira la cobertura de los contigs circulares (los plásmidos suelen diferir del cromosoma) y evalúa el ensamblaje con QUAST.",
+      mistakes: [
+        "Esperar contigs circulares de ensamblajes de lecturas cortas, que rara vez cierran replicones.",
+        "Tomar la marca de circular como prueba de que la secuencia es correcta.",
+        "Comparar posiciones entre ensamblajes del mismo replicón circular sin tener en cuenta que pueden empezar en puntos distintos.",
+      ],
+      limitations: "La marca es decisión del propio ensamblador; ARVA no comprueba los extremos del contig. Algunas bacterias tienen cromosomas o plásmidos lineales (por ejemplo Borrelia y Streptomyces), así que 'no circular' no siempre es un problema.",
+      advanced: "Flye marca un contig como circular cuando su camino en el grafo de repeticiones forma un ciclo. Un plásmido con dos copias puede ensamblarse como un dímero con algunos ajustes (en el genoma sintético de ARVA, 1 o 2 hilos dieron un dímero de 30 kb del plásmido de 15 kb), y el dímero sigue marcado como circular.",
+    },
+  },
+  {
+    id: "assembly_coverage",
+    references: [REF.flyeUsage, REF.lander, REF.flye],
+    en: {
+      title: "Contig coverage",
+      what: "A contig's coverage (depth) is the average number of reads covering each of its bases. Flye reports for each contig the mean depth of the reads aligned to it; ARVA shows that value as Flye computed it.",
+      why: "Within one genome, single-copy sequence is covered roughly evenly. Contigs with much higher coverage are present in several copies — plasmids, or repeats collapsed into one contig — and contigs with much lower coverage can be contamination or sequence present in only part of the cells.",
+      how: "ARVA stores the assembler's coverage for each contig and computes a length-weighted median: with the contigs ordered by coverage, the coverage of the contig that holds the middle base of the assembly. The heuristic warnings flag contigs below 0.25 × or above 4 × that median. Flye's 'mult.' column (multiplicity) is Flye's own estimate of copy number from coverage.",
+      interpret: "Compare each contig with the median rather than with a fixed number. A plasmid at about three times the chromosome's coverage suggests several copies per chromosome, but library preparation and read-length selection can bias coverage, so the ratio is an approximate copy number.",
+      next: "Look at the coverage-versus-length and GC-versus-coverage charts and at the warnings to spot plasmids or contamination.",
+      mistakes: [
+        "Comparing coverage values between assemblers, which compute them differently.",
+        "Reading a coverage ratio as an exact copy number.",
+        "Taking the coverage of a filtered read set as the sequencing depth of the sample.",
+      ],
+      limitations: "Coverage is the assembler's estimate (Flye: mean depth of the reads it aligned); ARVA does not recompute it. The depth in the read statistics (total bases ÷ genome size) is a different, approximate value.",
+      advanced: "Length-weighted median: order the contigs by coverage and add their lengths; the median is the coverage of the contig at which the running total first reaches half of the total length. It is the coverage of the chromosome whenever the chromosome holds more than half of the assembly.",
+    },
+    es: {
+      title: "Cobertura de los contigs",
+      what: "La cobertura (profundidad) de un contig es el número medio de lecturas que cubren cada una de sus bases. Flye informa para cada contig la profundidad media de las lecturas alineadas a él; ARVA muestra ese valor tal como lo calculó Flye.",
+      why: "Dentro de un genoma, la secuencia de copia única se cubre de forma aproximadamente uniforme. Los contigs con mucha más cobertura están presentes en varias copias — plásmidos, o repeticiones colapsadas en un contig — y los que tienen mucha menos pueden ser contaminación o secuencia presente solo en parte de las células.",
+      how: "ARVA guarda la cobertura de cada contig que da el ensamblador y calcula una mediana ponderada por longitud: con los contigs ordenados por cobertura, la cobertura del contig que contiene la base central del ensamblaje. Los avisos heurísticos señalan los contigs por debajo de 0,25 × o por encima de 4 × esa mediana. La columna 'mult.' (multiplicidad) de Flye es la estimación propia de Flye del número de copias a partir de la cobertura.",
+      interpret: "Compara cada contig con la mediana y no con un número fijo. Un plásmido con unas tres veces la cobertura del cromosoma sugiere varias copias por cromosoma, pero la preparación de la biblioteca y la selección por longitud de lectura pueden sesgar la cobertura, así que la proporción es un número de copias aproximado.",
+      next: "Mira los gráficos de cobertura frente a longitud y de GC frente a cobertura, y los avisos, para detectar plásmidos o contaminación.",
+      mistakes: [
+        "Comparar valores de cobertura entre ensambladores, que los calculan de forma distinta.",
+        "Tomar una proporción de coberturas como un número de copias exacto.",
+        "Tomar la cobertura de un conjunto de lecturas filtrado como la profundidad de secuenciación de la muestra.",
+      ],
+      limitations: "La cobertura es la estimación del ensamblador (Flye: profundidad media de las lecturas que alineó); ARVA no la recalcula. La profundidad de las estadísticas de lectura (bases totales ÷ tamaño del genoma) es un valor distinto y aproximado.",
+      advanced: "Mediana ponderada por longitud: ordena los contigs por cobertura y suma sus longitudes; la mediana es la cobertura del contig con el que el total acumulado alcanza por primera vez la mitad de la longitud total. Es la cobertura del cromosoma siempre que el cromosoma contenga más de la mitad del ensamblaje.",
+    },
+  },
+  {
+    id: "assembly_graph",
+    references: [REF.gfaSpec, REF.bandage, REF.flyeUsage, REF.flyeNews],
+    en: {
+      title: "Assembly graph (GFA)",
+      what: "Assemblers build a graph in which segments are pieces of sequence and links join the end of one segment to the start of another. The final graph shows how contigs connect, where repeats remain unresolved and which pieces close into circles. ARVA reads it from the GFA 1 file the assembler writes: S lines (segments), L lines (links) and P lines (paths; Flye writes one per contig).",
+      why: "Statistics flatten an assembly into a list of contigs; the graph shows its structure. A clean bacterial assembly is a few separate loops, while tangles point to repeats that the reads could not span.",
+      how: "ARVA reads the segments, links and paths of assembly_graph.gfa (sequences are measured, not kept) and draws a force-directed network: node size follows segment length; colour follows the assembler's flags for the contigs whose path runs through the segment (in a circular contig, in a repeat contig, in another contig, or no contig information); lines are links. Large graphs are drawn with their 500 longest segments and the links among them, and the view says so. Coverage comes from the assembler's segment tag (Flye: dp, mean read depth). A link from a segment to itself (a circle) is listed in the tooltip and table rather than drawn.",
+      interpret: "A segment linked only to itself is a closed circle, such as a complete chromosome or plasmid. Segments joined to several others are repeats or unresolved alternatives. In Flye's graph each contig contains the graph edge with the same number and can extend into flanking repeats, so segments and contigs need not have the same length.",
+      next: "Download the GFA to explore it in detail in Bandage, and compare with the contig table (graph path column).",
+      mistakes: [
+        "Expecting segments to equal contigs: a contig can span several segments, and a segment can be shorter than its contig.",
+        "Reading distances in the force layout as genomic distances; the positions have no meaning.",
+        "Comparing tag values between assemblers: Flye's dp is a read depth, other assemblers' tags measure other things.",
+      ],
+      limitations: "GFA 1 only; GFA 2 files are refused. The view is bounded (500 segments, 2,000 links; the API returns up to 20,000 segments). GFA describes both strands of each segment; each segment is drawn once.",
+      advanced: "GET /api/v1/assemblies/{id}/graph?max_nodes=&max_edges= returns the segments (id, length, numeric tags, the paths through each — at most 20 — and the circular and repeat flags derived from them), the links (ends, orientations, overlap CIGAR and tags; Flye's RC is the number of reads supporting the link), the counts and a truncation flag. A P line lists a path's segments with their orientations; Flye writes them since version 2.9.",
+    },
+    es: {
+      title: "Grafo de ensamblaje (GFA)",
+      what: "Los ensambladores construyen un grafo en el que los segmentos son trozos de secuencia y los enlaces unen el final de un segmento con el principio de otro. El grafo final muestra cómo se conectan los contigs, dónde quedan repeticiones sin resolver y qué trozos se cierran en círculos. ARVA lo lee del archivo GFA 1 que escribe el ensamblador: líneas S (segmentos), L (enlaces) y P (caminos; Flye escribe uno por contig).",
+      why: "Las estadísticas reducen un ensamblaje a una lista de contigs; el grafo muestra su estructura. Un ensamblaje bacteriano limpio son unos pocos bucles separados, mientras que los enredos señalan repeticiones que las lecturas no pudieron abarcar.",
+      how: "ARVA lee los segmentos, enlaces y caminos de assembly_graph.gfa (las secuencias se miden, no se guardan) y dibuja una red con disposición por fuerzas: el tamaño del nodo sigue la longitud del segmento; el color sigue las marcas del ensamblador para los contigs cuyo camino pasa por el segmento (en un contig circular, en un contig de repetición, en otro contig o sin información de contig); las líneas son enlaces. Los grafos grandes se dibujan con sus 500 segmentos más largos y los enlaces entre ellos, y la vista lo indica. La cobertura sale de la etiqueta de segmento del ensamblador (Flye: dp, profundidad media de lectura). Un enlace de un segmento consigo mismo (un círculo) aparece en el detalle emergente y en la tabla en lugar de dibujarse.",
+      interpret: "Un segmento enlazado solo consigo mismo es un círculo cerrado, como un cromosoma o un plásmido completos. Los segmentos unidos a varios otros son repeticiones o alternativas sin resolver. En el grafo de Flye cada contig contiene la arista del grafo con el mismo número y puede extenderse por las repeticiones vecinas, así que segmentos y contigs no tienen por qué medir lo mismo.",
+      next: "Descarga el GFA para explorarlo en detalle en Bandage y compáralo con la tabla de contigs (columna de camino en el grafo).",
+      mistakes: [
+        "Esperar que los segmentos coincidan con los contigs: un contig puede abarcar varios segmentos y un segmento puede ser más corto que su contig.",
+        "Interpretar las distancias de la disposición por fuerzas como distancias genómicas; las posiciones no significan nada.",
+        "Comparar valores de etiquetas entre ensambladores: el dp de Flye es una profundidad de lectura; las etiquetas de otros ensambladores miden otras cosas.",
+      ],
+      limitations: "Solo GFA 1; los archivos GFA 2 se rechazan. La vista está acotada (500 segmentos, 2000 enlaces; la API devuelve hasta 20 000 segmentos). GFA describe las dos hebras de cada segmento; cada segmento se dibuja una vez.",
+      advanced: "GET /api/v1/assemblies/{id}/graph?max_nodes=&max_edges= devuelve los segmentos (identificador, longitud, etiquetas numéricas, los caminos que pasan por cada uno — como máximo 20 — y las marcas de circular y repetición derivadas de ellos), los enlaces (extremos, orientaciones, CIGAR del solapamiento y etiquetas; el RC de Flye es el número de lecturas que apoyan el enlace), los recuentos y una marca de truncado. Una línea P lista los segmentos de un camino con sus orientaciones; Flye las escribe desde la versión 2.9.",
+    },
+  },
+  {
+    id: "flye_read_types",
+    references: [REF.flyeUsage, REF.flye, REF.flyeNews, REF.wick, REF.phred],
+    en: {
+      title: "Flye read types",
+      what: "Flye has to be told what kind of long reads it receives, with one of six options (descriptions from flye --help): --nano-raw (Oxford Nanopore regular reads, pre-Guppy 5, < 20 % error), --nano-hq (Guppy 5+ SUP or Q20, < 5 % error), --nano-corr (reads corrected with other methods, < 3 % error), --pacbio-raw (PacBio regular CLR, < 20 % error), --pacbio-hifi (PacBio HiFi, < 1 % error) and --pacbio-corr (PacBio reads corrected with other methods, < 3 % error).",
+      why: "The read type sets Flye's error model and its overlap thresholds, so it changes the assembly. A type that assumes more accurate reads than the real ones can miss overlaps; one that assumes noisier reads can lose precision.",
+      how: "ARVA lists the six options with Flye's descriptions and checks that the installed Flye offers each one. It may suggest a type, labelled as a heuristic, from the platform (the sample's metadata, else the read headers) and the mean error that the base qualities imply: for Nanopore, --nano-hq at 5 % error or less and --nano-raw above (or --nano-hq from a SUP basecall model when no qualities are available); for PacBio, --pacbio-hifi at Q20 or better or from CCS read names, and --pacbio-raw from subread names. The choice is always yours and is recorded with the run.",
+      interpret: "Base qualities are the basecaller's own estimates and can be miscalibrated; the basecall model named in the read headers is further evidence. Flye's documentation recommends --nano-hq with --read-error 0.03 for Q20 data.",
+      next: "Choose the read type, give a genome size if you know it, and review the run summary before starting.",
+      mistakes: [
+        "Choosing --pacbio-hifi for PacBio CLR subreads.",
+        "Using a corrected mode for reads that no other tool has corrected.",
+        "Assuming every recent Nanopore dataset fits --nano-hq: Flye names SUP or Q20 basecalls; check the error rate the qualities imply.",
+      ],
+      limitations: "The suggestion is a heuristic from quality values and read names; it cannot know how the reads were basecalled or corrected beyond what the files say. All six types exist since Flye 2.9 (--nano-hq was added then); ARVA only uses options that the installed Flye lists in its --help.",
+      advanced: "The mean error is the base-weighted mean of the per-base error probabilities 10^(−Q/10) over the selected files (from ARVA's read statistics), not the mean Phred value. Flye 2.9.6 made its R10 Nanopore parameters (3 % error) the default for --nano-hq; ARVA's tested Flye version is 2.9.3.",
+    },
+    es: {
+      title: "Tipos de lectura de Flye",
+      what: "Hay que indicar a Flye qué tipo de lecturas largas recibe, con una de seis opciones (descripciones de flye --help): --nano-raw (lecturas Oxford Nanopore normales, anteriores a Guppy 5, < 20 % de error), --nano-hq (Guppy 5+ SUP o Q20, < 5 % de error), --nano-corr (lecturas corregidas con otros métodos, < 3 % de error), --pacbio-raw (PacBio CLR normales, < 20 % de error), --pacbio-hifi (PacBio HiFi, < 1 % de error) y --pacbio-corr (lecturas PacBio corregidas con otros métodos, < 3 % de error).",
+      why: "El tipo de lectura fija el modelo de error de Flye y sus umbrales de solapamiento, así que cambia el ensamblaje. Un tipo que supone lecturas más exactas que las reales puede perder solapamientos; uno que las supone más ruidosas puede perder precisión.",
+      how: "ARVA lista las seis opciones con las descripciones de Flye y comprueba que el Flye instalado ofrece cada una. Puede sugerir un tipo, marcado como heurística, a partir de la plataforma (los metadatos de la muestra o, si no, las cabeceras de lectura) y del error medio que implican las calidades de base: para Nanopore, --nano-hq con un 5 % de error o menos y --nano-raw por encima (o --nano-hq por un modelo de basecalling SUP cuando no hay calidades); para PacBio, --pacbio-hifi con Q20 o más o por nombres de lectura CCS, y --pacbio-raw por nombres de subread. La elección es siempre tuya y queda registrada con la ejecución.",
+      interpret: "Las calidades de base son estimaciones del propio basecaller y pueden estar mal calibradas; el modelo de basecalling que nombran las cabeceras es una prueba más. La documentación de Flye recomienda --nano-hq con --read-error 0.03 para datos Q20.",
+      next: "Elige el tipo de lectura, indica el tamaño del genoma si lo conoces y revisa el resumen de la ejecución antes de iniciarla.",
+      mistakes: [
+        "Elegir --pacbio-hifi para subreads CLR de PacBio.",
+        "Usar un modo corregido con lecturas que ninguna otra herramienta ha corregido.",
+        "Suponer que cualquier conjunto Nanopore reciente encaja en --nano-hq: Flye habla de basecalling SUP o Q20; comprueba el error que implican las calidades.",
+      ],
+      limitations: "La sugerencia es una heurística a partir de las calidades y los nombres de lectura; no puede saber cómo se hizo el basecalling o la corrección más allá de lo que dicen los archivos. Los seis tipos existen desde Flye 2.9 (entonces se añadió --nano-hq); ARVA solo usa opciones que el Flye instalado lista en su --help.",
+      advanced: "El error medio es la media, ponderada por bases, de las probabilidades de error por base 10^(−Q/10) de los archivos seleccionados (de las estadísticas de lectura de ARVA), no la media de los valores Phred. Flye 2.9.6 convirtió sus parámetros para Nanopore R10 (3 % de error) en los de --nano-hq por defecto; la versión de Flye probada en ARVA es la 2.9.3.",
     },
   },
 ];

@@ -45,6 +45,17 @@ python3 scripts/make_synthetic_genome.py examples/synthetic-genome
 
 Options set the sizes, depths, error rates and seed (`--help`); tests use a 60 kb chromosome.
 
+To try the assembly workflow with it: create a sample with technology *Oxford Nanopore*, import
+`ont.fastq.gz`, compute read statistics, then open **Assembly → New assembly…**, choose the read type
+(ARVA suggests `--nano-hq` from the qualities, as a heuristic), review the summary and start. With
+Flye 2.9.3 the default data assemble into the two replicons at their exact lengths, both reported
+circular, the plasmid at about twice the chromosome's coverage; the charts, contig table and graph view
+show this, and the graph shows each replicon as a segment linked to itself. Import `reference.fasta`
+into the same sample to evaluate the assembly with QUAST against the true genome (genome fraction just
+under 100 % for a rotated circular contig is explained in the QUAST card). Run a second assembly (for
+example with other settings or a Filtlong-filtered copy of the reads) to see the comparison table and
+overlaid cumulative curves.
+
 For real bacterial data, public runs from the ENA/SRA (for example Nanopore or
 Illumina runs of *Staphylococcus aureus* isolates) can be downloaded and
 imported directly.

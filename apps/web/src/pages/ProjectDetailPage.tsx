@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { BulkImportDialog } from "@/components/domain/BulkImportDialog";
 import { MetadataSection } from "@/components/domain/MetadataImport";
+import { ProjectAssemblies } from "@/components/domain/ProjectAssemblies";
 import { ProjectFormDialog } from "@/components/domain/ProjectFormDialog";
 import { ProjectQcOverview } from "@/components/domain/ProjectQcOverview";
 import { ProjectQcReport } from "@/components/domain/ProjectQcReport";
@@ -91,6 +92,7 @@ export function ProjectDetailPage() {
         )}
       </Card>
       {!!samples.data?.length && <ProjectQcOverview projectId={p.id} />}
+      {!!samples.data?.length && <ProjectAssemblies projectId={p.id} />}
       {!!samples.data?.length && <ProjectQcReport projectId={p.id} samples={samples.data} />}
       <MetadataSection projectId={p.id} />
 

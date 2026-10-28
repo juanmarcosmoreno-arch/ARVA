@@ -8,7 +8,8 @@ Definitions (docs/scientific-methods.md, "Assembly statistics"):
   x % of the total length; Lx is its rank, i.e. the smallest number of contigs whose lengths add up to
   at least x % of the total (the definitions QUAST uses).
 * GC % = (G + C) / (A + C + G + T) x 100, over unambiguous bases only. N and the other IUPAC codes
-  are counted separately and never enter the GC denominator (QUAST divides by every base except N).
+  are counted separately and never enter the GC denominator (QUAST first turns the IUPAC codes into N,
+  then divides by every base except N: the same value; it counts those codes as N, though).
 
 Coverage, circularity and repeat flags are not computed here: the assembler reports them per contig
 and they are passed in as ContigAnnotation values. The warnings are heuristics with fixed, stated
@@ -16,7 +17,7 @@ thresholds; they flag results worth checking, they are not quality verdicts.
 """
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Literal
@@ -111,6 +112,33 @@ def _curve(desc: np.ndarray, cumulative: np.ndarray) -> dict[str, Any]:
     }
 
 
+def _read_contigs(path: Path) -> Iterator[dict[str, Any]]:
+    """Name, length and base counts of every contig; raises for files that are not a usable contigs FASTA."""
+    info = sniff_format(path)
+    if info.decompression_error:
+        raise SequenceFormatError(f"compressed stream is corrupt or truncated ({info.decompression_error})")
+    if info.format is not SequenceFormat.fasta:
+        raise AssemblyFormatError("expected a contigs FASTA file (records starting with '>')")
+    seen: set[str] = set()
+    try:
+        with open_sequence_file(path) as fh:
+            for header, seq, _qual, line in iter_fasta(fh):
+                name = header[1:].split(maxsplit=1)[0].decode("utf-8", "replace") if header[1:].strip() else ""
+                if not name:
+                    raise AssemblyFormatError(f"line {line}: contig without a name")
+                if name in seen:
+                    raise AssemblyFormatError(f"line {line}: contig name '{name}' appears more than once")
+                seen.add(name)
+                upper = seq.upper()
+                gc = upper.count(b"G") + upper.count(b"C")
+                acgt = gc + upper.count(b"A") + upper.count(b"T")
+                n_count = upper.count(b"N")
+                yield {"name": name, "length": len(seq), "gc": gc, "acgt": acgt, "n": n_count,
+                       "other": len(seq) - acgt - n_count}
+    except _DECOMPRESSION_ERRORS as exc:
+        raise SequenceFormatError(f"compressed stream is corrupt or truncated ({exc})") from exc
+
+
 def weighted_median_coverage(contigs: list[dict[str, Any]]) -> float | None:
     """Coverage of the contig holding the middle base when contigs with a coverage are ordered by coverage."""
     rows = sorted((c for c in contigs if c["coverage"] is not None and c["length"] > 0), key=lambda c: c["coverage"])
@@ -138,44 +166,25 @@ def compute_assembly_stats(
     """
     params = params or AssemblyStatsParameters()
     annotations = annotations or {}
-    info = sniff_format(Path(path))
-    if info.decompression_error:
-        raise SequenceFormatError(f"compressed stream is corrupt or truncated ({info.decompression_error})")
-    if info.format is not SequenceFormat.fasta:
-        raise AssemblyFormatError("expected a contigs FASTA file (records starting with '>')")
-
     contigs: list[dict[str, Any]] = []
     seen: set[str] = set()
     totals = {"gc": 0, "acgt": 0, "n": 0, "other": 0}
-    try:
-        with open_sequence_file(Path(path)) as fh:
-            for header, seq, _qual, line in iter_fasta(fh):
-                name = header[1:].split(maxsplit=1)[0].decode("utf-8", "replace") if header[1:].strip() else ""
-                if not name:
-                    raise AssemblyFormatError(f"line {line}: contig without a name")
-                if name in seen:
-                    raise AssemblyFormatError(f"line {line}: contig name '{name}' appears more than once")
-                seen.add(name)
-                upper = seq.upper()
-                gc = upper.count(b"G") + upper.count(b"C")
-                acgt = gc + upper.count(b"A") + upper.count(b"T")
-                n_count = upper.count(b"N")
-                other = len(seq) - acgt - n_count
-                for key, value in (("gc", gc), ("acgt", acgt), ("n", n_count), ("other", other)):
-                    totals[key] += value
-                note = annotations.get(name, ContigAnnotation())
-                contigs.append({
-                    "name": name,
-                    "length": len(seq),
-                    "gc_percent": 100.0 * gc / acgt if acgt else None,
-                    "n_count": n_count,
-                    "other_iupac_count": other,
-                    "coverage": None if note.coverage is None else float(note.coverage),
-                    "circular": note.circular,
-                    "repeat": note.repeat,
-                })
-    except _DECOMPRESSION_ERRORS as exc:
-        raise SequenceFormatError(f"compressed stream is corrupt or truncated ({exc})") from exc
+    for c in _read_contigs(Path(path)):
+        name = c["name"]
+        seen.add(name)
+        for key in totals:
+            totals[key] += c[key]
+        note = annotations.get(name, ContigAnnotation())
+        contigs.append({
+            "name": name,
+            "length": c["length"],
+            "gc_percent": 100.0 * c["gc"] / c["acgt"] if c["acgt"] else None,
+            "n_count": c["n"],
+            "other_iupac_count": c["other"],
+            "coverage": None if note.coverage is None else float(note.coverage),
+            "circular": note.circular,
+            "repeat": note.repeat,
+        })
 
     if not contigs:
         raise AssemblyFormatError("the FASTA file contains no contigs")
@@ -200,7 +209,7 @@ def compute_assembly_stats(
         "schema_version": SCHEMA_VERSION,
         "tool": {"name": TOOL_NAME, "version": TOOL_VERSION},
         "parameters": params.as_dict(),
-        "file": {"compressed": info.compressed},
+        "file": {"compressed": sniff_format(Path(path)).compressed},
         "contig_count": len(contigs),
         "total_length": total,
         "largest_contig": int(desc[0]),
@@ -234,6 +243,47 @@ def compute_assembly_stats(
         },
         "contigs": contigs,
     }
+
+
+def min_length_summary(path: Path, min_length: int) -> dict[str, Any]:
+    """Statistics of the contigs of at least `min_length` bp, with the definitions of compute_assembly_stats.
+
+    For comparison with tools that leave shorter contigs out (QUAST's --min-contig). `all_contigs` and
+    `all_total_length` count every contig; the other values only those kept (None when no contig is kept).
+    `ambiguous_per_100kb` counts N and every other non-ACGT character, as QUAST does after turning the IUPAC
+    codes into N; `n_per_100kb` counts N only.
+    """
+    if min_length < 0:
+        raise ValueError("min_length must be ≥ 0")
+    rows = list(_read_contigs(Path(path)))
+    if not rows:
+        raise AssemblyFormatError("the FASTA file contains no contigs")
+    kept = [r for r in rows if r["length"] >= min_length]
+    desc = np.array(sorted((r["length"] for r in kept), reverse=True), dtype=np.int64)
+    total = int(desc.sum())
+    out: dict[str, Any] = {
+        "tool": {"name": TOOL_NAME, "version": TOOL_VERSION},
+        "min_length": min_length,
+        "all_contigs": len(rows),
+        "all_total_length": sum(r["length"] for r in rows),
+        "contigs": len(kept),
+        "total_length": total,
+        "largest_contig": None, "n50": None, "l50": None, "n90": None, "l90": None,
+        "gc_percent": None, "n_count": sum(r["n"] for r in kept), "n_per_100kb": None,
+        "other_iupac_count": sum(r["other"] for r in kept), "ambiguous_per_100kb": None,
+    }
+    if total:
+        cumulative = np.cumsum(desc)
+        out["n50"], out["l50"] = _nx(desc, cumulative, 50)
+        out["n90"], out["l90"] = _nx(desc, cumulative, 90)
+        acgt = sum(r["acgt"] for r in kept)
+        out.update({
+            "largest_contig": int(desc[0]),
+            "gc_percent": 100.0 * sum(r["gc"] for r in kept) / acgt if acgt else None,
+            "n_per_100kb": 1e5 * out["n_count"] / total,
+            "ambiguous_per_100kb": 1e5 * (out["n_count"] + out["other_iupac_count"]) / total,
+        })
+    return out
 
 
 # --- Heuristic warnings ---------------------------------------------------------------------

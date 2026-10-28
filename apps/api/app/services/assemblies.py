@@ -28,6 +28,9 @@ from app.tasks.common import JobContext, JobFailure
 MAX_CONTIG_ROWS = 2000
 GRAPH_MAX_NODES = 2000
 GRAPH_MAX_EDGES = 5000
+# The GFA segment tag that holds each assembler's coverage, and what it measures (arva_core.gfa leaves
+# tags uninterpreted because assemblers define them differently).
+GRAPH_COVERAGE_TAGS = {"Flye": ("dp", "mean read depth")}
 
 
 def expected_genome_size(db: Session, sample_id: str, job_parameters: Mapping[str, Any] | None) -> dict[str, Any]:
@@ -130,9 +133,27 @@ def register_assembly(
     return assembly
 
 
+def _any_flag(rows: list[dict[str, Any]], key: str) -> bool | None:
+    known = [r[key] for r in rows if r.get(key) is not None]
+    return any(known) if known else None
+
+
 def assembly_graph(assembly: Assembly, max_nodes: int, max_edges: int) -> dict[str, Any]:
-    """Raises FileNotFoundError when the graph file is gone and arva_core.gfa.GfaFormatError when unreadable."""
+    """The graph's segments and links, each segment with the assembler's flags for the contigs whose GFA path
+    (P line) runs through it: `circular`/`repeat` are true when any such contig has the flag, null when none of
+    them reports it (no path, or a contig whose row is not stored).
+
+    Raises FileNotFoundError when the graph file is gone and arva_core.gfa.GfaFormatError when unreadable.
+    """
     path = get_storage().resolve(assembly.graph_path) if assembly.graph_path else None
     if path is None or not path.is_file():
         raise FileNotFoundError("assembly graph file")
-    return {"assembly_id": assembly.id, "assembler": assembly.assembler, **read_gfa(path, max_nodes, max_edges)}
+    graph = read_gfa(path, max_nodes, max_edges)
+    rows = {c["name"]: c for c in assembly.contigs}
+    for node in graph["nodes"]:
+        on = [rows[name] for name in node["paths"] if name in rows]
+        node["circular"] = _any_flag(on, "circular")
+        node["repeat"] = _any_flag(on, "repeat")
+    tag, meaning = GRAPH_COVERAGE_TAGS.get(assembly.assembler, (None, None))
+    return {"assembly_id": assembly.id, "assembler": assembly.assembler, "coverage_tag": tag,
+            "coverage_meaning": meaning, **graph}

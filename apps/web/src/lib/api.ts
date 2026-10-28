@@ -1,12 +1,17 @@
 import type {
   AnalysisJob,
   AnalysisJobDetail,
+  Assembly,
+  AssemblyDetail,
+  AssemblyGraph,
   CrossCheck,
   DashboardSummary,
   FastpData,
   FastpParams,
   FastqcData,
   FiltlongRequest,
+  FlyePlan,
+  FlyeRequest,
   HeaderSummary,
   ImportListing,
   ImportRoot,
@@ -18,8 +23,11 @@ import type {
   MetadataTableOptions,
   MultiqcPlan,
   Project,
+  ProjectAssembly,
   ProjectInput,
   QcOverview,
+  QuastPlan,
+  QuastRequest,
   RawFile,
   Sample,
   SampleInput,
@@ -54,6 +62,12 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   if (!res.ok) throw new ApiError(res.status, await errorMessage(res));
   if (res.status === 204) return undefined as T;
   return res.json() as Promise<T>;
+}
+
+async function requestText(path: string): Promise<{ text: string; source: string | null }> {
+  const res = await fetch(BASE + path);
+  if (!res.ok) throw new ApiError(res.status, await errorMessage(res));
+  return { text: await res.text(), source: res.headers.get("X-ARVA-Log-Source") };
 }
 
 const json = (method: string, body: unknown): RequestInit => ({
@@ -171,6 +185,23 @@ export const api = {
     request<MultiqcPlan>(`/projects/${projectId}/analyses/multiqc/preview`, json("POST", body)),
   runMultiqc: (projectId: string, body: { sample_ids?: string[]; include_derived: boolean }) =>
     request<AnalysisJob>(`/projects/${projectId}/analyses/multiqc`, json("POST", body)),
+  /** The last lines of a job's live tool log while it exists, else of the ARVA job log (`source` says which). */
+  jobLog: (jobId: string, tail = 200) => requestText(`/jobs/${jobId}/log?tail=${tail}`),
+  flyePreview: (sampleId: string, body: { raw_file_ids: string[]; assumed_depth_x?: number | null }) =>
+    request<FlyePlan>(`/samples/${sampleId}/assembly/flye/preview`, json("POST", body)),
+  runFlye: (sampleId: string, body: FlyeRequest) =>
+    request<AnalysisJob>(`/samples/${sampleId}/assembly/flye`, json("POST", body)),
+  quastPreview: (sampleId: string, body: Omit<QuastRequest, "threads">) =>
+    request<QuastPlan>(`/samples/${sampleId}/assembly/quast/preview`, json("POST", body)),
+  runQuast: (sampleId: string, body: QuastRequest) =>
+    request<AnalysisJob>(`/samples/${sampleId}/assembly/quast`, json("POST", body)),
+  assemblies: (sampleId: string) => request<Assembly[]>(`/samples/${sampleId}/assemblies`),
+  assembly: (id: string) => request<AssemblyDetail>(`/assemblies/${id}`),
+  assemblyContigsUrl: (id: string) => `${BASE}/assemblies/${id}/contigs.fasta`,
+  assemblyGraph: (id: string, maxNodes: number, maxEdges: number) =>
+    request<AssemblyGraph>(`/assemblies/${id}/graph?${new URLSearchParams({ max_nodes: String(maxNodes), max_edges: String(maxEdges) })}`),
+  projectAssemblies: (projectId: string) => request<ProjectAssembly[]>(`/projects/${projectId}/assemblies`),
+  /** `name` is a file name, or a path below the job's folder (kept with its slashes so the page's relative links work). */
   jobOutputUrl: (jobId: string, name: string, download = false) =>
-    `${BASE}/jobs/${jobId}/outputs/${encodeURIComponent(name)}${download ? "?download=true" : ""}`,
+    `${BASE}/jobs/${jobId}/outputs/${name.split("/").map(encodeURIComponent).join("/")}${download ? "?download=true" : ""}`,
 };

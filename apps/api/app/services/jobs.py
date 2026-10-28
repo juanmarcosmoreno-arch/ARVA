@@ -13,13 +13,15 @@ from arva_tools import DetectedTool, ToolStatus
 from arva_tools.fastp import FastpParams
 from arva_tools.filtlong import FiltlongParams
 from arva_tools.flye import FlyeAdapter, FlyeParams
+from arva_tools.quast import QuastAdapter, QuastParams, aligner
+from arva_tools.quast import flags as quast_flags
 from arva_tools.registry import detect
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app import __version__
 from app.core.config import get_settings
-from app.models import AnalysisJob, JobStatus, Project, RawFile, Sample
+from app.models import AnalysisJob, Assembly, JobStatus, Project, RawFile, Sample
 from app.services.queue import get_queue
 from app.services.raw_signal import POD5_INSTALL, is_raw_signal, pod5_versions
 
@@ -35,6 +37,7 @@ POD5_TOOL = "pod5"
 MULTIQC_JOB = "multiqc"
 NANOPLOT_JOB = "nanoplot"
 FLYE_JOB = "flye_assembly"
+QUAST_JOB = "quast_evaluation"
 
 
 class ToolUnavailableError(RuntimeError):
@@ -186,6 +189,40 @@ def create_flye_job(db: Session, sample: Sample, files: list[RawFile], params: F
     db.add(job)
     db.commit()
     _enqueue([job], run_flye_job)
+    db.refresh(job)
+    return job
+
+
+def create_quast_job(db: Session, sample: Sample, assemblies: list[Assembly], labels: dict[str, str],
+                     reference: RawFile | None, params: QuastParams) -> AnalysisJob:
+    """One QUAST run over the sample's chosen assemblies (and reference); the assemblies and their labels are
+    recorded in the parameters, the reference file as the job's input."""
+    from app.tasks.tools import run_quast_job
+
+    tool = require_tool("quast")
+    try:
+        supported = QuastAdapter.help_options(tool.path or "quast.py")
+    except (OSError, RuntimeError, subprocess.TimeoutExpired) as exc:
+        raise ToolUnavailableError(f"QUAST's --help could not be read to check its options: {exc}") from exc
+    params.threads = min(params.threads, get_settings().tool_threads)
+    params.validate()
+    if missing := [f for f in quast_flags(reference is not None, False) if f not in supported]:
+        raise ValueError(f"this QUAST version does not offer {', '.join(missing)} (not in its --help)")
+    if reference is not None and aligner(tool.path or "quast.py")["provided_by"] == "missing":
+        raise ToolUnavailableError("QUAST needs minimap2 2.19 or later on PATH to align contigs to a reference (ARVA "
+                                   "does not let QUAST compile its own copy during a run). Install minimap2, or "
+                                   "evaluate without a reference")
+    parameters = {
+        **params.as_dict(),
+        "reference_file_id": reference.id if reference else None,
+        "assemblies": [{"assembly_id": a.id, "label": labels[a.id], "assembler": a.assembler,
+                        "assembler_version": a.assembler_version, "assembly_job_id": a.job_id,
+                        "contigs_sha256": a.stats["files"]["contigs"]["sha256"]} for a in assemblies],
+    }
+    job = _tool_job(sample, QUAST_JOB, tool, parameters, [reference.id] if reference else [])
+    db.add(job)
+    db.commit()
+    _enqueue([job], run_quast_job)
     db.refresh(job)
     return job
 

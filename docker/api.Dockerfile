@@ -9,24 +9,33 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     ARVA_STORAGE_ROOT=/data
 
 # Flye calls flye-samtools; when the flye package lacks it (Ubuntu's 2.9.3 does), ARVA links it to samtools per run.
+# minimap2 is the aligner QUAST uses with a reference (bookworm: 2.24, the version QUAST 5.2.0 bundles).
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends seqkit fastp filtlong fastqc flye samtools \
+    && apt-get install -y --no-install-recommends seqkit fastp filtlong fastqc flye samtools minimap2 \
     && rm -rf /var/lib/apt/lists/*
 
 # Python report tools, each in its own virtual environment with the versions validated with ARVA.
-# Build with --build-arg ARVA_PYTHON_TOOLS="" for a smaller image without them (about 1.7 GB less).
-ARG ARVA_PYTHON_TOOLS="multiqc nanoplot"
+# Build with --build-arg ARVA_PYTHON_TOOLS="" for a smaller image without them (MultiQC and NanoPlot take about
+# 1.7 GB; QUAST about 0.15 GB, measured as an installed venv outside Docker).
+# QUAST 5.2.0 is a source package: it imports distutils (setuptools provides it on Python 3.12) and is built with
+# that pinned setuptools; its optional parts (gene finding, BUSCO, read analysis) are neither built nor downloaded.
+ARG ARVA_PYTHON_TOOLS="multiqc nanoplot quast"
 RUN set -eu; for tool in $ARVA_PYTHON_TOOLS; do \
       case "$tool" in \
         multiqc) python -m venv /opt/arva-tools/multiqc \
                  && /opt/arva-tools/multiqc/bin/pip install "multiqc==1.35" "plotly==5.24.1" ;; \
         nanoplot) python -m venv /opt/arva-tools/nanoplot \
                   && /opt/arva-tools/nanoplot/bin/pip install "NanoPlot==1.48.0" "nanoget==1.19.6" ;; \
+        quast) python -m venv /opt/arva-tools/quast \
+               && /opt/arva-tools/quast/bin/pip install "setuptools==80.9.0" \
+               && /opt/arva-tools/quast/bin/pip install --no-build-isolation "quast==5.2.0" "joblib==1.5.2" \
+                  "simplejson==3.20.2" ;; \
         *) echo "Unknown ARVA_PYTHON_TOOLS entry: $tool" >&2; exit 1 ;; \
       esac; \
     done
 ENV ARVA_TOOL_MULTIQC=/opt/arva-tools/multiqc/bin/multiqc \
-    ARVA_TOOL_NANOPLOT=/opt/arva-tools/nanoplot/bin/NanoPlot
+    ARVA_TOOL_NANOPLOT=/opt/arva-tools/nanoplot/bin/NanoPlot \
+    ARVA_TOOL_QUAST=/opt/arva-tools/quast/bin/quast.py
 
 RUN groupadd --system arva && useradd --system --gid arva --home /opt/arva arva \
     && mkdir -p /data && chown arva:arva /data

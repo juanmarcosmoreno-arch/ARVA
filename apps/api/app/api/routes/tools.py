@@ -39,6 +39,7 @@ from app.services import crosscheck, multiqc, qc_data
 from app.services.jobs import (
     FASTQ_STATS_JOB,
     MULTIQC_JOB,
+    QUAST_JOB,
     SEQKIT_JOB,
     ToolUnavailableError,
     create_fastp_job,
@@ -64,6 +65,7 @@ REPORT_CSP = (
 )
 # MultiQC's report is sandboxed too (it is served with multiqc.STORAGE_SHIM); checked in Chromium by
 # scripts/check_multiqc_report.cjs: plots render, no request leaves the page, it cannot script ARVA's origin.
+# QUAST's pages get the same shim and policy: report.html reads document.cookie, which throws in a sandbox.
 MULTIQC_REPORT_CSP = (
     "sandbox allow-scripts allow-popups; default-src 'none'; script-src 'unsafe-inline'; "
     "style-src 'unsafe-inline'; img-src data: blob:; connect-src 'none'; font-src 'none'; frame-src 'none'; "
@@ -258,22 +260,32 @@ def start_multiqc(project_id: str, payload: MultiqcRequest, db: Session = Depend
     return _tool_call(create_multiqc_job, db, project, parameters, file_ids)
 
 
-@router.get("/jobs/{job_id}/outputs/{name}")
+@router.get("/jobs/{job_id}/outputs/{name:path}")
 def job_output(job_id: str, name: str, download: bool = False, db: Session = Depends(get_db)):
+    """A registered output, by file name, or by its path below the tool's output folder when the tool's pages link
+    to it that way (QUAST's icarus_viewers/<page>.html)."""
     job = job_or_404(db, job_id)
-    match = next((p for p in job.output_paths or [] if Path(p).name == name), None)
+    parts = name.split("/")
+    if "" in parts or ".." in parts or "." in parts:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No such output for this job")
+    if len(parts) > 1:
+        found = [p for p in job.output_paths or [] if p.endswith("/" + name)]
+        match = found[0] if len(found) == 1 else None
+    else:
+        match = next((p for p in job.output_paths or [] if Path(p).name == name), None)
     if match is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No such output for this job")
     path = get_storage().resolve(match)
     if not path.is_file():
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Output file is missing on disk")
+    name = parts[-1]
     if name.endswith(".html") and not download:
-        if job.job_type == MULTIQC_JOB and name == MULTIQC_REPORT:
+        if (job.job_type == MULTIQC_JOB and name == MULTIQC_REPORT) or job.job_type == QUAST_JOB:
             return Response(multiqc.sandboxed_report(path.read_bytes()), media_type="text/html; charset=utf-8",
                             headers={"Content-Security-Policy": MULTIQC_REPORT_CSP, **_REPORT_HEADERS})
         return FileResponse(path, media_type="text/html; charset=utf-8",
                             headers={"Content-Security-Policy": REPORT_CSP, **_REPORT_HEADERS})
-    media = "text/plain; charset=utf-8" if name.endswith((".log", ".tsv", ".json")) else "application/octet-stream"
+    media = "text/plain; charset=utf-8" if name.endswith((".log", ".tsv", ".json", ".txt")) else "application/octet-stream"
     return FileResponse(path, media_type=media, filename=name)
 
 

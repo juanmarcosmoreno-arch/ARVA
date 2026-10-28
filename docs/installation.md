@@ -64,8 +64,9 @@ SeqKit, FastQC, fastp and Filtlong features show as unavailable on the **Tools &
 
 - **Docker**: the API/worker image already contains them (Debian packages: SeqKit 2.3.0 binary,
   FastQC 0.11.9, fastp 0.23.2, Filtlong 0.2.1 — all validated with ARVA).
-- **Ubuntu 24.04 / Debian**: `sudo apt install seqkit fastqc fastp filtlong`
-  (Ubuntu 24.04: SeqKit 2.3.0, FastQC 0.12.1, fastp 0.23.4, Filtlong 0.2.1 — validated).
+- **Ubuntu 24.04 / Debian**: `sudo apt install seqkit fastqc fastp filtlong flye samtools minimap2`
+  (Ubuntu 24.04: SeqKit 2.3.0, FastQC 0.12.1, fastp 0.23.4, Filtlong 0.2.1, Flye 2.9.3 — validated;
+  minimap2 2.26 is used by QUAST, below).
 - **macOS (Apple Silicon or Intel) / any Linux with conda**:
   ```bash
   mamba env create -f workflows/tool-adapters/environment.yml
@@ -103,8 +104,8 @@ tested that route. The Ubuntu/Debian `multiqc` package (1.18) is reported as *In
 it has no `--no-version-check` option, contacts multiqc.info over plain HTTP on every run, writes
 reports that miss a JavaScript file and has no SeqKit module. ARVA always runs MultiQC with its
 version check, AI features and uploads switched off, so it makes no network connection.
-`scripts/test-all.sh` uses `~/.arva-tools/multiqc/bin/multiqc` when it exists. The Docker image does
-not include MultiQC yet.
+`scripts/test-all.sh` uses `~/.arva-tools/multiqc/bin/multiqc` when it exists. The Docker image installs
+it the same way (build argument `ARVA_PYTHON_TOOLS`).
 
 The report embeds sample IDs and file names and is meant for viewing on this computer. ARVA opens it
 in a new tab and serves it with a sandboxing Content-Security-Policy that isolates it from ARVA and
@@ -131,9 +132,61 @@ Validated: NanoPlot 1.48.0 (MIT; its nanoget dependency is GPL-3.0) with nanoget
 *Incompatible version*. NanoPlot normally downloads Chrome for Testing (about 360 MB) to draw PNG
 images; ARVA always runs it with `--no_static` and `--only-report`, so it never does, and the job fails
 if browser files appear in its (empty, job-specific) home folder. `scripts/test-all.sh` uses
-`~/.arva-tools/nanoplot/bin/NanoPlot` when it exists. The Docker image does not include NanoPlot yet.
+`~/.arva-tools/nanoplot/bin/NanoPlot` when it exists. The Docker image installs it the same way.
 When it detects NanoPlot, ARVA imports `nanomath` with NanoPlot's own Python and reports the tool as
 *Detection failed* if the bundled copy has been replaced; reinstall the environment as above.
+
+### Flye (long-read assembly)
+
+The Assembly tab of a sample runs Flye on long-read FASTQ files. Install it with samtools:
+
+```bash
+sudo apt install flye samtools          # Ubuntu 24.04: Flye 2.9.3, samtools 1.19.2
+```
+
+Validated: Flye 2.9.3 (BSD-3-Clause; Ubuntu package 2.9.3+dfsg2-1), which needs Python's `six`
+(installed with the package) and the system minimap2 and samtools. Flye calls a helper named
+`flye-samtools`, which Debian's and Ubuntu's flye package does not ship: without it every assembly
+stops in its repeat stage. ARVA links `flye-samtools` to `samtools` for each run when it is missing and
+records this; the Tools page shows it as a note, and reports Flye as *Detection failed* when samtools is
+missing too (`ARVA_TOOL_SAMTOOLS` sets an explicit samtools). Older versions than 2.9 are *Incompatible
+version* (no `--nano-hq`); other 2.9.x versions run with a "not validated" warning. The Docker image
+installs Debian bookworm's `flye` (2.9.1) and `samtools` (1.16.1); 2.9.1 has not been validated yet.
+A bacterial genome needs a few GB of memory; Flye's own benchmarks list about 2 GB for *E. coli*
+PacBio reads at 50×.
+The assembly charts, the comparison and the assembly-graph view are drawn by ARVA in the browser from
+the stored statistics and the GFA file; they need no further tool. To explore a large graph in full,
+download `assembly_graph.gfa` and open it in a graph viewer such as Bandage (not installed by ARVA).
+
+### QUAST (assembly evaluation)
+
+The Assembly tab evaluates and compares a sample's assemblies with QUAST, optionally against a reference
+genome imported into the sample as FASTA. Ubuntu 24.04 has no QUAST package; install it from PyPI
+into its own virtual environment, with minimap2 for reference-based evaluation:
+
+```bash
+python3 -m venv ~/.arva-tools/quast
+~/.arva-tools/quast/bin/pip install "setuptools==80.9.0"
+~/.arva-tools/quast/bin/pip install --no-build-isolation "quast==5.2.0" "joblib==1.5.2" "simplejson==3.20.2"
+export ARVA_TOOL_QUAST=~/.arva-tools/quast/bin/quast.py
+sudo apt install minimap2                # Ubuntu 24.04: 2.26; Debian bookworm: 2.24
+```
+
+Validated: QUAST 5.2.0 (GPL-2.0; PyPI source package, sha256 `23649fbd…0ad7`) with joblib 1.5.2 and
+simplejson 3.20.2 on Python 3.12 (Ubuntu's `python3.12`, as in the Docker image), Linux x86-64; the
+environment needs about 145 MB. QUAST 5.2.0 imports `distutils`, which Python 3.12 no longer has: the
+pinned setuptools provides it, and building with `--no-build-isolation` uses that same setuptools. The
+install compiles nothing and downloads nothing else; QUAST's optional parts (gene prediction, BUSCO,
+read analysis, reference search) are not used by ARVA. With a reference QUAST needs minimap2 2.19 or
+later: it uses its own compiled copy when present, else `minimap2` on PATH, and would otherwise compile
+its bundled source into its installation folder during the run, which ARVA refuses (the Tools page
+notes when minimap2 is missing; evaluation without a reference still works). Runs were checked offline
+(no network namespace): nothing is fetched, and nothing is written outside the job's folder. Under
+CPython 3.13.15 and later 3.13 releases QUAST 5.2.0 leaves `quast.log` empty (a change in Python's
+logging); ARVA keeps QUAST's console output in every case, but Python 3.12 is the validated setup.
+QUAST warns that it cannot set the `en_US.UTF-8` locale when that locale is absent; only the dates
+written in its HTML report depend on it. `scripts/test-all.sh` uses `~/.arva-tools/quast/bin/quast.py`
+when it exists; the Docker image installs QUAST and minimap2.
 
 ### Optional: POD5 run metadata (pod5 library)
 
@@ -238,7 +291,7 @@ Environment variables (prefix `ARVA_`), also read from `apps/api/.env`:
 | `ARVA_METADATA_MAX_COLUMNS` | 256 | Columns per metadata table |
 | `ARVA_METADATA_MAX_CELL_CHARS` | 10000 | Characters per cell of a metadata table |
 | `ARVA_TOOLS_PATH` | — | Extra folders (`:`-separated) searched for external tools |
-| `ARVA_TOOL_<ID>` | — | Explicit executable for one tool (`SEQKIT`, `FASTQC`, `FASTP`, `FILTLONG`, `MULTIQC`, `NANOPLOT`) |
+| `ARVA_TOOL_<ID>` | — | Explicit executable for one tool (`SEQKIT`, `FASTQC`, `FASTP`, `FILTLONG`, `MULTIQC`, `NANOPLOT`, `FLYE`; `SAMTOOLS` for Flye's helper) |
 | `ARVA_TOOL_THREADS` | 4 | Maximum threads given to a tool run |
 | `ARVA_TOOL_TIMEOUT_SECONDS` | 43200 | A tool run is stopped after this time |
 
@@ -273,5 +326,9 @@ The API test suite **drops and recreates** the schema of the test database — n
 | Project QC report fails with "did not report every input exactly once" | MultiQC skipped or merged an input; the job log lists which. Re-run the tool for that file, or leave the sample out |
 | Project QC overview shows "—" with "statistics for 1 of 2 files" | Read totals are only shown when every imported FASTQ/FASTA file of the sample has read statistics: compute them for the remaining files on the sample's Files tab |
 | Project QC overview shows no depth | Enter the expected genome size when computing read statistics, the same size for every imported read file of the sample; ARVA never assumes one |
+| Flye assembly fails in the repeat stage with "empty sequence" | Flye ran without its `flye-samtools` helper: install samtools and re-detect; ARVA links the helper for each run |
+| Flye: "found no read longer than the minimum overlap" | The reads are shorter than 1,000 bp (or than the minimum overlap you set): Flye needs long reads |
+| Flye: "could not assemble the reads" | Too few reads or too little coverage, or a read type that does not match the data (check the error rate on the Read statistics tab) |
+| Two Flye runs on the same reads differ | Expected with more than one thread: Flye is not deterministic then; the thread count is recorded with each run |
 | NanoPlot asks to confirm long reads | The sample's sequencing technology is not Nanopore or PacBio: set it in the sample's Metadata tab, or tick the confirmation if the file does hold long reads |
 | fastp report shows tables but no charts inside ARVA | Expected: its charts load plotly.js from the internet, which ARVA blocks; ARVA's own comparison charts cover the same data, and the original report can be downloaded |

@@ -10,6 +10,7 @@ from arva_core.assembly_stats import (
     _length_bin_edges,
     assembly_warnings,
     compute_assembly_stats,
+    min_length_summary,
 )
 from arva_core.seqstats import SequenceFormatError
 
@@ -55,6 +56,28 @@ def test_basic_statistics(tmp_path):
                                "cumulative_length": [20, 30, 40, 44], "downsampled": False}
     assert s["length_histogram"] == [{"min_length": 0, "max_length": 100, "contigs": 4, "total_length": 44}]
     assert s["coverage"] == {"contigs_with_coverage": 0, "length_weighted_median": None}
+
+
+def test_min_length_summary_keeps_only_contigs_at_or_above_the_threshold(tmp_path):
+    path = fasta(tmp_path / "a.fasta", RECORDS)
+    s = min_length_summary(path, 10)
+    # c4 (4 bp) is left out; c1 and c2 (exactly 10 bp) are kept. Cumulative 20, 30, 40 of 40.
+    assert (s["all_contigs"], s["all_total_length"], s["contigs"], s["total_length"]) == (4, 44, 3, 40)
+    assert (s["largest_contig"], s["n50"], s["l50"], s["n90"], s["l90"]) == (20, 20, 1, 10, 3)
+    assert s["gc_percent"] == pytest.approx(100 * 13 / 38)
+    assert (s["n_count"], s["n_per_100kb"]) == (2, pytest.approx(1e5 * 2 / 40))
+    # c4's R is left out with c4; at threshold 0 it counts as ambiguous (as QUAST's N) but not as N.
+    assert (s["other_iupac_count"], s["ambiguous_per_100kb"]) == (0, pytest.approx(1e5 * 2 / 40))
+    # Threshold 0 keeps every contig and agrees with the full statistics.
+    full, zero = compute_assembly_stats(path), min_length_summary(path, 0)
+    for key in ("total_length", "largest_contig", "n50", "l50", "n90", "l90", "gc_percent", "n_per_100kb"):
+        assert zero[key] == pytest.approx(full[key]), key
+    assert zero["contigs"] == full["contig_count"]
+    assert zero["ambiguous_per_100kb"] == pytest.approx(1e5 * 3 / 44)
+    none = min_length_summary(path, 21)
+    assert (none["contigs"], none["total_length"], none["n50"], none["gc_percent"]) == (0, 0, None, None)
+    with pytest.raises(ValueError):
+        min_length_summary(path, -1)
 
 
 def test_nx_is_inclusive_at_the_boundary_and_ties(tmp_path):

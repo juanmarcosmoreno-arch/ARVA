@@ -19,6 +19,7 @@ from arva_tools.flye import FlyeAdapter, FlyeParams, read_link_name, samtools_he
 from arva_tools.registry import detect
 
 EXAMPLES = Path(__file__).resolve().parents[3] / "examples" / "synthetic"
+FIXTURES = Path(__file__).resolve().parent / "fixtures"
 R1 = EXAMPLES / "SYNTHETIC_illumina_R1_001.fastq.gz"
 R2 = EXAMPLES / "SYNTHETIC_illumina_R2_001.fastq.gz"
 ONT = EXAMPLES / "SYNTHETIC_nanopore_reads.fastq.gz"
@@ -447,3 +448,108 @@ def test_flye_assembles_the_synthetic_genome(tmp_path):
     summary = FlyeAdapter.parse_log((tmp_path / "out" / "flye.log").read_text())
     assert summary["stages_seen"] == list(params.stages()) and summary["fragments"] == 2
     assert summary["min_overlap"] in range(1000, 10_001)
+
+
+def _quast_inputs(tmp_path: Path) -> dict[str, Path]:
+    """The synthetic genome's reference and the two assemblies of fixtures/quast/make_assemblies.py, linked under
+    the names ARVA gives them."""
+    import importlib.util
+
+    genome = tmp_path / "genome"
+    subprocess.run([sys.executable, str(Path(__file__).resolve().parents[3] / "scripts" / "make_synthetic_genome.py"),
+                    str(genome), "--ont-depth", "1", "--illumina-depth", "1"], check=True, capture_output=True)
+    spec = importlib.util.spec_from_file_location("make_assemblies", FIXTURES / "quast" / "make_assemblies.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    edited, perfect = module.make_assemblies(genome / "reference.fasta", tmp_path / "assemblies")
+    links = tmp_path / "input"
+    links.mkdir()
+    out = {}
+    for name, target in (("assembly_01.fasta", edited), ("assembly_02.fasta", perfect),
+                         ("reference.fasta", genome / "reference.fasta")):
+        (links / name).symlink_to(target)
+        out[name] = links / name
+    return out
+
+
+def test_quast_evaluates_the_synthetic_assemblies_offline(tmp_path, recording_proxy):
+    """Known differences from the synthetic genome (fixtures/quast/README.md) are found, QUAST's contiguity values
+    equal ARVA's at the same minimum contig length, nothing is fetched or written outside the output folder, and a
+    second run gives the same report."""
+    from arva_core.assembly_stats import min_length_summary
+
+    from arva_tools.quast import CONSOLE_LOG, QuastAdapter, QuastParams, aligner
+
+    exe = tool("quast")
+    if aligner(exe)["provided_by"] == "missing":
+        pytest.skip("QUAST's reference mode needs minimap2 2.19 or later")
+    env, attempts = recording_proxy
+    files = _quast_inputs(tmp_path)
+    assemblies = [(files["assembly_01.fasta"], "edited"), (files["assembly_02.fasta"], "perfect")]
+    reports = []
+    for run in ("a", "b"):
+        job = tmp_path / run
+        (job / "home").mkdir(parents=True)
+        argv = QuastAdapter.argv(exe, QuastParams(min_contig=500, threads=2), assemblies, job / "quast",
+                                 QuastAdapter.help_options(exe), reference=files["reference.fasta"])
+        run_command(argv, cwd=job, stderr_path=job / CONSOLE_LOG, extra_env=env, home=job / "home")
+        assert sorted(p.name for p in job.iterdir()) == ["home", "quast", CONSOLE_LOG]
+        assert list((job / "home").iterdir()) == []
+        reports.append((job / "quast" / "report.tsv").read_bytes())
+    assert attempts == [] and reports[0] == reports[1]
+
+    out = tmp_path / "a" / "quast"
+    report = QuastAdapter.parse_report((out / "report.tsv").read_text())
+    assert report == QuastAdapter.parse_transposed_report((out / "transposed_report.tsv").read_text())
+    q = {r["field"]: dict(zip(report["labels"], r["values"], strict=True)) for r in report["rows"]}
+    for label, path in (("edited", files["assembly_01.fasta"]), ("perfect", files["assembly_02.fasta"])):
+        a = min_length_summary(path, 500)
+        assert (q["# contigs"][label], q["Total length"][label], q["Largest contig"][label]) == (
+            a["contigs"], a["total_length"], a["largest_contig"])
+        assert (q["N50"][label], q["L50"][label], q["N90"][label], q["L90"][label]) == (
+            a["n50"], a["l50"], a["n90"], a["l90"])
+        assert (q["# contigs (>= 0 bp)"][label], q["Total length (>= 0 bp)"][label]) == (
+            a["all_contigs"], a["all_total_length"])
+        assert q["GC (%)"][label] == pytest.approx(a["gc_percent"], abs=0.005)
+        assert q["# N's per 100 kbp"][label] == pytest.approx(a["ambiguous_per_100kb"], abs=0.005)
+    assert q["# misassemblies"] == {"edited": 1, "perfect": 0}
+    assert q["# unaligned contigs"]["edited"] == {"full": 1, "partial": 0}
+    assert q["# mismatches per 100 kbp"]["edited"] == pytest.approx(3 / 335_500 * 1e5, abs=0.005)
+    assert q["Genome fraction (%)"] == {"edited": 100.0, "perfect": 99.683}
+
+    console = QuastAdapter.parse_console((tmp_path / "a" / CONSOLE_LOG).read_text())
+    assert console["quast_version"] == "5.2.0" and console["stages_seen"] == ["basic_stats", "contig_analyzer",
+                                                                             "na_nga", "genome_analyzer",
+                                                                             "visual_summaries"]
+    used = QuastAdapter.parse_aligner((out / "contigs_reports" / "contigs_report_edited.stderr").read_text())
+    assert used["executable"] == aligner(exe)["executable"]
+    # The HTML pages are self-contained: inline scripts, nothing loaded from elsewhere, no local paths.
+    pages = [out / "report.html", out / "icarus.html", *sorted((out / "icarus_viewers").glob("*.html"))]
+    assert [p.name for p in pages] == ["report.html", "icarus.html", "alignment_viewer.html", "contig_size_viewer.html"]
+    for page in pages:
+        html = page.read_text()
+        # report.html keeps an old Internet Explorer loader as commented-out script lines.
+        code = "\n".join(line for line in html.splitlines() if not line.lstrip().startswith("//"))
+        assert not re.search(r"<script[^>]*\bsrc=|<link[^>]*stylesheet|url\(\s*['\"]?https?:", code), page.name
+        assert str(tmp_path) not in html
+
+
+def test_quast_turns_iupac_codes_into_n(tmp_path):
+    """QUAST's GC agrees with ARVA's (both leave the IUPAC codes out of the denominator), but QUAST counts those codes
+    as N's: its '# N's per 100 kbp' equals ARVA's ambiguous_per_100kb, not ARVA's n_per_100kb."""
+    from arva_core.assembly_stats import min_length_summary
+
+    from arva_tools.quast import QuastAdapter, QuastParams
+
+    exe = tool("quast")
+    contigs = tmp_path / "assembly_01.fasta"
+    contigs.write_text(">SYNTHETIC_iupac\n" + "ACGTRYKMSWN" * 100 + "\n")
+    argv = QuastAdapter.argv(exe, QuastParams(min_contig=0, threads=1), [(contigs, "iupac")], tmp_path / "quast",
+                             QuastAdapter.help_options(exe))
+    run_command(argv, cwd=tmp_path, stderr_path=tmp_path / "console.log")
+    report = QuastAdapter.parse_report((tmp_path / "quast" / "report.tsv").read_text())
+    q = {r["field"]: r["values"][0] for r in report["rows"]}
+    a = min_length_summary(contigs, 0)
+    assert q["GC (%)"] == pytest.approx(a["gc_percent"], abs=0.005) == 50.0
+    assert q["# N's per 100 kbp"] == pytest.approx(a["ambiguous_per_100kb"], abs=0.005)
+    assert a["n_per_100kb"] == pytest.approx(1e5 * 100 / 1100) and a["ambiguous_per_100kb"] == pytest.approx(1e5 * 700 / 1100)

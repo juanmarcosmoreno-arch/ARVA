@@ -35,6 +35,8 @@ export const RAW_SIGNAL_JOBS = new Set(["pod5_summary"]);
 export function jobLabel(type: string, t: (key: TranslationKey) => string) {
   if (type === "multiqc") return t("multiqc.jobLabel");
   if (type === "nanoplot") return t("nanoplot.jobLabel");
+  if (type === "flye_assembly") return t("flye.jobLabel");
+  if (type === "quast_evaluation") return t("quast.jobLabel");
   return RAW_SIGNAL_JOBS.has(type) ? t("pod5.jobLabel") : JOB_LABEL[type] ?? type;
 }
 

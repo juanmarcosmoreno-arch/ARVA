@@ -1,0 +1,98 @@
+WARNING: Python locale settings can't be changed
+/root/.arva-tools/quast/bin/quast.py /job/input/assembly_01.fasta /job/input/assembly_02.fasta --output-dir /job/quast --threads 2 --min-contig 500 --labels edited,perfect --contig-thresholds 0,1000,5000,10000,25000,50000 --x-for-Nx 90 --no-plots -r /job/input/reference.fasta --min-alignment 65 --min-identity 95.0 --ambiguity-usage one --extensive-mis-size 1000 --local-mis-size 200 --scaffold-gap-max-size 10000 --unaligned-part-size 500
+
+Version: 5.2.0
+
+System information:
+  OS: Linux-6.18.44-fc-v180-x86_64-with-glibc2.39 (linux_64)
+  Python version: 3.12.3
+  CPUs number: 4
+
+Started: 2026-10-28 14:39:05
+
+Logging to /job/quast/quast.log
+
+CWD: /job
+Main parameters: 
+  MODE: default, threads: 2, min contig length: 500, min alignment length: 65, min alignment IDY: 95.0, \
+  ambiguity: one, min local misassembly length: 200, min extensive misassembly length: 1000
+
+Reference:
+  /job/input/reference.fasta ==> reference
+
+Contigs:
+  Pre-processing...
+  1  /job/input/assembly_01.fasta ==> edited
+  2  /job/input/assembly_02.fasta ==> perfect
+
+2026-10-28 14:39:05
+Running Basic statistics processor...
+  Reference genome:
+    reference.fasta, length = 315000, num fragments = 2, GC % = 49.62
+  Contig files: 
+    1  edited
+    2  perfect
+  Calculating N50 and L50...
+    1  edited, N50 = 140000, L50 = 2, auN = 135790.4, Total length = 337500, GC % = 49.45, # N's per 100 kbp =  14.81
+    2  perfect, N50 = 300000, L50 = 1, auN = 286428.6, Total length = 315000, GC % = 49.62, # N's per 100 kbp =  0.00
+Done.
+
+2026-10-28 14:39:05
+Running Contig analyzer...
+WARNING: Version of installed minimap2 differs from its version in the QUAST package (2.24). Please make sure that you use an actual version of software.
+  1  edited
+  1  Logging to files /job/quast/contigs_reports/contigs_report_edited.stdout and contigs_report_edited.stderr...
+  2  perfect
+  1  Aligning contigs to the reference
+  2  Logging to files /job/quast/contigs_reports/contigs_report_perfect.stdout and contigs_report_perfect.stderr...
+  2  Aligning contigs to the reference
+WARNING: Version of installed minimap2 differs from its version in the QUAST package (2.24). Please make sure that you use an actual version of software.
+WARNING: Version of installed minimap2 differs from its version in the QUAST package (2.24). Please make sure that you use an actual version of software.
+  2  Analysis is finished.
+  1  Analysis is finished.
+  Creating total report...
+    saved to /job/quast/contigs_reports/misassemblies_report.txt, misassemblies_report.tsv, and misassemblies_report.tex
+  Transposed version of total report...
+    saved to /job/quast/contigs_reports/transposed_report_misassemblies.txt, transposed_report_misassemblies.tsv, and transposed_report_misassemblies.tex
+  Creating total report...
+    saved to /job/quast/contigs_reports/unaligned_report.txt, unaligned_report.tsv, and unaligned_report.tex
+Done.
+
+2026-10-28 14:39:06
+Running NA-NGA calculation...
+  1  edited, Largest alignment = 160000, NA50 = 140000, NGA50 = 160000, LA50 = 2, LGA50 = 1
+  2  perfect, Largest alignment = 299000, NA50 = 299000, NGA50 = 299000, LA50 = 1, LGA50 = 1
+Done.
+
+2026-10-28 14:39:06
+Running Genome analyzer...
+  NOTICE: No file with genomic features were provided. Use the --features option if you want to specify it.
+
+  NOTICE: No file with operons were provided. Use the -O option if you want to specify it.
+  1  edited
+  2  perfect
+  2  Analysis is finished.
+  1  Analysis is finished.
+Done.
+
+NOTICE: Genes are not predicted by default. Use --gene-finding or --glimmer option to enable it.
+
+2026-10-28 14:39:06
+Creating large visual summaries...
+This may take a while: press Ctrl-C to skip this step..
+  1 of 1: Creating Icarus viewers...
+Done
+
+2026-10-28 14:39:06
+RESULTS:
+  Text versions of total report are saved to /job/quast/report.txt, report.tsv, and report.tex
+  Text versions of transposed total report are saved to /job/quast/transposed_report.txt, transposed_report.tsv, and transposed_report.tex
+  HTML version (interactive tables and plots) is saved to /job/quast/report.html
+  Icarus (contig browser) is saved to /job/quast/icarus.html
+  Log is saved to /job/quast/quast.log
+
+Finished: 2026-10-28 14:39:06
+Elapsed time: 0:00:00.383157
+NOTICEs: 3; WARNINGs: 2; non-fatal ERRORs: 0
+
+Thank you for using QUAST!

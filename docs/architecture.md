@@ -14,7 +14,7 @@
    ▼                         ▼
  Local storage  ◄──────  Worker process(es)  ──►  arva_core (scientific-core)
  raw/ processed/                │
- results/ reports/ logs/        └──►  arva_tools adapters ──► SeqKit · FastQC · fastp · Filtlong
+ results/ reports/ logs/        └──►  arva_tools adapters ──► SeqKit · FastQC · fastp · Filtlong · Flye · QUAST …
 ```
 
 ## Layers and contracts
@@ -44,7 +44,10 @@
   optional `database_name`/`database_version`, `parameters`, `input_raw_file_ids`, `output_paths`,
   status, start/finish timestamps, duration, log and error; for external tools also `tool_path`,
   `commands` (the exact argument vectors executed) and `result_summary` (parsed key results).
-  `parent_job_id` marks jobs started automatically by another job.
+  `parent_job_id` marks jobs started automatically by another job. `progress` (JSON, nullable) is
+  written while a long tool runs (Flye: stage, stage index, expected stages, elapsed time, live log
+  path) and committed every few seconds; `GET /jobs/{id}/log?tail=N` serves the last lines of that
+  live log (only inside the job's results folder), else of the ARVA job log.
 - **MetadataImport**: provenance of one sample-metadata table applied to a project (file name, SHA-256,
   kind, sheet, encoding, delimiter, header row, column mapping, date order, mode, and the created /
   updated / unchanged / skipped counts). The table file itself is not stored.
@@ -54,8 +57,23 @@
   (checksummed and read-only, never registered as read files), `stats` (arva-core assembly statistics,
   output checksums, expected genome size and its source, the heuristic checks run), `contigs` (rows for
   the 2,000 longest contigs) and `warnings` (labelled heuristics). Read through
-  `GET /samples/{id}/assemblies`, `GET /assemblies/{id}`, `GET /assemblies/{id}/contigs.fasta` and
-  `GET /assemblies/{id}/graph` (bounded GFA view).
+  `GET /samples/{id}/assemblies`, `GET /projects/{id}/assemblies` (summary rows for the project page),
+  `GET /assemblies/{id}`, `GET /assemblies/{id}/contigs.fasta` and `GET /assemblies/{id}/graph`
+  (bounded GFA view; each segment carries the contigs whose GFA path runs through it and their
+  circular/repeat flags, and the response names the assembler's coverage tag). The sample report's
+  JSON/HTML/CSV include an Assembly section built from these records. Flye assemblies are started with
+  `POST /samples/{id}/assembly/flye` (202; 409 when Flye is unavailable; 400 for inputs it cannot
+  assemble) after `POST /samples/{id}/assembly/flye/preview`, which returns the installed Flye and the
+  options its `--help` lists, each file's evidence, a heuristic read-type suggestion and the
+  genome-size options, without running anything.
+  Assemblies are evaluated with `POST /samples/{id}/assembly/quast` (202; 1–10 assemblies of the sample, an
+  optional reference chosen among the sample's FASTA files, `min_contig`; 409 when QUAST, or minimap2 for a
+  reference, is unavailable) after `POST /samples/{id}/assembly/quast/preview` (labels, contigs kept and
+  left out at the minimum length, installed QUAST and minimap2). The `quast_evaluation` job records the
+  assemblies with their contigs checksums in `parameters` and the reference file as its input; its
+  `result_summary` holds QUAST's report read by field name and ARVA's cross-check. QUAST's HTML pages are
+  served by `GET /jobs/{id}/outputs/{path}`, where a path below the job folder (e.g.
+  `quast/icarus_viewers/contig_size_viewer.html`) keeps the pages' relative links working.
 - **QCResult**: structured output of a sequence-statistics job for one raw file. Headline metrics are
   indexed columns; the full payload is JSON (also written to `results/…/sequence_stats.json`).
 
@@ -115,7 +133,8 @@ then `ARVA_TOOLS_PATH`, then `PATH`; ARVA never installs software. `run_command`
 vectors without a shell, in their own process group (killed on timeout), with stdout/stderr streamed
 to files (optionally gzip-compressed) and an environment stripped of ARVA settings, of `MULTIQC_*`
 configuration variables and of anything resembling a credential; `HOME` and the XDG base directories
-point at a fresh empty folder that is deleted after the run. `GET /api/v1/tools` reports status (`available`, `not_installed`,
+point at a fresh empty folder that is deleted after the run. A `monitor` callback can follow a long
+run: it is called every few seconds while the tool runs (Flye's stages), and the run stops if it raises. `GET /api/v1/tools` reports status (`available`, `not_installed`,
 `incompatible`, `failed`) and whether the detected version has been validated.
 
 Tool HTML reports are served by `GET /jobs/{id}/outputs/{name}` with

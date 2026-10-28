@@ -3,12 +3,13 @@ import re
 from arva_core.formats import is_gzip
 from arva_core.gfa import GfaFormatError
 from arva_tools.flye import FlyeParams
+from arva_tools.quast import QuastParams
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_or_404, sample_or_404
+from app.api.deps import get_or_404, project_or_404, sample_or_404
 from app.api.routes.tools import _owned, _tool_call
 from app.core.config import get_settings
 from app.db.session import get_db
@@ -21,10 +22,14 @@ from app.schemas.schemas import (
     FlyePlanRead,
     FlyePreviewRequest,
     FlyeRequest,
+    ProjectAssemblyRead,
+    QuastPlanRead,
+    QuastPreviewRequest,
+    QuastRequest,
 )
-from app.services import flye
+from app.services import flye, quast
 from app.services.assemblies import GRAPH_MAX_EDGES, GRAPH_MAX_NODES, assembly_graph
-from app.services.jobs import create_flye_job
+from app.services.jobs import create_flye_job, create_quast_job
 from app.storage import get_storage
 from app.storage.local import sanitize_filename
 
@@ -42,6 +47,29 @@ def list_sample_assemblies(sample_id: str, db: Session = Depends(get_db)):
     return db.scalars(
         select(Assembly).where(Assembly.sample_id == sample_id).order_by(Assembly.created_at.desc())
     ).all()
+
+
+@router.get("/projects/{project_id}/assemblies", response_model=list[ProjectAssemblyRead])
+def list_project_assemblies(project_id: str, db: Session = Depends(get_db)):
+    """Every assembly of the project's samples with its summary statistics, by sample code and newest first."""
+    project_or_404(db, project_id)
+    rows = db.execute(
+        select(Assembly, Sample.sample_code).join(Sample, Sample.id == Assembly.sample_id)
+        .where(Sample.project_id == project_id).order_by(Sample.sample_code, Assembly.created_at.desc())
+    ).all()
+    return [
+        {
+            "id": a.id, "sample_id": a.sample_id, "sample_code": code, "job_id": a.job_id, "assembler": a.assembler,
+            "assembler_version": a.assembler_version, "mode": a.mode, "read_type": a.read_type,
+            **{k: a.stats[k] for k in ("contig_count", "total_length", "largest_contig", "n50", "l50", "gc_percent")},
+            "circular_contigs": a.stats["circularity"]["circular_contigs"],
+            "contigs_with_circularity": a.stats["circularity"]["contigs_with_circularity"],
+            "median_coverage": a.stats["coverage"]["length_weighted_median"],
+            "warning_codes": [w["code"] for w in a.warnings],
+            "created_at": a.created_at,
+        }
+        for a, code in rows
+    ]
 
 
 @router.get("/assemblies/{assembly_id}", response_model=AssemblyDetail)
@@ -125,3 +153,31 @@ def start_flye(sample_id: str, payload: FlyeRequest, db: Session = Depends(get_d
                                                                  "mean_error_rate")},
     }
     return _tool_call(create_flye_job, db, sample, files, params, provenance)
+
+
+@router.post("/samples/{sample_id}/assembly/quast/preview", response_model=QuastPlanRead)
+def preview_quast(sample_id: str, payload: QuastPreviewRequest, db: Session = Depends(get_db)):
+    """What a QUAST run would use: the installed QUAST and minimap2, each assembly's label and how many of its contigs
+    reach the minimum contig length, and the reference. Nothing is run."""
+    sample = sample_or_404(db, sample_id)
+    try:
+        return quast.plan(db, sample, payload.assembly_ids, payload.reference_file_id, payload.min_contig)
+    except quast.InputError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+
+
+@router.post("/samples/{sample_id}/assembly/quast", response_model=AnalysisJobRead,
+             status_code=status.HTTP_202_ACCEPTED)
+def start_quast(sample_id: str, payload: QuastRequest, db: Session = Depends(get_db)):
+    """Evaluate (and compare) assemblies of the sample with QUAST in one background job, optionally against a
+    reference genome chosen from the sample's FASTA files."""
+    sample = sample_or_404(db, sample_id)
+    params = QuastParams(min_contig=payload.min_contig, threads=payload.threads or get_settings().tool_threads)
+    try:
+        assemblies = quast.assemblies_for(db, sample, payload.assembly_ids)
+        reference = quast.reference_for(db, sample, payload.reference_file_id)
+        quast.check_contigs_kept(assemblies, [quast.summary_at(a, params.min_contig) for a in assemblies],
+                                 params.min_contig)
+    except quast.InputError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+    return _tool_call(create_quast_job, db, sample, assemblies, quast.labels(assemblies), reference, params)

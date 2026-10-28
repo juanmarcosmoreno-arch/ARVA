@@ -940,6 +940,10 @@ class AssemblyGraphNode(BaseModel):
     id: str
     length: int
     tags: dict[str, int | float] = Field(description="Numeric GFA tags as the assembler wrote them (e.g. Flye dp)")
+    paths: list[str] = Field(description="GFA paths (P lines; Flye: contigs) through this segment, at most 20")
+    circular: bool | None = Field(description="True when a contig in `paths` is reported circular by the assembler; "
+                                              "null when none of them has a circularity value")
+    repeat: bool | None = Field(description="True when a contig in `paths` is flagged as a repeat by the assembler")
 
 
 class AssemblyGraphEdge(BaseModel):
@@ -954,6 +958,8 @@ class AssemblyGraphEdge(BaseModel):
 class AssemblyGraphRead(BaseModel):
     assembly_id: str
     assembler: str
+    coverage_tag: str | None = Field(description="The segment tag holding this assembler's coverage (Flye: dp)")
+    coverage_meaning: str | None = Field(description="What that tag measures (Flye: mean read depth)")
     format: Literal["GFA1"]
     version: str | None
     segment_count: int
@@ -967,6 +973,29 @@ class AssemblyGraphRead(BaseModel):
     truncated: bool = Field(description="True when segments or links were left out to respect max_nodes/max_edges")
     nodes: list[AssemblyGraphNode] = Field(description="Longest segments first")
     edges: list[AssemblyGraphEdge]
+
+
+class ProjectAssemblyRead(BaseModel):
+    """One assembly of a project, for the project's overview (per-contig rows: GET /assemblies/{id})."""
+    id: str
+    sample_id: str
+    sample_code: str
+    job_id: str
+    assembler: str
+    assembler_version: str
+    mode: AssemblyMode
+    read_type: str
+    contig_count: int
+    total_length: int
+    largest_contig: int
+    n50: int
+    l50: int
+    gc_percent: float | None
+    circular_contigs: int
+    contigs_with_circularity: int
+    median_coverage: float | None = Field(description="Length-weighted median of the assembler's contig coverage")
+    warning_codes: list[AssemblyWarningCode]
+    created_at: dt.datetime
 
 
 class FlyeToolRead(BaseModel):
@@ -1026,6 +1055,66 @@ class FlyePlanRead(BaseModel):
     genome_size: FlyeGenomeSizeOptions
     sample_technology: SequencingTechnology
     long_reads_confirmation_required: bool
+
+
+class QuastPreviewRequest(BaseModel):
+    assembly_ids: list[Annotated[str, Field(max_length=64)]] = Field(min_length=1, max_length=10)
+    reference_file_id: str | None = Field(default=None, max_length=64,
+                                          description="A FASTA file of the sample to use as the reference genome")
+    min_contig: int = Field(default=500, ge=0, le=1_000_000,
+                            description="QUAST's --min-contig: shorter contigs are left out of most metrics")
+
+
+class QuastRequest(QuastPreviewRequest):
+    threads: int | None = Field(default=None, ge=1, le=256, description="Capped at the server's thread limit")
+
+
+class QuastAligner(BaseModel):
+    provided_by: Literal["quast_bundled", "path", "missing"] = Field(
+        description="How QUAST would find minimap2 for a reference; 'missing': it would compile it, which ARVA refuses")
+    executable: str | None = None
+    version: str | None = None
+    found: str | None = Field(default=None, description="A minimap2 on PATH that is too old for QUAST")
+
+
+class QuastToolRead(BaseModel):
+    status: str
+    version: str | None
+    version_validated: bool
+    message: str
+    reason: str | None
+    aligner: QuastAligner | None
+    max_threads: int
+    default_min_contig: int
+
+
+class QuastPlannedAssembly(BaseModel):
+    assembly_id: str
+    label: str = Field(description="The name QUAST will use for the assembly in its reports")
+    assembler: str
+    assembler_version: str
+    read_type: str
+    created_at: dt.datetime
+    contigs: int
+    total_length: int
+    contigs_kept: int = Field(description="Contigs of at least min_contig bp, which QUAST's metrics describe")
+    length_kept: int
+    contigs_left_out: int
+    length_left_out: int
+
+
+class QuastReferenceRead(BaseModel):
+    file_id: str
+    name: str
+    size_bytes: int
+    origin: FileOrigin
+
+
+class QuastPlanRead(BaseModel):
+    tool: QuastToolRead
+    min_contig: int
+    assemblies: list[QuastPlannedAssembly]
+    reference: QuastReferenceRead | None
 
 
 # --- Dashboard ----------------------------------------------------------------

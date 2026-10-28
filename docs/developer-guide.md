@@ -78,6 +78,10 @@ Follow the existing adapters in `workflows/tool-adapters/arva_tools/` (fastp is 
    variables with `extra_env`, and an empty working directory when the tool reads configuration from it;
    pass `home=` (an empty job folder) when you need to inspect what the tool wrote there (NanoPlot).
    Check outputs, not only the exit status (MultiQC, for example, exits 0 when it found nothing).
+   For long runs pass `monitor=` to follow the tool's log and save `job.progress` (Flye's
+   `_StageMonitor` in `app/tasks/tools.py`); check every option against the installed tool's own
+   `--help` when options differ between versions (`FlyeAdapter.help_options`). Check also that an option
+   passed at its documented default really behaves as the default (QUAST's `--ambiguity-score` does not).
 3. **Parsers.** Parse outputs by field name, not position; tolerate extra fields from newer versions.
 4. **Tests.** Command construction and validation (`tests/test_adapters.py`), parsing from small
    fixtures, and a real-tool test skipped when the tool is absent (`tests/test_real_tools.py`).
@@ -87,6 +91,8 @@ Follow the existing adapters in `workflows/tool-adapters/arva_tools/` (fastp is 
    `_register_derived`, store a compact `result_summary`, and queue follow-up work via
    `ctx.after_commit`.
 6. **API + UI + Guide.** Endpoint returning `202` with the job; UI showing every parameter and a
-   plain-language summary; Guide entries in English and Spanish with references.
+   plain-language summary; Guide entries in English and Spanish with references. Tool HTML pages are
+   served by `GET /jobs/{id}/outputs/{name}`; pages that link to each other (QUAST's Icarus viewers) are
+   opened by their path below the job folder so relative links keep working.
 7. **Docker.** Add the tool to `docker/api.Dockerfile`, rebuild, and run the real-tool tests inside
    the image before declaring its version validated.

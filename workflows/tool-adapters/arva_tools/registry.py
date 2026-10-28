@@ -10,12 +10,13 @@ from arva_tools.filtlong import FiltlongAdapter
 from arva_tools.flye import FlyeAdapter
 from arva_tools.multiqc import MultiqcAdapter
 from arva_tools.nanoplot import NanoplotAdapter
+from arva_tools.quast import QuastAdapter
 from arva_tools.seqkit import SeqkitAdapter
 
 ADAPTERS: dict[str, ToolAdapter] = {
     a.info.id: a
     for a in (SeqkitAdapter(), FastqcAdapter(), FastpAdapter(), FiltlongAdapter(), MultiqcAdapter(), NanoplotAdapter(),
-              FlyeAdapter())
+              FlyeAdapter(), QuastAdapter())
 }
 
 _CACHE: dict[str, tuple[float, DetectedTool]] = {}

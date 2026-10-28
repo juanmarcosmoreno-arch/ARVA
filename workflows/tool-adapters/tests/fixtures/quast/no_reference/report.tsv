@@ -1,0 +1,23 @@
+Assembly	edited	perfect
+# contigs (>= 0 bp)	8	2
+# contigs (>= 1000 bp)	5	2
+# contigs (>= 5000 bp)	4	2
+# contigs (>= 10000 bp)	4	2
+# contigs (>= 25000 bp)	2	1
+# contigs (>= 50000 bp)	2	1
+Total length (>= 0 bp)	338399	315000
+Total length (>= 1000 bp)	337000	315000
+Total length (>= 5000 bp)	335000	315000
+Total length (>= 10000 bp)	335000	315000
+Total length (>= 25000 bp)	300000	300000
+Total length (>= 50000 bp)	300000	300000
+# contigs	6	2
+Largest contig	160000	300000
+Total length	337500	315000
+GC (%)	49.45	49.62
+N50	140000	300000
+N90	20000	300000
+auN	135790.4	286428.6
+L50	2	1
+L90	3	1
+# N's per 100 kbp	14.81	0.00

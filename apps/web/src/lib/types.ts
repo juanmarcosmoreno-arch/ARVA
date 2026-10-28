@@ -650,6 +650,24 @@ export interface AnalysisJob {
   tool_path: string | null;
   result_summary: Record<string, unknown> | null;
   parent_job_id: string | null;
+  /** Live monitoring of a long tool run (e.g. Flye stages), updated while it runs. */
+  progress?: JobProgress | null;
+}
+
+export interface JobProgress {
+  tool: string;
+  /** The tool's own name for the stage it last announced. */
+  stage: string | null;
+  /** 1-based position of that stage among the stages seen so far. */
+  stage_index: number | null;
+  stages_total: number | null;
+  /** The stages expected for this run, in order. */
+  stages: string[];
+  started_at: string | null;
+  stage_started_at: string | null;
+  updated_at: string | null;
+  elapsed_seconds: number | null;
+  finished: boolean;
 }
 
 export interface AnalysisJobDetail extends AnalysisJob {
@@ -818,4 +836,325 @@ export interface MetadataTableOptions {
   delimiter?: string | null;
   dateOrder?: DateOrder | null;
   mapping?: Record<string, MetadataTarget> | null;
+}
+
+// --- Assembly ---------------------------------------------------------------------------------
+
+export type FlyeReadType = "nano-raw" | "nano-corr" | "nano-hq" | "pacbio-raw" | "pacbio-corr" | "pacbio-hifi";
+export type GenomeSizeBasis = "entered" | "expected_genome_size" | "reads_over_depth";
+
+export interface FlyeParams {
+  read_type: FlyeReadType;
+  genome_size_bp: number | null;
+  genome_size_basis: GenomeSizeBasis | null;
+  assumed_depth_x: number | null;
+  iterations: number;
+  min_overlap: number | null;
+  asm_coverage: number | null;
+  read_error: number | null;
+  meta: boolean;
+  keep_haplotypes: boolean;
+  no_alt_contigs: boolean;
+  scaffold: boolean;
+  threads: number | null;
+}
+
+export interface FlyeRequest {
+  raw_file_ids: string[];
+  params: FlyeParams;
+  long_reads_confirmed: boolean;
+}
+
+export interface FlyeFileEvidence {
+  file_id: string;
+  name: string;
+  origin: RawFile["origin"];
+  header_platform: HeaderPlatform | null;
+  header_confidence: HeaderConfidence;
+  basecall_models: string[];
+  pacbio_read_types: string[];
+  stats_job_id: string | null;
+  total_bases: number | null;
+  max_read_length: number | null;
+  read_n50: number | null;
+  mean_base_quality: number | null;
+}
+
+export interface FlyeReadTypeSuggestion {
+  heuristic: true;
+  value: FlyeReadType | null;
+  basis: string;
+  platform: "nanopore" | "pacbio" | null;
+  platform_source: "sample_metadata" | "read_headers" | null;
+  mean_error_rate: number | null;
+  mean_base_quality: number | null;
+  q20_read_error_note: boolean;
+  sup_model_but_low_quality: boolean;
+}
+
+export interface AssemblyGenomeSize {
+  bp: number | null;
+  status: "given" | "not_given" | "inconsistent";
+  source: "assembly_parameters" | "read_statistics" | null;
+  basis?: GenomeSizeBasis | null;
+  assumed_depth_x?: number | null;
+}
+
+export interface FlyePlan {
+  tool: {
+    status: ToolStatus;
+    version: string | null;
+    version_validated: boolean;
+    message: string;
+    reason: string | null;
+    /** Optional Flye options this installed version lists in its --help. */
+    options: string[];
+    max_threads: number;
+  };
+  files: FlyeFileEvidence[];
+  read_type_suggestion: FlyeReadTypeSuggestion;
+  genome_size: {
+    expected: AssemblyGenomeSize;
+    total_read_bases: number | null;
+    files_without_stats: string[];
+    from_depth: { depth_x: number; total_read_bases: number; bp: number } | null;
+  };
+  sample_technology: SequencingTechnology;
+  long_reads_confirmation_required: boolean;
+}
+
+export interface AssemblyWarning {
+  code: string;
+  heuristic: true;
+  message: string;
+  params: Record<string, string | number>;
+  contigs: string[];
+  contigs_total: number;
+}
+
+export interface AssemblyContig {
+  rank: number;
+  name: string;
+  length: number;
+  gc_percent: number | null;
+  n_count: number;
+  other_iupac_count: number;
+  coverage: number | null;
+  circular: boolean | null;
+  repeat: boolean | null;
+}
+
+export interface AssemblyCurve {
+  rank: number[];
+  /** Contig lengths, longest first. */
+  length: number[];
+  cumulative_length: number[];
+  /** Over 1,000 contigs: the 500 longest, then evenly spaced ranks to the last. */
+  downsampled: boolean;
+}
+
+export interface AssemblyCheck {
+  code: string;
+  rule: string;
+  evaluated: boolean;
+  skipped_reason: string | null;
+}
+
+export interface AssemblyStats {
+  contig_count: number;
+  total_length: number;
+  largest_contig: number;
+  smallest_contig: number;
+  n50: number;
+  l50: number;
+  n90: number;
+  l90: number;
+  gc_percent: number | null;
+  n_count: number;
+  n_per_100kb?: number;
+  /** Bins are [min_length, max_length). */
+  length_histogram?: { min_length: number; max_length: number; contigs: number; total_length: number }[];
+  cumulative?: AssemblyCurve;
+  thresholds?: { min_length: number; contigs: number; total_length: number; total_length_percent: number }[];
+  circularity: { contigs_with_circularity: number; circular_contigs: number };
+  coverage: { contigs_with_coverage: number; length_weighted_median: number | null };
+  contig_rows: { stored: number; total: number; truncated: boolean };
+  expected_genome_size: AssemblyGenomeSize;
+  /** Every heuristic check, including those that could not be evaluated. */
+  warning_checks?: AssemblyCheck[];
+  files: Record<"contigs" | "graph" | "info", { path: string; sha256: string; size_bytes: number } | null>;
+}
+
+export interface Assembly {
+  id: string;
+  sample_id: string;
+  job_id: string;
+  assembler: string;
+  assembler_version: string;
+  mode: "long" | "short" | "hybrid";
+  read_type: string;
+  input_file_ids: string[];
+  stats: AssemblyStats;
+  warnings: AssemblyWarning[];
+  created_at: string;
+}
+
+export interface AssemblyDetail extends Assembly {
+  contigs: AssemblyContig[];
+}
+
+export interface AssemblyGraphNode {
+  id: string;
+  length: number;
+  /** Numeric GFA tags as the assembler wrote them (e.g. Flye's dp). */
+  tags: Record<string, number>;
+  /** GFA paths (P lines; Flye: contigs) through this segment, at most 20. */
+  paths: string[];
+  /** True when a contig in `paths` is reported circular by the assembler; null when none of them has the flag. */
+  circular: boolean | null;
+  repeat: boolean | null;
+}
+
+export interface AssemblyGraphEdge {
+  source: string;
+  source_orientation: "+" | "-";
+  target: string;
+  target_orientation: "+" | "-";
+  overlap: string;
+  tags: Record<string, number>;
+}
+
+export interface AssemblyGraph {
+  assembly_id: string;
+  assembler: string;
+  /** The segment tag holding this assembler's coverage (Flye: dp) and what it measures. */
+  coverage_tag: string | null;
+  coverage_meaning: string | null;
+  format: "GFA1";
+  version: string | null;
+  segment_count: number;
+  link_count: number;
+  path_count: number;
+  /** Links naming a segment the file does not define (not shown). */
+  dangling_links: number;
+  total_segment_length: number;
+  numeric_tags: string[];
+  max_nodes: number;
+  max_edges: number;
+  truncated: boolean;
+  /** Longest segments first. */
+  nodes: AssemblyGraphNode[];
+  edges: AssemblyGraphEdge[];
+}
+
+/** One assembly of a project, for the project page. */
+export interface ProjectAssembly {
+  id: string;
+  sample_id: string;
+  sample_code: string;
+  job_id: string;
+  assembler: string;
+  assembler_version: string;
+  mode: Assembly["mode"];
+  read_type: string;
+  contig_count: number;
+  total_length: number;
+  largest_contig: number;
+  n50: number;
+  l50: number;
+  gc_percent: number | null;
+  circular_contigs: number;
+  contigs_with_circularity: number;
+  median_coverage: number | null;
+  warning_codes: string[];
+  created_at: string;
+}
+
+/** Flye's own per-contig columns from assembly_info.txt, kept in the job's result summary. */
+export interface FlyeContigRow {
+  name: string;
+  length: number;
+  coverage: number;
+  circular: boolean;
+  repeat: boolean;
+  multiplicity: number;
+  alt_group: string | null;
+  graph_path: string;
+}
+
+/** How QUAST would find minimap2 for a reference; "missing": it would compile its own copy, which ARVA refuses. */
+export interface QuastAligner {
+  provided_by: "quast_bundled" | "path" | "missing";
+  executable?: string | null;
+  version?: string | null;
+  /** A minimap2 on PATH that is too old for QUAST. */
+  found?: string | null;
+}
+
+export interface QuastPlannedAssembly {
+  assembly_id: string;
+  /** The name QUAST uses for the assembly in its reports. */
+  label: string;
+  assembler: string;
+  assembler_version: string;
+  read_type: string;
+  created_at: string;
+  contigs: number;
+  total_length: number;
+  /** Contigs of at least min_contig bp, which QUAST's metrics describe. */
+  contigs_kept: number;
+  length_kept: number;
+  contigs_left_out: number;
+  length_left_out: number;
+}
+
+export interface QuastPlan {
+  tool: {
+    status: ToolStatus;
+    version: string | null;
+    version_validated: boolean;
+    message: string;
+    reason: string | null;
+    aligner: QuastAligner | null;
+    max_threads: number;
+    default_min_contig: number;
+  };
+  min_contig: number;
+  assemblies: QuastPlannedAssembly[];
+  reference: { file_id: string; name: string; size_bytes: number; origin: RawFile["origin"] } | null;
+}
+
+export interface QuastRequest {
+  assembly_ids: string[];
+  reference_file_id: string | null;
+  min_contig: number;
+  threads?: number | null;
+}
+
+/** A value in QUAST's report: a number, "-" (null), "X + Y part", or text ARVA does not interpret. */
+export type QuastValue = number | null | string | { full: number; partial: number };
+
+export interface QuastCrosscheckRow {
+  metric: string;
+  arva_key: string;
+  quast: QuastValue;
+  arva: number | null;
+  /** Decimals QUAST prints (null: an exact count or length). */
+  decimals: number | null;
+  agrees: boolean | null;
+}
+
+/** result_summary of a completed quast_evaluation job. */
+export interface QuastSummary {
+  quast_version: string;
+  python_version: string | null;
+  min_contig: number;
+  reference: { file_id: string; name: string; sha256: string | null; size_bytes: number } | null;
+  assemblies: { assembly_id: string; label: string; assembler: string; assembler_version: string; assembly_job_id: string; contigs_sha256: string }[];
+  report: { labels: string[]; rows: { field: string; values: QuastValue[] }[] };
+  crosscheck: { assembly_id: string; label: string; arva: Record<string, number | null>; rows: QuastCrosscheckRow[]; all_agree: boolean }[];
+  aligner: { name: string; executable: string; version: string } | null;
+  warnings: string[];
+  quast_log_empty: boolean;
+  html: { report: string; icarus: string; viewers: string[] };
 }

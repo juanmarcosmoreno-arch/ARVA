@@ -1,10 +1,13 @@
-"""Bounded reading of GFA 1 assembly graphs (segments and links) for display.
+"""Bounded reading of GFA 1 assembly graphs (segments, links and paths) for display.
 
-Only what a graph view needs is kept: each segment's name, length and numeric tags, and each link's
-ends, orientations, overlap and numeric tags. Sequences are measured and discarded. Numeric tags are
-returned as the assembler wrote them, because assemblers define them differently (Flye's ``dp`` is a
-mean read depth, Unicycler's ``dp`` a depth relative to the chromosome, SPAdes' ``KC`` a k-mer count);
-interpreting them is left to the caller, which knows the assembler.
+Only what a graph view needs is kept: each segment's name, length, numeric tags and the paths (P lines)
+that pass through it, and each link's ends, orientations, overlap and numeric tags. Sequences are
+measured and discarded. Assemblers that write P lines name each path after a contig (Flye 2.9 and later:
+one P line per contig), so a segment's paths say which contigs it belongs to (at most 20 path names per
+segment are kept, in file order). Numeric tags are returned as the assembler wrote them, because
+assemblers define them differently (Flye's ``dp`` is a mean read depth, Unicycler's ``dp`` a depth
+relative to the chromosome, SPAdes' ``KC`` a k-mer count); interpreting them is left to the caller,
+which knows the assembler.
 
 When the graph has more segments than ``max_nodes``, the longest are kept (ties: file order) and only
 links between kept segments are returned, at most ``max_edges`` of them in file order; ``truncated``
@@ -19,6 +22,7 @@ from typing import Any
 from arva_core.formats import open_sequence_file
 
 GFA_ORIENTATIONS = ("+", "-")
+MAX_NODE_PATHS = 20
 _TAG = re.compile(r"^([A-Za-z][A-Za-z0-9]):([AifZJHB]):(.*)$")
 # GFA 2 record types; their presence means the file is not GFA 1.
 _GFA2_RECORDS = {"E", "G", "O", "U", "F"}
@@ -55,6 +59,7 @@ def read_gfa(path: Path, max_nodes: int = 2000, max_edges: int = 5000) -> dict[s
     names: set[str] = set()
     links: list[tuple[str, str, str, str, str, dict[str, int | float]]] = []
     paths = 0
+    members: dict[str, list[str]] = {}
     with open_sequence_file(Path(path)) as fh:
         for line_no, raw in enumerate(fh, start=1):
             try:
@@ -95,6 +100,15 @@ def read_gfa(path: Path, max_nodes: int = 2000, max_edges: int = 5000) -> dict[s
                     raise GfaFormatError("link orientations must be '+' or '-'", line_no)
                 links.append((fields[1], fields[2], fields[3], fields[4], fields[5], _numeric_tags(fields[6:], line_no)))
             elif kind == "P":
+                if len(fields) < 3:
+                    raise GfaFormatError("path line needs a name and a list of segments", line_no)
+                for step in fields[2].split(","):
+                    if len(step) < 2 or step[-1] not in GFA_ORIENTATIONS:
+                        raise GfaFormatError(f"path '{fields[1][:40]}': step {step[:40]!r} is not a segment name "
+                                             "followed by '+' or '-'", line_no)
+                    on = members.setdefault(step[:-1], [])
+                    if fields[1] not in on and len(on) < MAX_NODE_PATHS:
+                        on.append(fields[1])
                 paths += 1
             elif kind in _GFA2_RECORDS:
                 raise GfaFormatError(f"'{kind}' records belong to GFA 2, which is not supported", line_no)
@@ -117,7 +131,8 @@ def read_gfa(path: Path, max_nodes: int = 2000, max_edges: int = 5000) -> dict[s
         "max_nodes": max_nodes,
         "max_edges": max_edges,
         "truncated": len(order) < len(segments) or len(shown) < len(defined),
-        "nodes": [{"id": segments[i][0], "length": segments[i][1], "tags": segments[i][2]} for i in order],
+        "nodes": [{"id": segments[i][0], "length": segments[i][1], "tags": segments[i][2],
+                   "paths": members.get(segments[i][0], [])} for i in order],
         "edges": [
             {"source": a, "source_orientation": ao, "target": b, "target_orientation": bo, "overlap": ov, "tags": tags}
             for a, ao, b, bo, ov, tags in shown

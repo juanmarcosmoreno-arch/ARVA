@@ -1,0 +1,23 @@
+WARNING: Python locale settings can't be changed
+/root/.arva-tools/quast/bin/quast.py /job/input/assembly_01.fasta --output-dir /job/quast --threads 1 --min-contig 500 --labels bad --contig-thresholds 0,1000,5000,10000,25000,50000 --x-for-Nx 90 --no-plots
+
+Version: 5.2.0
+
+System information:
+  OS: Linux-6.18.44-fc-v180-x86_64-with-glibc2.39 (linux_64)
+  Python version: 3.12.3
+  CPUs number: 4
+
+Started: 2026-10-28 14:39:23
+
+Logging to /job/quast/quast.log
+
+CWD: /job
+Main parameters: 
+  MODE: default, threads: 1, min contig length: 500, min alignment length: 65, min alignment IDY: 95.0, \
+  ambiguity: one, min local misassembly length: 200, min extensive misassembly length: 1000
+
+Contigs:
+  Pre-processing...
+
+    ERROR! Skipping /job/input/assembly_01.fasta because it contains non-ACGTN characters.
