@@ -244,6 +244,10 @@ def test_assembly_job_records_everything_and_cleans_up(client, fake_flye, storag
     assert [(c["name"], c["coverage"], c["circular"], c["repeat"]) for c in contigs] == [
         ("contig_1", 52.0, True, False), ("contig_2", 95.0, True, False)]
     assert client.get(f"{API}/assemblies/{a['id']}/graph").json()["segment_count"] == 2
+    report = client.get(f"{API}/samples/{sample['id']}/report?format=json").json()
+    step = next(st for st in report["processing"] if st["job_type"] == "flye_assembly")
+    assert step["highlights"][:2] == ["Assembly (nano-hq): 2 contigs, 165,001 bp, N50 150,001 bp, largest 150,001 bp; "
+                                      "2 reported circular by Flye", "Minimum overlap 3,000 bp (set by the user)"]
 
     log = client.get(f"{API}/jobs/{detail['id']}/log", params={"tail": 3})
     assert log.status_code == 200 and log.headers["x-arva-log-source"] == "tool"

@@ -400,3 +400,52 @@ def test_nanoplot_fails_when_no_reads_are_left(tmp_path, recording_proxy):
     # NanoStats.txt is written before NanoPlot gives up, so its presence alone does not mean success.
     assert "No reads left after filtering" in err.value.stderr_tail
     assert (job / output_names("a_").stats).is_file() and not (job / output_names("a_").report).exists()
+
+
+def test_flye_assembles_the_synthetic_genome(tmp_path):
+    """Default synthetic genome (circular 300 kb chromosome with a 5 kb repeat in two copies, circular 15 kb plasmid
+    at two copies) with Nanopore-like reads at 30x. Recorded with Flye 2.9.3 (Ubuntu 2.9.3+dfsg2-1), --nano-hq,
+    2 threads: contig 300,000 bp circular at 31x and 15,000 bp circular at 53x with multiplicity 2, both identical
+    to the reference (reverse strand / rotated start); identical bytes in two runs."""
+    import os
+    import subprocess
+    import sys
+
+    from arva_tools.flye import FlyeAdapter, FlyeParams, read_link_name, samtools_helper
+
+    exe = tool("flye")
+    data = tmp_path / "genome"
+    subprocess.run([sys.executable, str(Path(__file__).resolve().parents[3] / "scripts" / "make_synthetic_genome.py"),
+                    str(data), "--ont-depth", "30", "--illumina-depth", "1"], check=True, capture_output=True)
+    link = tmp_path / "in" / read_link_name(1, "ont.fastq.gz", compressed=True)
+    link.parent.mkdir()
+    link.symlink_to(data / "ont.fastq.gz")
+    env = None
+    helper = samtools_helper(exe)
+    if helper["provided_by"] == "arva_link":
+        bindir = tmp_path / "helper-bin"
+        bindir.mkdir()
+        (bindir / "flye-samtools").symlink_to(helper["samtools"])
+        env = {"PATH": f"{bindir}{os.pathsep}{os.environ['PATH']}"}
+    elif helper["path_prepend"]:
+        env = {"PATH": f"{helper['path_prepend']}{os.pathsep}{os.environ['PATH']}"}
+    params = FlyeParams(read_type="nano-hq", threads=2)
+    argv = FlyeAdapter.argv(exe, params, [link], tmp_path / "out", FlyeAdapter.help_options(exe))
+    log = tmp_path / "flye.stderr.log"
+    seen: list[str] = []
+
+    def monitor():
+        seen[:] = [s for line in log.read_text().splitlines() if (s := FlyeAdapter.stage(line))]
+
+    run_command(argv, cwd=tmp_path, stderr_path=log, extra_env=env, monitor=monitor, monitor_seconds=1)
+    monitor()
+    assert tuple(seen) == params.stages()
+
+    rows = FlyeAdapter.parse_assembly_info((tmp_path / "out" / "assembly_info.txt").read_text())
+    assert len(rows) == 2 and all(r["circular"] and not r["repeat"] for r in rows)
+    chromosome, plasmid = sorted(rows, key=lambda r: -r["length"])
+    assert abs(chromosome["length"] - 300_000) <= 10 and abs(plasmid["length"] - 15_000) <= 10
+    assert plasmid["multiplicity"] == 2 and 1.5 <= plasmid["coverage"] / chromosome["coverage"] <= 2.5
+    summary = FlyeAdapter.parse_log((tmp_path / "out" / "flye.log").read_text())
+    assert summary["stages_seen"] == list(params.stages()) and summary["fragments"] == 2
+    assert summary["min_overlap"] in range(1000, 10_001)

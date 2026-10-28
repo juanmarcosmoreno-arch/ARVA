@@ -14,13 +14,14 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app import __version__ as ARVA_VERSION
-from app.models import AnalysisJob, JobStatus, RawFile, Sample
+from app.models import AnalysisJob, Assembly, JobStatus, RawFile, Sample
 from app.services import crosscheck, qc_data
 from app.services.jobs import (
     FASTP_JOB,
     FASTQ_STATS_JOB,
     FASTQC_JOB,
     FILTLONG_JOB,
+    FLYE_JOB,
     NANOPLOT_JOB,
     POD5_JOB,
     SEQKIT_JOB,
@@ -173,7 +174,7 @@ def _processing_steps(db: Session, sample: Sample, latest: dict) -> list[dict[st
         .where(
             AnalysisJob.sample_id == sample.id,
             AnalysisJob.status == JobStatus.completed,
-            AnalysisJob.job_type.in_([FASTP_JOB, FILTLONG_JOB, SEQKIT_JOB, FASTQC_JOB, NANOPLOT_JOB]),
+            AnalysisJob.job_type.in_([FASTP_JOB, FILTLONG_JOB, SEQKIT_JOB, FASTQC_JOB, NANOPLOT_JOB, FLYE_JOB]),
         )
         .order_by(AnalysisJob.finished_at)
     ).all()
@@ -231,6 +232,8 @@ def _processing_steps(db: Session, sample: Sample, latest: dict) -> list[dict[st
                 step["highlights"].append(
                     f"NanoPlot removed {summary['artefact_reads_removed']} artefactual read(s) (length < 20, quality > 30) "
                     "after these statistics; see NanoStats_post_filtering.txt")
+        elif j.job_type == FLYE_JOB and summary:
+            step["highlights"] = _flye_highlights(db, j, summary)
         elif j.job_type == FASTQC_JOB and summary:
             flags = {}
             for m in summary.get("modules", []):
@@ -240,6 +243,27 @@ def _processing_steps(db: Session, sample: Sample, latest: dict) -> list[dict[st
             ] + _fastqc_data_highlights(qc_data.fastqc_summary(j))
         steps.append(step)
     return steps
+
+
+def _flye_highlights(db: Session, job: AnalysisJob, summary: dict[str, Any]) -> list[str]:
+    params = job.parameters or {}
+    out = []
+    assembly = db.scalar(select(Assembly).where(Assembly.job_id == job.id))
+    if assembly is not None:
+        st = assembly.stats
+        out.append(f"Assembly ({assembly.read_type}): {st['contig_count']:,} contigs, {st['total_length']:,} bp, "
+                   f"N50 {st['n50']:,} bp, largest {st['largest_contig']:,} bp; "
+                   f"{st['circularity']['circular_contigs']} reported circular by Flye")
+        if assembly.warnings:
+            out.append("Heuristic warnings: " + ", ".join(w["code"] for w in assembly.warnings))
+    log = summary.get("log") or {}
+    if params.get("min_overlap"):
+        out.append(f"Minimum overlap {params['min_overlap']:,} bp (set by the user)")
+    elif "min_overlap" in log:
+        out.append(f"Minimum overlap {log['min_overlap']:,} bp (chosen by Flye from the reads' N90)")
+    if (params.get("threads") or 1) > 1:
+        out.append(f"{params['threads']} threads: Flye's output can differ between runs and thread counts")
+    return out
 
 
 def _insert_size_highlight(job: AnalysisJob, summary: dict[str, Any]) -> list[str]:
