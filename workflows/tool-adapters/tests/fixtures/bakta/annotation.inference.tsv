@@ -1,0 +1,11 @@
+# Annotated with Bakta
+# Software: v1.12.2
+# Database: v6.0, light
+# DOI: 10.1099/mgen.0.000685
+# URL: github.com/oschwengers/bakta
+#Sequence Id	Type	Start	Stop	Strand	Locus Tag	Score	Evalue	Query Cov	Subject Cov	Id	Accession
+contig_1	tRNA	1494	1568	+	SYNT_01	40.6	-	-	-	-	-
+contig_1	tRNA	2422	2501	+	SYNT_02	71.2	-	-	-	-	-
+contig_1	rRNA	3142	3256	+	SYNT_03	54.4	4.6e-10	-	-	-	RFAM:RF00001
+contig_1	rRNA	4428	5953	+	SYNT_04	656.1	8.4e-24	-	-	-	RFAM:RF00177
+contig_1	ncRNA	7916	8278	+	SYNT_05	161.7	3.1e-21	-	-	-	RFAM:RF00010

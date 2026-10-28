@@ -6,7 +6,10 @@ import type {
   BatchQcRequest,
   AssemblyDetail,
   AssemblyGraph,
+  CatalogueEntry,
   CrossCheck,
+  DatabaseUsage,
+  DownloadPlan,
   DashboardSummary,
   FastpData,
   FastpParams,
@@ -40,6 +43,7 @@ import type {
   QuastPlan,
   QuastRequest,
   RawFile,
+  ReferenceDatabase,
   Sample,
   SampleInput,
   StorageCapacity,
@@ -177,6 +181,18 @@ export const api = {
 
   tools: (refresh = false) => request<Tool[]>(`/tools${refresh ? "?refresh=true" : ""}`),
   libraries: () => request<Library[]>("/tools/libraries"),
+  databaseCatalogue: () => request<CatalogueEntry[]>("/databases/catalogue"),
+  databases: () => request<ReferenceDatabase[]>("/databases"),
+  database: (id: string) => request<ReferenceDatabase>(`/databases/${id}`),
+  databaseUsage: () => request<DatabaseUsage>("/databases/usage"),
+  databasePlan: (key: string) => request<DownloadPlan>(`/databases/catalogue/${encodeURIComponent(key)}/plan`),
+  /** `confirmBytes` repeats the archive size shown to the user; the licence must have been accepted. */
+  downloadDatabase: (key: string, confirmBytes: number, acceptLicence: boolean) =>
+    request<ReferenceDatabase>("/databases/downloads", json("POST", { key, confirm_bytes: confirmBytes, accept_licence: acceptLicence })),
+  registerDatabase: (path: string) => request<ReferenceDatabase>("/databases/register", json("POST", { path })),
+  verifyDatabase: (id: string) => request<ReferenceDatabase>(`/databases/${id}/verify`, { method: "POST" }),
+  cancelDatabaseTask: (id: string) => request<ReferenceDatabase>(`/databases/${id}/cancel`, { method: "POST" }),
+  deleteDatabase: (id: string) => request<void>(`/databases/${id}`, { method: "DELETE" }),
   runPod5Summary: (sampleId: string, fileIds: string[]) =>
     request<AnalysisJob[]>(`/samples/${sampleId}/analyses/pod5`, json("POST", { raw_file_ids: fileIds })),
   runPerFileTool: (sampleId: string, tool: "seqkit" | "fastqc", fileIds: string[]) =>

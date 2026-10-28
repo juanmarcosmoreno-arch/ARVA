@@ -6,6 +6,8 @@ x-arva-env: &arva-env
   ARVA_DATABASE_URL: postgresql+psycopg://arva:${ARVA_DB_PASSWORD:-arva_local_only}@postgres:5432/arva
   ARVA_REDIS_URL: redis://redis:6379/0
   ARVA_STORAGE_ROOT: /data
+  # Reference databases (Database Manager): a named volume, or a host folder with ARVA_DATABASES_DIR.
+  ARVA_DB_DIR: /databases
   ARVA_CORS_ORIGINS: '["http://localhost:8080"]'
   # Host folder mounted read-only at /import for server-side import (see import/README.md).
   ARVA_IMPORT_ROOTS: '["/import"]'
@@ -41,6 +43,7 @@ services:
     environment: *arva-env
     volumes:
       - ${ARVA_DATA_DIR:-arva-data}:/data
+      - ${ARVA_DATABASES_DIR:-arva-databases}:/databases
       - ${ARVA_IMPORT_DIR:-./import}:/import:ro
     depends_on:
       postgres: { condition: service_healthy }
@@ -59,6 +62,7 @@ services:
     environment: *arva-env
     volumes:
       - ${ARVA_DATA_DIR:-arva-data}:/data
+      - ${ARVA_DATABASES_DIR:-arva-databases}:/databases
       - ${ARVA_IMPORT_DIR:-./import}:/import:ro
     depends_on:
       api: { condition: service_healthy }
@@ -76,3 +80,4 @@ services:
 volumes:
   postgres-data:
   arva-data:
+  arva-databases:

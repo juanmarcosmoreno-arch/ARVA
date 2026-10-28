@@ -26,6 +26,8 @@ class Settings(BaseSettings):
 
     # Root directory for all managed scientific data (raw, processed, results, logs, ...).
     storage_root: Path = Path("./data")
+    # Reference databases (Bakta, ...) installed by the Database Manager; unset: <storage_root>/databases.
+    db_dir: Path | None = None
 
     # CORS
     cors_origins: list[str] = ["http://localhost:5173", "http://localhost:4173"]
@@ -79,6 +81,10 @@ class Settings(BaseSettings):
     def logs_dir(self) -> Path:
         return self.storage_root / "logs"
 
+    @property
+    def databases_dir(self) -> Path:
+        return self.db_dir or self.storage_root / "databases"
+
 
 @lru_cache
 def get_settings() -> Settings:
@@ -89,6 +95,7 @@ def get_settings() -> Settings:
         settings.results_dir,
         settings.reports_dir,
         settings.logs_dir,
+        settings.databases_dir,
     ):
         d.mkdir(parents=True, exist_ok=True)
     return settings

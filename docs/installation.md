@@ -16,6 +16,10 @@ docker compose up -d --build
 
 Services: `postgres`, `redis`, `api` (runs migrations on start), `worker`, `web` (nginx). Ports are
 bound to `127.0.0.1`. To keep data in a host folder set `ARVA_DATA_DIR=/absolute/path` in `.env`.
+Reference databases installed from the Tools & Databases page live in the `arva-databases` volume,
+mounted at `/databases` (`ARVA_DB_DIR`) in `api` and `worker`; set `ARVA_DATABASES_DIR=/absolute/path`
+in `.env` to keep them in a host folder instead (writable by the container's `arva` user), for example
+on a larger disk: Bakta's full database needs tens of gigabytes.
 
 ```bash
 docker compose logs -f worker     # follow analysis execution
@@ -330,6 +334,61 @@ is on another disk. Server folder import copies directly and needs only the file
 
 `GET /api/v1/system/storage` reports the figures (also shown on the Import page).
 
+## Reference databases (Database Manager)
+
+The **Databases** section of the Tools & Databases page installs, registers, verifies and deletes the
+reference databases that annotation tools read. Databases live in `ARVA_DB_DIR` (default
+`<ARVA_STORAGE_ROOT>/databases`; Docker: the `/databases` volume), which the API **and** the worker must
+see at the same path.
+
+| Database | Version | Download | Unpacked (Bakta README) | Checksum (MD5, published) | Licence |
+|---|---|---|---|---|---|
+| Bakta light | 6.0 (2025-02-24) | 1,344,199,496 bytes | 3.9 Gb | `4a6e059ded39e9c5537ef4137d2f5648` | CC BY 4.0 |
+| Bakta full | 6.0 (2025-02-24) | 31,921,769,288 bytes | 84 Gb | `4c1115e40abfa2b464ae5dd988bdd88e` | CC BY 4.0 |
+
+Source: Zenodo record [14916843](https://zenodo.org/records/14916843) (doi:10.5281/zenodo.14916843); the
+sizes and checksums are the record's, and the same MD5s appear in Bakta's README and in the record's
+`db-versions.json`. AMRFinderPlus and CheckM2 databases are listed as *planned*.
+
+- **Download**: the dialog shows the source, licence and terms, the archive size, the space needed
+  (bytes still to download plus the unpacked size, read in the larger unit) and the usable free space
+  (`ARVA_MIN_FREE_BYTES` stays free). Nothing starts until you accept the licence and confirm; the API
+  also requires the confirmed archive size (`confirm_bytes`) and refuses with 507 when the space is
+  insufficient. The worker downloads from the official URL only (redirects to other hosts are refused),
+  saves progress every second, can be cancelled, and keeps a partial file so the next download resumes
+  it with an HTTP range request (Zenodo answers ranges; a server that ignores them is downloaded again
+  from the start). The MD5 is then compared with the published one (a mismatch deletes the archive),
+  the archive is unpacked with path checks, Bakta's own folder check runs, ARVA records the SHA-256 of
+  every file, the folder is moved to `ARVA_DB_DIR/<key>/<version>` (e.g. `bakta-light/6.0`) and the
+  archive is deleted.
+- **Register** an existing Bakta database folder (the one holding `version.json`) inside `ARVA_DB_DIR`
+  or an import folder: ARVA runs Bakta's checks (keys of `version.json`, schema version 6, required
+  files) and records the SHA-256 of every file. A registered folder is never modified or deleted.
+- **Verify** repeats Bakta's check and compares every file with the recorded SHA-256 (the archive's MD5
+  can only be checked before unpacking).
+- **Delete** removes an installed database's folder and record, or only the record of a registered
+  folder; it is refused while the database is being downloaded or verified, or while a queued or
+  running job uses it. Jobs that used it keep its key, version and checksum.
+
+Bakta's own installer `bakta_db download` was examined (Bakta 1.12.2, `bakta/db.py`) and is not used: it
+needs AMRFinderPlus installed even to download, reads the list of versions from the `main` branch on
+GitHub, does not resume, unpacks with `tarfile.extractall` without a filter, and finally runs
+`amrfinder_update --force_update` on the database's `amrfinderplus-db/` folder, which updates the
+AMRFinderPlus data to whatever release NCBI offers that day (unpinned). ARVA implements the same download,
+MD5 and folder checks itself and does not run that update: the light 6.0 archive already contains
+`amrfinderplus-db/2024-12-18.1` (database format 4.0.1) with `latest` linking to it, the release its
+`version.json` lists, and ARVA records that version. Bakta 1.12.2 needs AMRFinderPlus 4.2.7 or later to
+use it.
+
+Development install used by the next parts (2026-10-28): Bakta light 6.0 downloaded through this
+mechanism into `/root/.arva-db/bakta-light/6.0` (48 files, 3,994,877,552 bytes; MD5 matched; archive
+deleted after extraction).
+
+API: `GET /api/v1/databases/catalogue`, `GET /databases/catalogue/{key}/plan`, `POST /databases/downloads`
+(`{key, confirm_bytes, accept_licence}`), `POST /databases/register` (`{path}`), `GET /databases`,
+`GET /databases/usage`, `GET /databases/{id}` (with its log), `POST /databases/{id}/verify`,
+`POST /databases/{id}/cancel`, `DELETE /databases/{id}`.
+
 ## Configuration
 
 Environment variables (prefix `ARVA_`), also read from `apps/api/.env`:
@@ -343,6 +402,8 @@ Environment variables (prefix `ARVA_`), also read from `apps/api/.env`:
 | `ARVA_MIN_FREE_BYTES` | 1073741824 (1 GiB) | Free space that uploads and imports must leave on the storage disk |
 | `ARVA_IMPORT_ROOTS` | `[]` (disabled) | Server folders that may be browsed and imported from (JSON list); Docker: `["/import"]` |
 | `ARVA_IMPORT_DIR` | `./import` | Docker Compose only: host folder mounted read-only at `/import` |
+| `ARVA_DB_DIR` | `<ARVA_STORAGE_ROOT>/databases` | Reference databases (Database Manager); Docker: `/databases` |
+| `ARVA_DATABASES_DIR` | volume `arva-databases` | Docker Compose only: host folder mounted at `/databases` |
 | `ARVA_CORS_ORIGINS` | `["http://localhost:5173","http://localhost:4173"]` | Allowed web origins (JSON list) |
 | `ARVA_METADATA_MAX_BYTES` | 10485760 (10 MiB) | Largest sample-metadata table (CSV or .xlsx) accepted |
 | `ARVA_METADATA_MAX_ROWS` | 10000 | Data rows per metadata table |

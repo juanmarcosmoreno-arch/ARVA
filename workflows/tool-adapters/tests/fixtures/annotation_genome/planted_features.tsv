@@ -1,0 +1,26 @@
+# SYNTHETIC planted features (1-based, inclusive); parameters: {'seed': 20261028, 'chromosome_genes': 12, 'plasmid_genes': 2, 'min_codons': 100, 'max_codons': 450, 'min_spacer': 60, 'max_spacer': 250, 'crispr_repeats': 7, 'gap_length': 100}
+sequence	type	id	start	end	strand	length
+SYNTHETIC_annotation_chromosome	orf	SYNTHETIC_annotation_chromosome_orf0001	233	1267	+	1035
+SYNTHETIC_annotation_chromosome	inserted_sequence	SYNTHETIC_cmemit_TRNAinf-bact_seed11_1	1494	1568	+	75
+SYNTHETIC_annotation_chromosome	orf	SYNTHETIC_annotation_chromosome_orf0002	1800	2339	+	540
+SYNTHETIC_annotation_chromosome	inserted_sequence	SYNTHETIC_cmemit_TRNAinf-bact_seed11_2	2422	2501	+	80
+SYNTHETIC_annotation_chromosome	orf	SYNTHETIC_annotation_chromosome_orf0003	2619	2936	-	318
+SYNTHETIC_annotation_chromosome	inserted_sequence	SYNTHETIC_cmemit_5S_rRNA_seed12	3142	3256	+	115
+SYNTHETIC_annotation_chromosome	orf	SYNTHETIC_annotation_chromosome_orf0004	3437	4333	+	897
+SYNTHETIC_annotation_chromosome	inserted_sequence	SYNTHETIC_cmemit_SSU_rRNA_bacteria_seed13	4428	5952	+	1525
+SYNTHETIC_annotation_chromosome	crispr_like_array	SYNTHETIC_annotation_chromosome_array	6034	6453	.	420
+SYNTHETIC_annotation_chromosome	orf	SYNTHETIC_annotation_chromosome_orf0005	6689	7714	-	1026
+SYNTHETIC_annotation_chromosome	inserted_sequence	SYNTHETIC_cmemit_RNaseP_bact_a_seed14	7916	8278	+	363
+SYNTHETIC_annotation_chromosome	orf	SYNTHETIC_annotation_chromosome_orf0006	8514	9071	+	558
+SYNTHETIC_annotation_chromosome	back_translated_orf	P04395	9264	10112	+	849
+SYNTHETIC_annotation_chromosome	orf	SYNTHETIC_annotation_chromosome_orf0007	10338	10724	+	387
+SYNTHETIC_annotation_chromosome	back_translated_orf	P05100	10844	11407	+	564
+SYNTHETIC_annotation_chromosome	orf	SYNTHETIC_annotation_chromosome_orf0008	11645	12130	-	486
+SYNTHETIC_annotation_chromosome	back_translated_orf	Q59087	12351	13169	+	819
+SYNTHETIC_annotation_chromosome	gap	SYNTHETIC_annotation_chromosome_gap	13231	13330	.	100
+SYNTHETIC_annotation_chromosome	orf	SYNTHETIC_annotation_chromosome_orf0009	13489	14049	+	561
+SYNTHETIC_annotation_chromosome	orf	SYNTHETIC_annotation_chromosome_orf0010	14263	14796	-	534
+SYNTHETIC_annotation_chromosome	orf	SYNTHETIC_annotation_chromosome_orf0011	14960	16309	-	1350
+SYNTHETIC_annotation_chromosome	orf	SYNTHETIC_annotation_chromosome_orf0012	16453	17307	-	855
+SYNTHETIC_annotation_plasmid	orf	SYNTHETIC_annotation_plasmid_orf0001	170	538	-	369
+SYNTHETIC_annotation_plasmid	orf	SYNTHETIC_annotation_plasmid_orf0002	638	1315	+	678

@@ -636,6 +636,10 @@ export interface AnalysisJob {
   tool_version: string;
   database_name: string | null;
   database_version: string | null;
+  /** The reference database the job read (Database Manager): catalogue key and content checksum. */
+  database_key?: string | null;
+  database_checksum?: string | null;
+  reference_database_id?: string | null;
   parameters: Record<string, unknown> | null;
   input_raw_file_ids: string[] | null;
   output_paths: string[] | null;
@@ -1482,4 +1486,102 @@ export interface PolishingSummary {
   observations: PolishingObservation[];
   helpers: { name: string; version: string | null; path: string }[];
   followups: { pilon_job_id?: string; quast_job_id?: string; pilon_error?: string; quast_error?: string };
+}
+
+/** A database ARVA knows (Database Manager catalogue), with the facts published by its source. */
+export interface CatalogueEntry {
+  key: string;
+  name: string;
+  tool: string;
+  status: "available" | "planned";
+  description: string;
+  version: string | null;
+  release_date: string | null;
+  db_type: string | null;
+  source_url: string | null;
+  doi: string | null;
+  download_url: string | null;
+  filename: string | null;
+  archive_bytes: number | null;
+  checksum_algorithm: string | null;
+  checksum: string | null;
+  checksum_sources: string[];
+  extracted_size_note: string | null;
+  extracted_bytes_estimate: number | null;
+  licence: string | null;
+  licence_url: string | null;
+  terms: string | null;
+  citation: string | null;
+  compatibility: string | null;
+  external_versions: Record<string, string>;
+  notes: string[];
+}
+
+export type DatabaseStatus = "installed" | "registered" | "downloading" | "verifying" | "failed" | "cancelled";
+
+export interface DatabaseProgress {
+  phase: string | null;
+  bytes_done: number | null;
+  bytes_total: number | null;
+  written_bytes?: number | null;
+  resumed_from?: number | null;
+  started_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface ReferenceDatabase {
+  id: string;
+  key: string;
+  name: string;
+  version: string | null;
+  path: string | null;
+  source_url: string | null;
+  licence: string | null;
+  size_bytes: number | null;
+  checksum: string | null;
+  archive_checksum: string | null;
+  status: DatabaseStatus;
+  origin: "download" | "register";
+  installed_at: string | null;
+  verified_at: string | null;
+  notes: string | null;
+  error_message: string | null;
+  progress: DatabaseProgress | null;
+  cancel_requested_at: string | null;
+  created_at: string;
+  updated_at: string;
+  version_json: Record<string, unknown> | null;
+  files: number | null;
+  /** AMRFinderPlus data in amrfinderplus-db/latest (Bakta's AMR expert system), if present. */
+  amrfinderplus_db: { latest: string | null; version: string | null; database_format: string | null } | null;
+  archive: Record<string, unknown> | null;
+  catalogue_version: string | null;
+  jobs_using: number;
+  log_text: string | null;
+}
+
+export interface DownloadPlan {
+  entry: CatalogueEntry;
+  db_dir: string;
+  target_path: string;
+  partial_bytes: number;
+  download_bytes: number;
+  required_bytes: number;
+  free_bytes: number;
+  reserve_bytes: number;
+  available_bytes: number;
+  enough: boolean;
+  resume_record_id: string | null;
+  blocked_by: string | null;
+}
+
+export interface DatabaseUsage {
+  db_dir: string;
+  free_bytes: number;
+  total_bytes: number;
+  reserve_bytes: number;
+  installed_bytes: number;
+  registered_bytes: number;
+  partial_bytes: number;
+  staging_bytes: number;
 }

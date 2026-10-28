@@ -1057,6 +1057,43 @@ with the probability its own Phred value states. With Flye 2.9.3 (`--nano-hq`) t
 assemble into the two replicons at their exact lengths, both circular, the plasmid at about twice the
 chromosome's coverage.
 
+## Reference databases (Phase 4)
+
+Annotation results depend on the database as much as on the tool, so a database is treated like a tool
+version: identified exactly, checked, and recorded on every job that reads it.
+
+- **Catalogue facts** (`apps/api/app/services/database_catalogue.py`) are copied from the official source
+  and dated: for Bakta database 6.0, Zenodo record 14916843 (file names, byte sizes, MD5s, licence
+  `cc-by-4.0`, publication date 2025-02-24, versions of the external databases it was built from), the
+  same MD5s in Bakta's README and in the record's `db-versions.json` (which also gives Bakta 1.11 as the
+  oldest compatible software), and Bakta 1.12.2's source (`bakta/db.py`) for the folder layout and the
+  checks. The unpacked sizes are the README's approximate "3.9 Gb" and "84 Gb"; ARVA reserves them read as
+  GiB (the larger reading) and records the real size after unpacking. Databases ARVA does not support yet
+  (AMRFinderPlus, CheckM2) are listed as planned without any number.
+- **Identity of a download**: the archive's MD5 must equal the published one before anything is unpacked.
+  MD5 is what the publisher provides; it detects transfer errors and a different file, but is not
+  collision-resistant, so ARVA also downloads only from the record's URL over HTTPS.
+- **Validity of the folder**: Bakta's own check, re-implemented from `bakta/db.py`: `version.json` with
+  `date`, `major`, `minor` and `type`; schema `major` 6 (the schema Bakta 1.12.2 requires); every
+  required file (`bakta.db`, the HMM, Infernal and Diamond files, `oric.fna`, `orit.fna`, `rfam-go.tsv`,
+  plus `psc.dmnd` for full or `pscc.dmnd` for light). A download must also contain the catalogue's exact
+  version and type.
+- **Integrity later**: ARVA records the path, size and SHA-256 of every file (the manifest) and a content
+  checksum, `sha256:` over the canonical JSON of that manifest. *Verify* recomputes it: a changed or
+  missing file marks the database failed; added files are reported but do not change the recorded
+  database. A registered folder gets its manifest when it is registered; there is no published checksum
+  for an unpacked folder, so that manifest proves only that the folder has not changed since, not that it
+  equals the publisher's release.
+- **Provenance on jobs**: a job that reads a database stores its catalogue key, name, version and content
+  checksum (`analysis_jobs.database_key`, `database_name`, `database_version`, `database_checksum`) and a
+  link that is cleared, not cascaded, when the database is deleted, so the record of what was used
+  survives. A database cannot be deleted while a queued or running job uses it.
+- **AMRFinderPlus data**: Bakta's AMR expert system reads `amrfinderplus-db/latest`. The light 6.0
+  archive contains release 2024-12-18.1 (database format 4.0.1), the one its `version.json` lists; ARVA
+  records the release and format found there. Bakta's installer would replace it with NCBI's current
+  release (`amrfinder_update --force_update`); ARVA does not, so results stay tied to the release the
+  database was built with. Updating it would be a separate, recorded step.
+
 ## What ARVA does not do yet
 
 - No pass/fail thresholds: suitability depends on technology, chemistry and purpose.

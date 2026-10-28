@@ -1,11 +1,12 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, CheckCircle2, Database, ExternalLink, Package, RefreshCw, XCircle } from "lucide-react";
+import { AlertTriangle, CheckCircle2, ExternalLink, Package, RefreshCw, XCircle } from "lucide-react";
 import { useState } from "react";
 import { useLibraries } from "@/components/domain/RawSignal";
+import { DatabasesSection } from "@/components/tools/DatabasesSection";
 import { useTools } from "@/components/tools/useTools";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardBody, CardHeader } from "@/components/ui/card";
+import { Card, CardBody } from "@/components/ui/card";
 import { ErrorNote, PageHeader, Skeleton } from "@/components/ui/misc";
 import { useT, type TranslationKey } from "@/i18n";
 import { api } from "@/lib/api";
@@ -83,17 +84,7 @@ export function ToolsPage() {
           </div>
         )}
       </section>
-      <Card>
-        <CardHeader
-          title={
-            <span className="flex items-center gap-2">
-              <Database className="h-4 w-4 text-arva-royal dark:text-arva-cyan" /> Reference databases
-            </span>
-          }
-          description="Planned (Phase 5): CARD, VFDB, PubMLST schemes, GTDB, Bakta databases… Size, licence and disk space will always be shown before any download."
-        />
-        <CardBody className="pt-2 text-sm text-muted-foreground">No databases are needed by the analyses available today.</CardBody>
-      </Card>
+      <DatabasesSection />
       <p className="text-xs text-muted-foreground">
         Tools are found on the system PATH, in folders listed in <code>ARVA_TOOLS_PATH</code>, or at an explicit path given by{" "}
         <code>ARVA_TOOL_&lt;ID&gt;</code> (e.g. <code>ARVA_TOOL_FASTP=/opt/fastp/bin/fastp</code>). Results already produced are never affected by

@@ -6,7 +6,8 @@ FROM python:3.12.7-slim-bookworm
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
-    ARVA_STORAGE_ROOT=/data
+    ARVA_STORAGE_ROOT=/data \
+    ARVA_DB_DIR=/databases
 
 # Flye calls flye-samtools; when the flye package lacks it (Ubuntu's 2.9.3 does), ARVA links it to samtools per run.
 # minimap2 is the aligner QUAST uses with a reference (bookworm: 2.24, the version QUAST 5.2.0 bundles).
@@ -46,8 +47,9 @@ ENV ARVA_TOOL_MULTIQC=/opt/arva-tools/multiqc/bin/multiqc \
     ARVA_TOOL_NANOPLOT=/opt/arva-tools/nanoplot/bin/NanoPlot \
     ARVA_TOOL_QUAST=/opt/arva-tools/quast/bin/quast.py
 
+# /databases: reference databases (ARVA_DB_DIR); a new named volume takes this folder's owner.
 RUN groupadd --system arva && useradd --system --gid arva --home /opt/arva arva \
-    && mkdir -p /data && chown arva:arva /data
+    && mkdir -p /data /databases && chown arva:arva /data /databases
 
 WORKDIR /opt/arva
 COPY scientific-core ./scientific-core

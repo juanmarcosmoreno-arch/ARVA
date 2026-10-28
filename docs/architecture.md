@@ -93,6 +93,14 @@
   `result_summary` holds QUAST's report read by field name and ARVA's cross-check. QUAST's HTML pages are
   served by `GET /jobs/{id}/outputs/{path}`, where a path below the job folder (e.g.
   `quast/icarus_viewers/contig_size_viewer.html`) keeps the pages' relative links working.
+- **ReferenceDatabase** (`reference_databases`): a database installed by the Database Manager
+  (`origin` download, folder owned by ARVA inside `ARVA_DB_DIR`) or a registered folder (`origin` register,
+  only read): catalogue key, name, version, path, source, licence, size, content checksum (SHA-256 of the
+  file manifest), the archive's published checksum, status (`installed`, `registered`, `downloading`,
+  `verifying`, `failed`, `cancelled`), dates, progress, log and cancellation request. Downloads and
+  verifications run as worker tasks (`app/tasks/databases.py`) with their own lifecycle, since they belong
+  to no project. `analysis_jobs.reference_database_id` (SET NULL) plus `database_key`, `database_name`,
+  `database_version` and `database_checksum` record the database a job read.
 - **QCResult**: structured output of a sequence-statistics job for one raw file. Headline metrics are
   indexed columns; the full payload is JSON (also written to `results/…/sequence_stats.json`).
 
@@ -115,6 +123,14 @@ results/<project>/<sample>/<job-id>/…           analysis outputs and tool repo
 results/<project>/_project/<job-id>/…           project-level outputs (MultiQC report, its staged inputs)
 reports/<project>/<sample>/…                    every generated report is archived
 logs/<job-id>.log
+```
+
+Reference databases are outside the storage root's layout, in `ARVA_DB_DIR`:
+
+```
+<key>/<version>/…                   an installed database (e.g. bakta-light/6.0, Bakta's --db folder)
+.arva-downloads/<record-id>/….part  a partial download kept for resuming
+.arva-staging/<record-id>/…         unpacking in progress (removed on success, failure or cancellation)
 ```
 
 `StorageBackend` is a protocol so an S3-compatible backend can replace `LocalStorage` later.
@@ -216,6 +232,14 @@ them), and the UI opens the report in a new tab with `rel="noopener noreferrer"`
   usable free space are answered with 507 by an ASGI middleware before the body is read, and uploads
   without `Content-Length` with 411; each file is re-checked before it is stored and every 256 MB
   while it is written.
+- Database downloads come only from the catalogue's URL (no URL is accepted from a request; redirects
+  to another host are refused), after an explicit confirmation of the archive size and licence. Archives
+  are unpacked member by member without tarfile's extraction helpers: absolute names, `..`, members
+  outside the expected top folder, devices and FIFOs are refused, hard links must point to an earlier
+  file, symbolic links must be relative and stay inside the folder and are created last (never under
+  another link), so nothing is written through a link. Registration accepts only absolute paths whose
+  real path lies inside `ARVA_DB_DIR` or an import folder; deletion removes files only of a database ARVA
+  installed, strictly inside `ARVA_DB_DIR`.
 - User-supplied text is HTML-escaped in reports; the React UI never injects raw HTML from data.
 - External tools run from argument vectors only (no shell), with a credential-free environment,
   timeouts and process-group termination. User-supplied names appear in commands only inside

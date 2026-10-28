@@ -11,8 +11,10 @@ from app.api.capacity import UploadCapacityGuard, insufficient_storage_response
 from app.api.metadata_limit import MetadataUploadLimit
 from app.api.routes import (
     analyses,
+    annotations,
     assemblies,
     dashboard,
+    databases,
     files,
     imports,
     metadata,
@@ -78,7 +80,7 @@ def create_app() -> FastAPI:
         return {"status": "ok", "version": __version__}
 
     for module in (dashboard, projects, samples, files, imports, metadata, analyses, tools, reports, overview,
-                   assemblies, system):
+                   assemblies, annotations, databases, system):
         app.include_router(module.router, prefix=settings.api_v1_prefix)
     return app
 

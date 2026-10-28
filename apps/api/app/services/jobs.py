@@ -11,11 +11,15 @@ from pathlib import Path
 
 from arva_core.seqstats import TOOL_NAME, TOOL_VERSION
 from arva_tools import DetectedTool, ToolStatus
+from arva_tools.bakta import BaktaAdapter, BaktaParams
+from arva_tools.bakta import flags as bakta_flags
 from arva_tools.fastp import FastpParams
 from arva_tools.filtlong import FiltlongParams
 from arva_tools.flye import FlyeAdapter, FlyeParams, read_checkpoint
 from arva_tools.pilon import FLAGS as PILON_FLAGS
 from arva_tools.pilon import PilonAdapter, PilonParams, java_executable
+from arva_tools.prokka import ProkkaAdapter, ProkkaParams
+from arva_tools.prokka import flags as prokka_flags
 from arva_tools.quast import QuastAdapter, QuastParams, aligner
 from arva_tools.quast import flags as quast_flags
 from arva_tools.racon import FLAGS as RACON_FLAGS
@@ -31,7 +35,8 @@ from sqlalchemy.orm import Session
 
 from app import __version__
 from app.core.config import get_settings
-from app.models import AnalysisJob, Assembly, JobStatus, Project, RawFile, Sample
+from app.models import AnalysisJob, Assembly, JobStatus, Project, RawFile, ReferenceDatabase, Sample
+from app.services.annotation import assembly_record
 from app.services.queue import get_queue
 from app.services.raw_signal import POD5_INSTALL, is_raw_signal, pod5_versions
 from app.storage import get_storage
@@ -55,6 +60,9 @@ QUAST_JOB = "quast_evaluation"
 RACON_JOB = "racon_polish"
 PILON_JOB = "pilon_polish"
 POLISHING_JOBS = (RACON_JOB, PILON_JOB)
+BAKTA_JOB = "bakta_annotation"
+PROKKA_JOB = "prokka_annotation"
+ANNOTATION_JOBS = (BAKTA_JOB, PROKKA_JOB)
 
 
 class ToolUnavailableError(RuntimeError):
@@ -525,6 +533,53 @@ def create_polishing_job(db: Session, sample: Sample, draft: Assembly, strategy:
     return job
 
 
+# --- Annotation -----------------------------------------------------------------------------------------------
+
+def create_bakta_job(db: Session, sample: Sample, assembly: Assembly, params: BaktaParams, record: ReferenceDatabase,
+                     plan: dict, provenance: dict) -> AnalysisJob:
+    """One Bakta run of an assembly with an installed database. `plan` is the preview the user confirmed: the
+    worker checks the programs again and refuses to run if the steps that can run have changed since."""
+    from app.services.databases import record_use
+    from app.tasks.annotation import run_bakta_job
+
+    tool = require_tool("bakta")
+    params.threads = min(params.threads, get_settings().tool_threads)
+    params.validate()
+    _check_flags(BaktaAdapter.help_options, tool, tuple(bakta_flags(params, plan["skip_options"])), tool.path or "bakta")
+    parameters = {**params.as_dict(), "assembly": assembly_record(assembly), "steps": plan["steps"],
+                  "skip_options": plan["skip_options"], "dependencies": plan["dependencies"], **provenance}
+    job = _tool_job(sample, BAKTA_JOB, tool, parameters, [])
+    record_use(job, record)
+    db.add(job)
+    db.commit()
+    _enqueue([job], run_bakta_job)
+    db.refresh(job)
+    return job
+
+
+def create_prokka_job(db: Session, sample: Sample, assembly: Assembly, params: ProkkaParams, plan: dict,
+                      provenance: dict) -> AnalysisJob:
+    """One Prokka run of an assembly with the databases of Debian's package (indexed in the job's folder)."""
+    from app.tasks.annotation import run_prokka_job
+
+    tool = require_tool("prokka")
+    params.threads = min(params.threads, get_settings().tool_threads)
+    params.validate()
+    _check_flags(ProkkaAdapter.help_options, tool, tuple(prokka_flags(params)), tool.path or "prokka")
+    database = plan["database"]
+    parameters = {**params.as_dict(), "assembly": assembly_record(assembly), "steps": plan["steps"],
+                  "database": {k: database.get(k) for k in ("path", "package", "files", "genera", "hmm")},
+                  "programs": plan["programs"], **provenance}
+    job = _tool_job(sample, PROKKA_JOB, tool, parameters, [])
+    job.database_key, job.database_name = database["key"], database["name"]
+    job.database_version, job.database_checksum = database["version"], database["checksum"]
+    db.add(job)
+    db.commit()
+    _enqueue([job], run_prokka_job)
+    db.refresh(job)
+    return job
+
+
 # --- Cancellation and resuming ---------------------------------------------------------------------------------
 
 ACTIVE = (JobStatus.pending, JobStatus.running)
@@ -532,15 +587,26 @@ ACTIVE = (JobStatus.pending, JobStatus.running)
 _NOT_EXECUTING = {"finished", "failed", "stopped", "canceled"}
 
 
-def _rq_status(job_id: str) -> str | None:
-    """RQ's status of the job's task, "missing" when Redis no longer holds it, None when Redis cannot be asked."""
+def task_status(rq_id: str) -> str | None:
+    """RQ's status of a task, "missing" when Redis no longer holds it, None when Redis cannot be asked."""
     try:
-        status = RqJob.fetch(_rq_id(job_id), connection=get_queue().connection).get_status()
+        status = RqJob.fetch(rq_id, connection=get_queue().connection).get_status()
         return str(getattr(status, "value", status)) if status else "missing"
     except NoSuchJobError:
         return "missing"
     except (RedisError, InvalidJobOperation):
         return None
+
+
+def cancel_task(rq_id: str) -> None:
+    try:
+        RqJob.fetch(rq_id, connection=get_queue().connection).cancel()
+    except (NoSuchJobError, InvalidJobOperation, RedisError):
+        pass
+
+
+def _rq_status(job_id: str) -> str | None:
+    return task_status(_rq_id(job_id))
 
 
 def _write_log(job: AnalysisJob, line: str) -> None:
@@ -579,10 +645,7 @@ def cancel_job(db: Session, job_id: str) -> AnalysisJob:
         job.cancel_requested_at = datetime.now(UTC)
     if job.status is JobStatus.pending:
         _finish_without_worker(db, job, "it was cancelled before a worker started it, so nothing was run")
-        try:
-            RqJob.fetch(_rq_id(job.id), connection=get_queue().connection).cancel()
-        except (NoSuchJobError, InvalidJobOperation, RedisError):
-            pass
+        cancel_task(_rq_id(job.id))
         return job
     state = _rq_status(job.id)
     if state in _NOT_EXECUTING or state == "missing":

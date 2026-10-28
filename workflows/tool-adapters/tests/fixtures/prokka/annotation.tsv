@@ -1,0 +1,21 @@
+locus_tag	ftype	length_bp	gene	EC_number	COG	product
+SYNT_00001	CDS	1035				hypothetical protein
+SYNT_00002	CDS	540				hypothetical protein
+SYNT_00003	tRNA	74				tRNA-SeC(tca)
+SYNT_00004	CDS	318				hypothetical protein
+SYNT_00005	CDS	897				hypothetical protein
+SYNT_00006	rRNA	1474				16S ribosomal RNA
+SYNT_00007	CDS	1026				hypothetical protein
+SYNT_00008	CDS	558				hypothetical protein
+SYNT_00009	CDS	849	alkA	3.2.2.21	COG0122	DNA-3-methyladenine glycosylase 2
+SYNT_00010	CDS	204				hypothetical protein
+SYNT_00011	CDS	387				hypothetical protein
+SYNT_00012	CDS	564	tag	3.2.2.20	COG2818	DNA-3-methyladenine glycosylase 1
+SYNT_00013	CDS	486				hypothetical protein
+SYNT_00014	CDS	819	quiB	4.2.1.10	COG0710	Catabolic 3-dehydroquinate dehydratase
+SYNT_00015	CDS	561				hypothetical protein
+SYNT_00016	CDS	534				hypothetical protein
+SYNT_00017	CDS	1350				hypothetical protein
+SYNT_00018	CDS	855				hypothetical protein
+SYNT_00019	CDS	369				hypothetical protein
+SYNT_00020	CDS	678				hypothetical protein

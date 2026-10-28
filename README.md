@@ -15,7 +15,8 @@ control**, **visual first**, **reproducibility** and **modularity**.
 > file lineage and before/after comparison, long-read assembly with Flye, short-read and hybrid assembly with
 > SPAdes and Unicycler, polishing with Racon and Pilon (with a before/after comparison), assembly views and QUAST
 > evaluation, job cancellation and Flye resume, batch QC across a project, analysis history, reports and the ARVA
-> Guide are functional. Annotation and later modules are
+> Guide are functional. Phase 4 has started with the
+> Database Manager (4A). Annotation and later modules are
 > listed in the interface as *planned* and never show simulated results. See [docs/roadmap.md](docs/roadmap.md).
 
 ## What works today
@@ -44,6 +45,7 @@ control**, **visual first**, **reproducibility** and **modularity**.
 | Overviews | Sequencing overview per sample (every imported and derived file with lineage, read statistics, POD5 reads and signal duration, bases per file) and a QC overview per project (one row per sample: totals, N50 and quality of the largest file, pooled Q30/GC, depth only with a user-given genome size, filtering, FastQC heuristics, SeqKit check; sortable, filterable, CSV export) |
 | Project QC report | MultiQC 1.35 report over the latest FastQC, fastp, SeqKit and Filtlong results of a project, run offline, every input checked; general statistics kept with units and the producing tool |
 | Tools & Databases | Detected tools with version (validated or not), executable, licence, citation and install commands; ARVA never installs software |
+| Database Manager | Reference databases (Bakta database 6.0, light and full) with their published size, checksum, licence and source; download only after an explicit confirmation of size, licence and free space, as a cancellable, resumable worker task with MD5 verification, safe unpacking and Bakta's folder check; register an existing folder, verify every file again (SHA-256), delete (refused while a job uses it), disk usage; jobs record the database key, version and checksum |
 | Execution | Analyses run in a separate worker process via a Redis queue — never in the HTTP process; external tools run without a shell, with timeouts and a credential-free environment |
 | Cancelling and recovery | Cancel queued or running jobs (with confirmation): the tool and every process it started are stopped within seconds, partial outputs removed and the log kept; a Flye run stopped from outside after its first stages can be resumed with Flye's own `--resume` (same reads, options, threads and version; the interrupted stage rerun from scratch) or its kept work folder discarded |
 | Batch QC | Read statistics, SeqKit and/or FastQC on every sample of a project (imported or also derived files; completed results skipped unless recomputing), with a preview of exactly how many jobs each sample gets and why files are skipped; confirming creates exactly those ordinary per-sample jobs |

@@ -1,0 +1,107 @@
+[19:26:01] This is prokka 1.14.6
+[19:26:01] Written by Torsten Seemann <torsten.seemann@gmail.com>
+[19:26:01] Homepage is https://github.com/tseemann/prokka
+[19:26:01] Local time is Wed Oct 28 19:26:01 2026
+[19:26:01] You are not telling me who you are!
+[19:26:01] Operating system is linux
+[19:26:01] You have BioPerl 1.7.8
+[19:26:01] System has 4 cores.
+[19:26:01] Will use maximum of 2 cores.
+[19:26:01] Annotating as >>> Bacteria <<<
+[19:26:01] Creating new output folder: /work/prokka
+[19:26:01] Running: mkdir -p \/work\/prokka
+[19:26:01] Using filename prefix: annotation.XXX
+[19:26:01] Setting HMMER_NCPU=1
+[19:26:01] Writing log to: /work/prokka/annotation.log
+[19:26:01] Command: /usr/bin/prokka /work/input.fna --outdir /work/prokka --prefix annotation --dbdir /work/prokka-db --kingdom Bacteria --gcode 11 --locustag SYNT --increment 1 --cpus 2 --evalue 1e-09 --coverage 80 --mincontiglen 1
+[19:26:01] Appending to PATH: /usr/bin
+[19:26:01] Looking for 'aragorn' - found /usr/bin/aragorn
+[19:26:01] Determined aragorn version is 001002 from 'ARAGORN v1.2.41 Dean Laslett'
+[19:26:01] Looking for 'barrnap' - found /usr/bin/barrnap
+[19:26:01] Determined barrnap version is 000009 from 'barrnap 0.9'
+[19:26:01] Looking for 'blastp' - found /usr/bin/blastp
+[19:26:01] Determined blastp version is 002012 from 'blastp: 2.12.0+'
+[19:26:01] Looking for 'cmpress' - found /usr/bin/cmpress
+[19:26:01] Determined cmpress version is 001001 from '# INFERNAL 1.1.5 (Sep 2023)'
+[19:26:01] Looking for 'cmscan' - found /usr/bin/cmscan
+[19:26:01] Determined cmscan version is 001001 from '# INFERNAL 1.1.5 (Sep 2023)'
+[19:26:01] Looking for 'egrep' - found /usr/bin/egrep
+[19:26:01] Looking for 'find' - found /usr/bin/find
+[19:26:01] Looking for 'grep' - found /usr/bin/grep
+[19:26:01] Looking for 'hmmpress' - found /usr/bin/hmmpress
+[19:26:01] Determined hmmpress version is 003004 from '# HMMER 3.4 (Aug 2023); http://hmmer.org/'
+[19:26:01] Looking for 'hmmscan' - found /usr/bin/hmmscan
+[19:26:01] Determined hmmscan version is 003004 from '# HMMER 3.4 (Aug 2023); http://hmmer.org/'
+[19:26:01] Looking for 'java' - found /usr/bin/java
+[19:26:01] Looking for 'makeblastdb' - found /usr/bin/makeblastdb
+[19:26:01] Determined makeblastdb version is 002012 from 'makeblastdb: 2.12.0+'
+[19:26:01] Looking for 'parallel' - found /usr/bin/parallel
+[19:26:02] Determined parallel version is 20231122 from 'GNU parallel 20231122'
+[19:26:02] Looking for 'prodigal' - found /usr/bin/prodigal
+[19:26:02] Determined prodigal version is 002006 from 'Prodigal V2.6.3: February, 2016'
+[19:26:02] Looking for 'prokka-genbank_to_fasta_db' - found /usr/bin/prokka-genbank_to_fasta_db
+[19:26:02] Looking for 'sed' - found /usr/bin/sed
+[19:26:02] Looking for 'tbl2asn' - found /usr/bin/tbl2asn
+[19:26:02] Determined tbl2asn version is 025003 from 'tbl2asn 25.3   arguments:'
+[19:26:02] Using genetic code table 11.
+[19:26:02] Loading and checking input file: /work/input.fna
+[19:26:02] Wrote 2 contigs totalling 18960 bp.
+[19:26:02] Predicting tRNAs and tmRNAs
+[19:26:02] Running: aragorn -l -gc11  -w \/work\/prokka\/annotation\.fna
+[19:26:02] 1 tRNA-SeC [2428,2501] 32 (tca)
+[19:26:02] Found 1 tRNAs
+[19:26:02] Predicting Ribosomal RNAs
+[19:26:02] Running Barrnap with 2 threads
+[19:26:02] 1 SYNTHETIC_annotation_chromosome 4442 16S ribosomal RNA
+[19:26:02] Found 1 rRNAs
+[19:26:02] Skipping ncRNA search, enable with --rfam if desired.
+[19:26:02] Total of 2 tRNA + rRNA features
+[19:26:02] Predicting coding sequences
+[19:26:02] Contigs total 18960 bp, so using meta mode
+[19:26:02] Running: prodigal -i \/work\/prokka\/annotation\.fna -c -m -g 11 -p meta -f sco -q
+[19:26:02] Found 18 CDS
+[19:26:02] Connecting features back to sequences
+[19:26:02] Not using genus-specific database. Try --usegenus to enable it.
+[19:26:02] Annotating CDS, please be patient.
+[19:26:02] Will use 2 CPUs for similarity searching.
+[19:26:02] There are still 18 unannotated CDS left (started with 18)
+[19:26:02] Will use blast to search against /work/prokka-db/kingdom/Bacteria/sprot with 2 CPUs
+[19:26:02] Running: cat \/work\/prokka\/annotation\.sprot\.tmp\.10982\.faa | parallel --gnu --plain -j 2 --block 1018 --recstart '>' --pipe blastp -query - -db /work/prokka-db/kingdom/Bacteria/sprot -evalue 1e-09 -qcov_hsp_perc 80 -num_threads 1 -num_descriptions 1 -num_alignments 1 -seg no > \/work\/prokka\/annotation\.sprot\.tmp\.10982\.blast 2> /dev/null
+[19:26:03] Deleting unwanted file: /work/prokka/annotation.sprot.tmp.10982.faa
+[19:26:03] Deleting unwanted file: /work/prokka/annotation.sprot.tmp.10982.blast
+[19:26:03] Labelling remaining 15 proteins as 'hypothetical protein'
+[19:26:03] Found 3 unique /gene codes.
+[19:26:03] Fixed 0 colliding /gene names.
+[19:26:03] Adding /locus_tag identifiers
+[19:26:03] Assigned 20 locus_tags to CDS and RNA features.
+[19:26:03] Writing outputs to /work/prokka/
+[19:26:03] Generating annotation statistics file
+[19:26:03] Generating Genbank and Sequin files
+[19:26:03] Running: tbl2asn -V b -a r10k -l paired-ends -M n -N 1 -y 'Annotated using prokka 1.14.6 from https://github.com/tseemann/prokka' -Z \/work\/prokka\/annotation\.err -i \/work\/prokka\/annotation\.fsa 2> /dev/null
+[19:26:03] Deleting unwanted file: /work/prokka/errorsummary.val
+[19:26:03] Deleting unwanted file: /work/prokka/annotation.dr
+[19:26:03] Deleting unwanted file: /work/prokka/annotation.fixedproducts
+[19:26:03] Deleting unwanted file: /work/prokka/annotation.ecn
+[19:26:03] Deleting unwanted file: /work/prokka/annotation.val
+[19:26:03] Repairing broken .GBK output that tbl2asn produces...
+[19:26:03] Running: sed 's/COORDINATES: profile/COORDINATES:profile/' < \/work\/prokka\/annotation\.gbf > \/work\/prokka\/annotation\.gbk
+[19:26:03] Deleting unwanted file: /work/prokka/annotation.gbf
+[19:26:03] Output files:
+[19:26:03] /work/prokka/annotation.txt
+[19:26:03] /work/prokka/annotation.tsv
+[19:26:03] /work/prokka/annotation.log
+[19:26:03] /work/prokka/annotation.faa
+[19:26:03] /work/prokka/annotation.err
+[19:26:03] /work/prokka/annotation.gff
+[19:26:03] /work/prokka/annotation.sqn
+[19:26:03] /work/prokka/annotation.tbl
+[19:26:03] /work/prokka/annotation.ffn
+[19:26:03] /work/prokka/annotation.fsa
+[19:26:03] /work/prokka/annotation.fna
+[19:26:03] /work/prokka/annotation.gbk
+[19:26:03] Annotation finished successfully.
+[19:26:03] Walltime used: 0.03 minutes
+[19:26:03] If you use this result please cite the Prokka paper:
+[19:26:03] Seemann T (2014) Prokka: rapid prokaryotic genome annotation. Bioinformatics. 30(14):2068-9.
+[19:26:03] Type 'prokka --citation' for more details.
+[19:26:03] Thank you, come again.

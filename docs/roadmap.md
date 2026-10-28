@@ -226,6 +226,16 @@ ends are polished less well, and Racon may trim them); the graph view draws at m
 Bandage) and does not draw a segment's link to itself; coverage, circularity and repeat flags are the
 assembler's own values.
 
+## Phase 4 — Annotation (in progress)
+
+**4A Database Manager** ✅: catalogue with verified facts (Bakta database 6.0 light and full from Zenodo
+record 14916843; AMRFinderPlus and CheckM2 listed as planned, without numbers); download as a cancellable,
+resumable worker task after an explicit confirmation of size, licence and space, MD5 against the published
+checksum, safe unpacking, Bakta's folder check and a SHA-256 manifest; registration of an existing folder;
+verification on demand; deletion refused while a job uses the database; disk usage; `ARVA_DB_DIR` (Docker:
+the `arva-databases` volume); jobs record the database key, version and checksum; Databases section on the
+Tools & Databases page (EN/ES). Next: Bakta, the Genome Explorer, annotation views and exports.
+
 ## Later phases
 
 | Phase | Scope |

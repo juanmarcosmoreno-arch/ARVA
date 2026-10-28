@@ -6,6 +6,8 @@ from pydantic import BaseModel, ConfigDict, Field, field_serializer, model_valid
 
 from app.models import (
     AssemblyMode,
+    DatabaseOrigin,
+    DatabaseStatus,
     FileFormat,
     FileOrigin,
     JobStatus,
@@ -218,6 +220,9 @@ class AnalysisJobRead(ORMModel):
     tool_version: str
     database_name: str | None
     database_version: str | None
+    database_key: str | None = None
+    database_checksum: str | None = Field(default=None, description="Content checksum of the database the job read")
+    reference_database_id: str | None = None
     parameters: dict[str, Any] | None
     input_raw_file_ids: list[str] | None
     output_paths: list[str] | None
@@ -1444,3 +1449,378 @@ class PolishingPlanRead(BaseModel):
     max_threads: int
     max_memory_gb: int
     default_heap_gb: int
+
+
+# --- Reference databases (Database Manager) ---------------------------------------------------------------------
+
+class CatalogueEntryRead(BaseModel):
+    key: str
+    name: str
+    tool: str
+    status: Literal["available", "planned"]
+    description: str
+    version: str | None = None
+    release_date: str | None = None
+    db_type: str | None = None
+    source_url: str | None = None
+    doi: str | None = None
+    download_url: str | None = None
+    filename: str | None = None
+    archive_bytes: int | None = None
+    checksum_algorithm: str | None = None
+    checksum: str | None = None
+    checksum_sources: list[str] = []
+    extracted_size_note: str | None = Field(default=None, description="The publisher's statement of the unpacked size")
+    extracted_bytes_estimate: int | None = Field(
+        default=None, description="Bytes ARVA reserves for the unpacked database (the publisher's size, larger unit)")
+    licence: str | None = None
+    licence_url: str | None = None
+    terms: str | None = None
+    citation: str | None = None
+    compatibility: str | None = None
+    external_versions: dict[str, str] = {}
+    notes: list[str] = []
+
+
+class DatabaseProgress(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    phase: str | None = None
+    bytes_done: int | None = None
+    bytes_total: int | None = None
+    written_bytes: int | None = None
+    resumed_from: int | None = None
+    started_at: str | None = None
+    updated_at: str | None = None
+
+
+class ReferenceDatabaseRead(ORMModel):
+    id: str
+    key: str
+    name: str
+    version: str | None
+    path: str | None
+    source_url: str | None
+    licence: str | None
+    size_bytes: int | None
+    checksum: str | None = Field(description="SHA-256 over ARVA's manifest of every file in the folder")
+    archive_checksum: str | None = Field(description="The published checksum of the archive, verified before unpacking")
+    status: DatabaseStatus
+    origin: DatabaseOrigin
+    installed_at: dt.datetime | None
+    verified_at: dt.datetime | None
+    notes: str | None
+    error_message: str | None
+    progress: DatabaseProgress | None
+    cancel_requested_at: dt.datetime | None
+    created_at: dt.datetime
+    updated_at: dt.datetime
+    version_json: dict[str, Any] | None = None
+    files: int | None = Field(default=None, description="Files in the recorded manifest")
+    amrfinderplus_db: dict[str, str | None] | None = Field(
+        default=None, description="The AMRFinderPlus data in amrfinderplus-db/latest: link target, version, format")
+    archive: dict[str, Any] | None = None
+    catalogue_version: str | None = Field(default=None, description="The catalogue's version of this database")
+    jobs_using: int = Field(default=0, description="Queued or running jobs that use it")
+    log_text: str | None = None
+
+
+class DownloadPlanRead(BaseModel):
+    entry: CatalogueEntryRead
+    db_dir: str
+    target_path: str
+    partial_bytes: int = Field(description="Bytes of an earlier partial download that will be resumed")
+    download_bytes: int
+    required_bytes: int = Field(description="Bytes still to download plus the unpacked size")
+    free_bytes: int
+    reserve_bytes: int = Field(description="ARVA_MIN_FREE_BYTES, always left free")
+    available_bytes: int
+    enough: bool
+    resume_record_id: str | None
+    blocked_by: str | None = Field(description="Why the download cannot start now, if it cannot")
+
+
+class DatabaseDownloadRequest(BaseModel):
+    key: str = Field(min_length=1, max_length=100)
+    confirm_bytes: int = Field(ge=0, description="The archive size shown to the user, repeated as confirmation")
+    accept_licence: bool
+
+
+class DatabaseRegisterRequest(BaseModel):
+    path: str = Field(min_length=1, max_length=4096, description="Absolute path of an existing database folder")
+
+
+class DatabaseUsageRead(BaseModel):
+    db_dir: str
+    free_bytes: int
+    total_bytes: int
+    reserve_bytes: int
+    installed_bytes: int
+    registered_bytes: int = Field(description="Registered folders (they may lie outside ARVA_DB_DIR)")
+    partial_bytes: int = Field(description="Partial downloads kept for resuming")
+    staging_bytes: int
+
+
+# --- Annotation --------------------------------------------------------------------------------------------------
+
+TranslationTable = Literal[11, 4, 25]
+_LOCUS_TAG = r"^[A-Z][A-Z0-9]{2,11}$"
+_GENUS = r"^[A-Za-z]{2,50}$"
+_SPECIES = r"^[A-Za-z][A-Za-z.-]{0,49}$"
+_STRAIN = r"^[A-Za-z0-9][A-Za-z0-9 ._:/-]{0,39}$"
+
+
+class AnnotationOrganismIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    locus_tag: str = Field(pattern=_LOCUS_TAG, description="Locus-tag prefix: 3-12 capital letters or digits, "
+                           "starting with a letter (accepted by both annotators and by INSDC)")
+    translation_table: TranslationTable = Field(default=11, description="11: bacteria and archaea; 4: Mycoplasma and "
+                                                "Spiroplasma; 25: candidate division SR1 and Gracilibacteria")
+    genus: str | None = Field(default=None, pattern=_GENUS)
+    species: str | None = Field(default=None, pattern=_SPECIES)
+    strain: str | None = Field(default=None, pattern=_STRAIN)
+    min_contig_length: int = Field(default=1, ge=1, le=1_000_000, description="Shorter contigs are not annotated")
+
+
+class BaktaSettingsIn(AnnotationOrganismIn):
+    complete: bool = Field(default=False, description="--complete: every sequence is a complete replicon; Bakta then "
+                           "treats each as circular. Needs complete_confirmed")
+    keep_contig_headers: bool = Field(default=False, description="--keep-contig-headers: keep the assembly's contig "
+                                      "names instead of Bakta's contig_1, contig_2, …")
+    skip_plot: bool = Field(default=False, description="--skip-plot: no circular genome plot")
+
+
+class ProkkaSettingsIn(AnnotationOrganismIn):
+    use_genus: bool = Field(default=False, description="--usegenus: search the genus' protein set first (Debian's "
+                            "package has Enterococcus, Escherichia and Staphylococcus)")
+    rfam: bool = Field(default=False, description="--rfam: search Rfam models for ncRNAs with Infernal (slow)")
+    evalue: float = Field(default=1e-09, gt=0, le=1, description="--evalue (Prokka's default 1e-09)")
+    coverage: float = Field(default=80.0, gt=0, le=100, description="--coverage, % of the query protein (default 80)")
+    rename_contigs: bool = Field(default=False, description="Give Prokka contig_1, contig_2, … (needed when a contig "
+                                 "name is longer than 37 characters); ARVA keeps the mapping")
+
+
+class BaktaPreviewRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    database_id: str | None = Field(default=None, description="An installed Bakta database; default: the most "
+                                    "recently verified")
+    skip_plot: bool = False
+
+
+class BaktaRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    database_id: str | None = None
+    settings: BaktaSettingsIn
+    threads: int | None = Field(default=None, ge=1, le=256)
+    skip_options: list[str] = Field(description="The --skip-* options the preview showed; the run is refused if the "
+                                    "programs available now imply others")
+    complete_confirmed: bool = Field(default=False, description="Required with settings.complete")
+    confirmed: bool = Field(description="The user confirmed the summary of the run")
+
+
+class ProkkaPreviewRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    rfam: bool = False
+    use_genus: bool = False
+    genus: str | None = Field(default=None, pattern=_GENUS)
+    rename_contigs: bool = False
+
+
+class ProkkaRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    settings: ProkkaSettingsIn
+    threads: int | None = Field(default=None, ge=1, le=256)
+    confirmed: bool
+
+
+class AnnotationDependencyRead(BaseModel):
+    name: str
+    status: str = Field(description="ok, missing, failed, unreadable, too_old, crashed (PILER-CR's test run), "
+                        "database_missing (AMRFinderPlus)")
+    found: str | None = None
+    minimum: str | None = None
+    returncode: int | None = None
+    steps: list[str] = []
+    command: list[str] = []
+
+
+class AnnotationStepRead(BaseModel):
+    run: bool = Field(description="Planned to run")
+    reason: str | None = Field(default=None, description="Why not, or why it failed: dependency, user, needs_cds, "
+                               "light_database, option_off, database_lacks, not_offered, not_supported, "
+                               "tool_skipped, crashed")
+    dependencies: list[AnnotationDependencyRead] = []
+    status: Literal["searched", "skipped", "failed"] | None = Field(default=None, description="After the run")
+    found: int | None = Field(default=None, description="The count the annotator printed for this step")
+    returncode: int | None = None
+
+
+class AnnotationProblem(BaseModel):
+    code: str
+    message: str
+
+
+class AnnotationToolRead(BaseModel):
+    status: str
+    version: str | None
+    version_validated: bool
+    message: str
+    reason: str | None
+    path: str | None
+    license: str
+    citation: str
+    citation_url: str
+    max_threads: int
+
+
+class AnnotationAssemblyFacts(BaseModel):
+    assembly_id: str
+    kind: str
+    assembler: str
+    assembler_version: str
+    parent_assembly_id: str | None
+    job_id: str
+    contigs_sha256: str
+    created_at: dt.datetime
+    contigs: int
+    total_length: int | None
+    circular_contigs: int | None
+    contigs_with_circularity: int | None
+    all_circular: bool = Field(description="Every contig was reported circular by the assembler")
+    longest_contig_name: int
+    prokka_name_problem: str | None
+    descriptions: int = Field(description="Contigs whose FASTA header has a description (removed before annotation)")
+    synthetic_evidence: list[str] = Field(description="Where the word SYNTHETIC was found (a hint, not a proof)")
+
+
+class BaktaDatabaseOption(BaseModel):
+    id: str
+    key: str
+    name: str
+    version: str | None
+    type: str | None
+    status: DatabaseStatus
+    usable: bool
+    checksum: str | None
+    verified_at: dt.datetime | None
+    path: str | None
+
+
+class ProkkaDatabaseRead(BaseModel):
+    path: str
+    ready: bool
+    files: list[str]
+    package: list[str] | None
+    kingdoms: list[str]
+    genera: list[str]
+    hmm: list[str]
+    checksum: str | None = None
+    key: str | None = None
+    name: str | None = None
+    version: str | None = None
+
+
+class AnnotationPlanRead(BaseModel):
+    annotator: Literal["bakta", "prokka"]
+    tool: AnnotationToolRead
+    steps: dict[str, AnnotationStepRead]
+    assembly: AnnotationAssemblyFacts
+    suggestions: dict[str, Any]
+    translation_tables: list[int]
+    problems: list[AnnotationProblem]
+    dependencies: list[AnnotationDependencyRead] = Field(default=[], description="Bakta: each program it checks")
+    skip_options: list[str] = []
+    databases: list[BaktaDatabaseOption] = []
+    database_id: str | None = None
+    database: ProkkaDatabaseRead | None = None
+    programs: dict[str, str | None] = Field(default={}, description="Prokka: each program and where it was found")
+
+
+class AnnotationFileRead(BaseModel):
+    path: str
+    sha256: str
+    size_bytes: int
+
+
+class AnnotationRead(ORMModel):
+    id: str
+    sample_id: str
+    assembly_id: str
+    job_id: str
+    tool: str
+    tool_version: str
+    database_key: str | None
+    database_name: str | None
+    database_version: str | None
+    database_checksum: str | None
+    parameters: dict[str, Any]
+    steps: dict[str, AnnotationStepRead]
+    summary: dict[str, Any]
+    sequences: list[dict[str, Any]]
+    files: dict[str, AnnotationFileRead]
+    created_at: dt.datetime
+
+
+class AnnotationFeatureRead(BaseModel):
+    id: int
+    tool_id: str | None
+    locus_tag: str | None
+    type: str
+    tool_type: str | None
+    contig: str
+    contig_in_assembly: str
+    start: int
+    end: int
+    strand: str
+    length: int
+    edge: bool
+    gene: str | None
+    product: str | None
+    ec: list[str]
+    cog: list[str]
+    cog_categories: list[str]
+    go: list[str]
+    db_xrefs: list[str]
+    pseudo: bool
+    partial: str | None
+    hypothetical: bool | None
+    inference: list[str]
+    accessions: list[str]
+
+
+class AnnotationFeaturePage(BaseModel):
+    total: int
+    limit: int
+    offset: int
+    max_limit: int
+    items: list[AnnotationFeatureRead]
+
+
+class AnnotationLink(BaseModel):
+    xref: str
+    url: str
+
+
+class AnnotationSequenceRead(BaseModel):
+    source: str
+    header: str
+    length: int
+    sequence: str
+    truncated: bool
+
+
+class AnnotationFeatureDetail(AnnotationFeatureRead):
+    links: list[AnnotationLink] = Field(description="Resolver links for identifiers the annotator reported")
+    nucleotide: AnnotationSequenceRead | None
+    protein: AnnotationSequenceRead | None
+
+
+class AnnotationExportRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    format: Literal["gff3", "genbank", "fasta_nt", "fasta_aa", "tsv"]
+    feature_ids: list[int] | None = Field(default=None, max_length=10_000, description="None: every feature")

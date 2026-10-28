@@ -47,6 +47,15 @@ class AnalysisJob(TimestampMixin, Base):
     tool_version: Mapped[str] = mapped_column(String(100), nullable=False)
     database_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     database_version: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    # The reference database a job reads (set by databases.record_use): its catalogue key and content checksum are
+    # copied here so the record survives the database's deletion.
+    database_key: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    database_checksum: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    reference_database_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("reference_databases.id", ondelete="SET NULL", name="fk_analysis_jobs_reference_database_id"),
+        nullable=True,
+    )
 
     parameters: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     input_raw_file_ids: Mapped[list | None] = mapped_column(JSON, nullable=True)

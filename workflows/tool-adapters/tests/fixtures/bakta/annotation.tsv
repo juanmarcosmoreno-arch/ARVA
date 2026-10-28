@@ -1,0 +1,12 @@
+# Annotated with Bakta
+# Software: v1.12.2
+# Database: v6.0, light
+# DOI: 10.1099/mgen.0.000685
+# URL: github.com/oschwengers/bakta
+#Sequence Id	Type	Start	Stop	Strand	Locus Tag	Gene	Product	DbXrefs
+contig_1	tRNA	1494	1568	+	SYNT_01		tRNA-Xxx	
+contig_1	tRNA	2422	2501	+	SYNT_02		tRNA-Xxx	
+contig_1	rRNA	3142	3256	+	SYNT_03	rrf	5S ribosomal RNA	GO:0003735, GO:0005840, KEGG:K01985, RFAM:RF00001, SO:0000652
+contig_1	rRNA	4428	5953	+	SYNT_04	rrs	16S ribosomal RNA	GO:0003735, GO:0005840, KEGG:K01977, RFAM:RF00177, SO:0001000
+contig_1	ncRNA	7916	8278	+	SYNT_05	RNaseP_bact_a	Bacterial RNase P class A	RFAM:RF00010, SO:0000386
+contig_1	assembly_gap	13231	13330	.				
