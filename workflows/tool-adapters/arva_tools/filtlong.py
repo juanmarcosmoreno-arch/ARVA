@@ -6,6 +6,9 @@ derived from Phred scores, NOT Phred values (README, "Read scoring").
 Filtlong writes the kept reads to stdout; ARVA gzip-streams them to a file.
 Filtlong formats the counts in its log with the process locale (en_US writes 1,362,402, es_ES
 1.362.402, and a locale that is not installed makes it abort), so ARVA runs it with LC_ALL=C.
+A coverage target is ARVA's own derivation: target_bases = round(coverage * genome size); Filtlong
+only ever receives --target_bases, and keeps reads while its running total is below it (main.cpp),
+so it may overshoot by up to one read.
 """
 from __future__ import annotations
 
@@ -18,6 +21,13 @@ from arva_tools.base import ToolAdapter, ToolInfo
 
 ENVIRONMENT = {"LC_ALL": "C"}
 _GROUPED = re.compile(r"\b\d{1,3}([,.])\d{3}(?:\1\d{3})*\b")
+NOT_ENOUGH_READS = "not enough reads to reach target"
+BELOW_TARGET = "reads already fall below target after filtering"
+
+
+def target_bases_for_coverage(genome_size_bp: int, coverage_x: float) -> int:
+    # Half up, like the interface's Math.round, so both sides compute the same target.
+    return math.floor(coverage_x * genome_size_bp + 0.5)
 
 
 def identity_to_phred(identity_percent: float) -> float:
@@ -39,6 +49,9 @@ class FiltlongParams:
     mean_q_weight: float = 1.0
     window_q_weight: float = 1.0
     window_size: int = 250
+    # Provenance of a coverage target; never passed to Filtlong.
+    genome_size_bp: int | None = None
+    target_coverage_x: float | None = None
 
     def validate(self) -> None:
         thresholds = (self.min_length, self.max_length, self.min_mean_q, self.min_window_q,
@@ -65,6 +78,14 @@ class FiltlongParams:
                 errors.append(f"{name} must be ≥ 0")
         if self.window_size < 1:
             errors.append("window_size must be ≥ 1")
+        genome, depth = self.genome_size_bp, self.target_coverage_x
+        if (genome is None) != (depth is None):
+            errors.append("a coverage target needs both genome_size_bp and target_coverage_x")
+        elif genome is not None and depth is not None:
+            if genome < 1 or depth <= 0:
+                errors.append("genome_size_bp must be ≥ 1 and target_coverage_x > 0")
+            elif self.target_bases != (target := target_bases_for_coverage(genome, depth)):
+                errors.append(f"target_bases must be round(target_coverage_x × genome_size_bp) = {target}")
         if errors:
             raise ValueError("; ".join(errors))
 
@@ -117,7 +138,7 @@ class FiltlongAdapter(ToolAdapter):
 
     @staticmethod
     def parse_log(text: str) -> dict:
-        """Extract the totals Filtlong prints to stderr (best effort, informational)."""
+        """The totals Filtlong prints to stderr and, with a target, which of its three outcomes applied."""
         text = plain_counts(text)
         out = {}
         scoring = text.split("Filtering long reads")[0]
@@ -129,6 +150,9 @@ class FiltlongAdapter(ToolAdapter):
         m = re.search(r"target: (\d+) bp", text)
         if m:
             out["target_bases_reported"] = int(m.group(1))
+            # Either outcome means the target removed no reads (hard thresholds still apply).
+            out["not_enough_reads_for_target"] = NOT_ENOUGH_READS in text
+            out["below_target_after_filtering"] = BELOW_TARGET in text
         m = re.search(r"keeping (\d+) bp", text)
         if m:
             out["kept_bases_reported"] = int(m.group(1))

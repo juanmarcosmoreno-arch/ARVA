@@ -18,7 +18,7 @@ from pathlib import Path
 
 from arva_core.seqstats import StatsParameters, quick_validate
 from arva_tools import ToolExecutionError, ToolStatus, run_command
-from arva_tools.fastp import FastpAdapter, FastpParams
+from arva_tools.fastp import FastpAdapter, FastpParams, removed_reads
 from arva_tools.fastqc import DATA_JSON as FASTQC_DATA_JSON
 from arva_tools.fastqc import FastqcAdapter
 from arva_tools.filtlong import ENVIRONMENT as FILTLONG_ENVIRONMENT
@@ -292,6 +292,15 @@ def _fastp_body(ctx: JobContext) -> None:
     before, after = summary["before_filtering"], summary["after_filtering"]
     ctx.log(f"fastp: reads {before['total_reads']:,} → {after['total_reads']:,}; "
             f"bases {before['total_bases']:,} → {after['total_bases']:,}")
+    removed = removed_reads(summary["filtering_result"], params.length_limit)
+    if removed:
+        ctx.log(f"fastp removed: {removed}")
+    # fastp exits with status 0 and writes 0-byte .fq.gz files when no read passes.
+    if after["total_reads"] == 0:
+        raise JobFailure(f"fastp kept no reads with these thresholds; nothing was registered (removed: {removed})")
+    for out in (out1, out2):
+        if out is not None and not (check := quick_validate(out)).is_valid:
+            raise JobFailure(f"fastp wrote {out.name}, which cannot be read ({check.message}); nothing was registered")
 
     label = f"Reads kept by fastp {ctx.job.tool_version}"
     derived = [_register_derived(ctx, r1, _rel(ctx, out1), out1.name, label)]
@@ -318,9 +327,14 @@ def _filtlong_body(ctx: JobContext) -> None:
     results.mkdir(parents=True, exist_ok=True)
     processed.mkdir(parents=True, exist_ok=True)
     out = processed / f"{_stem(f)}.filtlong.fastq.gz"
+    if params.genome_size_bp is not None:
+        ctx.log(f"Target: {params.target_bases:,} bases = round({params.target_coverage_x:g}× × "
+                f"{params.genome_size_bp:,} bp genome size); Filtlong receives only --target_bases")
     log = _run(ctx, FiltlongAdapter.argv(exe, params, ctx.path(f.stored_path)), results, "filtlong.log",
                stdout=out, extra_env=FILTLONG_ENVIRONMENT)
-    ctx.job.result_summary = FiltlongAdapter.parse_log(log.read_text(errors="replace"))
+    ctx.job.result_summary = summary = FiltlongAdapter.parse_log(log.read_text(errors="replace"))
+    if summary.get("not_enough_reads_for_target") or summary.get("below_target_after_filtering"):
+        ctx.log("Filtlong: the target is not below the bases available, so no reads were removed to meet it")
     check = quick_validate(out)
     if check.records_checked == 0:
         raise JobFailure("Filtlong kept no reads with these thresholds; nothing was written")

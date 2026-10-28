@@ -142,7 +142,7 @@ def create_fastp_job(db: Session, sample: Sample, r1: RawFile, r2: RawFile | Non
     from app.tasks.tools import run_fastp_job
 
     params.threads = min(params.threads, get_settings().tool_threads)
-    params.validate()
+    params.validate(paired=r2 is not None)
     tool = require_tool("fastp")
     inputs = [r1.id] + ([r2.id] if r2 else [])
     job = _tool_job(sample, FASTP_JOB, tool, params.as_dict(), inputs)

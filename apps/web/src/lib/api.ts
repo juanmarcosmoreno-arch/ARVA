@@ -6,7 +6,7 @@ import type {
   FastpData,
   FastpParams,
   FastqcData,
-  FiltlongParams,
+  FiltlongRequest,
   HeaderSummary,
   ImportListing,
   ImportRoot,
@@ -159,7 +159,7 @@ export const api = {
     request<AnalysisJob[]>(`/samples/${sampleId}/analyses/nanoplot`, json("POST", { raw_file_ids: fileIds, long_reads_confirmed: longReadsConfirmed })),
   runFastp: (sampleId: string, body: { read1_file_id: string; read2_file_id?: string | null; params: FastpParams }) =>
     request<AnalysisJob>(`/samples/${sampleId}/filtering/fastp`, json("POST", body)),
-  runFiltlong: (sampleId: string, body: { file_id: string; params: FiltlongParams }) =>
+  runFiltlong: (sampleId: string, body: FiltlongRequest) =>
     request<AnalysisJob>(`/samples/${sampleId}/filtering/filtlong`, json("POST", body)),
   crosscheck: (fileId: string) => request<CrossCheck>(`/files/${fileId}/crosscheck`),
   fastqcData: (jobId: string) => request<FastqcData>(`/jobs/${jobId}/fastqc-data`),

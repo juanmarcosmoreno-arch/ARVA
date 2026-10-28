@@ -226,13 +226,28 @@ export interface Pod5Summary {
 export interface FastpParams {
   adapter_trimming: boolean;
   detect_adapter_for_pe: boolean;
+  /** Upper-case A/C/G/T, 4–200 bases; null keeps fastp's own adapter handling. */
+  adapter_sequence: string | null;
+  adapter_sequence_r2: string | null;
   quality_filtering: boolean;
   qualified_quality_phred: number;
   unqualified_percent_limit: number;
   n_base_limit: number;
   average_qual: number;
+  low_complexity_filter: boolean;
+  complexity_threshold: number;
   length_filtering: boolean;
   length_required: number;
+  /** Discards reads longer than this after trimming (0 = off). */
+  length_limit: number;
+  trim_front1: number;
+  trim_tail1: number;
+  /** Trims read 1 to this length (0 = off); no read is removed. */
+  max_len1: number;
+  /** Paired end only; null follows read 1 (ARVA passes the value explicitly). */
+  trim_front2: number | null;
+  trim_tail2: number | null;
+  max_len2: number | null;
   cut_front: boolean;
   cut_tail: boolean;
   cut_window_size: number;
@@ -266,6 +281,26 @@ export interface FastpSummary {
   read2_adapter_sequence: string | null;
   duplication_rate: number | null;
   insert_size_peak: number | null;
+  /** fastp's insert-size estimate without its histogram; absent for jobs that predate it. */
+  insert_size?: Omit<NonNullable<FastpData["insert_size"]>, "histogram" | "histogram_percent"> | null;
+}
+
+/** Totals and target outcome parsed from Filtlong's log (keys absent when Filtlong did not print them). */
+export interface FiltlongSummary {
+  input_reads?: number;
+  input_bases?: number;
+  target_bases_reported?: number;
+  kept_bases_reported?: number;
+  not_enough_reads_for_target?: boolean;
+  below_target_after_filtering?: boolean;
+}
+
+export interface FiltlongRequest {
+  file_id: string;
+  params: FiltlongParams;
+  /** With target_coverage_x: the server sets target_bases = round(target_coverage_x × genome_size_bp). */
+  genome_size_bp?: number | null;
+  target_coverage_x?: number | null;
 }
 
 export interface FastqcSummary {

@@ -64,6 +64,78 @@ def test_fastp_paired_end_filters_and_trims(tmp_path):
     assert sum(ins["histogram_percent"]) + ins["unknown_percent"] == pytest.approx(100)
 
 
+def _fastp(tmp_path, name, params, paired=False):
+    exe = tool("fastp")
+    out = tmp_path / name
+    out.mkdir()
+    pe = dict(in2=R2, out2=out / "o2.fq.gz") if paired else {}
+    run_command(FastpAdapter.argv(exe, params, R1, out / "o1.fq.gz", out / "f.json", out / "f.html", **pe),
+                cwd=out, stderr_path=out / "fastp.log")
+    return out, FastpAdapter.parse_report(out / "f.json")
+
+
+def read_lengths(path: Path) -> list[int]:
+    with gzip.open(path, "rt") as fh:
+        return [len(seq) for seq in fh.read().splitlines()[1::4]]
+
+
+def test_fastp_length_limit_discards_and_max_len_trims(tmp_path):
+    # Paired end: pairs where either mate is still longer than 120 bp after adapter trimming are discarded.
+    out, report = _fastp(tmp_path, "limit", FastpParams(threads=2, length_limit=120), paired=True)
+    kept = report["after_filtering"]["total_reads"]
+    assert 0 < kept < report["before_filtering"]["total_reads"]
+    assert report["filtering_result"]["too_long_reads"] > 0
+    lengths = read_lengths(out / "o1.fq.gz") + read_lengths(out / "o2.fq.gz")
+    assert len(lengths) == kept and max(lengths) <= 120
+    # Single end: --max_len1 trims every read to 140 bp and discards none for its length.
+    out, report = _fastp(tmp_path, "trim", FastpParams(threads=2, max_len1=140, trim_front1=2))
+    assert report["filtering_result"]["too_long_reads"] == 0
+    assert set(read_lengths(out / "o1.fq.gz")) == {140}
+    assert report["after_filtering"]["total_reads"] == 2000 - report["filtering_result"]["low_quality_reads"]
+
+
+def test_fastp_writes_an_empty_output_when_every_read_is_removed(tmp_path):
+    out, report = _fastp(tmp_path, "none", FastpParams(threads=2, length_limit=140))
+    assert report["after_filtering"]["total_reads"] == 0 and report["filtering_result"]["too_long_reads"] > 0
+    # fastp exits with status 0 and leaves a 0-byte file: no gzip header, no reads.
+    assert (out / "o1.fq.gz").stat().st_size == 0 and count_fastq(out / "o1.fq.gz") == 0
+
+
+def test_fastp_low_complexity_count_only_when_enabled(tmp_path):
+    _, off = _fastp(tmp_path, "off", FastpParams(threads=2))
+    _, on = _fastp(tmp_path, "on", FastpParams(threads=2, low_complexity_filter=True, complexity_threshold=30))
+    assert "low_complexity_reads" not in off["filtering_result"]
+    assert on["filtering_result"]["low_complexity_reads"] == 0
+
+
+def test_fastp_explicit_adapter_for_single_end(tmp_path):
+    # fastp's single-end auto-detection finds no adapter in R1, although FastQC sees the Illumina adapter.
+    _, auto = _fastp(tmp_path, "auto", FastpParams(threads=2))
+    _, given = _fastp(tmp_path, "given", FastpParams(threads=2, adapter_sequence="AGATCGGAAGAGCACACGTCTGAACTCCAGTCA"))
+    assert auto["adapter_trimmed_reads"] is None
+    assert given["adapter_trimmed_reads"] > 100 and given["read1_adapter_sequence"].startswith("AGATCGGAAGAGC")
+
+
+def test_filtlong_target_outcomes(tmp_path):
+    from arva_tools.filtlong import ENVIRONMENT
+
+    exe = tool("filtlong")
+    outcomes = {}
+    for name, params in {
+        "kept": FiltlongParams(target_bases=500_000),
+        "not_enough": FiltlongParams(target_bases=1_513_780),
+        "below": FiltlongParams(min_length=5000, target_bases=1_000_000),
+    }.items():
+        run_command(FiltlongAdapter.argv(exe, params, ONT), cwd=tmp_path, stderr_path=tmp_path / f"{name}.log",
+                    stdout_path=tmp_path / f"{name}.fq.gz", extra_env=ENVIRONMENT)
+        outcomes[name] = FiltlongAdapter.parse_log((tmp_path / f"{name}.log").read_text())
+    assert outcomes["kept"]["kept_bases_reported"] == sum(read_lengths(tmp_path / "kept.fq.gz"))
+    assert 500_000 <= outcomes["kept"]["kept_bases_reported"] < 500_000 + max(read_lengths(ONT))
+    assert outcomes["not_enough"]["not_enough_reads_for_target"] and count_fastq(tmp_path / "not_enough.fq.gz") == 400
+    assert outcomes["below"]["below_target_after_filtering"] and "kept_bases_reported" not in outcomes["below"]
+    assert min(read_lengths(tmp_path / "below.fq.gz")) >= 5000
+
+
 def test_filtlong_keeps_subset(tmp_path):
     exe = tool("filtlong")
     out = tmp_path / "filtered.fastq.gz"

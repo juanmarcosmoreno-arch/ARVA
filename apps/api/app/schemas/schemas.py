@@ -260,20 +260,42 @@ class NanoplotRequest(FilesRequest):
     )
 
 
+FASTP_INT_MAX = 2**31 - 1
+AdapterSequence = Annotated[str, Field(pattern=r"^[ACGT]{4,200}$", description="4–200 bases of A, C, G, T")]
+
+
 class FastpParamsIn(BaseModel):
     adapter_trimming: bool = True
     detect_adapter_for_pe: bool = True
+    adapter_sequence: AdapterSequence | None = Field(
+        default=None, description="Read-1 adapter instead of fastp's detection (paired end: used where mates do not overlap)"
+    )
+    adapter_sequence_r2: AdapterSequence | None = Field(default=None, description="Read-2 adapter (paired end only)")
     quality_filtering: bool = True
     qualified_quality_phred: int = Field(default=15, ge=0, le=93)
     unqualified_percent_limit: int = Field(default=40, ge=0, le=100)
     n_base_limit: int = Field(default=5, ge=0)
     average_qual: int = Field(default=0, ge=0, le=93)
+    low_complexity_filter: bool = False
+    complexity_threshold: int = Field(default=30, ge=0, le=100)
     length_filtering: bool = True
     length_required: int = Field(default=15, ge=0)
+    length_limit: int = Field(
+        default=0, ge=0, le=FASTP_INT_MAX,
+        description="Discard reads longer than this after trimming (0 = off); a pair goes when either mate does",
+    )
+    trim_front1: int = Field(default=0, ge=0, le=30)
+    trim_tail1: int = Field(default=0, ge=0, le=100)
+    max_len1: int = Field(default=0, ge=0, le=FASTP_INT_MAX, description="Trim read 1 to this length (0 = off)")
+    trim_front2: int | None = Field(default=None, ge=0, le=30, description="Paired end only; unset follows read 1")
+    trim_tail2: int | None = Field(default=None, ge=0, le=100, description="Paired end only; unset follows read 1")
+    max_len2: int | None = Field(
+        default=None, ge=0, le=FASTP_INT_MAX, description="Paired end only; unset follows read 1"
+    )
     cut_front: bool = False
     cut_tail: bool = False
     cut_window_size: int = Field(default=4, ge=1, le=1000)
-    cut_mean_quality: int = Field(default=20, ge=1, le=36)
+    cut_mean_quality: int = Field(default=20, ge=1, le=30)
     poly_g: Literal["auto", "force", "disable"] = "auto"
     dedup: bool = False
 
@@ -300,6 +322,11 @@ class FiltlongParamsIn(BaseModel):
 class FiltlongRequest(BaseModel):
     file_id: str
     params: FiltlongParamsIn
+    genome_size_bp: int | None = Field(
+        default=None, ge=1, le=10_000_000_000,
+        description="With target_coverage_x: ARVA sets target_bases = round(target_coverage_x × genome_size_bp)",
+    )
+    target_coverage_x: float | None = Field(default=None, gt=0, le=100_000)
 
 
 MultiqcModule = Literal["fastqc", "fastp", "seqkit", "filtlong"]

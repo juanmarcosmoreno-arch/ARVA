@@ -1,0 +1,10 @@
+
+Scoring long reads
+  127 reads (484504 bp)  247 reads (972084 bp)  381 reads (1457107 bp)  400 reads (1513780 bp)
+
+Filtering long reads
+  target: 500000 bp
+  keeping 504167 bp
+
+Outputting passed long reads
+

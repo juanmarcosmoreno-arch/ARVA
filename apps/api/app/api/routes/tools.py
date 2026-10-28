@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from arva_tools.fastp import FastpParams
-from arva_tools.filtlong import FiltlongParams
+from arva_tools.filtlong import FiltlongParams, target_bases_for_coverage
 from arva_tools.multiqc import REPORT_FILENAME as MULTIQC_REPORT
 from arva_tools.registry import detect_all
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -219,7 +219,11 @@ def start_filtlong(sample_id: str, payload: FiltlongRequest, db: Session = Depen
     sample = sample_or_404(db, sample_id)
     (f,) = _sample_files(db, sample, [payload.file_id], "Filtlong")
     _require_fastq([f])
-    params = FiltlongParams(**payload.params.model_dump())
+    values = payload.params.model_dump()
+    genome, depth = payload.genome_size_bp, payload.target_coverage_x
+    if genome is not None and depth is not None and values["target_bases"] is None:
+        values["target_bases"] = target_bases_for_coverage(genome, depth)
+    params = FiltlongParams(**values, genome_size_bp=genome, target_coverage_x=depth)
     return _tool_call(create_filtlong_job, db, sample, f, params)
 
 

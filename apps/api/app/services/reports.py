@@ -9,6 +9,7 @@ from datetime import UTC, datetime
 from html import escape
 from typing import Any
 
+from arva_tools.fastp import removed_reads
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -192,11 +193,10 @@ def _processing_steps(db: Session, sample: Sample, latest: dict) -> list[dict[st
         }
         if j.job_type == FASTP_JOB and summary:
             b, a = summary["before_filtering"], summary["after_filtering"]
-            fr = summary.get("filtering_result", {})
             step["highlights"] = [
                 f"Reads {b['total_reads']:,} → {a['total_reads']:,}; bases {b['total_bases']:,} → {a['total_bases']:,}",
-                f"Removed: low quality {fr.get('low_quality_reads', 0):,}, too many N {fr.get('too_many_N_reads', 0):,}, "
-                f"too short {fr.get('too_short_reads', 0):,}",
+                "Removed (reads; both mates counted for pairs): "
+                + removed_reads(summary.get("filtering_result", {}), (j.parameters or {}).get("length_limit") or 0),
             ]
             if summary.get("adapter_trimmed_reads") is None:
                 step["highlights"].append("Adapter trimming: fastp reported none (trimming disabled, or no adapter "
@@ -206,9 +206,9 @@ def _processing_steps(db: Session, sample: Sample, latest: dict) -> list[dict[st
                                           f"({summary.get('adapter_trimmed_bases') or 0:,} bases removed)")
             if summary.get("duplication_rate") is not None:
                 step["highlights"].append(f"Duplication rate (fastp estimate): {100 * summary['duplication_rate']:.2f} %")
+            step["highlights"] += _insert_size_highlight(j, summary)
         elif j.job_type == FILTLONG_JOB:
-            chosen = {k: v for k, v in (j.parameters or {}).items() if v is not None and not k.endswith(("weight", "window_size"))}
-            step["highlights"] = ["Thresholds: " + ", ".join(f"{k}={v}" for k, v in chosen.items())]
+            step["highlights"] = _filtlong_highlights(j.parameters or {}, summary)
         elif j.job_type == SEQKIT_JOB and summary:
             file_id = (j.input_raw_file_ids or [None])[0]
             qc = latest.get(file_id, (None, None))[1]
@@ -240,6 +240,43 @@ def _processing_steps(db: Session, sample: Sample, latest: dict) -> list[dict[st
             ] + _fastqc_data_highlights(qc_data.fastqc_summary(j))
         steps.append(step)
     return steps
+
+
+def _insert_size_highlight(job: AnalysisJob, summary: dict[str, Any]) -> list[str]:
+    ins = summary.get("insert_size")
+    if ins is None and summary.get("insert_size_peak") is not None:
+        try:
+            ins = qc_data.fastp_data(job)["insert_size"]
+        except qc_data.QcDataError:
+            return []
+    if not ins or not ins["evaluated_pairs"]:
+        return []
+    threads = (job.parameters or {}).get("threads")
+    source = f"the {ins['evaluated_pairs']:,} pairs read by fastp's worker thread 0 (--thread {threads})"
+    if ins["peak"] is None:
+        return [f"Insert size (fastp estimate): none of {source} overlapped"]
+    return [f"Insert size peak (fastp estimate, depends on the thread count): {ins['peak']} bp, from {source}; "
+            f"{100 * ins['overlapping_pairs'] / ins['evaluated_pairs']:.1f} % of them overlapped"]
+
+
+def _filtlong_highlights(params: dict[str, Any], summary: dict[str, Any]) -> list[str]:
+    provenance = ("genome_size_bp", "target_coverage_x")
+    chosen = {k: v for k, v in params.items()
+              if v is not None and k not in provenance and not k.endswith(("weight", "window_size"))}
+    out = ["Thresholds: " + ", ".join(f"{k}={v}" for k, v in chosen.items())]
+    if params.get("genome_size_bp") is not None:
+        out.append(f"Target bases {params['target_bases']:,} = round({params['target_coverage_x']:g}× coverage × "
+                   f"{params['genome_size_bp']:,} bp genome size), computed by ARVA; Filtlong receives only "
+                   "--target_bases")
+    if summary.get("kept_bases_reported") is not None:
+        out.append(f"Filtlong kept {summary['kept_bases_reported']:,} bases for a target of "
+                   f"{summary['target_bases_reported']:,} (it may overshoot by up to one read)")
+    elif summary.get("not_enough_reads_for_target"):
+        out.append("Filtlong: not enough reads to reach the target, so no reads were removed to meet it")
+    elif summary.get("below_target_after_filtering"):
+        out.append("Filtlong: the reads left after the hard thresholds already fall below the target, so no "
+                   "further reads were removed to meet it")
+    return out
 
 
 def _fastqc_data_highlights(s: dict[str, Any] | None) -> list[str]:

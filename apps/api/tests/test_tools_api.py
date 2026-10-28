@@ -136,6 +136,116 @@ def test_fastp_rejects_bad_inputs(client, sample):
     assert bad.status_code == 422
 
 
+@needs("fastp")
+def test_fastp_length_trim_and_complexity_options(client, sample, storage_root):
+    f1, f2 = upload(client, sample["id"], R1, R2)
+    params = {"length_limit": 120, "trim_front1": 2, "low_complexity_filter": True}
+    r = client.post(f"{API}/samples/{sample['id']}/filtering/fastp",
+                    json={"read1_file_id": f1["id"], "read2_file_id": f2["id"], "params": params})
+    detail = job(client, r.json()["id"])
+    assert detail["status"] == "completed", detail["log_text"]
+    cmd = " ".join(detail["commands"][0])
+    for flag in ("--length_required 15 --length_limit 120", "--trim_front1 2 --trim_tail1 0 --max_len1 0",
+                 "--trim_front2 2 --trim_tail2 0 --max_len2 0", "--low_complexity_filter --complexity_threshold 30"):
+        assert flag in cmd
+    assert detail["parameters"]["length_limit"] == 120 and detail["parameters"]["trim_front2"] is None
+    fr = detail["result_summary"]["filtering_result"]
+    assert fr["too_long_reads"] > 0 and "low_complexity_reads" in fr
+    assert detail["result_summary"]["insert_size"]["evaluated_pairs"] > 0
+    html = client.get(f"{API}/samples/{sample['id']}/report", params={"format": "html"}).text
+    assert f"too long {fr['too_long_reads']:,}" in html and "low complexity 0" in html
+    assert "Insert size peak (fastp estimate, depends on the thread count)" in html
+
+
+@needs("fastp")
+def test_fastp_that_keeps_no_reads_fails_and_registers_nothing(client, sample, storage_root):
+    (f,) = upload(client, sample["id"], R1)
+    r = client.post(f"{API}/samples/{sample['id']}/filtering/fastp",
+                    json={"read1_file_id": f["id"], "params": {"length_limit": 140}})
+    detail = job(client, r.json()["id"])
+    assert detail["status"] == "failed"
+    assert detail["error_message"].startswith("fastp kept no reads with these thresholds; nothing was registered")
+    assert "too long 1,844" in detail["error_message"]
+    assert all(x["origin"] == "imported" for x in client.get(f"{API}/samples/{sample['id']}/files").json())
+    assert not list((storage_root / "processed").rglob(f"*{detail['id']}*"))
+    assert [j["job_type"] for j in client.get(f"{API}/samples/{sample['id']}/jobs").json()] == ["fastp"]
+
+
+@pytest.mark.parametrize("params, message", [
+    ({"length_required": 50, "length_limit": 40}, "≥ length_required"),
+    ({"length_filtering": False, "length_limit": 200}, "needs length filtering"),
+    ({"trim_front2": 3}, "apply to read 2, but this run is single-end"),
+    ({"adapter_trimming": False, "adapter_sequence": "AGATCGGAAGAGC"}, "needs adapter trimming"),
+    ({"adapter_sequence": "agatcggaagagc"}, None),
+    ({"trim_front1": 31}, None),
+    ({"cut_mean_quality": 31}, None),
+    ({"complexity_threshold": 101}, None),
+])
+def test_fastp_option_validation(client, sample, params, message):
+    (f,) = upload(client, sample["id"], R1)
+    r = client.post(f"{API}/samples/{sample['id']}/filtering/fastp", json={"read1_file_id": f["id"], "params": params})
+    assert r.status_code == 422, r.text
+    if message:
+        assert message in r.json()["detail"]
+
+
+@needs("filtlong")
+def test_filtlong_coverage_target_is_recorded(client, sample):
+    (f,) = upload(client, sample["id"], ONT)
+    r = client.post(f"{API}/samples/{sample['id']}/filtering/filtlong",
+                    json={"file_id": f["id"], "params": {}, "genome_size_bp": 250_000, "target_coverage_x": 2})
+    assert r.status_code == 202, r.text
+    detail = job(client, r.json()["id"])
+    assert detail["status"] == "completed", detail["log_text"]
+    p = detail["parameters"]
+    assert (p["genome_size_bp"], p["target_coverage_x"], p["target_bases"]) == (250_000, 2, 500_000)
+    argv = detail["commands"][0]
+    assert argv[argv.index("--target_bases") + 1] == "500000"
+    assert not any("genome" in a or "coverage" in a for a in argv)
+    s = detail["result_summary"]
+    assert s["kept_bases_reported"] == 504_167 and s["not_enough_reads_for_target"] is False
+    (derived,) = [x for x in client.get(f"{API}/samples/{sample['id']}/files").json() if x["origin"] == "derived"]
+    stats = [j for j in client.get(f"{API}/samples/{sample['id']}/jobs").json()
+             if j["job_type"] == "sequence_stats" and j["input_raw_file_ids"] == [derived["id"]]]
+    assert stats[0]["qc_results"][0]["total_bases"] == s["kept_bases_reported"]
+    html = client.get(f"{API}/samples/{sample['id']}/report", params={"format": "html"}).text
+    assert "Target bases 500,000 = round(2× coverage × 250,000 bp genome size)" in html
+    assert "Filtlong kept 504,167 bases for a target of 500,000" in html
+
+
+@needs("filtlong")
+def test_filtlong_target_above_the_input_removes_no_reads(client, sample):
+    (f,) = upload(client, sample["id"], ONT)
+    r = client.post(f"{API}/samples/{sample['id']}/filtering/filtlong",
+                    json={"file_id": f["id"], "params": {"target_bases": 3_027_560},
+                          "genome_size_bp": 1_513_780, "target_coverage_x": 2})
+    detail = job(client, r.json()["id"])
+    assert detail["status"] == "completed", detail["log_text"]
+    assert detail["result_summary"]["not_enough_reads_for_target"] is True
+    assert "no reads were removed to meet it" in detail["log_text"]
+    (derived,) = [x for x in client.get(f"{API}/samples/{sample['id']}/files").json() if x["origin"] == "derived"]
+    path = get_storage().resolve(next(p for p in detail["output_paths"] if p.endswith(".fastq.gz")))
+    with gzip.open(path, "rt") as fh:
+        assert sum(1 for _ in fh) // 4 == 400
+    assert derived["parent_file_id"] == f["id"]
+
+
+@pytest.mark.parametrize("body, message", [
+    ({"genome_size_bp": 2_800_000}, "needs both"),
+    ({"target_coverage_x": 30, "params": {"target_bases": 84_000_000}}, "needs both"),
+    ({"genome_size_bp": 2_800_000, "target_coverage_x": 30, "params": {"target_bases": 84_000_001}}, "= 84000000"),
+    ({"genome_size_bp": 2_800_000, "target_coverage_x": 0}, None),
+    ({"genome_size_bp": 0, "target_coverage_x": 30}, None),
+])
+def test_filtlong_coverage_validation(client, sample, body, message):
+    (f,) = upload(client, sample["id"], ONT)
+    r = client.post(f"{API}/samples/{sample['id']}/filtering/filtlong",
+                    json={"file_id": f["id"], "params": {}, **body})
+    assert r.status_code == 422, r.text
+    if message:
+        assert message in r.json()["detail"]
+
+
 @needs("filtlong")
 def test_filtlong_filters_long_reads(client, sample):
     (f,) = upload(client, sample["id"], ONT)

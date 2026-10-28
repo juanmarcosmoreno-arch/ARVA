@@ -6,9 +6,14 @@ from pathlib import Path
 
 import pytest
 
-from arva_tools.fastp import FastpAdapter, FastpParams
+from arva_tools.fastp import FastpAdapter, FastpParams, removed_reads
 from arva_tools.fastqc import OVERREPRESENTED_ROWS, FastqcAdapter, parse_position
-from arva_tools.filtlong import FiltlongAdapter, FiltlongParams, identity_to_phred
+from arva_tools.filtlong import (
+    FiltlongAdapter,
+    FiltlongParams,
+    identity_to_phred,
+    target_bases_for_coverage,
+)
 from arva_tools.multiqc import ENVIRONMENT as MULTIQC_ENV
 from arva_tools.multiqc import MultiqcAdapter, ReportInput, report_text, staged_name
 from arva_tools.seqkit import SeqkitAdapter
@@ -22,9 +27,12 @@ def test_fastp_defaults_are_explicit_in_command():
     joined = " ".join(argv)
     for expected in ("--in2 /data/r2.fq.gz", "--qualified_quality_phred 15", "--unqualified_percent_limit 40",
                      "--n_base_limit 5", "--average_qual 0", "--length_required 15", "--detect_adapter_for_pe",
-                     "--thread 3"):
+                     "--thread 3", "--length_limit 0", "--trim_front1 0 --trim_tail1 0 --max_len1 0",
+                     "--trim_front2 0 --trim_tail2 0 --max_len2 0"):
         assert expected in joined
-    assert "--dedup" not in argv and "--disable_trim_poly_g" not in argv
+    for absent in ("--dedup", "--disable_trim_poly_g", "--low_complexity_filter", "--adapter_sequence",
+                   "--reads_to_process"):
+        assert absent not in argv
 
 
 def test_fastp_options_toggle():
@@ -38,11 +46,79 @@ def test_fastp_options_toggle():
     assert "--qualified_quality_phred" not in argv and "--in2" not in argv
 
 
-@pytest.mark.parametrize("bad", [dict(unqualified_percent_limit=150), dict(cut_mean_quality=40),
+@pytest.mark.parametrize("bad", [dict(unqualified_percent_limit=150), dict(cut_mean_quality=31),
                                  dict(threads=0), dict(poly_g="sometimes")])
 def test_fastp_validation(bad):
     with pytest.raises(ValueError):
         FastpParams(**bad).validate()
+
+
+def test_fastp_length_limit_discards_and_max_len_trims_single_end():
+    params = FastpParams(length_required=50, length_limit=140, max_len1=145, trim_front1=5, trim_tail1=3,
+                         low_complexity_filter=True, complexity_threshold=40,
+                         adapter_sequence="AGATCGGAAGAGCACACGTCTGAACTCCAGTCA")
+    argv = FastpAdapter.argv("fastp", params, P / "r.fq", P / "o.fq.gz", P / "j", P / "h")
+    joined = " ".join(argv)
+    for expected in ("--length_required 50 --length_limit 140", "--trim_front1 5 --trim_tail1 3 --max_len1 145",
+                     "--low_complexity_filter --complexity_threshold 40",
+                     "--adapter_sequence AGATCGGAAGAGCACACGTCTGAACTCCAGTCA"):
+        assert expected in joined
+    assert not any(a.endswith("2") and a.startswith("--") for a in argv)
+
+
+def test_fastp_paired_end_passes_read2_values_explicitly():
+    files = dict(in2=P / "r2.fq", out2=P / "o2.fq.gz")
+    follow = FastpParams(trim_front1=3, trim_tail1=2, max_len1=120)
+    argv = FastpAdapter.argv("fastp", follow, P / "r1.fq", P / "o1.fq.gz", P / "j", P / "h", **files)
+    assert "--trim_front2 3 --trim_tail2 2 --max_len2 120" in " ".join(argv)
+    own = FastpParams(trim_front1=3, trim_tail1=2, max_len1=120, trim_front2=0, trim_tail2=10, max_len2=100,
+                      adapter_sequence="AGATCGGAAGAGC", adapter_sequence_r2="AGATCGGAAGAGCG")
+    joined = " ".join(FastpAdapter.argv("fastp", own, P / "r1.fq", P / "o1.fq.gz", P / "j", P / "h", **files))
+    assert "--trim_front2 0 --trim_tail2 10 --max_len2 100" in joined
+    assert "--adapter_sequence AGATCGGAAGAGC --adapter_sequence_r2 AGATCGGAAGAGCG" in joined
+
+
+def test_fastp_length_limit_is_not_passed_without_length_filtering():
+    argv = FastpAdapter.argv("fastp", FastpParams(length_filtering=False), P / "r.fq", P / "o.fq.gz", P / "j", P / "h")
+    assert "--disable_length_filtering" in argv and "--length_limit" not in argv
+
+
+@pytest.mark.parametrize("bad, message", [
+    (dict(length_required=50, length_limit=40), "≥ length_required"),
+    (dict(length_filtering=False, length_limit=200), "needs length filtering"),
+    (dict(length_limit=-1), "length_limit must be ≥ 0"),
+    (dict(max_len1=-5), "max_len1"),
+    (dict(trim_front1=31), "trim_front1 must be 0–30"),
+    (dict(trim_tail2=101), "trim_tail2 must be 0–100"),
+    (dict(complexity_threshold=101), "complexity_threshold"),
+    (dict(adapter_sequence="ACG"), "4–200 bases"),
+    (dict(adapter_sequence="agatcggaagagc"), "4–200 bases"),
+    (dict(adapter_sequence="AGATCNGAAGAGC"), "4–200 bases"),
+    (dict(adapter_sequence="A" * 201), "4–200 bases"),
+    (dict(adapter_trimming=False, adapter_sequence="AGATCGGAAGAGC"), "needs adapter trimming"),
+])
+def test_fastp_new_option_validation(bad, message):
+    with pytest.raises(ValueError, match=message):
+        FastpParams(**bad).validate()
+
+
+def test_fastp_read2_options_are_rejected_for_single_end():
+    params = FastpParams(trim_front2=2, adapter_sequence_r2="AGATCGGAAGAGC")
+    params.validate()
+    params.validate(paired=True)
+    with pytest.raises(ValueError, match="trim_front2, adapter_sequence_r2 apply to read 2"):
+        params.validate(paired=False)
+    with pytest.raises(ValueError, match="single-end"):
+        FastpAdapter.argv("fastp", params, P / "r.fq", P / "o.fq.gz", P / "j", P / "h")
+
+
+def test_fastp_removed_reads_in_words():
+    result = {"passed_filter_reads": 8, "low_quality_reads": 2, "too_many_N_reads": 0, "too_short_reads": 1,
+              "too_long_reads": 0}
+    assert removed_reads(result) == "low quality 2, too many N 0, too short 1"
+    assert removed_reads(result, length_limit=140) == "low quality 2, too many N 0, too short 1, too long 0"
+    assert removed_reads({**result, "low_complexity_reads": 1844, "corrected_reads": 3}) == (
+        "low quality 2, too many N 0, too short 1, low complexity 1,844, corrected reads 3")
 
 
 def test_fastp_report_parsing(tmp_path):
@@ -60,6 +136,7 @@ def test_fastp_report_parsing(tmp_path):
     parsed = FastpAdapter.parse_report(path)
     assert parsed["after_filtering"]["total_reads"] == 8
     assert parsed["adapter_trimmed_reads"] == 3 and parsed["insert_size_peak"] == 72
+    assert parsed["insert_size"]["peak"] is None and parsed["insert_size"]["evaluated_pairs"] == 0
 
 
 def test_filtlong_requires_a_threshold():
@@ -94,7 +171,50 @@ def test_filtlong_log_parsing():
     assert FiltlongAdapter.parse_log(log) == {
         "input_reads": 400, "input_bases": 1580952,
         "target_bases_reported": 1422856, "kept_bases_reported": 1425385,
+        "not_enough_reads_for_target": False, "below_target_after_filtering": False,
     }
+    no_target = FiltlongAdapter.parse_log("\nScoring long reads\n\r  400 reads (1580952 bp)\n\n")
+    assert no_target == {"input_reads": 400, "input_bases": 1580952}
+
+
+FILTLONG_FIXTURES = Path(__file__).parent / "fixtures" / "filtlong"
+
+
+@pytest.mark.parametrize("name, expected", [
+    ("target_500000", dict(target_bases_reported=500_000, kept_bases_reported=504_167,
+                           not_enough_reads_for_target=False, below_target_after_filtering=False)),
+    ("target_not_enough_reads", dict(target_bases_reported=1_513_780, not_enough_reads_for_target=True,
+                                     below_target_after_filtering=False)),
+    ("target_below_after_filtering", dict(target_bases_reported=1_000_000, not_enough_reads_for_target=False,
+                                          below_target_after_filtering=True)),
+])
+def test_filtlong_target_outcomes_from_real_logs(name, expected):
+    parsed = FiltlongAdapter.parse_log((FILTLONG_FIXTURES / f"{name}.log").read_text())
+    assert parsed == {"input_reads": 400, "input_bases": 1_513_780, **expected}
+
+
+def test_filtlong_target_from_coverage():
+    assert target_bases_for_coverage(2_800_000, 30) == 84_000_000
+    assert target_bases_for_coverage(2_814_816, 42.5) == 119_629_680
+    # Half up, as JavaScript's Math.round (Python's round(50.5) is 50).
+    assert target_bases_for_coverage(101, 0.5) == 51
+    params = FiltlongParams(target_bases=84_000_000, genome_size_bp=2_800_000, target_coverage_x=30)
+    argv = FiltlongAdapter.argv("filtlong", params, P / "r.fq.gz")
+    assert argv[1:3] == ["--target_bases", "84000000"]
+    assert not any("genome" in a or "coverage" in a for a in argv)
+
+
+@pytest.mark.parametrize("bad, message", [
+    (dict(target_bases=84_000_000, genome_size_bp=2_800_000), "needs both"),
+    (dict(target_bases=84_000_000, target_coverage_x=30), "needs both"),
+    (dict(target_bases=84_000_001, genome_size_bp=2_800_000, target_coverage_x=30), "= 84000000"),
+    (dict(target_bases=None, genome_size_bp=2_800_000, target_coverage_x=30, min_length=1000), "= 84000000"),
+    (dict(target_bases=1, genome_size_bp=0, target_coverage_x=30), "genome_size_bp must be ≥ 1"),
+    (dict(target_bases=1, genome_size_bp=10, target_coverage_x=0), "target_coverage_x > 0"),
+])
+def test_filtlong_coverage_validation(bad, message):
+    with pytest.raises(ValueError, match=message):
+        FiltlongParams(**bad).validate()
 
 
 def test_filtlong_logs_written_with_digit_grouping():
@@ -334,6 +454,23 @@ def test_fastp_chart_data_tolerates_missing_blocks(tmp_path):
     path.write_text(json.dumps({"summary": {"fastp_version": "0.23.4"}}))
     assert FastpAdapter.parse_data(path) == {"fastp_version": "0.23.4", "sequencing": None, "reads": {},
                                             "adapter_cutting": None, "duplication_rate": None, "insert_size": None}
+
+
+def test_fastp_run_that_removed_every_read():
+    path = FASTP_FIXTURES / "SYNTHETIC_illumina_R1_SE_length_limit_140.fastp.json"
+    report = FastpAdapter.parse_report(path)
+    assert report["after_filtering"]["total_reads"] == 0 and "--length_limit 140" in report["command"]
+    assert removed_reads(report["filtering_result"], length_limit=140) == (
+        "low quality 156, too many N 0, too short 0, too long 1,844")
+    after = FastpAdapter.parse_data(path)["reads"]["read1"]["after"]
+    assert after["total_reads"] == 0 and after["total_cycles"] == 0 and after["quality"]["mean"] == []
+
+
+def test_fastp_report_keeps_the_insert_size_estimate_without_its_histogram():
+    ins = FastpAdapter.parse_report(FASTP_FIXTURES / "SYNTHETIC_illumina_PE.fastp.json")["insert_size"]
+    assert ins == {"peak": 72, "unknown": 923, "overlapping_pairs": 77, "evaluated_pairs": 1000,
+                   "unknown_percent": pytest.approx(92.3), "insert_size_max": 512}
+    assert FastpAdapter.parse_report(FASTP_FIXTURES / "SYNTHETIC_illumina_R1_SE.fastp.json")["insert_size"] is None
 
 
 # --- MultiQC ------------------------------------------------------------------------------------

@@ -18,6 +18,20 @@ from arva_tools.base import ToolAdapter, ToolInfo
 
 # fastp's insertSizeMax: pairs without a detected overlap and inserts of 512 bp or more are 'unknown'.
 INSERT_SIZE_MAX = 512
+# fastp's own limits (options.cpp, 0.23.2 and 0.23.4): it exits with an error outside them.
+TRIM_FRONT_MAX = 30
+TRIM_TAIL_MAX = 100
+# fastp reads lengths as a C int; adapters must be longer than 3 bases of A, C, G, T (ARVA caps the length).
+LENGTH_MAX = 2**31 - 1
+ADAPTER_PATTERN = re.compile(r"[ACGT]{4,200}")
+READ2_OPTIONS = ("trim_front2", "trim_tail2", "max_len2", "adapter_sequence_r2")
+REMOVAL_REASONS = {
+    "low_quality_reads": "low quality",
+    "too_many_N_reads": "too many N",
+    "too_short_reads": "too short",
+    "too_long_reads": "too long",
+    "low_complexity_reads": "low complexity",
+}
 _QUALITY_CURVES = ("mean", "A", "T", "C", "G")
 _CONTENT_CURVES = ("A", "T", "C", "G", "GC", "N")
 
@@ -44,6 +58,16 @@ def _adapter_cutting(block: dict) -> dict:
         "read1_adapter_counts": counts("read1_adapter_counts"),
         "read2_adapter_counts": counts("read2_adapter_counts"),
     }
+
+
+def removed_reads(filtering_result: dict, length_limit: int = 0) -> str:
+    """fastp's removal counts in words; 'too long' is always in the JSON but can be non-zero only with a length limit."""
+    parts = []
+    for key, n in filtering_result.items():
+        if key == "passed_filter_reads" or (key == "too_long_reads" and not length_limit and not n):
+            continue
+        parts.append(f"{REMOVAL_REASONS.get(key, key.replace('_', ' '))} {n:,}")
+    return ", ".join(parts)
 
 
 def _insert_size(block: dict) -> dict:
@@ -74,9 +98,23 @@ class FastpParams:
     unqualified_percent_limit: int = 40
     n_base_limit: int = 5
     average_qual: int = 0
-    # Length filtering (fastp default: enabled, 15 bp)
+    # Length filtering (fastp default: enabled, 15 bp); length_limit DISCARDS longer reads (0 = off)
     length_filtering: bool = True
     length_required: int = 15
+    length_limit: int = 0
+    # Fixed trimming; max_len TRIMS the 3' end to that length (0 = off). Read-2 values None follow read 1.
+    trim_front1: int = 0
+    trim_tail1: int = 0
+    max_len1: int = 0
+    trim_front2: int | None = None
+    trim_tail2: int | None = None
+    max_len2: int | None = None
+    # Adapter sequences instead of auto-detection (None = fastp's automatic behaviour)
+    adapter_sequence: str | None = None
+    adapter_sequence_r2: str | None = None
+    # Low-complexity filter (fastp default: off; 30 % of bases must differ from the next base)
+    low_complexity_filter: bool = False
+    complexity_threshold: int = 30
     # Sliding-window trimming (fastp default: off)
     cut_front: bool = False
     cut_tail: bool = False
@@ -88,7 +126,8 @@ class FastpParams:
     dedup: bool = False
     threads: int = 3
 
-    def validate(self) -> None:
+    def validate(self, paired: bool | None = None) -> None:
+        """`paired` False rejects read-2 options for single-end input; None leaves the layout unchecked."""
         checks = [
             (0 <= self.qualified_quality_phred <= 93, "qualified_quality_phred must be 0–93"),
             (0 <= self.unqualified_percent_limit <= 100, "unqualified_percent_limit must be 0–100"),
@@ -96,10 +135,33 @@ class FastpParams:
             (0 <= self.average_qual <= 93, "average_qual must be 0–93"),
             (self.length_required >= 0, "length_required must be ≥ 0"),
             (1 <= self.cut_window_size <= 1000, "cut_window_size must be 1–1000"),
-            (1 <= self.cut_mean_quality <= 36, "cut_mean_quality must be 1–36"),
+            (1 <= self.cut_mean_quality <= 30, "cut_mean_quality must be 1–30"),
             (1 <= self.threads <= 16, "threads must be 1–16"),
             (self.poly_g in ("auto", "force", "disable"), "poly_g must be auto, force or disable"),
+            (0 <= self.length_limit <= LENGTH_MAX, "length_limit must be ≥ 0 (0 = no limit)"),
+            (self.length_limit == 0 or self.length_filtering,
+             "length_limit needs length filtering: fastp's --disable_length_filtering also turns --length_limit off"),
+            (self.length_limit == 0 or not self.length_filtering or self.length_limit >= self.length_required,
+             "length_limit must be 0 (off) or ≥ length_required, otherwise every read is discarded"),
+            (0 <= self.complexity_threshold <= 100, "complexity_threshold must be 0–100"),
         ]
+        for mate in ("1", "2"):
+            front, tail, max_len = (getattr(self, f"{name}{mate}") for name in ("trim_front", "trim_tail", "max_len"))
+            checks += [
+                (front is None or 0 <= front <= TRIM_FRONT_MAX, f"trim_front{mate} must be 0–{TRIM_FRONT_MAX}"),
+                (tail is None or 0 <= tail <= TRIM_TAIL_MAX, f"trim_tail{mate} must be 0–{TRIM_TAIL_MAX}"),
+                (max_len is None or 0 <= max_len <= LENGTH_MAX, f"max_len{mate} must be ≥ 0 (0 = no limit)"),
+            ]
+        for name in ("adapter_sequence", "adapter_sequence_r2"):
+            seq = getattr(self, name)
+            checks += [
+                (seq is None or ADAPTER_PATTERN.fullmatch(seq) is not None,
+                 f"{name} must be 4–200 bases of A, C, G and T (upper case)"),
+                (seq is None or self.adapter_trimming, f"{name} needs adapter trimming"),
+            ]
+        if paired is False:
+            given = [name for name in READ2_OPTIONS if getattr(self, name) is not None]
+            checks.append((not given, f"{', '.join(given)} apply to read 2, but this run is single-end"))
         errors = [msg for ok, msg in checks if not ok]
         if errors:
             raise ValueError("; ".join(errors))
@@ -141,7 +203,7 @@ class FastpAdapter(ToolAdapter):
         out2: Path | None = None,
         title: str = "ARVA fastp report",
     ) -> list[str]:
-        params.validate()
+        params.validate(paired=in2 is not None)
         a = [executable, "--in1", str(in1), "--out1", str(out1)]
         if in2 is not None:
             if out2 is None:
@@ -152,8 +214,21 @@ class FastpAdapter(ToolAdapter):
 
         if not params.adapter_trimming:
             a.append("--disable_adapter_trimming")
-        elif in2 is not None and params.detect_adapter_for_pe:
-            a.append("--detect_adapter_for_pe")
+        else:
+            if in2 is not None and params.detect_adapter_for_pe:
+                a.append("--detect_adapter_for_pe")
+            if params.adapter_sequence:
+                a += ["--adapter_sequence", params.adapter_sequence]
+            if in2 is not None and params.adapter_sequence_r2:
+                a += ["--adapter_sequence_r2", params.adapter_sequence_r2]
+
+        a += ["--trim_front1", str(params.trim_front1), "--trim_tail1", str(params.trim_tail1),
+              "--max_len1", str(params.max_len1)]
+        if in2 is not None:
+            # fastp makes unset read-2 values follow read 1; ARVA writes them out so the command says so.
+            a += ["--trim_front2", str(_or(params.trim_front2, params.trim_front1)),
+                  "--trim_tail2", str(_or(params.trim_tail2, params.trim_tail1)),
+                  "--max_len2", str(_or(params.max_len2, params.max_len1))]
 
         if params.quality_filtering:
             a += [
@@ -165,8 +240,11 @@ class FastpAdapter(ToolAdapter):
         else:
             a.append("--disable_quality_filtering")
 
+        if params.low_complexity_filter:
+            a += ["--low_complexity_filter", "--complexity_threshold", str(params.complexity_threshold)]
+
         if params.length_filtering:
-            a += ["--length_required", str(params.length_required)]
+            a += ["--length_required", str(params.length_required), "--length_limit", str(params.length_limit)]
         else:
             a.append("--disable_length_filtering")
 
@@ -192,6 +270,7 @@ class FastpAdapter(ToolAdapter):
         d = json.loads(Path(json_path).read_text())
         s = d["summary"]
         adapters = d.get("adapter_cutting") or {}
+        insert = d.get("insert_size")
         return {
             "fastp_version": s.get("fastp_version"),
             "sequencing": s.get("sequencing"),
@@ -203,7 +282,9 @@ class FastpAdapter(ToolAdapter):
             "read1_adapter_sequence": adapters.get("read1_adapter_sequence"),
             "read2_adapter_sequence": adapters.get("read2_adapter_sequence"),
             "duplication_rate": (d.get("duplication") or {}).get("rate"),
-            "insert_size_peak": (d.get("insert_size") or {}).get("peak"),
+            "insert_size_peak": (insert or {}).get("peak"),
+            "insert_size": {k: v for k, v in _insert_size(insert).items() if not k.startswith("histogram")}
+            if isinstance(insert, dict) else None,
             "command": d.get("command"),
         }
 
@@ -230,3 +311,7 @@ class FastpAdapter(ToolAdapter):
             "duplication_rate": None if rate is None else float(rate),
             "insert_size": _insert_size(insert) if isinstance(insert, dict) else None,
         }
+
+
+def _or(value: int | None, fallback: int) -> int:
+    return fallback if value is None else value
