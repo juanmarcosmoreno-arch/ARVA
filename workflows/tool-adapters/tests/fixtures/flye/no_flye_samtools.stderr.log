@@ -1,0 +1,36 @@
+[2026-10-28 13:29:25] INFO: Starting Flye 2.9.3-b1797
+[2026-10-28 13:29:25] INFO: >>>STAGE: configure
+[2026-10-28 13:29:25] INFO: Configuring run
+[2026-10-28 13:29:25] INFO: Total read length: 16437115
+[2026-10-28 13:29:25] INFO: Reads N50/N90: 8696 / 4076
+[2026-10-28 13:29:25] INFO: Minimum overlap set to 4000
+[2026-10-28 13:29:25] INFO: >>>STAGE: assembly
+[2026-10-28 13:29:25] INFO: Assembling disjointigs
+[2026-10-28 13:29:25] INFO: Reading sequences
+[2026-10-28 13:29:26] INFO: Building minimizer index
+[2026-10-28 13:29:26] INFO: Pre-calculating index storage
+0% 10% 20% 30% 40% 50% 60% 70% 80% 90% 100% 
+[2026-10-28 13:29:26] INFO: Filling index
+0% 10% 20% 30% 40% 50% 60% 70% 80% 90% 100% 
+[2026-10-28 13:29:33] INFO: Extending reads
+[2026-10-28 13:29:58] INFO: Overlap-based coverage: 46
+[2026-10-28 13:29:58] INFO: Median overlap divergence: 0.0792602
+0% 90% 100% 
+[2026-10-28 13:29:59] INFO: Assembled 2 disjointigs
+[2026-10-28 13:29:59] INFO: Generating sequence
+0% 10% 20% 30% 40% 50% 60% 70% 80% 90% 100% 
+[2026-10-28 13:29:59] INFO: Filtering contained disjointigs
+0% 50% 100% 
+[2026-10-28 13:29:59] INFO: Contained seqs: 0
+[2026-10-28 13:29:59] INFO: >>>STAGE: consensus
+[2026-10-28 13:29:59] INFO: Running Minimap2
+[2026-10-28 13:30:01] INFO: Computing consensus
+/bin/sh: 1: flye-samtools: not found
+/bin/sh: 1: flye-samtools: not found
+[2026-10-28 13:30:01] INFO: Alignment error rate: 0.000000
+[2026-10-28 13:30:01] INFO: >>>STAGE: repeat
+[2026-10-28 13:30:01] INFO: Building and resolving repeat graph
+[2026-10-28 13:30:01] INFO: Parsing disjointigs
+[2026-10-28 13:30:01] ERROR: parse error in /out/10-consensus/consensus.fasta on line 1: empty sequence
+[2026-10-28 13:30:01] ERROR: Command '['flye-modules', 'repeat', '--disjointigs', '/out/10-consensus/consensus.fasta', '--reads', '/data/ont.fastq.gz', '--out-dir', '/out/20-repeat', '--config', '/usr/lib/python3/dist-packages/flye/config/bin_cfg/asm_nano_hq.cfg', '--log', '/out/flye.log', '--threads', '4', '--min-ovlp', '4000']' returned non-zero exit status 1.
+[2026-10-28 13:30:01] ERROR: Pipeline aborted

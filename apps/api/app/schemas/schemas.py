@@ -181,6 +181,19 @@ class QCResultRead(ORMModel):
     created_at: dt.datetime
 
 
+class JobProgress(BaseModel):
+    tool: str
+    stage: str | None = Field(description="The tool's own name for the stage it last announced")
+    stage_index: int | None = Field(description="1-based position of that stage among the stages seen so far")
+    stages_total: int | None = Field(description="Stages this run is expected to go through")
+    stages: list[str] = Field(description="The stages expected for this run, in order")
+    started_at: dt.datetime | None
+    stage_started_at: dt.datetime | None = Field(description="When ARVA saw the stage start in the tool's log")
+    updated_at: dt.datetime | None
+    elapsed_seconds: float | None = Field(description="Seconds since the tool started, at updated_at")
+    finished: bool = Field(default=False, description="True once the tool has exited")
+
+
 class AnalysisJobRead(ORMModel):
     id: str
     project_id: str
@@ -204,6 +217,7 @@ class AnalysisJobRead(ORMModel):
     tool_path: str | None = None
     result_summary: dict[str, Any] | None = None
     parent_job_id: str | None = None
+    progress: JobProgress | None = Field(default=None, description="Live monitoring of a long tool run (e.g. Flye)")
 
 
 class AnalysisJobDetail(AnalysisJobRead):
@@ -328,6 +342,47 @@ class FiltlongRequest(BaseModel):
         description="With target_coverage_x: ARVA sets target_bases = round(target_coverage_x × genome_size_bp)",
     )
     target_coverage_x: float | None = Field(default=None, gt=0, le=100_000)
+
+
+FlyeReadType = Literal["nano-raw", "nano-corr", "nano-hq", "pacbio-raw", "pacbio-corr", "pacbio-hifi"]
+GenomeSizeBasis = Literal["entered", "expected_genome_size", "reads_over_depth"]
+
+
+class FlyeParamsIn(BaseModel):
+    read_type: FlyeReadType = Field(description="Flye's read-type option; it selects Flye's error model")
+    genome_size_bp: int | None = Field(default=None, ge=1_000, le=10_000_000_000, description="Passed as --genome-size")
+    genome_size_basis: GenomeSizeBasis | None = Field(
+        default=None,
+        description="Where the genome size comes from: typed by the user, the sample's expected genome size, or "
+        "total read bases ÷ assumed_depth_x (both are checked against the stored values)",
+    )
+    assumed_depth_x: float | None = Field(default=None, gt=0, le=100_000)
+    iterations: int = Field(default=1, ge=0, le=10, description="Polishing iterations (0 = no polishing)")
+    min_overlap: int | None = Field(default=None, ge=1_000, le=10_000, description="Unset: Flye derives it from read N90")
+    asm_coverage: int | None = Field(default=None, ge=1, le=100_000,
+                                     description="Use only the longest reads up to this coverage for disjointigs")
+    read_error: float | None = Field(default=None, gt=0, lt=1, description="Expected read error rate (fraction)")
+    meta: bool = False
+    keep_haplotypes: bool = False
+    no_alt_contigs: bool = False
+    scaffold: bool = False
+    threads: int | None = Field(default=None, ge=1, le=128, description="Capped at the server's thread limit")
+
+
+class FlyeRequest(BaseModel):
+    raw_file_ids: list[Annotated[str, Field(max_length=64)]] = Field(min_length=1, max_length=100)
+    params: FlyeParamsIn
+    long_reads_confirmed: bool = Field(
+        default=False,
+        description="The user confirms that the files hold long reads; required unless the sample's sequencing "
+        "technology is nanopore, pacbio or hybrid",
+    )
+
+
+class FlyePreviewRequest(BaseModel):
+    raw_file_ids: list[Annotated[str, Field(max_length=64)]] = Field(min_length=1, max_length=100)
+    assumed_depth_x: float | None = Field(default=None, gt=0, le=100_000,
+                                          description="Estimate the genome size as total read bases ÷ this depth")
 
 
 MultiqcModule = Literal["fastqc", "fastp", "seqkit", "filtlong"]
@@ -816,6 +871,10 @@ class AssemblyGenomeSize(BaseModel):
     bp: int | None
     status: Literal["given", "not_given", "inconsistent"]
     source: Literal["assembly_parameters", "read_statistics"] | None
+    basis: GenomeSizeBasis | None = Field(
+        default=None, description="For a size given with the assembly: typed, the sample's expected size, or reads ÷ depth"
+    )
+    assumed_depth_x: float | None = None
 
 
 class AssemblyOutputFile(BaseModel):
@@ -908,6 +967,65 @@ class AssemblyGraphRead(BaseModel):
     truncated: bool = Field(description="True when segments or links were left out to respect max_nodes/max_edges")
     nodes: list[AssemblyGraphNode] = Field(description="Longest segments first")
     edges: list[AssemblyGraphEdge]
+
+
+class FlyeToolRead(BaseModel):
+    status: str
+    version: str | None
+    version_validated: bool
+    message: str
+    reason: str | None
+    options: list[str] = Field(description="Optional Flye options this installed version lists in its --help")
+    max_threads: int
+
+
+class FlyeFileEvidence(BaseModel):
+    file_id: str
+    name: str
+    origin: FileOrigin
+    header_platform: Literal["illumina", "nanopore", "pacbio"] | None
+    header_confidence: Literal["high", "medium", "low", "none"]
+    basecall_models: list[str]
+    pacbio_read_types: list[str]
+    stats_job_id: str | None = Field(description="Newest completed ARVA read statistics of the file")
+    total_bases: int | None
+    max_read_length: int | None
+    read_n50: int | None
+    mean_base_quality: float | None = Field(description="-10 log10(mean base error probability), from the FASTQ qualities")
+
+
+class FlyeReadTypeSuggestion(BaseModel):
+    heuristic: Literal[True]
+    value: FlyeReadType | None
+    basis: str
+    platform: Literal["nanopore", "pacbio"] | None
+    platform_source: Literal["sample_metadata", "read_headers"] | None
+    mean_error_rate: float | None = Field(description="Base-weighted mean error probability implied by the qualities")
+    mean_base_quality: float | None
+    q20_read_error_note: bool = Field(description="Flye's documentation suggests --read-error 0.03 for Q20 data")
+    sup_model_but_low_quality: bool
+
+
+class FlyeDepthEstimate(BaseModel):
+    depth_x: float
+    total_read_bases: int
+    bp: int = Field(description="round(total_read_bases ÷ depth_x)")
+
+
+class FlyeGenomeSizeOptions(BaseModel):
+    expected: AssemblyGenomeSize
+    total_read_bases: int | None = Field(description="Sum over the selected files; null when one has no statistics")
+    files_without_stats: list[str]
+    from_depth: FlyeDepthEstimate | None
+
+
+class FlyePlanRead(BaseModel):
+    tool: FlyeToolRead
+    files: list[FlyeFileEvidence]
+    read_type_suggestion: FlyeReadTypeSuggestion
+    genome_size: FlyeGenomeSizeOptions
+    sample_technology: SequencingTechnology
+    long_reads_confirmation_required: bool
 
 
 # --- Dashboard ----------------------------------------------------------------

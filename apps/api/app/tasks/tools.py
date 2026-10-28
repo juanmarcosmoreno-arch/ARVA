@@ -9,20 +9,33 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import shlex
 import shutil
+import subprocess
+import time
 from collections import defaultdict
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from pathlib import Path
 
+from arva_core.assembly_stats import ContigAnnotation
 from arva_core.seqstats import StatsParameters, quick_validate
-from arva_tools import ToolExecutionError, ToolStatus, run_command
+from arva_tools import ToolExecutionError, ToolStatus, ToolTimeoutError, run_command
 from arva_tools.fastp import FastpAdapter, FastpParams, removed_reads
 from arva_tools.fastqc import DATA_JSON as FASTQC_DATA_JSON
 from arva_tools.fastqc import FastqcAdapter
 from arva_tools.filtlong import ENVIRONMENT as FILTLONG_ENVIRONMENT
 from arva_tools.filtlong import FiltlongAdapter, FiltlongParams, plain_counts
+from arva_tools.flye import OUTPUTS as FLYE_OUTPUTS
+from arva_tools.flye import (
+    SAMTOOLS_HELPER,
+    FlyeAdapter,
+    FlyeParams,
+    helper_version,
+    read_link_name,
+    samtools_helper,
+)
 from arva_tools.multiqc import (
     DATA_DIR,
     DATA_JSON,
@@ -46,9 +59,21 @@ from arva_tools.seqkit import SeqkitAdapter
 
 from app.core.config import get_settings
 from app.db.base import new_uuid
-from app.models import AnalysisJob, FileFormat, FileOrigin, JobStatus, Project, RawFile
+from app.models import (
+    AnalysisJob,
+    AssemblyMode,
+    FileFormat,
+    FileOrigin,
+    JobStatus,
+    Project,
+    RawFile,
+)
+from app.services.assemblies import MAX_CONTIG_ROWS, register_assembly
 from app.services.imports import header_metadata
-from app.tasks.common import JobContext, JobFailure, run_job
+from app.tasks.common import JobContext, JobFailure, now, run_job
+
+# How often a running tool's log is read and the job's progress saved.
+MONITOR_SECONDS = 5.0
 
 
 def _resolve_tool(ctx: JobContext, tool_id: str) -> str:
@@ -66,13 +91,17 @@ def _resolve_tool(ctx: JobContext, tool_id: str) -> str:
 
 
 def _run(ctx: JobContext, argv: list[str], workdir: Path, log_name: str, stdout: Path | None = None,
-         extra_env: Mapping[str, str] | None = None, log_dir: Path | None = None, home: Path | None = None) -> Path:
+         extra_env: Mapping[str, str] | None = None, log_dir: Path | None = None, home: Path | None = None,
+         monitor: Callable[[], None] | None = None) -> Path:
     ctx.job.commands = [*(ctx.job.commands or []), argv]
-    env_note = "".join(f"{k}={v} " for k, v in (extra_env or {}).items())
+    inherited = os.environ.get("PATH", "")
+    env_note = "".join(f"{k}={v.replace(inherited, '$PATH') if k == 'PATH' and inherited else v} "
+                       for k, v in (extra_env or {}).items())
     ctx.log("Command: " + env_note + shlex.join(argv) + (f" > {stdout.name}" if stdout else ""), flush=True)
     log_path = (log_dir or workdir) / log_name
     result = run_command(argv, cwd=workdir, stderr_path=log_path, stdout_path=stdout,
-                         timeout_seconds=get_settings().tool_timeout_seconds, extra_env=extra_env, home=home)
+                         timeout_seconds=get_settings().tool_timeout_seconds, extra_env=extra_env, home=home,
+                         monitor=monitor, monitor_seconds=MONITOR_SECONDS)
     ctx.log(f"{Path(argv[0]).name} finished in {result.duration_seconds:.1f}s")
     return log_path
 
@@ -457,3 +486,170 @@ def _multiqc_body(ctx: JobContext) -> None:
 
 def run_multiqc_job(job_id: str) -> str:
     return run_job(job_id, _multiqc_body)
+
+
+# --- Flye (long-read assembly) ----------------------------------------------------------
+
+class _StageMonitor:
+    """Follows a tool's log while it runs: each new stage goes to the job log, and job.progress (stage, elapsed
+    time, live log path) is committed on every call so clients polling the job see it."""
+
+    def __init__(self, ctx: JobContext, tool: str, log_path: Path, stages: tuple[str, ...], stage_of):
+        self.ctx, self.tool, self.log_path, self.expected, self.stage_of = ctx, tool, log_path, list(stages), stage_of
+        self.offset, self.partial, self.seen = 0, b"", []
+        self.started, self.started_at, self.stage_started_at = time.monotonic(), now(), None
+
+    def _read(self) -> None:
+        try:
+            with open(self.log_path, "rb") as fh:
+                fh.seek(self.offset)
+                data = fh.read()
+        except FileNotFoundError:
+            return
+        self.offset += len(data)
+        *lines, self.partial = (self.partial + data).split(b"\n")
+        for line in lines:
+            stage = self.stage_of(line.decode("utf-8", "replace"))
+            if stage is None:
+                continue
+            self.seen.append(stage)
+            self.stage_started_at = now()
+            total = max(len(self.expected), len(self.seen))
+            note = "" if stage in self.expected else " (a stage ARVA does not expect for this run)"
+            self.ctx.log(f"{self.tool} stage {len(self.seen)}/{total}: {stage}{note}")
+
+    def __call__(self, finished: bool = False) -> None:
+        self._read()
+        self.ctx.job.progress = {
+            "tool": self.tool,
+            "stage": self.seen[-1] if self.seen else None,
+            "stage_index": len(self.seen) or None,
+            "stages_total": max(len(self.expected), len(self.seen)),
+            "stages": self.expected,
+            "started_at": self.started_at.isoformat(),
+            "stage_started_at": self.stage_started_at.isoformat() if self.stage_started_at else None,
+            "updated_at": now().isoformat(),
+            "elapsed_seconds": round(time.monotonic() - self.started, 1),
+            "finished": finished,
+            "log": _rel(self.ctx, self.log_path),
+        }
+        self.ctx.log.flush()
+
+
+def _flye_samtools(ctx: JobContext, exe: str, results: Path) -> tuple[dict[str, str] | None, dict]:
+    """The PATH Flye needs to find flye-samtools, linking it to samtools when the installation lacks it."""
+    h = samtools_helper(exe)
+    if h["provided_by"] == "missing":
+        raise JobFailure("Flye calls flye-samtools, which neither this Flye installation nor PATH provides, and "
+                         "samtools was not found to stand in for it. Install samtools")
+    record = {"name": SAMTOOLS_HELPER, "provided_by": h["provided_by"], "executable": h["samtools"],
+              "samtools_version": helper_version(h["samtools"])}
+    prepend = h["path_prepend"]
+    if h["provided_by"] == "arva_link":
+        bindir = results / "helper-bin"
+        bindir.mkdir()
+        (bindir / SAMTOOLS_HELPER).symlink_to(h["samtools"])
+        prepend = str(bindir)
+        ctx.log(f"Flye calls {SAMTOOLS_HELPER}, which this Flye installation does not provide (Debian's and Ubuntu's "
+                f"flye package lack it); ARVA linked it to {h['samtools']} (samtools {record['samtools_version']}) "
+                "for this run")
+    else:
+        ctx.log(f"Flye's {SAMTOOLS_HELPER}: {h['samtools']} (samtools {record['samtools_version']})")
+    env = {"PATH": prepend + os.pathsep + os.environ.get("PATH", "")} if prepend else None
+    return env, record
+
+
+def _flye_body(ctx: JobContext) -> None:
+    exe = _resolve_tool(ctx, "flye")
+    files = ctx.input_files()
+    _log_inputs(ctx, files)
+    params = FlyeParams.from_dict(ctx.job.parameters or {})
+    results = ctx.path(ctx.results_rel)
+    links, out_dir = results / "input", results / "flye"
+    links.mkdir(parents=True)
+    reads = []
+    for n, f in enumerate(files, 1):
+        if f.file_format not in (FileFormat.fastq, FileFormat.fastq_gz):
+            raise JobFailure(f"{f.original_filename} is not a FASTQ file")
+        # Flye reads the format from the file name and refuses paths with spaces.
+        link = links / read_link_name(n, f.original_filename, f.file_format is FileFormat.fastq_gz)
+        link.symlink_to(ctx.path(f.stored_path))
+        reads.append(link)
+    env, helper = _flye_samtools(ctx, exe, results)
+    try:
+        supported = FlyeAdapter.help_options(exe)
+        argv = FlyeAdapter.argv(exe, params, reads, out_dir, supported)
+    except (OSError, RuntimeError, subprocess.TimeoutExpired) as exc:
+        raise JobFailure(f"Flye's --help could not be read to check its options: {exc}") from exc
+    except ValueError as exc:
+        raise JobFailure(f"Flye cannot run with these settings: {exc}") from exc
+    if params.genome_size_bp is not None:
+        basis = {"entered": "entered by the user", "expected_genome_size": "the sample's expected genome size",
+                 "reads_over_depth": f"total read bases ÷ an assumed depth of {params.assumed_depth_x:g}×"}
+        ctx.log(f"Genome size {params.genome_size_bp:,} bp ({basis[params.genome_size_basis or 'entered']})")
+    if params.threads > 1:
+        ctx.log(f"Flye runs with {params.threads} threads; its output can differ between runs and thread counts")
+
+    stderr_log = results / "flye.stderr.log"
+    monitor = _StageMonitor(ctx, "Flye", stderr_log, params.stages(), FlyeAdapter.stage)
+    monitor()
+    try:
+        _run(ctx, argv, results, stderr_log.name, extra_env=env, monitor=monitor)
+    except ToolExecutionError as exc:
+        monitor(finished=True)
+        if isinstance(exc, ToolTimeoutError):
+            raise
+        text = stderr_log.read_text(errors="replace") if stderr_log.is_file() else exc.stderr_tail
+        reason = FlyeAdapter.failure_reason(text, exc.returncode)
+        if reason is None:
+            raise
+        ctx.log("Flye output (last lines):\n" + exc.stderr_tail.strip())
+        raise JobFailure(reason) from None
+    finally:
+        shutil.rmtree(links, ignore_errors=True)
+    monitor(finished=True)
+
+    if missing := [n for n in FLYE_OUTPUTS if not (out_dir / n).is_file()]:
+        raise JobFailure("Flye exited without an error but did not write " + ", ".join(missing))
+    for name in FLYE_OUTPUTS:
+        (out_dir / name).rename(results / name)
+    shutil.rmtree(out_dir)
+    shutil.rmtree(results / "helper-bin", ignore_errors=True)
+    ctx.log("Removed Flye's intermediate stage folders; kept " + ", ".join(FLYE_OUTPUTS))
+
+    try:
+        rows = FlyeAdapter.parse_assembly_info((results / "assembly_info.txt").read_text(errors="replace"))
+    except ValueError as exc:
+        raise JobFailure(f"Flye's assembly_info.txt cannot be read: {exc}") from exc
+    log_summary = FlyeAdapter.parse_log((results / "flye.log").read_text(errors="replace"))
+    if params.min_overlap is None and "min_overlap" in log_summary:
+        ctx.log(f"Flye chose a minimum overlap of {log_summary['min_overlap']:,} bp (from the reads' N90, "
+                f"{log_summary.get('reads_n90', 0):,} bp)")
+    for warning in log_summary["warnings"]:
+        ctx.log(f"Flye warning: {warning}")
+    annotations = {r["name"]: ContigAnnotation(coverage=r["coverage"], circular=r["circular"], repeat=r["repeat"])
+                   for r in rows}
+    assembly = register_assembly(
+        ctx, assembler="Flye", mode=AssemblyMode.long, read_type=params.read_type, contigs=results / "assembly.fasta",
+        graph=results / "assembly_graph.gfa", info=results / "assembly_info.txt", annotations=annotations,
+    )
+    lengths = {r["name"]: r["length"] for r in rows}
+    if assembly.stats["contig_count"] != len(rows) or any(lengths.get(c["name"]) != c["length"] for c in assembly.contigs):
+        raise JobFailure("Flye's assembly_info.txt does not describe the contigs in assembly.fasta (names or lengths "
+                         "differ); nothing was registered")
+    ctx.db.flush()
+    ctx.job.result_summary = {
+        "flye_version": ctx.job.tool_version,
+        "assembly_id": assembly.id,
+        "read_type": params.read_type,
+        "log": log_summary,
+        "contigs": rows[:MAX_CONTIG_ROWS],
+        "contig_rows": {"stored": min(len(rows), MAX_CONTIG_ROWS), "total": len(rows),
+                        "truncated": len(rows) > MAX_CONTIG_ROWS},
+        "helpers": [helper],
+    }
+    ctx.job.output_paths = [_rel(ctx, results / n) for n in (*FLYE_OUTPUTS, stderr_log.name)]
+
+
+def run_flye_job(job_id: str) -> str:
+    return run_job(job_id, _flye_body)

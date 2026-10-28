@@ -88,7 +88,8 @@ def test_assembly_is_recorded_with_statistics_lineage_and_warnings(client, sampl
     assert s["gc_percent"] == pytest.approx(50.0) and s["n_count"] == 0
     assert s["coverage"] == {"contigs_with_coverage": 3, "length_weighted_median": 50.0}
     assert s["contig_rows"] == {"stored": 3, "total": 3, "truncated": False}
-    assert s["expected_genome_size"] == {"bp": None, "status": "not_given", "source": None}
+    assert s["expected_genome_size"] == {"bp": None, "status": "not_given", "source": None, "basis": None,
+                                       "assumed_depth_x": None}
     assert s["tool"]["name"] == "arva-core.assembly_stats"
     # Outputs stay in the job's results folder, checksummed and read-only; no read file is registered.
     for key, name in (("contigs", "assembly.fasta"), ("graph", "assembly_graph.gfa"), ("info", "assembly_info.txt")):
@@ -141,20 +142,23 @@ def test_expected_genome_size_comes_from_parameters_or_consistent_statistics(cli
                     json={"raw_file_ids": [reads["id"]], "expected_genome_size_bp": 200_000})
     assert r.status_code == 202, r.text
     a = assemble(client, sample, [reads])
-    assert a["stats"]["expected_genome_size"] == {"bp": 200_000, "status": "given", "source": "read_statistics"}
+    assert a["stats"]["expected_genome_size"] == {"bp": 200_000, "status": "given", "source": "read_statistics",
+                                                  "basis": None, "assumed_depth_x": None}
     (w,) = [w for w in a["warnings"] if w["code"] == "genome_size_mismatch"]
     assert w["params"]["difference_percent"] == -47.0 and w["params"]["tolerance_percent"] == 20
 
     # Given for the assembly itself: it takes precedence, and 106,000 bp is within 20 % of 110,000 bp.
     b = assemble(client, sample, [reads], parameters={"genome_size_bp": 110_000})
-    assert b["stats"]["expected_genome_size"] == {"bp": 110_000, "status": "given", "source": "assembly_parameters"}
+    assert b["stats"]["expected_genome_size"] == {"bp": 110_000, "status": "given", "source": "assembly_parameters",
+                                                  "basis": None, "assumed_depth_x": None}
     assert "genome_size_mismatch" not in {w["code"] for w in b["warnings"]}
 
     other = upload(client, sample["id"], R1)
     client.post(f"{API}/samples/{sample['id']}/analyses/sequence-stats",
                 json={"raw_file_ids": [other["id"]], "expected_genome_size_bp": 150_000})
     c = assemble(client, sample, [reads])
-    assert c["stats"]["expected_genome_size"] == {"bp": None, "status": "inconsistent", "source": None}
+    assert c["stats"]["expected_genome_size"] == {"bp": None, "status": "inconsistent", "source": None, "basis": None,
+                                                  "assumed_depth_x": None}
     check = next(x for x in c["stats"]["warning_checks"] if x["code"] == "genome_size_mismatch")
     assert check["evaluated"] is False
 

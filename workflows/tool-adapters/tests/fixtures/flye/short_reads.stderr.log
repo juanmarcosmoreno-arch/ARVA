@@ -1,0 +1,5 @@
+[2026-10-28 13:47:09] INFO: Starting Flye 2.9.3-b1797
+[2026-10-28 13:47:09] INFO: >>>STAGE: configure
+[2026-10-28 13:47:09] INFO: Configuring run
+[2026-10-28 13:47:09] ERROR: No reads above minimum length threshold (1000)
+[2026-10-28 13:47:09] ERROR: Pipeline aborted

@@ -53,6 +53,30 @@ def test_timeout_kills_process_group(tmp_path):
         run_command([str(exe)], cwd=tmp_path, stderr_path=tmp_path / "err.log", timeout_seconds=1)
 
 
+def test_monitor_runs_while_the_tool_runs_and_can_stop_it(tmp_path):
+    exe = make_exe(tmp_path, "slow", "import time; time.sleep(0.6)")
+    calls = []
+    run_command([str(exe)], cwd=tmp_path, stderr_path=tmp_path / "err.log", monitor=lambda: calls.append(1),
+                monitor_seconds=0.1)
+    assert len(calls) >= 3
+
+    marker = tmp_path / "still-running"
+    sleeper = make_exe(tmp_path, "sleeper", f"import time, pathlib; time.sleep(0.8); pathlib.Path({str(marker)!r}).touch()")
+
+    def stop():
+        raise RuntimeError("stop")
+
+    with pytest.raises(RuntimeError, match="stop"):
+        run_command([str(sleeper)], cwd=tmp_path, stderr_path=tmp_path / "err2.log", monitor=stop, monitor_seconds=0.1)
+    import time
+
+    time.sleep(1.2)
+    assert not marker.exists()
+    with pytest.raises(ValueError, match="gzip"):
+        run_command([str(exe)], cwd=tmp_path, stderr_path=tmp_path / "e.log", stdout_path=tmp_path / "o.gz",
+                    monitor=lambda: None)
+
+
 def test_secrets_are_not_passed_to_tools(tmp_path, monkeypatch):
     monkeypatch.setenv("ARVA_DATABASE_URL", "postgresql://u:secret@h/db")
     monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "x")

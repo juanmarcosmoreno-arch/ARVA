@@ -5,12 +5,14 @@ detected at that moment) and executed by the worker.
 """
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 
 from arva_core.seqstats import TOOL_NAME, TOOL_VERSION
 from arva_tools import DetectedTool, ToolStatus
 from arva_tools.fastp import FastpParams
 from arva_tools.filtlong import FiltlongParams
+from arva_tools.flye import FlyeAdapter, FlyeParams
 from arva_tools.registry import detect
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -32,6 +34,7 @@ POD5_JOB = "pod5_summary"
 POD5_TOOL = "pod5"
 MULTIQC_JOB = "multiqc"
 NANOPLOT_JOB = "nanoplot"
+FLYE_JOB = "flye_assembly"
 
 
 class ToolUnavailableError(RuntimeError):
@@ -162,6 +165,27 @@ def create_filtlong_job(db: Session, sample: Sample, f: RawFile, params: Filtlon
     db.add(job)
     db.commit()
     _enqueue([job], run_filtlong_job)
+    db.refresh(job)
+    return job
+
+
+def create_flye_job(db: Session, sample: Sample, files: list[RawFile], params: FlyeParams,
+                    provenance: dict) -> AnalysisJob:
+    """One assembly job; `provenance` (request evidence such as ARVA's read-type suggestion) is stored with the
+    parameters and never passed to Flye."""
+    from app.tasks.tools import run_flye_job
+
+    tool = require_tool("flye")
+    try:
+        supported = FlyeAdapter.help_options(tool.path or "flye")
+    except (OSError, RuntimeError, subprocess.TimeoutExpired) as exc:
+        raise ToolUnavailableError(f"Flye's --help could not be read to check its options: {exc}") from exc
+    params.threads = min(params.threads, get_settings().tool_threads)
+    params.validate(supported)
+    job = _tool_job(sample, FLYE_JOB, tool, {**params.as_dict(), **provenance}, [f.id for f in files])
+    db.add(job)
+    db.commit()
+    _enqueue([job], run_flye_job)
     db.refresh(job)
     return job
 

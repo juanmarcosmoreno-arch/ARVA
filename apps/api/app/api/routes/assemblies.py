@@ -2,16 +2,29 @@ import re
 
 from arva_core.formats import is_gzip
 from arva_core.gfa import GfaFormatError
+from arva_tools.flye import FlyeParams
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_or_404, sample_or_404
+from app.api.routes.tools import _owned, _tool_call
+from app.core.config import get_settings
 from app.db.session import get_db
 from app.models import Assembly, Sample
-from app.schemas.schemas import AssemblyDetail, AssemblyGraphRead, AssemblyRead
+from app.schemas.schemas import (
+    AnalysisJobRead,
+    AssemblyDetail,
+    AssemblyGraphRead,
+    AssemblyRead,
+    FlyePlanRead,
+    FlyePreviewRequest,
+    FlyeRequest,
+)
+from app.services import flye
 from app.services.assemblies import GRAPH_MAX_EDGES, GRAPH_MAX_NODES, assembly_graph
+from app.services.jobs import create_flye_job
 from app.storage import get_storage
 from app.storage.local import sanitize_filename
 
@@ -66,3 +79,49 @@ def get_assembly_graph(
         ) from None
     except GfaFormatError as exc:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, f"The assembly graph cannot be read: {exc}") from exc
+
+
+@router.post("/samples/{sample_id}/assembly/flye/preview", response_model=FlyePlanRead)
+def preview_flye(sample_id: str, payload: FlyePreviewRequest, db: Session = Depends(get_db)):
+    """What ARVA knows before a Flye run: the installed Flye and its options, each file's evidence (read headers,
+    ARVA statistics), a heuristic read-type suggestion and the genome-size options. Nothing is run."""
+    sample = sample_or_404(db, sample_id)
+    files = _owned(db, sample, payload.raw_file_ids)
+    try:
+        return flye.plan(db, sample, files, payload.assumed_depth_x)
+    except flye.InputError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+
+
+@router.post("/samples/{sample_id}/assembly/flye", response_model=AnalysisJobRead, status_code=status.HTTP_202_ACCEPTED)
+def start_flye(sample_id: str, payload: FlyeRequest, db: Session = Depends(get_db)):
+    """Assemble the selected long-read FASTQ files (imported or derived) with Flye in one background job."""
+    sample = sample_or_404(db, sample_id)
+    files = _owned(db, sample, payload.raw_file_ids)
+    values = payload.params.model_dump()
+    threads = values.pop("threads") or get_settings().tool_threads
+    params = FlyeParams(**values, threads=threads)
+    try:
+        ev = flye.evidence(db, files)
+        flye.check_files(sample, files, ev, params.read_type)
+        if flye.needs_confirmation(sample) and not payload.long_reads_confirmed:
+            raise flye.InputError(
+                f"Flye assembles long reads (Oxford Nanopore or PacBio), and this sample's sequencing technology is "
+                f"'{sample.sequencing_technology.value}'. Set the technology in the sample's metadata, or confirm "
+                "that the selected files contain long reads."
+            )
+        try:
+            params.validate()
+        except ValueError as exc:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc)) from exc
+        flye.check_genome_size(db, sample, ev, params)
+    except flye.InputError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+    suggestion = flye.read_type_suggestion(sample, ev)
+    provenance = {
+        "long_reads_confirmed": payload.long_reads_confirmed,
+        "sequencing_technology": sample.sequencing_technology.value,
+        "arva_read_type_suggestion": {k: suggestion[k] for k in ("value", "basis", "platform", "platform_source",
+                                                                 "mean_error_rate")},
+    }
+    return _tool_call(create_flye_job, db, sample, files, params, provenance)

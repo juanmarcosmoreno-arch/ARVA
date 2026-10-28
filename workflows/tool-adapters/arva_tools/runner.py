@@ -19,7 +19,7 @@ import signal
 import subprocess
 import tempfile
 import time
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass
 from pathlib import Path
@@ -83,12 +83,18 @@ def run_command(
     timeout_seconds: float = 24 * 3600,
     extra_env: Mapping[str, str] | None = None,
     home: Path | None = None,
+    monitor: Callable[[], None] | None = None,
+    monitor_seconds: float = 5.0,
 ) -> RunResult:
     """Run `argv` and wait. stdout goes to `stdout_path` (gzip if it ends in .gz)
-    or is appended to the stderr log. `home` replaces the temporary HOME. Raises ToolExecutionError on failure."""
+    or is appended to the stderr log. `home` replaces the temporary HOME. While the tool runs, `monitor` is
+    called every `monitor_seconds` (not with gzip stdout); if it raises, the tool is stopped.
+    Raises ToolExecutionError on failure."""
+    if monitor is not None and stdout_path is not None and stdout_path.suffix == ".gz":
+        raise ValueError("monitor cannot be combined with gzip-streamed stdout")
     with nullcontext(home) if home is not None else isolated_home() as tool_home:
         return _run(argv, cwd, stderr_path, stdout_path, timeout_seconds,
-                    {**tool_environment(tool_home), **(extra_env or {})})
+                    {**tool_environment(tool_home), **(extra_env or {})}, monitor, monitor_seconds)
 
 
 def _run(
@@ -98,6 +104,8 @@ def _run(
     stdout_path: Path | None,
     timeout_seconds: float,
     env: dict[str, str],
+    monitor: Callable[[], None] | None = None,
+    monitor_seconds: float = 5.0,
 ) -> RunResult:
     if not argv or not all(isinstance(a, str | os.PathLike) for a in argv):
         raise ValueError("argv must be a non-empty sequence of strings or paths")
@@ -137,8 +145,18 @@ def _run(
                         if time.monotonic() > deadline:
                             raise subprocess.TimeoutExpired(argv, timeout_seconds)
                 proc.wait(timeout=max(1.0, deadline - time.monotonic()))
-            else:
+            elif monitor is None:
                 proc.wait(timeout=timeout_seconds)
+            else:
+                deadline = start + timeout_seconds
+                while True:
+                    try:
+                        proc.wait(timeout=max(0.0, min(monitor_seconds, deadline - time.monotonic())))
+                        break
+                    except subprocess.TimeoutExpired:
+                        if time.monotonic() >= deadline:
+                            raise
+                        monitor()
         except subprocess.TimeoutExpired:
             _kill_group(proc)
             raise ToolTimeoutError(

@@ -1,5 +1,6 @@
 from arva_core.seqstats import StatsParameters
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import PlainTextResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
@@ -9,6 +10,8 @@ from app.models import AnalysisJob, FileFormat, JobStatus, RawFile
 from app.schemas.schemas import AnalysisJobDetail, AnalysisJobRead, SequenceStatsRequest
 from app.services.jobs import create_sequence_stats_jobs
 from app.services.raw_signal import is_raw_signal, not_reads_message
+from app.storage import get_storage
+from app.storage.local import StoragePathError
 
 router = APIRouter(tags=["analyses"])
 
@@ -84,3 +87,33 @@ def list_jobs(
 @router.get("/jobs/{job_id}", response_model=AnalysisJobDetail)
 def get_job(job_id: str, db: Session = Depends(get_db)):
     return job_or_404(db, job_id)
+
+
+LOG_TAIL_BYTES = 1 << 20
+
+
+def _tail_lines(text: str, n: int) -> str:
+    return "\n".join(text.splitlines()[-n:])
+
+
+@router.get("/jobs/{job_id}/log", response_class=PlainTextResponse)
+def job_log(job_id: str, tail: int = Query(default=200, ge=1, le=5000), db: Session = Depends(get_db)):
+    """The last `tail` lines of the job's live tool log while it exists (read from its last MiB), else of the ARVA
+    job log. The X-ARVA-Log-Source header says which ("tool" or "job")."""
+    job = job_or_404(db, job_id)
+    rel = (job.progress or {}).get("log")
+    scope = f"results/{job.project_id}/{job.sample_id or '_project'}/{job.id}/"
+    if isinstance(rel, str) and rel.startswith(scope) and ".." not in rel.split("/"):
+        try:
+            path = get_storage().resolve(rel)
+        except StoragePathError:
+            path = None
+        if path is not None and path.is_file():
+            with open(path, "rb") as fh:
+                fh.seek(0, 2)
+                fh.seek(max(0, fh.tell() - LOG_TAIL_BYTES))
+                text = fh.read().decode("utf-8", "replace")
+            return PlainTextResponse(_tail_lines(text, tail), headers={
+                "X-ARVA-Log-Source": "tool", "X-ARVA-Log-Name": path.name, "Cache-Control": "no-store"})
+    return PlainTextResponse(_tail_lines(job.log_text or "", tail),
+                             headers={"X-ARVA-Log-Source": "job", "Cache-Control": "no-store"})

@@ -36,9 +36,10 @@ def expected_genome_size(db: Session, sample_id: str, job_parameters: Mapping[st
     Read statistics count only when the newest completed statistics of every file that has any agree
     on one value; different values make the size unknown ("inconsistent"). ARVA never assumes a size.
     """
-    given = (job_parameters or {}).get("genome_size_bp")
-    if given:
-        return {"bp": int(given), "status": "given", "source": "assembly_parameters"}
+    params = job_parameters or {}
+    if given := params.get("genome_size_bp"):
+        return {"bp": int(given), "status": "given", "source": "assembly_parameters",
+                "basis": params.get("genome_size_basis"), "assumed_depth_x": params.get("assumed_depth_x")}
     rows = db.execute(
         select(AnalysisJob.input_raw_file_ids, AnalysisJob.parameters)
         .where(AnalysisJob.sample_id == sample_id, AnalysisJob.job_type == FASTQ_STATS_JOB,
@@ -120,7 +121,10 @@ def register_assembly(
     ctx.log(f"Assembly: {stats['contig_count']:,} contigs, {stats['total_length']:,} bp, N50 {stats['n50']:,} bp, "
             f"largest {stats['largest_contig']:,} bp (contigs sha256 {files['contigs']['sha256']})")
     if genome["bp"]:
-        ctx.log(f"Expected genome size {genome['bp']:,} bp ({genome['source'].replace('_', ' ')})")
+        basis = {"entered": "; entered by the user", "expected_genome_size": "; the sample's expected genome size",
+                 "reads_over_depth": f"; total read bases ÷ an assumed depth of {genome.get('assumed_depth_x')}×"}
+        ctx.log(f"Expected genome size {genome['bp']:,} bp ({genome['source'].replace('_', ' ')}"
+                f"{basis.get(genome.get('basis') or '', '')})")
     for w in warnings:
         ctx.log(f"Heuristic warning [{w['code']}]: {w['message']}")
     return assembly

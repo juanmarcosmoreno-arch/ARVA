@@ -67,6 +67,8 @@ class AnalysisJob(TimestampMixin, Base):
     tool_path: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     # Small structured results (e.g. SeqKit rows, fastp before/after summary).
     result_summary: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    # Live monitoring of a long tool run (stage, elapsed time, live log), updated while it runs.
+    progress: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     # A job launched automatically by another job (e.g. statistics of filtered reads).
     parent_job_id: Mapped[str | None] = mapped_column(
         String(36), ForeignKey("analysis_jobs.id", ondelete="SET NULL"), nullable=True
