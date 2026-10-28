@@ -3,7 +3,10 @@
 Skipped automatically for any tool that is not installed.
 """
 import gzip
+import os
 import re
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -12,6 +15,7 @@ from arva_tools import ToolStatus, run_command
 from arva_tools.fastp import FastpAdapter, FastpParams
 from arva_tools.fastqc import FastqcAdapter
 from arva_tools.filtlong import FiltlongAdapter, FiltlongParams
+from arva_tools.flye import FlyeAdapter, FlyeParams, read_link_name, samtools_helper
 from arva_tools.registry import detect
 
 EXAMPLES = Path(__file__).resolve().parents[3] / "examples" / "synthetic"
@@ -407,12 +411,6 @@ def test_flye_assembles_the_synthetic_genome(tmp_path):
     at two copies) with Nanopore-like reads at 30x. Recorded with Flye 2.9.3 (Ubuntu 2.9.3+dfsg2-1), --nano-hq,
     2 threads: contig 300,000 bp circular at 31x and 15,000 bp circular at 53x with multiplicity 2, both identical
     to the reference (reverse strand / rotated start); identical bytes in two runs."""
-    import os
-    import subprocess
-    import sys
-
-    from arva_tools.flye import FlyeAdapter, FlyeParams, read_link_name, samtools_helper
-
     exe = tool("flye")
     data = tmp_path / "genome"
     subprocess.run([sys.executable, str(Path(__file__).resolve().parents[3] / "scripts" / "make_synthetic_genome.py"),

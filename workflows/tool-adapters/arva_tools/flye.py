@@ -14,13 +14,15 @@ Verified against `flye --help`, the 2.9.3 USAGE.md and README, the source of Fly
   paths that contain spaces; it creates --out-dir with os.mkdir, so the parent folder must exist.
 * Stages, each announced in the log as ">>>STAGE: <name>": configure, assembly, consensus, repeat,
   contigger, polishing (only with iterations > 0), finalize.
-* Debian's and Ubuntu's flye package calls `flye-samtools` (utils/sam_parser.py) but does not ship it, as
-  upstream does; without it the consensus is empty and the run aborts. ARVA then links flye-samtools to
-  samtools for the run and records the link and samtools' version.
-* The output depends on the number of threads: on the synthetic 150 kb genome, runs with 4 threads differed
-  from each other in sequence, runs with 2 threads were identical but assembled the plasmid as a dimer, and
-  --deterministic (single-threaded disjointigs only) did not make 4-thread runs identical. ARVA records the
-  thread count and does not offer --deterministic.
+* Debian's flye package 2.9.3+dfsg2-1 (also Ubuntu 24.04's) calls `flye-samtools` (utils/sam_parser.py) but
+  does not ship it, unlike upstream's installation; without it the consensus is empty and the run aborts in
+  the repeat stage. When neither PATH nor Flye's own folder provides it, ARVA links flye-samtools to samtools
+  for the run and records the link and samtools' version.
+* Results can depend on the thread count and, with more than one thread, differ between runs. On a synthetic
+  genome with a 150 kb chromosome and a 15 kb plasmid at two copies (50x), 4 threads assembled the plasmid at
+  15 kb in runs whose bytes differed, while 1 or 2 threads (identical bytes run to run) and --deterministic
+  (which only runs the disjointig stage single-threaded; its runs still differed) assembled it as a 30 kb
+  dimer. ARVA records and logs the thread count and does not offer --deterministic.
 """
 from __future__ import annotations
 

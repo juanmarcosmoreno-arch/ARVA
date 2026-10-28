@@ -8,8 +8,9 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
     ARVA_STORAGE_ROOT=/data
 
+# Flye calls flye-samtools; when the flye package lacks it (Ubuntu's 2.9.3 does), ARVA links it to samtools per run.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends seqkit fastp filtlong fastqc \
+    && apt-get install -y --no-install-recommends seqkit fastp filtlong fastqc flye samtools \
     && rm -rf /var/lib/apt/lists/*
 
 # Python report tools, each in its own virtual environment with the versions validated with ARVA.
