@@ -366,6 +366,115 @@ class CrossCheckRead(BaseModel):
     note: str
 
 
+# --- Chart data from FastQC (fastqc_data.txt) and fastp (fastp.json) ----------------
+
+class FastqcPosition(BaseModel):
+    label: str = Field(description="FastQC's label: 'a' or 'a-b'")
+    start: int = Field(description="1-based, inclusive")
+    end: int = Field(description="1-based, inclusive")
+
+
+class FastqcAdapterSeries(BaseModel):
+    name: str
+    percent: list[float] = Field(
+        description="Cumulative % of reads in which the adapter was seen at or before each position; "
+        "a binned position holds the mean over its positions"
+    )
+
+
+class FastqcAdapterContent(BaseModel):
+    status: str = Field(description="FastQC heuristics: WARN above 5 %, FAIL above 10 % at any position")
+    positions: list[FastqcPosition]
+    adapters: list[FastqcAdapterSeries]
+
+
+class FastqcDuplicationBin(BaseModel):
+    level: str = Field(description="Copies per sequence: 1–9, >10 (10–50), >50 (51–100), … >10k+ (over 10,000)")
+    percent_of_total: float
+
+
+class FastqcDuplication(BaseModel):
+    status: str
+    total_deduplicated_percent: float = Field(
+        description="% of reads that would remain if deduplicated (FastQC's 'Total Deduplicated Percentage')"
+    )
+    duplicate_percent: float = Field(description="100 − total_deduplicated_percent")
+    bins: list[FastqcDuplicationBin]
+
+
+class FastqcOverrepresentedRow(BaseModel):
+    sequence: str
+    count: int
+    percent: float
+    possible_source: str
+
+
+class FastqcOverrepresented(BaseModel):
+    status: str
+    total: int = Field(description="Sequences FastQC listed")
+    rows: list[FastqcOverrepresentedRow] = Field(description="At most the first 20, in FastQC's order")
+    every_read_listed: bool = Field(description="FastQC listed every read of the file (fewer than 1,000 reads)")
+
+
+class FastqcModuleStatus(BaseModel):
+    module: str
+    status: str
+
+
+class FastqcDataRead(BaseModel):
+    fastqc_version: str | None
+    total_sequences: int | None
+    max_read_length: int | None
+    modules: list[FastqcModuleStatus]
+    adapter_content: FastqcAdapterContent | None
+    duplication: FastqcDuplication | None
+    overrepresented_sequences: FastqcOverrepresented | None
+    unrecognised: list[str] = Field(description="Modules whose columns ARVA does not recognise")
+    source: str = Field(description="fastqc_data.json written by the job, or the job's zip parsed on request")
+
+
+class FastpCurves(BaseModel):
+    total_reads: int | None
+    total_cycles: int | None
+    quality: dict[str, list[float]] = Field(description="Mean Phred score per cycle: mean, A, T, C, G")
+    content: dict[str, list[float]] = Field(description="Fraction (0–1) of bases per cycle: A, T, C, G, GC, N")
+
+
+class FastpAdapterCount(BaseModel):
+    sequence: str = Field(description="Adapter sequence, or 'others' for those under 1 % of the trimmed reads")
+    count: int
+
+
+class FastpAdapterCutting(BaseModel):
+    adapter_trimmed_reads: int | None
+    adapter_trimmed_bases: int | None
+    read1_adapter_sequence: str | None
+    read2_adapter_sequence: str | None
+    read1_adapter_counts: list[FastpAdapterCount]
+    read2_adapter_counts: list[FastpAdapterCount]
+
+
+class FastpInsertSize(BaseModel):
+    peak: int | None = Field(description="None when no pair overlapped")
+    unknown: int = Field(description="Pairs without a detected overlap, or with inserts ≥ insert_size_max")
+    overlapping_pairs: int
+    evaluated_pairs: int = Field(description="Pairs read by fastp's worker thread 0, the only one that measures inserts")
+    histogram: list[int] = Field(description="Pairs per insert size 0 … insert_size_max − 1")
+    histogram_percent: list[float] = Field(description="histogram ÷ evaluated_pairs × 100")
+    unknown_percent: float | None
+    insert_size_max: int
+
+
+class FastpDataRead(BaseModel):
+    fastp_version: str | None
+    sequencing: str | None
+    reads: dict[str, dict[str, FastpCurves]] = Field(description="read1/read2 → before/after filtering")
+    adapter_cutting: FastpAdapterCutting | None
+    duplication_rate: float | None = Field(description="fastp's estimate, a fraction (0–1)")
+    insert_size: FastpInsertSize | None
+    threads: int | None = Field(description="--thread of the run; the insert-size estimate depends on it")
+
+
 class QcOverviewFile(BaseModel):
     file_id: str
     filename: str

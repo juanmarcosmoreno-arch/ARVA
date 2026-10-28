@@ -274,6 +274,80 @@ export interface FastqcSummary {
   basic_statistics: Record<string, string>;
 }
 
+/** fastqc_data.txt of one FastQC run, as served by GET /jobs/{id}/fastqc-data. Statuses are FastQC heuristics. */
+export interface FastqcPosition {
+  label: string;
+  /** 1-based, inclusive */
+  start: number;
+  end: number;
+}
+
+export interface FastqcData {
+  fastqc_version: string | null;
+  total_sequences: number | null;
+  max_read_length: number | null;
+  modules: { module: string; status: string }[];
+  adapter_content: {
+    status: string;
+    positions: FastqcPosition[];
+    /** Cumulative % of reads with the adapter at or before each position; a binned position is a mean. */
+    adapters: { name: string; percent: number[] }[];
+  } | null;
+  duplication: {
+    status: string;
+    total_deduplicated_percent: number;
+    duplicate_percent: number;
+    bins: { level: string; percent_of_total: number }[];
+  } | null;
+  overrepresented_sequences: {
+    status: string;
+    total: number;
+    rows: { sequence: string; count: number; percent: number; possible_source: string }[];
+    every_read_listed: boolean;
+  } | null;
+  unrecognised: string[];
+  source: string;
+}
+
+export interface FastpCurves {
+  total_reads: number | null;
+  total_cycles: number | null;
+  /** Mean Phred score per cycle: mean, A, T, C, G */
+  quality: Record<string, number[]>;
+  /** Fraction (0–1) of the bases at each cycle: A, T, C, G, GC, N */
+  content: Record<string, number[]>;
+}
+
+export type FastpMate = "read1" | "read2";
+
+/** fastp.json of one fastp run, as served by GET /jobs/{id}/fastp-data. */
+export interface FastpData {
+  fastp_version: string | null;
+  sequencing: string | null;
+  reads: Partial<Record<FastpMate, { before?: FastpCurves; after?: FastpCurves }>>;
+  adapter_cutting: {
+    adapter_trimmed_reads: number | null;
+    adapter_trimmed_bases: number | null;
+    read1_adapter_sequence: string | null;
+    read2_adapter_sequence: string | null;
+    read1_adapter_counts: { sequence: string; count: number }[];
+    read2_adapter_counts: { sequence: string; count: number }[];
+  } | null;
+  /** Fraction (0–1), fastp's estimate */
+  duplication_rate: number | null;
+  insert_size: {
+    peak: number | null;
+    unknown: number;
+    overlapping_pairs: number;
+    evaluated_pairs: number;
+    histogram: number[];
+    histogram_percent: number[];
+    unknown_percent: number | null;
+    insert_size_max: number;
+  } | null;
+  threads: number | null;
+}
+
 /** NanoStats.txt (--tsv_stats) as parsed by arva_tools.nanoplot: NanoPlot's own definitions. */
 export interface NanoplotStats {
   number_of_reads: number;

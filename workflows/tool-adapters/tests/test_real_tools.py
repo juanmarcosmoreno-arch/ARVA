@@ -56,6 +56,12 @@ def test_fastp_paired_end_filters_and_trims(tmp_path):
     assert report["adapter_trimmed_reads"] > 0
     assert count_fastq(tmp_path / "o1.fq.gz") * 2 == after
     assert (tmp_path / "f.html").stat().st_size > 1000
+    data = FastpAdapter.parse_data(tmp_path / "f.json")
+    assert {stage: v["total_cycles"] for stage, v in data["reads"]["read2"].items()} == {"before": 150, "after": 150}
+    assert data["adapter_cutting"]["adapter_trimmed_reads"] == report["adapter_trimmed_reads"]
+    ins = data["insert_size"]
+    assert len(ins["histogram"]) == 512 and ins["evaluated_pairs"] <= 2000
+    assert sum(ins["histogram_percent"]) + ins["unknown_percent"] == pytest.approx(100)
 
 
 def test_filtlong_keeps_subset(tmp_path):
@@ -93,6 +99,24 @@ def test_fastqc_report(tmp_path):
     parsed = FastqcAdapter.parse_zip(tmp_path / zipname)
     assert parsed["basic_statistics"]["Total Sequences"] == "2000"
     assert {m["module"] for m in parsed["modules"]} >= {"Basic Statistics", "Adapter Content"}
+    data = FastqcAdapter.read_data(tmp_path / zipname)
+    assert data["unrecognised"] == [] and data["total_sequences"] == 2000
+    ac = data["adapter_content"]
+    assert ac["positions"][9] == {"label": "10-11", "start": 10, "end": 11}
+    assert all(len(a["percent"]) == len(ac["positions"]) for a in ac["adapters"])
+    assert len(data["duplication"]["bins"]) == 16
+    assert data["overrepresented_sequences"]["rows"] == []
+
+
+def test_fastqc_data_on_long_reads(tmp_path):
+    exe = tool("fastqc")
+    (tmp_path / "tmp").mkdir()
+    run_command(FastqcAdapter.argv(exe, ONT, tmp_path, tmp_path / "tmp"), cwd=tmp_path,
+                stderr_path=tmp_path / "fastqc.log")
+    data = FastqcAdapter.read_data(tmp_path / FastqcAdapter.output_names(ONT.name)[1])
+    assert data["max_read_length"] > 10_000 and data["adapter_content"]["positions"][9]["start"] == 10
+    over = data["overrepresented_sequences"]
+    assert over["every_read_listed"] and over["total"] == 400 and len(over["rows"]) == 20
 
 
 def _multiqc_inputs(tmp_path):

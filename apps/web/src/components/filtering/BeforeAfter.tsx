@@ -2,6 +2,7 @@ import { ArrowRight, Loader2 } from "lucide-react";
 import { CompareGcChart, CompareQualityChart, CompareYieldChart } from "@/components/charts/CompareCharts";
 import { Explain } from "@/components/guide/Explain";
 import { Card, CardBody, CardHeader } from "@/components/ui/card";
+import { type TranslationKey, useT } from "@/i18n";
 import { fmtBases, fmtInt, fmtNum } from "@/lib/format";
 import { pct } from "@/lib/filters";
 import type { AnalysisJobDetail, FastpSummary, RawFile, SequenceStats } from "@/lib/types";
@@ -168,41 +169,42 @@ function Delta({ label, before, after, unit = "", prefix = "", digits }: { label
   );
 }
 
-const REASONS: Record<string, string> = {
-  low_quality_reads: "Low quality",
-  too_many_N_reads: "Too many N",
-  too_short_reads: "Too short",
-  too_long_reads: "Too long",
-  low_complexity_reads: "Low complexity",
-  duplicated_reads: "Duplicated",
-};
+const REASONS = new Set(["low_quality_reads", "too_many_N_reads", "too_short_reads", "too_long_reads", "low_complexity_reads", "duplicated_reads"]);
 
 function FastpBreakdown({ s }: { s: FastpSummary }) {
+  const t = useT();
   const removed = Object.entries(s.filtering_result).filter(([k]) => k !== "passed_filter_reads");
   return (
     <Card>
-      <CardHeader title="fastp report summary" description={`${s.sequencing} · reads counted individually (both mates for paired-end)`} action={<Explain id="fastp" />} />
+      <CardHeader title={t("fastpSummary.title")} description={t("fastpSummary.subtitle", { sequencing: s.sequencing })} action={<Explain id="fastp" />} />
       <CardBody className="grid gap-3 pt-3 sm:grid-cols-2 lg:grid-cols-4">
         {removed.map(([k, v]) => (
           <div key={k} className="rounded-lg border p-3">
-            <div className="text-xs text-muted-foreground">Removed · {REASONS[k] ?? k.replace(/_/g, " ")}</div>
+            <div className="text-xs text-muted-foreground">
+              {t("fastpSummary.removed", { reason: REASONS.has(k) ? t(`fastpSummary.reason.${k}` as TranslationKey) : k.replace(/_/g, " ") })}
+            </div>
             <div className="text-lg font-semibold tabular-nums">{fmtInt(v)}</div>
           </div>
         ))}
         <div className="rounded-lg border p-3">
-          <div className="text-xs text-muted-foreground">Reads with adapter trimmed (kept)</div>
-          <div className="text-lg font-semibold tabular-nums">{fmtInt(s.adapter_trimmed_reads ?? 0)}</div>
-          <div className="text-[11px] text-muted-foreground">{fmtInt(s.adapter_trimmed_bases ?? 0)} bases trimmed</div>
+          <div className="text-xs text-muted-foreground">{t("fastpSummary.adapterTrimmed")}</div>
+          <div className="text-lg font-semibold tabular-nums">{s.adapter_trimmed_reads == null ? "—" : fmtInt(s.adapter_trimmed_reads)}</div>
+          <div className="text-[11px] text-muted-foreground">
+            {s.adapter_trimmed_reads == null ? t("fastpSummary.noAdapter") : t("fastpSummary.basesTrimmed", { bases: fmtInt(s.adapter_trimmed_bases ?? 0) })}
+          </div>
         </div>
         {s.insert_size_peak ? (
           <div className="rounded-lg border p-3">
-            <div className="text-xs text-muted-foreground">Insert size peak (from read overlap)</div>
+            <div className="flex items-start justify-between gap-1 text-xs text-muted-foreground">
+              {t("fastpSummary.insertPeak")} <Explain id="insert_size" compact />
+            </div>
             <div className="text-lg font-semibold tabular-nums">{fmtInt(s.insert_size_peak)} bp</div>
+            <div className="text-[11px] text-muted-foreground">{t("fastpSummary.insertNote")}</div>
           </div>
         ) : null}
         {s.duplication_rate != null && (
           <div className="rounded-lg border p-3">
-            <div className="text-xs text-muted-foreground">Duplication rate (fastp estimate)</div>
+            <div className="text-xs text-muted-foreground">{t("qcdata.fastp.dupRate")}</div>
             <div className="text-lg font-semibold tabular-nums">{fmtNum(100 * s.duplication_rate, 2)}%</div>
           </div>
         )}

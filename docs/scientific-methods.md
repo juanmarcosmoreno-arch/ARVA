@@ -245,6 +245,30 @@ FastQC is run unchanged (`--outdir --noextract --quiet --threads 1 --dir <tmp>`)
 outputs are stored, and `summary.txt`/`fastqc_data.txt` are parsed for module flags and basic
 statistics. The flags are FastQC's heuristics for whole-genome shotgun libraries and are shown as such.
 
+Charts from `fastqc_data.txt` (format verified for FastQC 0.12.1). The zip is read only when FastQC
+exited with status 0 and the zip opens; the parsed modules are stored as `fastqc_data.json` next to the
+report, and the job summary keeps only the figures used in the sample report. Older FastQC jobs are
+parsed from their stored zip on request (`GET /jobs/{id}/fastqc-data`). Modules are read by column
+name; a module that is absent is reported as absent, and one whose columns are not recognised is listed
+rather than guessed.
+
+- **Adapter content**: one curve per adapter column of the module (FastQC's adapter list, 12-base
+  sequences), the cumulative % of reads in which the adapter has been seen at or before each position.
+  Position labels `a` or `a-b` are 1-based and inclusive and are parsed per module: FastQC groups
+  positions above 75 bp into bins (for 150 bp reads, 2 bp bins in Adapter Content but 5 bp in the
+  per-base modules; 500 bp bins for the 26 kb synthetic long reads) and each binned value is the mean over its positions, so ARVA draws it at
+  the bin's centre. FastQC's WARN (> 5 %) and FAIL (> 10 %) thresholds are drawn as labelled lines.
+- **Duplication levels**: the 16 fixed bins (1–9 copies, 10–50, 51–100, 101–500, 501–1,000,
+  1,001–5,000, 5,001–10,000, more; from `DuplicationLevel.java`) with FastQC's "Percentage of total".
+  "Total Deduplicated Percentage" is shown as the share of reads remaining if deduplicated, and
+  duplicates as 100 minus it. FastQC tracks only sequences first seen in the first 100,000 reads,
+  truncates every read longer than 50 bp to 50 bp (FastQC 0.12.1 source, `OverRepresentedSeqs.java`;
+  the documentation says reads over 75 bp) and reports corrected estimates. The chart is greyed out for
+  long reads (a Nanopore/PacBio sample, or reads longer than 1,000 bp).
+- **Overrepresented sequences**: sequence, count, % and FastQC's possible source, first 20 rows. An
+  empty module has no header row and is an empty table. When FastQC lists every read (a file of fewer
+  than 1,000 reads, where one read is > 0.1 %), ARVA says so instead of implying contamination.
+
 ### Filtering policy
 
 - Filtering is never automatic. The user chooses the tool and sees every threshold, including values
@@ -268,6 +292,18 @@ trimming is fastp's automatic behaviour unless forced (`--trim_poly_g`) or disab
 (`--disable_trim_poly_g`). For paired-end data, a pair is removed when either mate fails. ARVA shows
 fastp's own counts of reads removed per reason, adapter-trimmed reads, insert-size peak and
 duplication estimate.
+
+Charts from the stored `fastp.json` (format verified for fastp 0.23.4; `GET /jobs/{id}/fastp-data`):
+per-cycle mean quality (arithmetic mean of the Phred scores at each cycle) and GC/N content (fractions,
+shown as %) of read 1 and read 2 before and after filtering, on the axis 1…`total_cycles`, with shorter
+curves left empty beyond their last cycle; numbers may be written as integers (`0`) and are read as
+floats. Adapter trimming (`adapter_trimmed_reads/bases` and the sequences found in at least 1 % of the
+trimmed reads, plus "others") is optional: fastp omits the block when trimming is off or when it detects
+no adapter in single-end reads. The duplication rate is a single fraction and is absent with
+`--dont_eval_duplication`. The insert-size histogram (paired-end only) is collected by fastp's worker
+thread 0 alone, so it covers a subset of the pairs and depends on `--thread`; "unknown" counts pairs
+without a detected overlap and inserts of 512 bp or more. ARVA shows it as a % of the pairs evaluated,
+with the peak, the share that overlapped and the thread count, and labels it an estimate.
 
 ### Filtlong (long reads)
 

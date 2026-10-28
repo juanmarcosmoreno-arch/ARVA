@@ -8,6 +8,7 @@ the before/after comparison uses identical methods on both sides.
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 import shlex
 import shutil
@@ -18,6 +19,7 @@ from pathlib import Path
 from arva_core.seqstats import StatsParameters, quick_validate
 from arva_tools import ToolExecutionError, ToolStatus, run_command
 from arva_tools.fastp import FastpAdapter, FastpParams
+from arva_tools.fastqc import DATA_JSON as FASTQC_DATA_JSON
 from arva_tools.fastqc import FastqcAdapter
 from arva_tools.filtlong import ENVIRONMENT as FILTLONG_ENVIRONMENT
 from arva_tools.filtlong import FiltlongAdapter, FiltlongParams, plain_counts
@@ -178,8 +180,17 @@ def _fastqc_body(ctx: JobContext) -> None:
     html, zipf = workdir / html_name, workdir / zip_name
     if not html.exists() or not zipf.exists():
         raise JobFailure("FastQC finished but its report files were not found")
-    ctx.job.result_summary = FastqcAdapter.parse_zip(zipf)
-    ctx.job.output_paths = [_rel(ctx, html), _rel(ctx, zipf), _rel(ctx, log)]
+    try:
+        summary = FastqcAdapter.parse_zip(zipf)
+        data = FastqcAdapter.read_data(zipf)
+    except ValueError as exc:
+        raise JobFailure(f"FastQC exited without an error but its results could not be read: {exc}") from exc
+    if data["unrecognised"]:
+        ctx.log("FastQC modules whose columns ARVA does not recognise (not charted): " + ", ".join(data["unrecognised"]))
+    data_json = workdir / FASTQC_DATA_JSON
+    data_json.write_text(json.dumps(data))
+    ctx.job.result_summary = {**summary, "data_summary": FastqcAdapter.summarize(data)}
+    ctx.job.output_paths = [_rel(ctx, html), _rel(ctx, zipf), _rel(ctx, data_json), _rel(ctx, log)]
 
 
 def run_fastqc_job(job_id: str) -> str:

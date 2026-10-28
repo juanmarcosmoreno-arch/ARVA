@@ -5,10 +5,14 @@ import { resolveDark, useSettings } from "@/store/settings";
  * Chart mark colours, validated with the dataviz palette validator
  * (lightness band, chroma, CVD separation, contrast >= 3:1) against each
  * mode's chart surface. Brand hues, stepped per mode — not auto-inverted.
+ * `series` is a fixed categorical order for multi-line charts; as a set it passes every
+ * adjacent-pair check in both modes (worst CVD ΔE 10.1 light / 12.5 dark, normal vision
+ * ΔE 19.3 / 19.3, all ≥ 3:1 contrast).
  */
 const LIGHT = {
   primary: "#2B54C4",
   secondary: "#008C82",
+  series: ["#2B54C4", "#eb6834", "#008C82", "#c98500", "#d55181", "#6250d6"],
   surface: "#FFFFFF",
   text: "#0B132B",
   muted: "#64748B",
@@ -19,6 +23,7 @@ const LIGHT = {
 const DARK = {
   primary: "#4A88EC",
   secondary: "#00AA90",
+  series: ["#4A88EC", "#d95926", "#00AA90", "#c98500", "#d55181", "#9085e9"],
   surface: "#0E1631",
   text: "#E2E8F0",
   muted: "#94A3B8",

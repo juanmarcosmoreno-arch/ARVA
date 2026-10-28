@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from arva_tools.fastp import FastpAdapter, FastpParams
-from arva_tools.fastqc import FastqcAdapter
+from arva_tools.fastqc import OVERREPRESENTED_ROWS, FastqcAdapter, parse_position
 from arva_tools.filtlong import FiltlongAdapter, FiltlongParams, identity_to_phred
 from arva_tools.multiqc import ENVIRONMENT as MULTIQC_ENV
 from arva_tools.multiqc import MultiqcAdapter, ReportInput, report_text, staged_name
@@ -135,6 +135,205 @@ def test_fastqc_names_and_zip_parsing(tmp_path):
     assert parsed["fastqc_version"] == "0.12.1"
     assert parsed["modules"][1] == {"status": "WARN", "module": "Adapter Content"}
     assert parsed["basic_statistics"]["Total Sequences"] == "2000"
+
+
+# --- FastQC data (fixtures copied from real FastQC 0.12.1 runs; see fixtures/fastqc/README.md) ----------
+
+FQC_FIXTURES = Path(__file__).parent / "fixtures" / "fastqc"
+DUPLICATION_LEVELS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", ">10", ">50", ">100", ">500", ">1k", ">5k",
+                      ">10k+"]
+
+
+def fastqc_data(stem: str) -> dict:
+    return FastqcAdapter.parse_data((FQC_FIXTURES / f"{stem}_fastqc_data.txt").read_text())
+
+
+@pytest.mark.parametrize(("label", "expected"), [("1", (1, 1)), ("9", (9, 9)), ("10-11", (10, 11)),
+                                                 ("145-149", (145, 149)), ("26500-26582", (26500, 26582))])
+def test_fastqc_position_labels(label, expected):
+    assert parse_position(label) == expected
+
+
+@pytest.mark.parametrize("label", ["0", "12-10", "x", "", "5-"])
+def test_fastqc_position_labels_rejected(label):
+    with pytest.raises(ValueError):
+        parse_position(label)
+
+
+def test_fastqc_adapter_content_has_its_own_position_bins():
+    text = (FQC_FIXTURES / "SYNTHETIC_illumina_R1_001_fastqc_data.txt").read_text()
+    assert "\n10-14\t" in text  # per-base modules group 150 bp reads into 5 bp bins
+    ac = FastqcAdapter.parse_data(text)["adapter_content"]
+    labels = [p["label"] for p in ac["positions"]]
+    assert labels[:10] == ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10-11"] and labels[-1] == "138-139"
+    assert len(labels) == 74 and ac["positions"][-1] == {"label": "138-139", "start": 138, "end": 139}
+    assert [a["name"] for a in ac["adapters"]] == [
+        "Illumina Universal Adapter", "Illumina Small RNA 3' Adapter", "Illumina Small RNA 5' Adapter",
+        "Nextera Transposase Sequence", "PolyA", "PolyG"]
+    universal = ac["adapters"][0]["percent"]
+    assert len(universal) == 74 and universal[labels.index("60-61")] == 0.2 and universal[-1] == 7.4
+    assert ac["status"] == "WARN"
+
+    long_reads = fastqc_data("SYNTHETIC_nanopore_reads")["adapter_content"]
+    assert [p["label"] for p in long_reads["positions"]][8:11] == ["9", "10-499", "500-999"]
+    assert long_reads["positions"][-1] == {"label": "26500-26582", "start": 26500, "end": 26582}
+    assert len(long_reads["positions"]) == 63 and long_reads["status"] == "PASS"
+
+
+def test_fastqc_duplication_levels():
+    dup = fastqc_data("DERIVED_R1_dups_dimers")["duplication"]
+    assert dup["total_deduplicated_percent"] == 93.94366197183098
+    assert dup["duplicate_percent"] == pytest.approx(100 - 93.94366197183098)
+    assert [b["level"] for b in dup["bins"]] == DUPLICATION_LEVELS
+    bins = {b["level"]: b["percent_of_total"] for b in dup["bins"]}
+    assert bins["1"] == 93.84976525821597 and bins[">10"] == 1.4084507042253522 and bins[">100"] == 4.741784037558686
+    assert dup["status"] == "PASS"
+    unique = fastqc_data("SYNTHETIC_illumina_R1_001")["duplication"]
+    assert unique["total_deduplicated_percent"] == 100.0 and unique["duplicate_percent"] == 0.0
+
+
+def test_fastqc_duplication_columns_are_found_by_name():
+    # FastQC 0.11.x wrote a 'Percentage of deduplicated' column before 'Percentage of total'.
+    text = ("##FastQC\t0.11.9\n>>Sequence Duplication Levels\twarn\n#Total Deduplicated Percentage\t60.5\n"
+            "#Duplication Level\tPercentage of deduplicated\tPercentage of total\n1\t80.0\t55.0\n>10k+\t1.0\t20.0\n"
+            ">>END_MODULE\n")
+    dup = FastqcAdapter.parse_data(text)["duplication"]
+    assert [b["percent_of_total"] for b in dup["bins"]] == [55.0, 20.0]
+    assert dup["status"] == "WARN" and dup["duplicate_percent"] == pytest.approx(39.5)
+
+
+def test_fastqc_empty_overrepresented_module_has_no_header_row():
+    text = (FQC_FIXTURES / "SYNTHETIC_illumina_R1_001_fastqc_data.txt").read_text()
+    assert ">>Overrepresented sequences\tpass\n>>END_MODULE" in text
+    over = FastqcAdapter.parse_data(text)["overrepresented_sequences"]
+    assert over == {"status": "PASS", "total": 0, "rows": [], "every_read_listed": False}
+
+
+def test_fastqc_overrepresented_rows():
+    over = fastqc_data("DERIVED_R1_dups_dimers")["overrepresented_sequences"]
+    assert over["status"] == "FAIL" and over["total"] == 2 and not over["every_read_listed"]
+    first, second = over["rows"]
+    assert first == {"sequence": "AATGAGGGAAAACAATCAATTATATTCTTTCAGTTTTAGATTATTGTGAG", "count": 101,
+                     "percent": 4.741784037558686, "possible_source": "No Hit"}
+    assert second["count"] == 30 and second["possible_source"] == "TruSeq Adapter, Index 1 (100% over 50bp)"
+
+
+def test_fastqc_long_reads_list_every_read_as_overrepresented():
+    data = fastqc_data("SYNTHETIC_nanopore_reads")
+    over = data["overrepresented_sequences"]
+    assert data["total_sequences"] == 400 and data["max_read_length"] == 26593
+    assert over["total"] == 400 and over["every_read_listed"] and over["status"] == "WARN"
+    assert len(over["rows"]) == OVERREPRESENTED_ROWS == 20
+    assert all(r["count"] == 1 and r["percent"] == 0.25 and len(r["sequence"]) == 50 for r in over["rows"])
+
+
+def test_fastqc_module_statuses_and_missing_modules():
+    data = fastqc_data("SYNTHETIC_illumina_R2_001")
+    assert data["fastqc_version"] == "0.12.1" and data["unrecognised"] == []
+    statuses = {m["module"]: m["status"] for m in data["modules"]}
+    assert statuses["Adapter Content"] == "WARN" and statuses["Sequence Duplication Levels"] == "PASS"
+    summary_txt = (FQC_FIXTURES / "SYNTHETIC_illumina_R2_001_summary.txt").read_text()
+    assert {line.split("\t")[1]: line.split("\t")[0] for line in summary_txt.splitlines()} == statuses
+
+    basic_only = FastqcAdapter.parse_data("##FastQC\t0.12.1\n>>Basic Statistics\tpass\n#Measure\tValue\n"
+                                          "Total Sequences\t10\nSequence length\t35-151\n>>END_MODULE\n")
+    assert basic_only["adapter_content"] is None and basic_only["duplication"] is None
+    assert basic_only["overrepresented_sequences"] is None and basic_only["max_read_length"] == 151
+
+    odd = FastqcAdapter.parse_data(">>Sequence Duplication Levels\tpass\n#Level\tShare\n1\t100\n>>END_MODULE\n"
+                                   ">>Overrepresented sequences\tpass\nACGT\t3\n>>END_MODULE\n")
+    assert odd["duplication"] is None and odd["overrepresented_sequences"] is None
+    assert odd["unrecognised"] == ["Sequence Duplication Levels", "Overrepresented sequences"]
+
+
+def test_fastqc_summary_is_compact():
+    summary = FastqcAdapter.summarize(fastqc_data("DERIVED_R1_dups_dimers"))
+    universal, *_, poly_a, poly_g = summary["adapter_content"]["adapters"]
+    assert universal == {"name": "Illumina Universal Adapter", "max_percent": 6.948356807511737,
+                         "first_position": "122-123"}
+    assert poly_a["max_percent"] == 1.408450704225352 and poly_g == {"name": "PolyG", "max_percent": 0.0,
+                                                                      "first_position": None}
+    assert summary["duplication"] == {"status": "PASS", "total_deduplicated_percent": 93.94366197183098,
+                                      "duplicate_percent": pytest.approx(6.056338028169)}
+    assert summary["overrepresented_sequences"] == {"status": "FAIL", "total": 2, "every_read_listed": False}
+
+
+def test_fastqc_data_read_from_the_zip(tmp_path):
+    zpath = tmp_path / "SYNTHETIC_nanopore_reads_fastqc.zip"
+    with zipfile.ZipFile(zpath, "w") as z:
+        for name in ("fastqc_data", "summary"):
+            z.writestr(f"SYNTHETIC_nanopore_reads_fastqc/{name}.txt",
+                       (FQC_FIXTURES / f"SYNTHETIC_nanopore_reads_{name}.txt").read_text())
+    assert FastqcAdapter.read_data(zpath) == fastqc_data("SYNTHETIC_nanopore_reads")
+    broken = tmp_path / "broken_fastqc.zip"
+    broken.write_bytes(zpath.read_bytes()[:500])
+    for bad in (broken, tmp_path / "missing_fastqc.zip"):
+        with pytest.raises(ValueError, match="could not be opened"):
+            FastqcAdapter.read_data(bad)
+        with pytest.raises(ValueError, match="could not be opened"):
+            FastqcAdapter.parse_zip(bad)
+    empty = tmp_path / "empty_fastqc.zip"
+    with zipfile.ZipFile(empty, "w") as z:
+        z.writestr("x_fastqc/fastqc_report.html", "<html></html>")
+    with pytest.raises(ValueError, match=r"no summary\.txt or fastqc_data\.txt"):
+        FastqcAdapter.read_data(empty)
+
+
+# --- fastp chart data (fixtures from real fastp 0.23.4 runs; see fixtures/fastp/README.md) -------------
+
+FASTP_FIXTURES = Path(__file__).parent / "fixtures" / "fastp"
+
+
+def test_fastp_chart_data_paired_end():
+    data = FastpAdapter.parse_data(FASTP_FIXTURES / "SYNTHETIC_illumina_PE.fastp.json")
+    assert data["fastp_version"] == "0.23.4" and set(data["reads"]) == {"read1", "read2"}
+    before = data["reads"]["read1"]["before"]
+    assert before["total_cycles"] == 150 and before["total_reads"] == 2000
+    assert set(before["quality"]) == {"mean", "A", "T", "C", "G"}
+    assert set(before["content"]) == {"A", "T", "C", "G", "GC", "N"}
+    assert all(len(v) == 150 for v in [*before["quality"].values(), *before["content"].values()])
+    assert before["quality"]["mean"][:2] == [34.2725, 34.2325] and before["content"]["GC"][0] == 0.3335
+    # fastp prints zero as an integer; every curve value is returned as a float.
+    assert all(type(v) is float for v in before["content"]["N"])
+    assert data["reads"]["read2"]["after"]["total_reads"] == 1844
+
+    ac = data["adapter_cutting"]
+    assert ac["adapter_trimmed_reads"] == 296 and ac["adapter_trimmed_bases"] == 18204
+    assert ac["read1_adapter_sequence"] == "unspecified"
+    assert ac["read1_adapter_counts"][-1] == {"sequence": "others", "count": 137}
+    assert sum(c["count"] for c in ac["read1_adapter_counts"]) == 148
+
+    assert data["duplication_rate"] == 0.0 and type(data["duplication_rate"]) is float
+    ins = data["insert_size"]
+    assert ins["peak"] == 72 and ins["unknown"] == 923 and ins["insert_size_max"] == 512
+    assert ins["overlapping_pairs"] == 77 and ins["evaluated_pairs"] == 1000 and len(ins["histogram"]) == 512
+    assert ins["histogram_percent"][72] == pytest.approx(0.5) and ins["unknown_percent"] == pytest.approx(92.3)
+    assert sum(ins["histogram_percent"]) + ins["unknown_percent"] == pytest.approx(100)
+
+
+def test_fastp_chart_data_single_end_has_no_adapter_or_insert_blocks():
+    data = FastpAdapter.parse_data(FASTP_FIXTURES / "SYNTHETIC_illumina_R1_SE.fastp.json")
+    assert list(data["reads"]) == ["read1"] and set(data["reads"]["read1"]) == {"before", "after"}
+    assert data["adapter_cutting"] is None and data["insert_size"] is None
+    assert data["sequencing"].startswith("single end")
+
+
+def test_fastp_chart_data_tolerates_missing_blocks(tmp_path):
+    d = json.loads((FASTP_FIXTURES / "SYNTHETIC_illumina_PE.fastp.json").read_text())
+    for key in ("duplication", "adapter_cutting", "read2_after_filtering"):
+        del d[key]
+    d["read1_before_filtering"]["content_curves"]["N"] = [0.005, 0, 0]
+    d["insert_size"] = {"peak": 0, "unknown": 40, "histogram": [0] * 512}
+    path = tmp_path / "fastp.json"
+    path.write_text(json.dumps(d))
+    data = FastpAdapter.parse_data(path)
+    assert data["duplication_rate"] is None and data["adapter_cutting"] is None
+    assert set(data["reads"]["read2"]) == {"before"}
+    assert data["reads"]["read1"]["before"]["content"]["N"] == [0.005, 0.0, 0.0]
+    assert data["insert_size"]["peak"] is None and data["insert_size"]["unknown_percent"] == 100.0
+    path.write_text(json.dumps({"summary": {"fastp_version": "0.23.4"}}))
+    assert FastpAdapter.parse_data(path) == {"fastp_version": "0.23.4", "sequencing": None, "reads": {},
+                                            "adapter_cutting": None, "duplication_rate": None, "insert_size": None}
 
 
 # --- MultiQC ------------------------------------------------------------------------------------

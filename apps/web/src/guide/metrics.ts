@@ -57,7 +57,12 @@ export type GuideId =
   | "metadata_import"
   | "multiqc"
   | "nanoplot"
-  | "qc_overview";
+  | "qc_overview"
+  | "adapter_content"
+  | "duplication_levels"
+  | "overrepresented_sequences"
+  | "per_position_quality_fastp"
+  | "insert_size";
 
 const REF = {
   phred: { label: "Ewing & Green (1998) Genome Research 8:186–194 — Phred error probabilities", url: "https://doi.org/10.1101/gr.8.3.186" },
@@ -101,6 +106,26 @@ const REF = {
   pythonCsv: { label: "Python Software Foundation — csv: CSV File Reading and Writing", url: "https://docs.python.org/3/library/csv.html" },
   owaspCsv: { label: "OWASP Foundation — CSV Injection", url: "https://owasp.org/www-community/attacks/CSV_Injection" },
   iso8601: { label: "ISO 8601 — Date and time format", url: "https://www.iso.org/iso-8601-date-and-time-format.html" },
+  fastqcAdapter: {
+    label: "FastQC documentation — Adapter Content module",
+    url: "https://www.bioinformatics.babraham.ac.uk/projects/fastqc/Help/3%20Analysis%20Modules/10%20Adapter%20Content.html",
+  },
+  fastqcDuplicates: {
+    label: "FastQC documentation — Duplicate Sequences module",
+    url: "https://www.bioinformatics.babraham.ac.uk/projects/fastqc/Help/3%20Analysis%20Modules/8%20Duplicate%20Sequences.html",
+  },
+  fastqcOverrepresented: {
+    label: "FastQC documentation — Overrepresented Sequences module",
+    url: "https://www.bioinformatics.babraham.ac.uk/projects/fastqc/Help/3%20Analysis%20Modules/9%20Overrepresented%20Sequences.html",
+  },
+  fastqcSource: {
+    label: "FastQC 0.12.1 source code (DuplicationLevel.java, OverRepresentedSeqs.java, AdapterContent.java)",
+    url: "https://github.com/s-andrews/FastQC/tree/v0.12.1",
+  },
+  fastpSource: {
+    label: "fastp 0.23.4 source code (stats.cpp per-cycle curves; peprocessor.cpp insert size from worker thread 0)",
+    url: "https://github.com/OpenGene/fastp/tree/v0.23.4",
+  },
 } satisfies Record<string, Reference>;
 
 export const GUIDE: GuideEntry[] = [
@@ -568,6 +593,126 @@ export const GUIDE: GuideEntry[] = [
       next: "Abre el módulo marcado y decide si el patrón es esperable para tu tipo de librería.",
       mistakes: ["Descartar un conjunto de datos solo por indicadores FAIL.", "Tomar PASS como prueba de que los datos sirven para cualquier análisis."],
       limitations: "FastQC está diseñado para lecturas cortas; con lecturas largas algunos módulos son lentos o poco significativos.",
+    },
+  },
+  {
+    id: "adapter_content",
+    references: [REF.fastqcAdapter, REF.fastqcSource, REF.fastp],
+    en: {
+      title: "Adapter content (FastQC)",
+      what: "For each adapter sequence in FastQC's list (Illumina Universal, Small RNA 3′ and 5′, Nextera, polyA, polyG), the cumulative percentage of reads in which that sequence has been seen at or before each position.",
+      why: "Adapter appears at the 3′ end of reads when the DNA fragment is shorter than the read. Untrimmed adapter disturbs assembly, mapping and k-mer based analyses.",
+      how: "FastQC searches each read for the 12-base sequence its adapter list gives for each adapter (for example AGATCGGAAGAG for the Illumina Universal Adapter). Once found, the read counts as containing the adapter from that position to its end, so the curve can only rise. Above 75 bp FastQC groups positions into bins and reports the mean over each bin; ARVA draws a binned value at the bin's centre and reads every value from FastQC's fastqc_data.txt without changing it.",
+      interpret: "A curve that rises towards the 3′ end means some fragments were shorter than the read length. FastQC flags WARN when any adapter exceeds 5 % of reads at any position and FAIL above 10 %; these are heuristics, and the shape matters more than the flag.",
+      next: "If adapter is present, trim it (fastp trims adapters by default) and compare the reads before and after in the Filtering tab.",
+      mistakes: ["Reading the curve as the % of bases that are adapter: it is the % of reads in which the adapter has started.", "Expecting fastp to find every adapter FastQC reports: in single-end reads fastp's automatic detection can miss an adapter, and then it trims none."],
+      limitations: "Only the adapters in FastQC's list are searched, by exact 12-base match. A curve stays near zero for adapters a library does not use, and partial adapters shorter than 12 bases at the very end of reads are not counted.",
+    },
+    es: {
+      title: "Contenido de adaptadores (FastQC)",
+      what: "Para cada secuencia adaptadora de la lista de FastQC (Illumina Universal, Small RNA 3′ y 5′, Nextera, poliA, poliG), el porcentaje acumulado de lecturas en las que se vio esa secuencia en cada posición o antes.",
+      why: "El adaptador aparece en el extremo 3′ de las lecturas cuando el fragmento de ADN es más corto que la lectura. El adaptador sin recortar perjudica el ensamblado, el mapeo y los análisis basados en k-meros.",
+      how: "FastQC busca en cada lectura la secuencia de 12 bases que su lista de adaptadores da para cada uno (por ejemplo AGATCGGAAGAG para el Illumina Universal Adapter). Una vez encontrada, cuenta la lectura como portadora del adaptador desde esa posición hasta el final, por eso la curva solo puede subir. Por encima de 75 pb FastQC agrupa las posiciones en intervalos e informa la media de cada uno; ARVA dibuja cada valor agrupado en el centro del intervalo y lee todos los valores de fastqc_data.txt de FastQC sin modificarlos.",
+      interpret: "Una curva que sube hacia el extremo 3′ indica que algunos fragmentos eran más cortos que la lectura. FastQC marca WARN cuando algún adaptador supera el 5 % de las lecturas en alguna posición y FAIL por encima del 10 %; son heurísticas, y la forma importa más que el indicador.",
+      next: "Si hay adaptador, recórtalo (fastp recorta adaptadores por defecto) y compara las lecturas antes y después en la pestaña Filtrado.",
+      mistakes: ["Leer la curva como el % de bases que son adaptador: es el % de lecturas en las que el adaptador ya empezó.", "Esperar que fastp encuentre todos los adaptadores que informa FastQC: en lecturas single-end la detección automática de fastp puede no verlos y entonces no recorta ninguno."],
+      limitations: "Solo se buscan los adaptadores de la lista de FastQC, por coincidencia exacta de 12 bases. La curva queda cerca de cero para adaptadores que la librería no usa, y los adaptadores parciales de menos de 12 bases al final de las lecturas no se cuentan.",
+    },
+  },
+  {
+    id: "duplication_levels",
+    references: [REF.fastqcDuplicates, REF.fastqcSource, REF.fastp],
+    en: {
+      title: "Sequence duplication levels (FastQC)",
+      what: "How the reads divide among sequences seen once, twice, … up to more than 10,000 times, and the share of reads that would remain if every sequence were kept only once.",
+      why: "Heavy duplication can mean PCR over-amplification or a library with little diversity, which wastes sequencing and can bias variant calling.",
+      how: "FastQC follows the sequences it first sees among the first 100,000 reads to the end of the file, compares only the first 50 bases of every read longer than 50 bp (FastQC 0.12.1 source code; the documentation says reads over 75 bp), and corrects the counts for the reads it did not track. Each of its 16 bins (1–9 copies, then 10–50, 51–100, 101–500, 501–1,000, 1,001–5,000, 5,001–10,000 and more) gives the % of reads in sequences with that many copies. 'Remaining if deduplicated' is FastQC's Total Deduplicated Percentage; duplicates are 100 minus that value. fastp's duplication rate is a separate estimate with its own method.",
+      interpret: "Most reads of a diverse genomic library sit in the first bin. FastQC flags WARN when less than 70 % would remain and FAIL below 50 %. Bacterial genomes sequenced very deeply legitimately repeat sequences, and amplicon or targeted libraries are expected to be highly duplicated.",
+      next: "If duplication is unexpectedly high, check the overrepresented sequences and the library preparation; deduplication is a separate decision that depends on the analysis.",
+      mistakes: ["Treating the value as exact: it is an estimate from a subset, with reads truncated to 50 bp.", "Reading it for long reads: with a high per-base error rate the first 50 bases rarely match exactly, so duplication looks low whatever the library."],
+      limitations: "From reads alone, PCR duplicates cannot be told apart from different molecules with the same sequence, and with very high depth natural duplicates rise. ARVA shows the chart greyed out for long reads.",
+    },
+    es: {
+      title: "Niveles de duplicación de secuencias (FastQC)",
+      what: "Cómo se reparten las lecturas entre secuencias vistas una vez, dos, … hasta más de 10 000 veces, y la proporción de lecturas que quedaría si cada secuencia se conservara una sola vez.",
+      why: "Una duplicación alta puede indicar sobreamplificación por PCR o una librería poco diversa, lo que desperdicia secuenciación y puede sesgar la llamada de variantes.",
+      how: "FastQC sigue hasta el final del archivo las secuencias que ve por primera vez entre las primeras 100 000 lecturas, compara solo las primeras 50 bases de cada lectura de más de 50 pb (código fuente de FastQC 0.12.1; la documentación dice lecturas de más de 75 pb) y corrige los recuentos por las lecturas que no siguió. Cada uno de sus 16 intervalos (1–9 copias, luego 10–50, 51–100, 101–500, 501–1000, 1001–5000, 5001–10 000 y más) da el % de lecturas en secuencias con ese número de copias. «Quedaría si se deduplicara» es el Total Deduplicated Percentage de FastQC; los duplicados son 100 menos ese valor. La tasa de duplicación de fastp es otra estimación con su propio método.",
+      interpret: "La mayoría de las lecturas de una librería genómica diversa están en el primer intervalo. FastQC marca WARN cuando quedaría menos del 70 % y FAIL por debajo del 50 %. Los genomas bacterianos secuenciados con mucha profundidad repiten secuencias de forma legítima, y en librerías de amplicones o dirigidas se espera mucha duplicación.",
+      next: "Si la duplicación es inesperadamente alta, revisa las secuencias sobrerrepresentadas y la preparación de la librería; deduplicar es otra decisión que depende del análisis.",
+      mistakes: ["Tomar el valor como exacto: es una estimación a partir de un subconjunto, con lecturas truncadas a 50 pb.", "Interpretarlo con lecturas largas: con una tasa de error por base alta las primeras 50 bases rara vez coinciden exactamente, así que la duplicación parece baja sea cual sea la librería."],
+      limitations: "Con solo las lecturas no se pueden distinguir duplicados de PCR de moléculas distintas con la misma secuencia, y con profundidad muy alta aumentan los duplicados naturales. ARVA muestra el gráfico atenuado para lecturas largas.",
+    },
+  },
+  {
+    id: "overrepresented_sequences",
+    references: [REF.fastqcOverrepresented, REF.fastqcSource],
+    en: {
+      title: "Overrepresented sequences (FastQC)",
+      what: "Sequences that each make up more than 0.1 % of the reads, with their count, percentage and FastQC's best guess at their source.",
+      why: "A single sequence that dominates a library is usually adapter dimer, a contaminant or a highly abundant element such as rRNA, and it can distort assembly and coverage.",
+      how: "FastQC tracks the sequences first seen among the first 100,000 reads (the first 50 bases of longer reads) and lists those above 0.1 % of the total, most frequent first. It matches each against its contaminant list and reports the best hit of at least 20 bp with at most one mismatch. ARVA shows the first 20 rows; the FastQC report has the full list.",
+      interpret: "Adapter or primer hits point to trimming; 'No Hit' only means nothing in FastQC's list matched. FastQC flags WARN above 0.1 % and FAIL above 1 %. In a file with fewer than 1,000 reads every read is above 0.1 %, so FastQC lists every read: ARVA says so when it happens.",
+      next: "Copy a sequence and search it (for example with BLAST) if its source matters; trim adapters if they appear here.",
+      mistakes: ["Taking the possible source as an identification: similar adapters give similar hits.", "Reading the table of a long-read file: FastQC compares only the first 50 bases of each read."],
+      limitations: "A sequence that is common but absent from the first 100,000 reads is missed, and many sequences just under 0.1 % each can add up to a large share without being listed.",
+    },
+    es: {
+      title: "Secuencias sobrerrepresentadas (FastQC)",
+      what: "Secuencias que suponen cada una más del 0,1 % de las lecturas, con su recuento, porcentaje y la mejor suposición de FastQC sobre su origen.",
+      why: "Una sola secuencia que domina una librería suele ser un dímero de adaptadores, un contaminante o un elemento muy abundante como el ARNr, y puede distorsionar el ensamblado y la cobertura.",
+      how: "FastQC sigue las secuencias vistas por primera vez entre las primeras 100 000 lecturas (las primeras 50 bases de las lecturas más largas) y lista las que superan el 0,1 % del total, las más frecuentes primero. Compara cada una con su lista de contaminantes e informa la mejor coincidencia de al menos 20 pb con como mucho una diferencia. ARVA muestra las primeras 20 filas; el informe de FastQC tiene la lista completa.",
+      interpret: "Las coincidencias con adaptadores o cebadores indican que hay que recortar; «No Hit» solo significa que nada de la lista de FastQC coincidió. FastQC marca WARN por encima del 0,1 % y FAIL por encima del 1 %. En un archivo de menos de 1000 lecturas cada lectura supera el 0,1 %, así que FastQC lista todas: ARVA lo indica cuando ocurre.",
+      next: "Copia una secuencia y búscala (por ejemplo con BLAST) si importa su origen; recorta los adaptadores si aparecen aquí.",
+      mistakes: ["Tomar el posible origen como una identificación: adaptadores parecidos dan coincidencias parecidas.", "Interpretar la tabla de un archivo de lecturas largas: FastQC compara solo las primeras 50 bases de cada lectura."],
+      limitations: "Una secuencia frecuente que no aparece entre las primeras 100 000 lecturas no se detecta, y muchas secuencias justo por debajo del 0,1 % pueden sumar una gran proporción sin aparecer.",
+    },
+  },
+  {
+    id: "per_position_quality_fastp",
+    references: [REF.fastp, REF.fastpSource, REF.phred],
+    en: {
+      title: "Quality and base content per cycle (fastp)",
+      what: "fastp's mean quality and GC/N content at each cycle (position in the read) of read 1 and read 2, before and after filtering.",
+      why: "Comparing the curves before and after shows what trimming and filtering changed along the read, for example a low-quality 3′ end or N bases at one cycle.",
+      how: "fastp writes one value per cycle, from 1 to the longest read, in its JSON report; ARVA draws them as written. Mean quality is the arithmetic mean of the Phred scores of the bases at that cycle. GC and N are the fractions of the bases at that cycle that are G or C, or N, shown as percentages. After trimming, fewer reads reach the last cycles, so their values rest on fewer bases.",
+      interpret: "Quality usually falls towards the 3′ end on Illumina reads; after filtering the curve should be higher where reads were trimmed or removed. GC should be roughly flat at the genome's GC; a sloping start often reflects library preparation. N above zero marks cycles where the sequencer could not call bases.",
+      next: "If quality stays low at the end after filtering, consider sliding-window trimming (cut_tail) and compare again.",
+      mistakes: ["Comparing fastp's mean quality with ARVA's mean read quality: ARVA averages error probabilities per read, fastp averages Phred scores per cycle.", "Ignoring how many reads cover the last cycles after trimming."],
+      limitations: "Per-cycle means hide the spread between reads, and these curves come from fastp's own pass over the reads, not from ARVA's statistics.",
+    },
+    es: {
+      title: "Calidad y composición por ciclo (fastp)",
+      what: "La calidad media y el contenido de GC/N de fastp en cada ciclo (posición en la lectura) de la lectura 1 y la 2, antes y después del filtrado.",
+      why: "Comparar las curvas antes y después muestra qué cambió el recorte y el filtrado a lo largo de la lectura, por ejemplo un extremo 3′ de baja calidad o bases N en un ciclo.",
+      how: "fastp escribe un valor por ciclo, de 1 a la lectura más larga, en su informe JSON; ARVA los dibuja tal cual. La calidad media es la media aritmética de las puntuaciones Phred de las bases de ese ciclo. GC y N son las fracciones de las bases de ese ciclo que son G o C, o N, mostradas como porcentajes. Tras el recorte, menos lecturas llegan a los últimos ciclos, así que sus valores se basan en menos bases.",
+      interpret: "En lecturas Illumina la calidad suele bajar hacia el extremo 3′; tras el filtrado la curva debería subir donde se recortaron o eliminaron lecturas. El GC debería ser casi plano en el GC del genoma; un inicio inclinado suele deberse a la preparación de la librería. Un N mayor que cero marca ciclos en los que el secuenciador no pudo asignar bases.",
+      next: "Si la calidad sigue baja al final tras el filtrado, considera el recorte por ventana deslizante (cut_tail) y compara de nuevo.",
+      mistakes: ["Comparar la calidad media de fastp con la calidad media por lectura de ARVA: ARVA promedia probabilidades de error por lectura, fastp promedia puntuaciones Phred por ciclo.", "Ignorar cuántas lecturas cubren los últimos ciclos tras el recorte."],
+      limitations: "Las medias por ciclo ocultan la dispersión entre lecturas, y estas curvas vienen del propio recorrido de fastp sobre las lecturas, no de las estadísticas de ARVA.",
+    },
+  },
+  {
+    id: "insert_size",
+    references: [REF.fastp, REF.fastpSource],
+    en: {
+      title: "Insert size (fastp estimate)",
+      what: "The length of the DNA fragment between the adapters of a read pair, estimated by fastp from the overlap of the two reads, as a distribution and its most common value (peak).",
+      why: "Fragments shorter than the read length contain adapter, and the fragment length distribution reflects how the library was prepared.",
+      how: "Only fastp's worker thread 0 measures inserts, so the histogram covers only the pairs that thread read (fastp deals packs of 1,000 pairs to its threads in turn) and the peak can change with the number of threads. An insert can be measured only when the reads overlap, so it must be shorter than the two reads together; pairs without a detected overlap, and inserts of 512 bp or more, are counted as 'unknown'. ARVA shows each insert size as a % of the pairs evaluated, with the peak and the share that overlapped.",
+      interpret: "Read the peak together with the overlapping share: if most pairs are 'unknown', the fragments are mostly longer than the two reads combined and the peak describes only the short tail of the library.",
+      next: "For an exact distribution, map the reads to a reference and measure template lengths; fastp's figure is a quick estimate.",
+      mistakes: ["Reporting the peak as the library's insert size when only a few percent of the pairs overlapped.", "Comparing peaks of runs made with different thread counts."],
+      limitations: "Paired-end data only. The estimate comes from a subset of pairs chosen by the thread layout, not at random, and cannot see fragments longer than the two reads together.",
+    },
+    es: {
+      title: "Tamaño de inserto (estimación de fastp)",
+      what: "La longitud del fragmento de ADN entre los adaptadores de un par de lecturas, estimada por fastp a partir del solapamiento de las dos lecturas, como distribución y su valor más frecuente (pico).",
+      why: "Los fragmentos más cortos que la lectura contienen adaptador, y la distribución de longitudes de fragmento refleja cómo se preparó la librería.",
+      how: "Solo el hilo de trabajo 0 de fastp mide insertos, así que el histograma cubre solo los pares que leyó ese hilo (fastp reparte paquetes de 1000 pares entre sus hilos por turnos) y el pico puede cambiar con el número de hilos. Un inserto solo se puede medir cuando las lecturas se solapan, así que debe ser más corto que las dos lecturas juntas; los pares sin solapamiento detectado y los insertos de 512 pb o más se cuentan como «unknown». ARVA muestra cada tamaño de inserto como % de los pares evaluados, con el pico y la proporción que se solapó.",
+      interpret: "Lee el pico junto con la proporción solapada: si la mayoría de los pares son «unknown», los fragmentos son casi siempre más largos que las dos lecturas juntas y el pico describe solo la cola corta de la librería.",
+      next: "Para una distribución exacta, mapea las lecturas a una referencia y mide las longitudes de plantilla; la cifra de fastp es una estimación rápida.",
+      mistakes: ["Informar el pico como el tamaño de inserto de la librería cuando solo se solapó un pequeño porcentaje de los pares.", "Comparar picos de ejecuciones con distinto número de hilos."],
+      limitations: "Solo datos paired-end. La estimación sale de un subconjunto de pares elegido por el reparto entre hilos, no al azar, y no ve fragmentos más largos que las dos lecturas juntas.",
     },
   },
   {

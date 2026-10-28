@@ -32,6 +32,7 @@ export function ChartCard({
   option,
   table,
   controls,
+  footer,
   height = 280,
   filePrefix = "arva",
 }: {
@@ -41,6 +42,8 @@ export function ChartCard({
   option: EChartsOption;
   table?: TableView;
   controls?: ReactNode;
+  /** Notes under the figure, e.g. how the tool computed the values. */
+  footer?: ReactNode;
   height?: number;
   filePrefix?: string;
 }) {
@@ -147,6 +150,7 @@ export function ChartCard({
           />
         )}
       </div>
+      {footer && <div className="space-y-1 px-5 pb-4 text-xs text-muted-foreground">{footer}</div>}
     </Card>
   );
 }

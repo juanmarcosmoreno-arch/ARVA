@@ -3,6 +3,8 @@
 Every option below was checked against `fastp --help` of fastp 0.23.4 and 0.23.2.
 ARVA always passes every filtering option explicitly — including values equal
 to fastp's defaults — so the recorded command fully describes what was removed.
+fastp.json was verified for 0.23.4: numbers have 6 significant digits and zeros may be integers;
+duplication holds only 'rate'; the insert-size histogram comes from worker thread 0 alone.
 """
 from __future__ import annotations
 
@@ -14,6 +16,52 @@ from typing import Literal
 
 from arva_tools.base import ToolAdapter, ToolInfo
 
+# fastp's insertSizeMax: pairs without a detected overlap and inserts of 512 bp or more are 'unknown'.
+INSERT_SIZE_MAX = 512
+_QUALITY_CURVES = ("mean", "A", "T", "C", "G")
+_CONTENT_CURVES = ("A", "T", "C", "G", "GC", "N")
+
+
+def _curves(section: dict) -> dict:
+    quality, content = section.get("quality_curves") or {}, section.get("content_curves") or {}
+    return {
+        "total_reads": section.get("total_reads"),
+        "total_cycles": section.get("total_cycles"),
+        "quality": {k: [float(v) for v in quality[k]] for k in _QUALITY_CURVES if k in quality},
+        "content": {k: [float(v) for v in content[k]] for k in _CONTENT_CURVES if k in content},
+    }
+
+
+def _adapter_cutting(block: dict) -> dict:
+    def counts(name: str) -> list[dict]:
+        return [{"sequence": seq, "count": int(n)} for seq, n in (block.get(name) or {}).items()]
+
+    return {
+        "adapter_trimmed_reads": block.get("adapter_trimmed_reads"),
+        "adapter_trimmed_bases": block.get("adapter_trimmed_bases"),
+        "read1_adapter_sequence": block.get("read1_adapter_sequence"),
+        "read2_adapter_sequence": block.get("read2_adapter_sequence"),
+        "read1_adapter_counts": counts("read1_adapter_counts"),
+        "read2_adapter_counts": counts("read2_adapter_counts"),
+    }
+
+
+def _insert_size(block: dict) -> dict:
+    histogram = [int(v) for v in block.get("histogram") or []]
+    unknown = int(block.get("unknown") or 0)
+    overlapping = sum(histogram)
+    evaluated = overlapping + unknown
+    return {
+        # fastp reports peak 0 when no pair overlapped.
+        "peak": block.get("peak") if overlapping else None,
+        "unknown": unknown,
+        "overlapping_pairs": overlapping,
+        "evaluated_pairs": evaluated,
+        "histogram": histogram,
+        "histogram_percent": [100 * v / evaluated for v in histogram] if evaluated else [],
+        "unknown_percent": 100 * unknown / evaluated if evaluated else None,
+        "insert_size_max": INSERT_SIZE_MAX,
+    }
 
 @dataclass
 class FastpParams:
@@ -157,4 +205,28 @@ class FastpAdapter(ToolAdapter):
             "duplication_rate": (d.get("duplication") or {}).get("rate"),
             "insert_size_peak": (d.get("insert_size") or {}).get("peak"),
             "command": d.get("command"),
+        }
+
+    @staticmethod
+    def parse_data(json_path: Path) -> dict:
+        """Per-cycle curves, adapter trimming, duplication rate and insert sizes for charts. Each block may be
+        absent: adapter_cutting without adapter trimming (or when single-end detection finds no adapter),
+        duplication with --dont_eval_duplication, insert_size for single-end data."""
+        d = json.loads(Path(json_path).read_text())
+        s = d.get("summary") or {}
+        reads = {}
+        for mate in ("read1", "read2"):
+            stages = {stage: _curves(d[key]) for stage in ("before", "after")
+                      if isinstance(d.get(key := f"{mate}_{stage}_filtering"), dict)}
+            if stages:
+                reads[mate] = stages
+        adapters, insert = d.get("adapter_cutting"), d.get("insert_size")
+        rate = (d.get("duplication") or {}).get("rate")
+        return {
+            "fastp_version": s.get("fastp_version"),
+            "sequencing": s.get("sequencing"),
+            "reads": reads,
+            "adapter_cutting": _adapter_cutting(adapters) if isinstance(adapters, dict) else None,
+            "duplication_rate": None if rate is None else float(rate),
+            "insert_size": _insert_size(insert) if isinstance(insert, dict) else None,
         }

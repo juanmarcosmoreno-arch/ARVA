@@ -1,0 +1,10 @@
+PASS	Basic Statistics	SYNTHETIC_illumina_R2_001.fastq.gz
+WARN	Per base sequence quality	SYNTHETIC_illumina_R2_001.fastq.gz
+PASS	Per sequence quality scores	SYNTHETIC_illumina_R2_001.fastq.gz
+PASS	Per base sequence content	SYNTHETIC_illumina_R2_001.fastq.gz
+PASS	Per sequence GC content	SYNTHETIC_illumina_R2_001.fastq.gz
+PASS	Per base N content	SYNTHETIC_illumina_R2_001.fastq.gz
+PASS	Sequence Length Distribution	SYNTHETIC_illumina_R2_001.fastq.gz
+PASS	Sequence Duplication Levels	SYNTHETIC_illumina_R2_001.fastq.gz
+PASS	Overrepresented sequences	SYNTHETIC_illumina_R2_001.fastq.gz
+WARN	Adapter Content	SYNTHETIC_illumina_R2_001.fastq.gz

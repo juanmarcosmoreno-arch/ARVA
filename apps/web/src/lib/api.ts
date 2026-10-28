@@ -3,7 +3,9 @@ import type {
   AnalysisJobDetail,
   CrossCheck,
   DashboardSummary,
+  FastpData,
   FastpParams,
+  FastqcData,
   FiltlongParams,
   HeaderSummary,
   ImportListing,
@@ -160,6 +162,8 @@ export const api = {
   runFiltlong: (sampleId: string, body: { file_id: string; params: FiltlongParams }) =>
     request<AnalysisJob>(`/samples/${sampleId}/filtering/filtlong`, json("POST", body)),
   crosscheck: (fileId: string) => request<CrossCheck>(`/files/${fileId}/crosscheck`),
+  fastqcData: (jobId: string) => request<FastqcData>(`/jobs/${jobId}/fastqc-data`),
+  fastpData: (jobId: string) => request<FastpData>(`/jobs/${jobId}/fastp-data`),
   projectJobs: (projectId: string) => request<AnalysisJob[]>(`/projects/${projectId}/jobs`),
   qcOverview: (projectId: string) => request<QcOverview>(`/projects/${projectId}/qc-overview`),
   qcOverviewCsvUrl: (projectId: string) => `${BASE}/projects/${projectId}/qc-overview.csv`,

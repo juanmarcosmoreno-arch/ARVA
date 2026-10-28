@@ -24,7 +24,9 @@ from app.models import (
 from app.schemas.schemas import (
     AnalysisJobRead,
     CrossCheckRead,
+    FastpDataRead,
     FastpRequest,
+    FastqcDataRead,
     FilesRequest,
     FiltlongRequest,
     LibraryRead,
@@ -33,7 +35,7 @@ from app.schemas.schemas import (
     NanoplotRequest,
     ToolRead,
 )
-from app.services import crosscheck, multiqc
+from app.services import crosscheck, multiqc, qc_data
 from app.services.jobs import (
     FASTQ_STATS_JOB,
     MULTIQC_JOB,
@@ -269,6 +271,25 @@ def job_output(job_id: str, name: str, download: bool = False, db: Session = Dep
                             headers={"Content-Security-Policy": REPORT_CSP, **_REPORT_HEADERS})
     media = "text/plain; charset=utf-8" if name.endswith((".log", ".tsv", ".json")) else "application/octet-stream"
     return FileResponse(path, media_type=media, filename=name)
+
+
+def _qc_data(fn, job: AnalysisJob) -> dict:
+    try:
+        return fn(job)
+    except qc_data.QcDataError as exc:
+        raise HTTPException(exc.status_code, str(exc)) from exc
+
+
+@router.get("/jobs/{job_id}/fastqc-data", response_model=FastqcDataRead)
+def fastqc_data(job_id: str, db: Session = Depends(get_db)):
+    """Adapter content, duplication levels and overrepresented sequences of a completed FastQC job."""
+    return _qc_data(qc_data.fastqc_data, job_or_404(db, job_id))
+
+
+@router.get("/jobs/{job_id}/fastp-data", response_model=FastpDataRead)
+def fastp_data(job_id: str, db: Session = Depends(get_db)):
+    """Per-cycle curves, adapter trimming, duplication rate and insert sizes from a completed fastp job."""
+    return _qc_data(qc_data.fastp_data, job_or_404(db, job_id))
 
 
 @router.get("/files/{file_id}/crosscheck", response_model=CrossCheckRead)

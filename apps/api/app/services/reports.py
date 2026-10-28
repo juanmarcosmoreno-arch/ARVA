@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 
 from app import __version__ as ARVA_VERSION
 from app.models import AnalysisJob, JobStatus, RawFile, Sample
-from app.services import crosscheck
+from app.services import crosscheck, qc_data
 from app.services.jobs import (
     FASTP_JOB,
     FASTQ_STATS_JOB,
@@ -197,8 +197,15 @@ def _processing_steps(db: Session, sample: Sample, latest: dict) -> list[dict[st
                 f"Reads {b['total_reads']:,} → {a['total_reads']:,}; bases {b['total_bases']:,} → {a['total_bases']:,}",
                 f"Removed: low quality {fr.get('low_quality_reads', 0):,}, too many N {fr.get('too_many_N_reads', 0):,}, "
                 f"too short {fr.get('too_short_reads', 0):,}",
-                f"Reads with adapter trimmed: {summary.get('adapter_trimmed_reads') or 0:,}",
             ]
+            if summary.get("adapter_trimmed_reads") is None:
+                step["highlights"].append("Adapter trimming: fastp reported none (trimming disabled, or no adapter "
+                                          "detected in single-end reads)")
+            else:
+                step["highlights"].append(f"Reads with adapter trimmed: {summary['adapter_trimmed_reads']:,} "
+                                          f"({summary.get('adapter_trimmed_bases') or 0:,} bases removed)")
+            if summary.get("duplication_rate") is not None:
+                step["highlights"].append(f"Duplication rate (fastp estimate): {100 * summary['duplication_rate']:.2f} %")
         elif j.job_type == FILTLONG_JOB:
             chosen = {k: v for k, v in (j.parameters or {}).items() if v is not None and not k.endswith(("weight", "window_size"))}
             step["highlights"] = ["Thresholds: " + ", ".join(f"{k}={v}" for k, v in chosen.items())]
@@ -230,9 +237,28 @@ def _processing_steps(db: Session, sample: Sample, latest: dict) -> list[dict[st
                 flags.setdefault(m["status"], []).append(m["module"])
             step["highlights"] = [
                 f"FastQC flags — {status}: {', '.join(mods)}" for status, mods in sorted(flags.items())
-            ]
+            ] + _fastqc_data_highlights(qc_data.fastqc_summary(j))
         steps.append(step)
     return steps
+
+
+def _fastqc_data_highlights(s: dict[str, Any] | None) -> list[str]:
+    if not s:
+        return []
+    out = []
+    if ac := s.get("adapter_content"):
+        found = [a for a in ac["adapters"] if a["max_percent"] > 0]
+        detail = "; ".join(f"{a['name']} up to {a['max_percent']:.2f} % (first at position {a['first_position']})"
+                           for a in found) or "no adapter sequence found at any position"
+        out.append(f"Adapter content (FastQC, cumulative % of reads; FastQC heuristics: {ac['status']}): {detail}")
+    if dup := s.get("duplication"):
+        out.append(
+            "Sequence duplication (FastQC estimate from the sequences first seen in the first 100,000 reads, "
+            f"reads longer than 50 bp truncated to 50 bp; FastQC heuristics: {dup['status']}): "
+            f"{dup['total_deduplicated_percent']:.2f} % of reads would remain if deduplicated "
+            f"({dup['duplicate_percent']:.2f} % duplicates)"
+        )
+    return out
 
 
 # --- CSV ----------------------------------------------------------------------

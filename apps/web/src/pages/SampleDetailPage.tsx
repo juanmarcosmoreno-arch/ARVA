@@ -17,6 +17,8 @@ import { RawSignalSection } from "@/components/domain/RawSignal";
 import { ReadHeadersCard, TechnologySuggestion, useHeaderSummary } from "@/components/domain/ReadHeaders";
 import { BeforeAfter } from "@/components/filtering/BeforeAfter";
 import { FilterDialog } from "@/components/filtering/FilterDialog";
+import { FastpDataSection } from "@/components/qc/FastpData";
+import { FastqcDataSection } from "@/components/qc/FastqcData";
 import { NanoplotCard } from "@/components/qc/NanoplotCard";
 import { SequencingOverview } from "@/components/qc/SequencingOverview";
 import { CrossCheckCard, FastqcCard } from "@/components/qc/ToolCards";
@@ -33,6 +35,7 @@ import { api } from "@/lib/api";
 import { fmtBases, fmtBytes, fmtDate, fmtDuration, fmtInt, fmtNum, formatLabel, technologyLabel } from "@/lib/format";
 import { lineageOrder } from "@/lib/filters";
 import { NANOPLOT_JOB } from "@/lib/nanoplot";
+import { FASTQC_JOB, fastpJobFor } from "@/lib/qcData";
 import { FILTER_JOBS, IMPORT_JOBS, RAW_SIGNAL_JOBS, basename, hasReads, inProcessTool, jobLabel, latestJobFor, latestResults } from "@/lib/results";
 import type { AnalysisJobDetail, HeaderSummary, RawFile, SequencingTechnology } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -478,6 +481,8 @@ function QcTab({
   const q = m.quality;
   const file = files.find((f) => f.id === currentId)!;
   const prefix = `ARVA_${sampleCode}_${file.original_filename.replace(/\.(fastq|fq|fasta|fa|fna)(\.gz)?$/i, "")}`.replace(/[^A-Za-z0-9._-]+/g, "_");
+  const fastqcJob = m.file.format === "fastq" ? latestJobFor(jobs, FASTQC_JOB, file.id) : undefined;
+  const fastpJob = fastpJobFor(jobs, file);
 
   return (
     <div className="space-y-6">
@@ -568,6 +573,9 @@ function QcTab({
           <NanoplotCard sampleId={sampleId} file={file} jobs={jobs} arva={m} technology={technology} />
         )}
       </div>
+
+      {fastqcJob && <FastqcDataSection key={fastqcJob.id} job={fastqcJob} technology={technology} prefix={prefix} />}
+      {fastpJob && <FastpDataSection key={`${fastpJob.id}-${file.id}`} job={fastpJob} file={file} files={files} prefix={prefix} />}
 
       <div className="grid gap-6 lg:grid-cols-2">
         <LengthHistogramChart stats={m} prefix={prefix} />
