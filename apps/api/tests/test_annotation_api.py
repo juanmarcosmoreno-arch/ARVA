@@ -273,8 +273,17 @@ def test_bakta_end_to_end(client, setup, bakta_db, storage_root):
     if ann["steps"]["plot"]["status"] == "searched":
         png = client.get(f"{API}/annotations/{ann['id']}/files/plot_png")
         assert png.headers["content-type"] == "image/png" and png.headers["content-disposition"].startswith("inline")
-    report = client.get(f"{API}/samples/{sample['id']}/report.json").json()
-    assert report["annotations"][0]["tool"] == "Bakta"
+    report = client.get(f"{API}/samples/{sample['id']}/report", params={"format": "json"}).json()
+    (entry,) = report["annotations"]
+    assert entry["tool"] == "Bakta" and entry["database"]["checksum"] == BAKTA_DB_CHECKSUM
+    html = client.get(f"{API}/samples/{sample['id']}/report").text
+    assert "<h2>Annotation</h2>" in html and "SYNTHETIC input" in html
+    for step, s in ann["steps"].items():
+        if s["status"] == "skipped" and s["reason"] == "dependency":
+            assert "not searched — " in html and any(d["name"] in html for d in s["dependencies"])
+    csv_text = client.get(f"{API}/samples/{sample['id']}/report", params={"format": "csv"}).text
+    row = next(r for r in csv_text.splitlines() if ",annotation," in r)
+    assert ann["id"] in row and (",,," in row if ann["summary"]["cds"] is None else True)
 
 
 @pytest.mark.skipif(not available("bakta"), reason="Bakta is not installed")
