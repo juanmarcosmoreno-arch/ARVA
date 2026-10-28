@@ -17,6 +17,7 @@ from app.schemas.schemas import (
     FastpRequest,
     FilesRequest,
     FiltlongRequest,
+    LibraryRead,
     ToolRead,
 )
 from app.services import crosscheck
@@ -27,12 +28,15 @@ from app.services.jobs import (
     create_fastp_job,
     create_filtlong_job,
     create_per_file_tool_jobs,
+    create_pod5_jobs,
 )
+from app.services.raw_signal import POD5_LIBRARY, is_raw_signal, not_reads_message, pod5_versions
 from app.storage import get_storage
 
 router = APIRouter(tags=["tools"])
 
 FASTQ_FORMATS = {FileFormat.fastq, FileFormat.fastq_gz}
+_TOOL_NAMES = {"seqkit": "SeqKit", "fastqc": "FastQC"}
 
 # Tool HTML reports run in an opaque, sandboxed origin and may not load anything
 # from the network (fastp's report, for example, references plotly.js on a CDN).
@@ -60,15 +64,41 @@ def list_tools(refresh: bool = Query(default=False)):
     return out
 
 
-def _sample_files(db: Session, sample: Sample, ids: list[str]) -> list[RawFile]:
+@router.get("/tools/libraries", response_model=list[LibraryRead])
+def list_libraries():
+    """Optional Python libraries, detected from package metadata (never imported by the API)."""
+    versions = pod5_versions()
+    installed = versions["pod5"]
+    return [
+        LibraryRead(
+            **POD5_LIBRARY,
+            status="available" if installed else "not_installed",
+            version=installed,
+            companion_versions={"lib_pod5": versions["lib_pod5"]},
+            version_validated=installed == POD5_LIBRARY["required_version"],
+        )
+    ]
+
+
+def _owned(db: Session, sample: Sample, ids: list[str]) -> list[RawFile]:
+    if len(set(ids)) != len(ids):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "The same file was given more than once")
     files = []
     for file_id in ids:
         f = db.get(RawFile, file_id)
         if f is None or f.sample_id != sample.id:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, f"File {file_id} does not belong to this sample")
+        files.append(f)
+    return files
+
+
+def _sample_files(db: Session, sample: Sample, ids: list[str], analysis: str) -> list[RawFile]:
+    files = _owned(db, sample, ids)
+    for f in files:
+        if is_raw_signal(f):
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, not_reads_message(f, analysis))
         if f.file_format is FileFormat.unknown:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, f"{f.original_filename} is not a FASTQ/FASTA file")
-        files.append(f)
     if len(set(ids)) != len(ids):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "The same file was given more than once")
     return files
@@ -94,6 +124,24 @@ def _tool_call(fn, *args):
         raise HTTPException(422, str(exc)) from exc
 
 
+# Declared before /analyses/{tool_id} so that it takes precedence.
+@router.post("/samples/{sample_id}/analyses/pod5", response_model=list[AnalysisJobRead],
+             status_code=status.HTTP_202_ACCEPTED)
+def start_pod5_summary(sample_id: str, payload: FilesRequest, db: Session = Depends(get_db)):
+    """Read the run metadata of each selected POD5 file with the pod5 library (one job per file)."""
+    sample = sample_or_404(db, sample_id)
+    files = _owned(db, sample, payload.raw_file_ids)
+    for f in files:
+        if not is_raw_signal(f):
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"{f.original_filename} is not a POD5 file")
+        if not f.is_valid:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                f"{f.original_filename} failed validation and cannot be read: {f.validation_message}",
+            )
+    return _tool_call(create_pod5_jobs, db, sample, files)
+
+
 @router.post("/samples/{sample_id}/analyses/{tool_id}", response_model=list[AnalysisJobRead],
              status_code=status.HTTP_202_ACCEPTED)
 def start_per_file_tool(sample_id: str, tool_id: str, payload: FilesRequest, db: Session = Depends(get_db)):
@@ -101,7 +149,7 @@ def start_per_file_tool(sample_id: str, tool_id: str, payload: FilesRequest, db:
     if tool_id not in ("seqkit", "fastqc"):
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"Unknown analysis '{tool_id}'")
     sample = sample_or_404(db, sample_id)
-    files = _sample_files(db, sample, payload.raw_file_ids)
+    files = _sample_files(db, sample, payload.raw_file_ids, _TOOL_NAMES[tool_id])
     if tool_id == "fastqc":
         _require_fastq(files)
     return _tool_call(create_per_file_tool_jobs, db, sample, files, tool_id)
@@ -112,7 +160,7 @@ def start_per_file_tool(sample_id: str, tool_id: str, payload: FilesRequest, db:
 def start_fastp(sample_id: str, payload: FastpRequest, db: Session = Depends(get_db)):
     sample = sample_or_404(db, sample_id)
     ids = [payload.read1_file_id] + ([payload.read2_file_id] if payload.read2_file_id else [])
-    files = _sample_files(db, sample, ids)
+    files = _sample_files(db, sample, ids, "fastp")
     _require_fastq(files)
     if len(files) == 2 and (files[0].read_mate == "R2" or files[1].read_mate == "R1"):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Read 1 and read 2 appear to be swapped (check R1/R2)")
@@ -124,7 +172,7 @@ def start_fastp(sample_id: str, payload: FastpRequest, db: Session = Depends(get
              status_code=status.HTTP_202_ACCEPTED)
 def start_filtlong(sample_id: str, payload: FiltlongRequest, db: Session = Depends(get_db)):
     sample = sample_or_404(db, sample_id)
-    (f,) = _sample_files(db, sample, [payload.file_id])
+    (f,) = _sample_files(db, sample, [payload.file_id], "Filtlong")
     _require_fastq([f])
     params = FiltlongParams(**payload.params.model_dump())
     return _tool_call(create_filtlong_job, db, sample, f, params)
@@ -152,6 +200,8 @@ def job_output(job_id: str, name: str, download: bool = False, db: Session = Dep
 @router.get("/files/{file_id}/crosscheck", response_model=CrossCheckRead)
 def file_crosscheck(file_id: str, db: Session = Depends(get_db)):
     f = raw_file_or_404(db, file_id)
+    if is_raw_signal(f):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, not_reads_message(f, "the SeqKit cross-check"))
     jobs = db.scalars(
         select(AnalysisJob)
         .where(AnalysisJob.sample_id == f.sample_id, AnalysisJob.status == JobStatus.completed,

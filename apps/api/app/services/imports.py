@@ -1,11 +1,15 @@
 """Registration of raw sequencing files against samples."""
 from __future__ import annotations
 
+import json
+import logging
 import re
 from collections.abc import Callable
-from typing import BinaryIO
+from pathlib import Path
+from typing import Any, BinaryIO
 
-from arva_core.formats import SequenceFormat
+from arva_core.formats import SequenceFormat, check_pod5
+from arva_core.header_meta import summarise
 from arva_core.seqstats import quick_validate
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -16,6 +20,8 @@ from app.models import FileFormat, RawFile, Sample
 from app.services.capacity import ensure_space
 from app.storage import get_storage
 from app.storage.local import FileTooLargeError, sanitize_filename
+
+logger = logging.getLogger(__name__)
 
 # Illumina-style mate markers: sample_R1_001.fastq.gz, sample_1.fq, sample.R2.fastq
 _MATE = re.compile(r"(?:^|[._-])R?([12])(?:[._-]\d{3})?\.(?:fastq|fq)(?:\.gz)?$", re.IGNORECASE)
@@ -35,12 +41,41 @@ def detect_read_mate(filename: str) -> str | None:
     return f"R{m.group(1)}" if m else None
 
 
+def mate_pair_key(filename: str) -> str | None:
+    """The same for the R1 and R2 file of one pair (the mate digit replaced)."""
+    m = _MATE.search(filename)
+    return (filename[: m.start(1)] + "#" + filename[m.end(1) :]).lower() if m else None
+
+
+def header_metadata(headers: list[bytes]) -> dict[str, Any] | None:
+    """Summary of the read headers for RawFile.header_metadata; reading headers never fails an import."""
+    if not headers:
+        return None
+    try:
+        return json.loads(json.dumps(summarise(headers), allow_nan=False))
+    except Exception:
+        logger.warning("Read headers could not be summarised; storing no header metadata", exc_info=True)
+        return None
+
+
 def _to_file_format(fmt: SequenceFormat, compressed: bool) -> FileFormat:
     if fmt is SequenceFormat.fastq:
         return FileFormat.fastq_gz if compressed else FileFormat.fastq
     if fmt is SequenceFormat.fasta:
         return FileFormat.fasta_gz if compressed else FileFormat.fasta
     return FileFormat.unknown
+
+
+def _validate(path: Path, filename: str) -> tuple[FileFormat, str | None, bool, str, dict[str, Any] | None]:
+    """(format, read mate, is_valid, message, header metadata) from the file's content."""
+    pod5 = check_pod5(path)
+    if pod5 is not None:
+        return FileFormat.pod5, None, pod5.is_complete, pod5.message, None
+    check = quick_validate(path)
+    return (
+        _to_file_format(check.format, check.compressed), detect_read_mate(filename), check.is_valid,
+        check.message, header_metadata(check.headers),
+    )
 
 
 def _same_content_elsewhere(db: Session, sample: Sample, sha256: str) -> tuple[str, str] | None:
@@ -96,8 +131,7 @@ def register_raw_file(
         storage.resolve(rel).unlink()
         raise DuplicateFileError(duplicate)
 
-    check = quick_validate(storage.resolve(rel))
-    message = check.message
+    file_format, read_mate, is_valid, message, headers = _validate(storage.resolve(rel), filename)
     twin = _same_content_elsewhere(db, sample, stored.sha256)
     if twin is not None:
         message += f" Note: identical content is already registered in sample {twin[0]} as {twin[1]}."
@@ -106,13 +140,14 @@ def register_raw_file(
         sample_id=sample.id,
         original_filename=filename[:512],
         stored_path=rel,
-        file_format=_to_file_format(check.format, check.compressed),
-        read_mate=detect_read_mate(filename),
+        file_format=file_format,
+        read_mate=read_mate,
         size_bytes=stored.size_bytes,
         checksum_sha256=stored.sha256,
-        is_valid=check.is_valid,
+        is_valid=is_valid,
         validation_message=message,
         description=description,
+        header_metadata=headers,
     )
     db.add(raw)
     db.commit()

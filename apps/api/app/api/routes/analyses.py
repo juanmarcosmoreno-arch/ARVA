@@ -8,6 +8,7 @@ from app.db.session import get_db
 from app.models import AnalysisJob, FileFormat, JobStatus, RawFile
 from app.schemas.schemas import AnalysisJobDetail, AnalysisJobRead, SequenceStatsRequest
 from app.services.jobs import create_sequence_stats_jobs
+from app.services.raw_signal import is_raw_signal, not_reads_message
 
 router = APIRouter(tags=["analyses"])
 
@@ -27,6 +28,10 @@ def start_sequence_stats(
     if payload.raw_file_ids is not None:
         query = query.where(RawFile.id.in_(payload.raw_file_ids))
     files = list(db.scalars(query).all())
+    signal = [f for f in files if is_raw_signal(f)]
+    if payload.raw_file_ids is not None and signal:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, not_reads_message(signal[0], "read statistics"))
+    files = [f for f in files if not is_raw_signal(f)]
     if payload.raw_file_ids is not None and len(files) != len(set(payload.raw_file_ids)):
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,

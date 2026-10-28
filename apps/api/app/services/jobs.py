@@ -19,6 +19,7 @@ from app import __version__
 from app.core.config import get_settings
 from app.models import AnalysisJob, JobStatus, RawFile, Sample
 from app.services.queue import get_queue
+from app.services.raw_signal import POD5_INSTALL, is_raw_signal, pod5_versions
 
 FASTQ_STATS_JOB = "sequence_stats"
 SEQKIT_JOB = "seqkit_stats"
@@ -27,6 +28,8 @@ FASTP_JOB = "fastp"
 FILTLONG_JOB = "filtlong"
 SERVER_IMPORT_JOB = "server_import"
 SERVER_IMPORT_TOOL = "arva-import"
+POD5_JOB = "pod5_summary"
+POD5_TOOL = "pod5"
 
 
 class ToolUnavailableError(RuntimeError):
@@ -84,7 +87,7 @@ def create_sequence_stats_jobs(
 
 
 def files_without_stats(db: Session, sample_id: str, files: list[RawFile]) -> list[RawFile]:
-    """Files with no pending, running or completed ARVA statistics job."""
+    """Read files with no pending, running or completed ARVA statistics job."""
     existing = db.scalars(
         select(AnalysisJob).where(
             AnalysisJob.sample_id == sample_id,
@@ -93,7 +96,7 @@ def files_without_stats(db: Session, sample_id: str, files: list[RawFile]) -> li
         )
     ).all()
     covered = {fid for j in existing for fid in (j.input_raw_file_ids or [])}
-    return [f for f in files if f.id not in covered]
+    return [f for f in files if f.id not in covered and not is_raw_signal(f)]
 
 
 def _tool_job(sample: Sample, job_type: str, tool: DetectedTool, parameters: dict, inputs: list[str]) -> AnalysisJob:
@@ -172,3 +175,33 @@ def create_server_import_job(db: Session, sample: Sample, root: Path, paths: lis
     _enqueue([job], run_server_import_job)
     db.refresh(job)
     return job
+
+
+def create_pod5_jobs(db: Session, sample: Sample, files: list[RawFile]) -> list[AnalysisJob]:
+    """One run-metadata job per POD5 file, read by the worker with the optional pod5 library."""
+    from app.tasks.pod5_summary import run_pod5_summary_job
+
+    versions = pod5_versions()
+    if versions["pod5"] is None:
+        raise ToolUnavailableError(
+            f"The optional pod5 library is not installed in ARVA's Python environment. Install it with: {POD5_INSTALL}"
+        )
+    jobs = [
+        AnalysisJob(
+            sample_id=sample.id,
+            job_type=POD5_JOB,
+            tool_name=POD5_TOOL,
+            tool_version=versions["pod5"],
+            parameters={"lib_pod5_version": versions["lib_pod5"], "signal_decoded": False},
+            input_raw_file_ids=[f.id],
+            status=JobStatus.pending,
+            log_text="",
+        )
+        for f in files
+    ]
+    db.add_all(jobs)
+    db.commit()
+    _enqueue(jobs, run_pod5_summary_job)
+    for job in jobs:
+        db.refresh(job)
+    return jobs

@@ -32,7 +32,10 @@
 - **Project** → many **Samples** (rich metadata, unique Sample ID per project).
 - **RawFile**: a sequence file stored once and made read-only; `sha256`, detected format, mate (R1/R2),
   validation status. `origin` is `imported` (user upload) or `derived` (written by a job, e.g. filtered
-  reads), with `parent_file_id` and `produced_by_job_id` forming the lineage.
+  reads), with `parent_file_id` and `produced_by_job_id` forming the lineage. `header_metadata` holds
+  the summary of the first read headers (platform hint with confidence, distinct instrument/run/flow
+  cell/barcode values, a bounded read-name fingerprint for R1/R2 checks); it is a suggestion and is
+  never copied into the sample automatically.
 - **AnalysisJob**: one execution of one tool on declared inputs. Records `tool_name`, `tool_version`,
   optional `database_name`/`database_version`, `parameters`, `input_raw_file_ids`, `output_paths`,
   status, start/finish timestamps, duration, log and error; for external tools also `tool_path`,

@@ -51,7 +51,8 @@ export type GuideId =
   | "filtlong"
   | "crosscheck"
   | "fastqc_flags"
-  | "before_after";
+  | "before_after"
+  | "read_headers";
 
 const REF = {
   phred: { label: "Ewing & Green (1998) Genome Research 8:186–194 — Phred error probabilities", url: "https://doi.org/10.1101/gr.8.3.186" },
@@ -68,6 +69,16 @@ const REF = {
   filtlong: { label: "Filtlong documentation (R. Wick) — method and read scoring", url: "https://github.com/rrwick/Filtlong" },
   seqkit: { label: "Shen et al. (2016) PLoS ONE 11:e0163962 — SeqKit", url: "https://doi.org/10.1371/journal.pone.0163962" },
   fastqcHome: { label: "FastQC project page and documentation (Babraham Bioinformatics)", url: "https://www.bioinformatics.babraham.ac.uk/projects/fastqc/" },
+  illuminaFastq: { label: "Illumina BaseSpace Help — FASTQ files (sequence identifier fields)", url: "https://help.basespace.illumina.com/files-used-by-basespace/fastq-files" },
+  bcl2fastq: {
+    label: "Illumina bcl2fastq2 Conversion Software v2.20 Guide (15051736 v03), Table 7 — sequence identifier fields",
+    url: "https://support.illumina.com/content/dam/illumina-support/documents/documentation/software_documentation/bcl2fastq/bcl2fastq2-v2-20-software-guide-15051736-03.pdf",
+  },
+  ontFastq: { label: "Oxford Nanopore output specifications — FASTQ read format", url: "https://software-docs.nanoporetech.com/output-specifications/latest/read_formats/fastq/" },
+  doradoSam: { label: "Oxford Nanopore Dorado documentation — SAM specification", url: "https://software-docs.nanoporetech.com/dorado/latest/basecaller/sam_spec/" },
+  pacbioBam: { label: "PacBio BAM format specification 13.1 — QNAME convention", url: "https://pacbiofileformats.readthedocs.io/en/13.1/BAM.html" },
+  sraReadNames: { label: "NCBI sra-tools wiki — Read names (opaque identifiers, often replaced)", url: "https://github.com/ncbi/sra-tools/wiki/Read-Names" },
+  elementOutputs: { label: "Element Biosciences bases2fastq — output files", url: "https://docs.elembio.io/docs/bases2fastq/outputs/" },
 } satisfies Record<string, Reference>;
 
 export const GUIDE: GuideEntry[] = [
@@ -229,7 +240,7 @@ export const GUIDE: GuideEntry[] = [
       next: "If you plan to filter by quality, check 'reads above Q' to see how much data each threshold would keep.",
       mistakes: ["Comparing mean read quality from tools that average Q values arithmetically — those are systematically higher."],
       limitations: "Reflects basecaller calibration; empirical accuracy requires alignment to a trusted reference.",
-      advanced: "mean_Q(read) = −10·log10( (1/L)·Σ 10^(−Qi/10) ). 'Mean base quality' applies the same formula over all bases in the file. Median read quality is reported at 0.1 Q resolution.",
+      advanced: "mean_Q(read) = −10·log10( (1/L)·Σ 10^(−Qi/10) ). 'Mean read quality' is the arithmetic mean of these per-read values; NanoPlot's dataset 'Mean read quality' averages them again in error-probability space, so it is never higher. 'Mean base quality' applies the per-read formula over all bases in the file. Median read quality is reported at 0.1 Q resolution.",
     },
     es: {
       title: "Calidad media de lectura",
@@ -240,7 +251,7 @@ export const GUIDE: GuideEntry[] = [
       next: "Si piensas filtrar por calidad, revisa 'lecturas por encima de Q' para ver cuántos datos conservaría cada umbral.",
       mistakes: ["Comparar con herramientas que promedian los Q aritméticamente: dan valores sistemáticamente más altos."],
       limitations: "Refleja la calibración del basecaller; la exactitud empírica requiere alinear contra una referencia fiable.",
-      advanced: "mean_Q(lectura) = −10·log10( (1/L)·Σ 10^(−Qi/10) ). La 'calidad media por base' aplica la misma fórmula a todas las bases. La mediana se reporta con resolución de 0,1 Q.",
+      advanced: "mean_Q(lectura) = −10·log10( (1/L)·Σ 10^(−Qi/10) ). La 'calidad media de lectura' es la media aritmética de esos valores por lectura; la 'Mean read quality' de NanoPlot los vuelve a promediar en el espacio de probabilidades de error, por lo que nunca es mayor. La 'calidad media por base' aplica la fórmula por lectura a todas las bases. La mediana se reporta con resolución de 0,1 Q.",
     },
   },
   {
@@ -559,6 +570,40 @@ export const GUIDE: GuideEntry[] = [
       next: "Continúa con el archivo filtrado, ajusta los umbrales y vuelve a ejecutar (el resultado anterior se conserva) o sigue con el original.",
       mistakes: ["Valorar un filtro solo por la mejora de calidad media ignorando cuántos datos se perdieron."],
       limitations: "Las estadísticas describen las lecturas, no si las eliminadas contenían secuencias biológicamente importantes (p. ej., plásmidos con cobertura inusual).",
+    },
+  },
+  {
+    id: "read_headers",
+    references: [REF.illuminaFastq, REF.bcl2fastq, REF.ontFastq, REF.doradoSam, REF.pacbioBam, REF.sraReadNames, REF.elementOutputs, REF.fastq],
+    en: {
+      title: "Read headers and the platform hint",
+      what: "The first line of every FASTQ record (the '>' line in FASTA) is a free-text read name. Sequencers and basecallers often write metadata into it: Illumina writes instrument, run, flow cell, lane and index; Oxford Nanopore's MinKNOW and Dorado write run ID, flow cell, basecalling model and barcode; PacBio writes the movie name and ZMW hole number.",
+      why: "These values let you check that files come from the run you expect, that R1 and R2 belong together and which technology produced the reads, without any extra files.",
+      how: "At import ARVA reads the header lines of the first 1,000 records (the records it validates anyway) and matches each one against documented grammars: Illumina CASAVA 1.8+ / bcl2fastq / BCL Convert, older Illumina names, ONT MinKNOW key=value attributes and Dorado SAM tags, PacBio read names and NCBI SRA deflines. Each header gets a platform hint with a confidence; a file's suggestion is 'high' only if no header disagrees and at least 90 % are high-confidence matches. For R1/R2 files, the read names without /1 or /2 of the first 200 records are compared position by position.",
+      interpret: "The suggestion is evidence, not a fact. 'High' means a complete documented grammar matched; 'low' means a single weak cue, such as a read ID that is a UUID. 'Not inferable' means the headers carry no platform information, which is common after renaming, simulation or download from NCBI SRA; it says nothing about which platform was used. ARVA never changes the sample's technology by itself.",
+      next: "If the sample's technology is not set, you can adopt the suggestion with 'Use this'. If it disagrees with your records, check the run sheet, because tools can rewrite headers. If the R1/R2 check fails, confirm that the two files really are mates before paired-end filtering.",
+      mistakes: [
+        "Taking missing platform information as proof that a file is not Illumina, Nanopore or PacBio data: absence of evidence is not evidence.",
+        "Reading Illumina read number 1 as proof of paired-end data: it also marks single-end reads.",
+        "Treating a UUID read ID alone as proof of Nanopore data: UUIDs are not exclusive to ONT.",
+      ],
+      limitations: "Read names are opaque identifiers that tools may rewrite; NCBI SRA replaces most of them with serial numbers. Element Biosciences AVITI headers use an Illumina-compatible layout and are recognised only when the instrument name ends in _AVITI. Only the first records of each file are examined: up to 1,000, fewer when headers are very long (for example Dorado move tables).",
+      advanced: "Illumina: @<instrument>:<run>:<flowcell>:<lane>:<tile>:<x>:<y>[:<UMI>] <read>:<Y|N>:<control>:<index | sample number>. ONT MinKNOW: @<uuid> key=value … (runid, ch, start_time, flow_cell_id, protocol_group_id, sample_id, barcode, basecall_model_version_id …). Dorado FASTQ: tab-separated SAM tags (RG:Z:<runid>_<model>[_<barcodes>], st, ch, PU, DT, SM, DS …). PacBio: {movie}/{hole}/ccs[/fwd|rev][/{qStart}_{qEnd}] or {movie}/{hole}/{qStart}_{qEnd}. SRA: @<accession>.<spot> <spot name> length=<n>; platform cues kept inside an SRA defline are capped at medium confidence.",
+    },
+    es: {
+      title: "Encabezados de lecturas e indicio de plataforma",
+      what: "La primera línea de cada registro FASTQ (la línea '>' en FASTA) es un nombre de lectura de texto libre. Los secuenciadores y basecallers suelen escribir metadatos en él: Illumina escribe instrumento, corrida, celda de flujo, carril e índice; MinKNOW y Dorado de Oxford Nanopore escriben el ID de corrida, la celda de flujo, el modelo de basecalling y el código de barras; PacBio escribe el nombre de la movie y el número de pocillo ZMW.",
+      why: "Estos valores permiten comprobar que los archivos vienen de la corrida esperada, que R1 y R2 van juntos y qué tecnología produjo las lecturas, sin archivos adicionales.",
+      how: "Al importar, ARVA lee las líneas de encabezado de los primeros 1.000 registros (los mismos que valida) y compara cada una con gramáticas documentadas: Illumina CASAVA 1.8+ / bcl2fastq / BCL Convert, nombres Illumina antiguos, atributos clave=valor de ONT MinKNOW y etiquetas SAM de Dorado, nombres de lectura de PacBio y deflines de NCBI SRA. Cada encabezado recibe un indicio de plataforma con una confianza; la sugerencia de un archivo es «alta» solo si ningún encabezado discrepa y al menos el 90 % coincide con confianza alta. En archivos R1/R2 se comparan, posición por posición, los nombres de lectura sin /1 ni /2 de los primeros 200 registros.",
+      interpret: "La sugerencia es una evidencia, no un hecho. «Alta» significa que coincidió una gramática documentada completa; «baja», una sola pista débil, como un ID de lectura con forma de UUID. «No inferible» significa que los encabezados no contienen información de plataforma, algo habitual tras renombrar, simular o descargar de NCBI SRA; no dice nada sobre la plataforma usada. ARVA nunca cambia por su cuenta la tecnología de la muestra.",
+      next: "Si la tecnología de la muestra no está indicada, puedes adoptar la sugerencia con «Usar esta». Si no coincide con tus registros, revisa la hoja de la corrida, porque las herramientas pueden reescribir los encabezados. Si falla la comprobación R1/R2, confirma que los dos archivos son realmente pareja antes de filtrar en modo paired-end.",
+      mistakes: [
+        "Tomar la falta de información de plataforma como prueba de que un archivo no es de Illumina, Nanopore o PacBio: la ausencia de evidencia no es evidencia.",
+        "Interpretar el número de lectura 1 de Illumina como prueba de datos paired-end: también marca lecturas single-end.",
+        "Tomar un ID de lectura UUID por sí solo como prueba de datos Nanopore: los UUID no son exclusivos de ONT.",
+      ],
+      limitations: "Los nombres de lectura son identificadores opacos que las herramientas pueden reescribir; NCBI SRA sustituye la mayoría por números de serie. Los encabezados de Element Biosciences AVITI usan una disposición compatible con Illumina y solo se reconocen cuando el nombre del instrumento termina en _AVITI. Solo se examinan los primeros registros de cada archivo: hasta 1.000, menos si los encabezados son muy largos (por ejemplo, con tablas de movimientos de Dorado).",
+      advanced: "Illumina: @<instrumento>:<corrida>:<celda>:<carril>:<tile>:<x>:<y>[:<UMI>] <lectura>:<Y|N>:<control>:<índice | número de muestra>. ONT MinKNOW: @<uuid> clave=valor … (runid, ch, start_time, flow_cell_id, protocol_group_id, sample_id, barcode, basecall_model_version_id …). FASTQ de Dorado: etiquetas SAM separadas por tabuladores (RG:Z:<runid>_<modelo>[_<códigos>], st, ch, PU, DT, SM, DS …). PacBio: {movie}/{pocillo}/ccs[/fwd|rev][/{qStart}_{qEnd}] o {movie}/{pocillo}/{qStart}_{qEnd}. SRA: @<accesión>.<spot> <nombre del spot> length=<n>; las pistas de plataforma conservadas dentro de un defline SRA tienen como máximo confianza media.",
     },
   },
 ];

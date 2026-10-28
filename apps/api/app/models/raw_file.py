@@ -2,7 +2,7 @@ import datetime as dt
 import enum
 from typing import TYPE_CHECKING
 
-from sqlalchemy import BigInteger, Boolean, DateTime, Enum, ForeignKey, String, Text
+from sqlalchemy import JSON, BigInteger, Boolean, DateTime, Enum, ForeignKey, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, new_uuid, utcnow
@@ -16,6 +16,8 @@ class FileFormat(str, enum.Enum):
     fastq_gz = "fastq_gz"
     fasta = "fasta"
     fasta_gz = "fasta_gz"
+    # Raw nanopore signal, recognised by content; it holds no reads, so read-level analyses never use it.
+    pod5 = "pod5"
     unknown = "unknown"
 
 
@@ -66,5 +68,7 @@ class RawFile(Base):
         String(36), ForeignKey("analysis_jobs.id", ondelete="SET NULL"), nullable=True
     )
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # arva_core.header_meta.summarise() of the first read headers; a suggestion, never user metadata.
+    header_metadata: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
     sample: Mapped["Sample"] = relationship("Sample", back_populates="raw_files")

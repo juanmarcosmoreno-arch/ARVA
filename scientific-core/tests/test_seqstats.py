@@ -186,3 +186,16 @@ def test_quick_validate(tmp_path):
     assert not bad.is_valid and "line 4" in bad.message
     empty = quick_validate(write(tmp_path / "e.fastq", ""))
     assert not empty.is_valid
+
+
+def test_quick_validate_returns_the_headers_it_read(tmp_path, monkeypatch):
+    fastq = quick_validate(write(tmp_path / "r.fastq.gz", FASTQ, compress=True))
+    assert fastq.headers == [b"@r1", b"@r2", b"@r3"]
+    fasta = quick_validate(write(tmp_path / "c.fa", ">c1 first\nACGT\nAC\n>c2\nGG\n"))
+    assert fasta.headers == [b">c1 first", b">c2"]
+    many = "".join(f"@read{i}\nA\n+\nI\n" for i in range(50))
+    assert len(quick_validate(write(tmp_path / "m.fastq", many), max_records=10).headers) == 10
+    bad = quick_validate(write(tmp_path / "bad.fastq", "@ok\nA\n+\nI\n@broken\nAC\n+\nI\n"))
+    assert not bad.is_valid and bad.headers == [b"@ok"]
+    monkeypatch.setattr("arva_core.seqstats.MAX_HEADER_BYTES", 8)
+    assert quick_validate(write(tmp_path / "s.fastq", FASTQ)).headers == [b"@r1", b"@r2"]

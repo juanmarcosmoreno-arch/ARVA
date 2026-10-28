@@ -7,10 +7,14 @@ of distinct read lengths, not on file size.
 Quality conventions
 -------------------
 * Phred+33 encoding is assumed (Sanger / Illumina 1.8+ / ONT / PacBio).
-* Per-read mean quality is computed by averaging per-base *error
-  probabilities* and converting back to the Phred scale, which is what
-  NanoPlot/NanoStat report. An arithmetic mean of Phred scores overestimates
-  read accuracy.
+* Per-read mean quality averages the read's per-base *error probabilities*
+  and converts the average back to the Phred scale (NanoPlot computes its
+  per-read values the same way). An arithmetic mean of base Phred scores
+  would overestimate read accuracy.
+* The file-level ``mean_read_quality`` is the arithmetic mean of those
+  per-read values over reads with length > 0. It is not NanoPlot's "Mean read
+  quality", which averages the per-read values again in error-probability
+  space and so is never higher than this arithmetic mean.
 """
 from __future__ import annotations
 
@@ -20,7 +24,7 @@ import random
 import zlib
 from collections import Counter
 from collections.abc import Callable, Iterator
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, BinaryIO
 
@@ -43,6 +47,8 @@ _QUAL_CHARS = bytes(range(PHRED_OFFSET, PHRED_OFFSET + MAX_PHRED + 1))
 READ_QUALITY_THRESHOLDS = (7, 10, 12, 15, 20, 30)
 LENGTH_THRESHOLDS = (100, 500, 1_000, 5_000, 10_000, 20_000, 50_000, 100_000)
 MAX_CUMULATIVE_POINTS = 200
+# Header text kept by quick_validate; very long headers (e.g. Dorado move tables) end the collection early.
+MAX_HEADER_BYTES = 8 * 1024 * 1024
 
 Record = tuple[bytes, bytes, bytes | None, int]
 
@@ -507,13 +513,15 @@ class QuickValidation:
     records_checked: int
     is_valid: bool
     message: str
+    headers: list[bytes] = field(default_factory=list)
 
 
 def quick_validate(path: Path, max_records: int = 1000) -> QuickValidation:
     """Check format and the structure of the first `max_records` records.
 
     Intended for immediate feedback at import time; the full file is validated
-    when statistics are computed.
+    when statistics are computed. The header lines of the records read are
+    returned (up to MAX_HEADER_BYTES) so the file is read only once.
     """
     info = sniff_format(Path(path))
     if info.decompression_error:
@@ -527,17 +535,22 @@ def quick_validate(path: Path, max_records: int = 1000) -> QuickValidation:
             "Unrecognised content: expected FASTQ (records starting with '@') or FASTA ('>').",
         )
     checked = 0
+    headers: list[bytes] = []
+    header_bytes = 0
     try:
         with open_sequence_file(Path(path)) as fh:
-            for _ in iter_records(fh, info.format):
+            for header, _seq, _qual, _line in iter_records(fh, info.format):
                 checked += 1
+                header_bytes += len(header)
+                if header_bytes <= MAX_HEADER_BYTES:
+                    headers.append(header)
                 if checked >= max_records:
                     break
     except SequenceFormatError as exc:
-        return QuickValidation(info.format, info.compressed, checked, False, str(exc))
+        return QuickValidation(info.format, info.compressed, checked, False, str(exc), headers)
     except _DECOMPRESSION_ERRORS as exc:
         return QuickValidation(
-            info.format, info.compressed, checked, False, f"Compressed stream is corrupt ({exc})."
+            info.format, info.compressed, checked, False, f"Compressed stream is corrupt ({exc}).", headers
         )
     if checked == 0:
         return QuickValidation(info.format, info.compressed, 0, False, "File contains no records.")
@@ -548,4 +561,5 @@ def quick_validate(path: Path, max_records: int = 1000) -> QuickValidation:
         True,
         f"{info.format.value.upper()} structure verified on the first {checked} record(s); "
         "the whole file is validated when statistics are computed.",
+        headers,
     )

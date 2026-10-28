@@ -46,10 +46,12 @@ All read lengths are tallied exactly (as a length → count map).
 Phred: Q = −10 log₁₀ P(error) (Ewing & Green, 1998).
 
 - **Per-read mean quality**: per-base error probabilities are averaged, then converted back:
-  `Q_read = −10·log10(mean(10^(−Q_i/10)))`. This matches NanoPlot/NanoStat (De Coster et al.,
-  2018). Arithmetic means of Phred values are *not* used because they overestimate accuracy.
-- **Mean / median read quality**: mean of `Q_read` over reads with length > 0; median at 0.1 Q
-  resolution.
+  `Q_read = −10·log10(mean(10^(−Q_i/10)))`. NanoPlot/NanoStat compute their per-read values the same
+  way (De Coster et al., 2018). Arithmetic means of Phred values are *not* used per read because they
+  overestimate accuracy.
+- **Mean / median read quality**: arithmetic mean of `Q_read` over reads with length > 0; median at
+  0.1 Q resolution. NanoPlot's dataset "Mean read quality" instead averages the `Q_read` values again
+  in error-probability space, so it is never higher than ARVA's value; the two are different quantities.
 - **Mean base quality**: the same error-probability average taken over all bases.
 - **Q20 / Q30 bases**: percentage of all bases with Q ≥ 20 / Q ≥ 30.
 - **Reads above Q** (7, 10, 12, 15, 20, 30): reads whose `Q_read` ≥ threshold.
@@ -66,6 +68,40 @@ figure is reproducible.
 
 Reported only when the user supplies an expected genome size *G*: depth ≈ total bases / *G*. This
 assumes all bases derive from the target genome and is an upper bound on effective chromosomal depth.
+
+## Read-header metadata
+
+Implementation: `scientific-core/arva_core/header_meta.py` (schema `arva.header_meta/1`).
+
+- **What is read**: the header lines of the records checked at import (the first 1,000; collection
+  stops earlier once 8 MiB of header text has been read, e.g. with Dorado move tables). Files
+  registered before this feature get them when their read statistics are next computed.
+- **Grammars**: each header is matched against documented layouts only, and every value keeps its
+  documentation source: Illumina CASAVA 1.8+ / bcl2fastq / BCL Convert
+  (`@instrument:run:flowcell:lane:tile:x:y[:UMI] read:Y|N:control:index|sample`), pre-1.8 Illumina
+  names (community-documented), Element bases2fastq (recognised only by an `_AVITI` instrument suffix),
+  ONT MinKNOW `key=value` attributes and Dorado tab-separated SAM tags, PacBio
+  `{movie}/{hole}/ccs[/fwd|rev][/{qs}_{qe}]` and subread names, and NCBI SRA deflines. Tokens that no
+  documented grammar explains are kept verbatim and never interpreted.
+- **Confidence**: per header, *high* needs a complete documented grammar with several independent
+  elements, *medium* a partial one (capped at medium inside SRA deflines), *low* a single weak cue
+  (e.g. a UUID read ID), *none* nothing platform-specific. A file is *high* only when no header points
+  elsewhere and ≥ 90 % are high; *medium* when ≤ 5 % disagree and ≥ 80 % are medium or better;
+  otherwise *low*.
+- **Sample suggestion**: the weakest file-level confidence among files with evidence, capped at
+  *medium* when some files have none; Illumina together with a long-read platform is suggested as
+  *hybrid*; Nanopore together with PacBio gives no suggestion. The suggestion is shown next to the
+  recorded technology and is written to the sample only when the user clicks "Use this" while the
+  technology is unset.
+- **R1/R2 check**: the base read names (without `/1`, `/2`) and mate markers of the first 200 records
+  are stored per file. For R1/R2 files paired by file name, the files look like mates when ≥ 99 % of
+  names match position by position and no R1 read is marked 2 (or R2 read marked 1). A failed check
+  is a warning only.
+- **Limits**: read names are opaque identifiers that tools may rewrite (NCBI SRA replaces most of
+  them), so a header without platform information is not evidence about the platform. Illumina read
+  number 1 means "single-end or R1". Parsing never fails an import: lines are bounded (1,000,000
+  characters, 512 tokens, values clipped to 256 characters), control characters are replaced (lines
+  with more than 10 % of them are ignored) and any parser error stores no header metadata.
 
 ## External tools (Phase 2)
 
@@ -155,6 +191,11 @@ safe execution (no shell, no secrets in the tool environment, timeouts) and runs
 the synthetic data; `apps/api/tests/test_tools_api.py` runs complete jobs, lineage and reports.
 
 ## References
+
+Read-header grammars: Illumina BaseSpace Help "FASTQ files"; bcl2fastq2 v2.20 Software Guide
+(15051736 v03, Table 7); DRAGEN v4.2 BCL Convert output files; Element Biosciences bases2fastq output
+files; ONT output specifications (FASTQ v0.1) and Dorado SAM specification; PacBio BAM format
+specification 13.1 (QNAME convention); NCBI sra-tools wiki "HowTo: fasterq-dump" and "Read-Names".
 
 - Ewing B, Green P. Base-calling of automated sequencer traces using phred. II. Error probabilities. *Genome Res* 1998;8:186–194. doi:10.1101/gr.8.3.186
 - Cock PJA et al. The Sanger FASTQ file format for sequences with quality scores, and the Solexa/Illumina FASTQ variants. *Nucleic Acids Res* 2010;38:1767–1771. doi:10.1093/nar/gkp1137

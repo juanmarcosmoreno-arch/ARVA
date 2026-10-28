@@ -6,9 +6,10 @@ from sqlalchemy.orm import Session
 from app.api.deps import raw_file_or_404, sample_or_404
 from app.db.session import get_db
 from app.models import RawFile
-from app.schemas.schemas import RawFileRead, UploadRejection, UploadResult
+from app.schemas.schemas import HeaderSummaryRead, RawFileRead, UploadRejection, UploadResult
 from app.services.capacity import InsufficientStorageError
 from app.services.imports import DuplicateFileError, register_raw_file
+from app.services.read_headers import build_header_summary
 from app.storage import get_storage
 from app.storage.local import FileTooLargeError
 
@@ -52,6 +53,12 @@ def list_files(sample_id: str, db: Session = Depends(get_db)):
     return db.scalars(
         select(RawFile).where(RawFile.sample_id == sample_id).order_by(RawFile.uploaded_at)
     ).all()
+
+
+@router.get("/samples/{sample_id}/header-summary", response_model=HeaderSummaryRead)
+def header_summary(sample_id: str, db: Session = Depends(get_db)):
+    """Technology suggested by the imported files' read headers and an R1/R2 check. Never changes the sample."""
+    return build_header_summary(db, sample_or_404(db, sample_id))
 
 
 @router.get("/files/{file_id}", response_model=RawFileRead)

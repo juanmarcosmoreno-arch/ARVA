@@ -64,6 +64,68 @@ export interface RawFile {
   parent_file_id: string | null;
   produced_by_job_id: string | null;
   description: string | null;
+  header_metadata: HeaderMetadata | null;
+}
+
+export type HeaderConfidence = "high" | "medium" | "low" | "none";
+export type HeaderPlatform = "illumina" | "nanopore" | "pacbio";
+
+export interface DistinctValues {
+  values: string[];
+  n_distinct: number;
+  truncated: boolean;
+}
+
+/** arva_core.header_meta.summarise() of a file's first read headers. Suggestions only. */
+export interface HeaderMetadata {
+  schema: string;
+  n_headers_read: number;
+  n_usable: number;
+  platform_counts: Record<string, number>;
+  confidence_by_platform: Record<string, Record<string, number>>;
+  format_counts: Record<string, number>;
+  mates: Record<string, number>;
+  mate_layout: string;
+  illumina_read_numbers: Record<string, number>;
+  illumina_is_filtered: Record<string, number>;
+  distinct: Record<string, DistinctValues>;
+  warning_counts: Record<string, number>;
+  evidence: Record<string, string[]>;
+  sources: Record<string, string[]>;
+  suggested_technology: {
+    value: HeaderPlatform | null;
+    confidence: HeaderConfidence;
+    agreement: number;
+    conflicting_headers: number;
+    reason: string;
+    overrides_user_metadata: false;
+  };
+}
+
+export type MateCheckNote = "same_read_names" | "different_read_names" | "mate_markers_conflict" | "not_analysed" | "nothing_compared";
+
+export interface MateCheck {
+  r1_file_id: string;
+  r2_file_id: string;
+  looks_like_pair: boolean | null;
+  matched: number;
+  compared: number;
+  note: MateCheckNote;
+}
+
+export interface HeaderSummary {
+  suggested_technology: {
+    value: SequencingTechnology | null;
+    confidence: HeaderConfidence;
+    basis: "single_platform" | "short_and_long_reads" | "conflicting_platforms" | "no_evidence";
+    platforms: string[];
+    files_considered: number;
+    files_with_evidence: number;
+  };
+  per_file: { file_id: string; name: string; analysed: boolean; platform: HeaderPlatform | null; confidence: HeaderConfidence; format: string | null }[];
+  mate_check: MateCheck[];
+  user_technology: SequencingTechnology;
+  agrees: boolean | null;
 }
 
 export type ToolStatus = "available" | "not_installed" | "incompatible" | "failed";

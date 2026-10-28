@@ -2,7 +2,7 @@
 import datetime as dt
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_serializer
 
 from app.models import FileFormat, FileOrigin, JobStatus, SequencingTechnology
 
@@ -105,6 +105,53 @@ class RawFileRead(ORMModel):
     parent_file_id: str | None
     produced_by_job_id: str | None
     description: str | None
+    header_metadata: dict[str, Any] | None = Field(
+        default=None,
+        description="Summary of the first read headers (arva_core.header_meta); suggestions only, never user metadata",
+    )
+
+    @field_serializer("header_metadata")
+    def _without_fingerprint(self, value: dict[str, Any] | None) -> dict[str, Any] | None:
+        # The read-name fingerprint only serves the R1/R2 check of /samples/{id}/header-summary.
+        return None if value is None else {k: v for k, v in value.items() if k != "mate_fingerprint"}
+
+
+Confidence = Literal["high", "medium", "low", "none"]
+
+
+class HeaderTechnologySuggestion(BaseModel):
+    value: SequencingTechnology | None
+    confidence: Confidence
+    basis: Literal["single_platform", "short_and_long_reads", "conflicting_platforms", "no_evidence"]
+    platforms: list[str]
+    files_considered: int
+    files_with_evidence: int
+
+
+class HeaderFileSummary(BaseModel):
+    file_id: str
+    name: str
+    analysed: bool = Field(description="False until the file's read headers have been summarised")
+    platform: Literal["illumina", "nanopore", "pacbio"] | None
+    confidence: Confidence
+    format: str | None = Field(description="Most frequent header format among the headers read")
+
+
+class MateCheck(BaseModel):
+    r1_file_id: str
+    r2_file_id: str
+    looks_like_pair: bool | None
+    matched: int
+    compared: int
+    note: Literal["same_read_names", "different_read_names", "mate_markers_conflict", "not_analysed", "nothing_compared"]
+
+
+class HeaderSummaryRead(BaseModel):
+    suggested_technology: HeaderTechnologySuggestion
+    per_file: list[HeaderFileSummary]
+    mate_check: list[MateCheck]
+    user_technology: SequencingTechnology
+    agrees: bool | None = Field(description="Whether the suggestion matches the sample's technology; null when either is unknown")
 
 
 # --- Analysis jobs / QC -------------------------------------------------------
@@ -174,8 +221,23 @@ class ToolRead(BaseModel):
     message: str
 
 
+class LibraryRead(BaseModel):
+    id: str
+    name: str
+    homepage: str
+    license: str
+    citation: str
+    citation_url: str
+    required_version: str
+    install: str = Field(description="Command to run in ARVA's Python environment; ARVA never installs it")
+    status: Literal["available", "not_installed"]
+    version: str | None
+    companion_versions: dict[str, str | None]
+    version_validated: bool
+
+
 class FilesRequest(BaseModel):
-    raw_file_ids: list[str] = Field(min_length=1)
+    raw_file_ids: list[Annotated[str, Field(max_length=64)]] = Field(min_length=1, max_length=1000)
 
 
 class FastpParamsIn(BaseModel):

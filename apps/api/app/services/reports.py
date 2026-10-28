@@ -15,7 +15,16 @@ from sqlalchemy.orm import Session
 from app import __version__ as ARVA_VERSION
 from app.models import AnalysisJob, JobStatus, RawFile, Sample
 from app.services import crosscheck
-from app.services.jobs import FASTP_JOB, FASTQ_STATS_JOB, FASTQC_JOB, FILTLONG_JOB, SEQKIT_JOB
+from app.services.jobs import (
+    FASTP_JOB,
+    FASTQ_STATS_JOB,
+    FASTQC_JOB,
+    FILTLONG_JOB,
+    POD5_JOB,
+    SEQKIT_JOB,
+)
+from app.services.raw_signal import is_raw_signal
+from app.services.read_headers import build_header_summary, dominant_format
 
 LIMITATIONS = [
     "Statistics describe the reads as provided; they do not assess biological content, "
@@ -25,7 +34,21 @@ LIMITATIONS = [
     "approximation.",
     "No universal pass/fail thresholds are applied: suitable values depend on technology, "
     "chemistry and the intended analysis.",
+    "Platform hints from read headers are suggestions: read names can be rewritten (e.g. by NCBI SRA), "
+    "so headers without platform information say nothing about the platform used.",
 ]
+
+
+def _read_headers(meta: dict[str, Any] | None) -> dict[str, Any] | None:
+    if meta is None:
+        return None
+    suggestion = meta.get("suggested_technology") or {}
+    return {
+        "header_format": dominant_format(meta),
+        "platform": suggestion.get("value"),
+        "confidence": suggestion.get("confidence", "none"),
+        **{k: v for k, v in meta.items() if k != "mate_fingerprint"},
+    }
 
 
 def collect_report_data(db: Session, sample: Sample) -> dict[str, Any]:
@@ -50,6 +73,8 @@ def collect_report_data(db: Session, sample: Sample) -> dict[str, Any]:
     by_id = {f.id: f for f in files}
     entries = []
     for f in files:
+        if is_raw_signal(f):
+            continue
         job, qc = latest.get(f.id, (None, None))
         entries.append(
             {
@@ -81,6 +106,7 @@ def collect_report_data(db: Session, sample: Sample) -> dict[str, Any]:
                     "log": job.log_text,
                 },
                 "metrics": None if qc is None else qc.metrics,
+                "read_headers": _read_headers(f.header_metadata),
             }
         )
 
@@ -106,8 +132,36 @@ def collect_report_data(db: Session, sample: Sample) -> dict[str, Any]:
             "institution": sample.institution,
         },
         "files": entries,
+        "raw_signal_files": _raw_signal_files(db, sample, files),
+        "read_header_summary": build_header_summary(db, sample),
         "limitations": LIMITATIONS,
     }
+
+
+def _raw_signal_files(db: Session, sample: Sample, files: list[RawFile]) -> list[dict[str, Any]]:
+    """POD5 files with their latest run metadata; fields that may identify people or devices are not included."""
+    jobs = db.scalars(
+        select(AnalysisJob)
+        .where(AnalysisJob.sample_id == sample.id, AnalysisJob.job_type == POD5_JOB,
+               AnalysisJob.status == JobStatus.completed)
+        .order_by(AnalysisJob.finished_at.desc())
+    ).all()
+    out = []
+    for f in files:
+        if not is_raw_signal(f):
+            continue
+        job = next((j for j in jobs if f.id in (j.input_raw_file_ids or [])), None)
+        out.append({
+            "file": {"id": f.id, "filename": f.original_filename, "size_bytes": f.size_bytes, "sha256": f.checksum_sha256,
+                     "is_valid": f.is_valid, "validation_message": f.validation_message},
+            "run_metadata": None if job is None else {
+                "job_id": job.id, "tool": job.tool_name, "tool_version": job.tool_version,
+                "parameters": job.parameters,
+                "finished_at": job.finished_at.isoformat() if job.finished_at else None,
+                "summary": job.result_summary,
+            },
+        })
+    return out
 
 
 def _processing_steps(db: Session, sample: Sample, latest: dict) -> list[dict[str, Any]]:
@@ -347,6 +401,142 @@ def _charts(m: dict[str, Any]) -> str:
     return "".join(f'<div class="chart">{c}</div>' for c in charts)
 
 
+_POD5_METHODS = (
+    "<p>POD5 files were recognised by their start and end signatures. Their run metadata were read with the "
+    "official <code>pod5</code> library from the run-information table and the read table's sample counts and "
+    "channels, without decoding signal. Signal duration is the sum over acquisitions of samples divided by the "
+    "sample rate.</p>"
+)
+
+_HEADER_FIELDS = (
+    ("instrument", "Instrument"), ("run_number", "Run number"), ("run_name", "Run name"),
+    ("flowcell_id", "Flow cell"), ("lane", "Lanes"), ("run_id", "Run ID"), ("sample_id", "Sample ID in headers"),
+    ("protocol_group_id", "Protocol group"), ("basecall_model", "Basecall model"), ("basecall_gpu", "Basecall GPU"),
+    ("barcode", "Barcode"), ("barcode_alias", "Barcode alias"), ("barcode_arrangement", "Barcode arrangement"),
+    ("index_sequence", "Index sequence"), ("sample_number", "Sample number"), ("umi_present", "UMI present"),
+    ("movie_name", "PacBio movie"), ("movie_instrument_id", "PacBio instrument (from movie name)"),
+    ("read_type", "Read type"), ("strand", "Strand"), ("accession", "SRA accession"),
+    ("experiment_start_time", "Experiment start"),
+)
+_HEADER_VALUES_SHOWN = 5
+_MATE_NOTES = {
+    "same_read_names": "read names match ({matched} of {compared} compared)",
+    "different_read_names": "the files do not look like the same reads ({matched} of {compared} read names match)",
+    "mate_markers_conflict": "mate markers in the headers contradict the R1/R2 file names",
+    "not_analysed": "not checked (read headers not summarised yet)",
+    "nothing_compared": "no read names could be compared",
+}
+
+
+def _header_rows(rh: dict[str, Any]) -> list[tuple[str, str]]:
+    hint = f"{rh['platform']} ({rh['confidence']} confidence)" if rh["platform"] else "not inferable from the headers"
+    rows = [
+        ("Header format", rh["header_format"] or "none recognised"),
+        ("Platform hint", hint),
+        ("Headers examined", f"{rh.get('n_headers_read', 0):,} (first records of the file)"),
+    ]
+    distinct = rh.get("distinct") or {}
+    for key, label in _HEADER_FIELDS:
+        d = distinct.get(key)
+        if not d:
+            continue
+        values = ", ".join(str(v) for v in d["values"][:_HEADER_VALUES_SHOWN])
+        if d["n_distinct"] > _HEADER_VALUES_SHOWN:
+            values += f" … ({d['n_distinct']:,} distinct)"
+        rows.append((label, values))
+    sources = sorted({src for listed in (rh.get("sources") or {}).values() for src in listed})
+    if sources:
+        rows.append(("Format documentation", "; ".join(sources)))
+    return rows
+
+
+def _header_summary_html(data: dict[str, Any]) -> str:
+    hs = data["read_header_summary"]
+    st = hs["suggested_technology"]
+    if st["value"]:
+        text = (f"Suggested from read headers: {st['value']} ({st['confidence']} confidence), from "
+                f"{st['files_with_evidence']} of {st['files_considered']} imported file(s). ")
+        if hs["agrees"] is True:
+            text += "This matches the technology recorded for the sample."
+        elif hs["agrees"] is False:
+            text += f"The sample's recorded technology is {hs['user_technology']}; ARVA does not change it."
+        else:
+            text += "The sample's technology is not recorded; ARVA does not set it automatically."
+    else:
+        text = (f"Read headers of {st['files_considered']} imported file(s) do not indicate a sequencing platform "
+                "(read names can be rewritten, so this is not evidence about the platform).")
+    names = {f["file_id"]: f["name"] for f in hs["per_file"]}
+    mates = "".join(
+        f"<li>{escape(names.get(m['r1_file_id'], ''))} / {escape(names.get(m['r2_file_id'], ''))}: "
+        f"{escape(_MATE_NOTES[m['note']].format(**m))}</li>"
+        for m in hs["mate_check"]
+    )
+    return f"<p>{escape(text)}</p>" + (f"<p class='muted'>R1/R2 check from read names:</p><ul>{mates}</ul>" if mates else "")
+
+
+def _distinct(run_infos: list[dict[str, Any]], key: str) -> str:
+    values = []
+    for r in run_infos:
+        v = r.get(key)
+        if v not in (None, "") and str(v) not in values:
+            values.append(str(v))
+    return ", ".join(values) or "—"
+
+
+def _pod5_rows(summary: dict[str, Any]) -> list[tuple[str, str]]:
+    reads, infos = summary["reads"], summary["run_infos"]
+    seconds = reads["total_signal_duration_s"]
+    starts = sorted(str(r["acquisition_start_time"]) for r in infos if r.get("acquisition_start_time"))
+    return [
+        ("Reads (signal segments)", _fmt_int(reads["count"])),
+        ("Signal duration", "not reported" if seconds is None else
+         f"{seconds / 3600:,.2f} h (summed over all channels; not the run's wall-clock time)"),
+        ("Samples per read (min / max)", "—" if reads["min_samples"] is None else
+         f"{reads['min_samples']:,} / {reads['max_samples']:,}"),
+        ("Channels with reads", "not counted" if reads["distinct_channels"] is None else _fmt_int(reads["distinct_channels"])),
+        ("Sample rate (Hz)", _distinct(infos, "sample_rate")),
+        ("Flow cell", _distinct(infos, "flow_cell_id") + " · " + _distinct(infos, "flow_cell_product_code")),
+        ("Sequencing kit", _distinct(infos, "sequencing_kit")),
+        ("Protocol", _distinct(infos, "protocol_name")),
+        ("Experiment", _distinct(infos, "experiment_name")),
+        ("Sample ID in the file", _distinct(infos, "sample_id")),
+        ("First acquisition start", starts[0] if starts else "—"),
+        ("Acquisition software", _distinct(infos, "software")),
+        ("Written by", str(summary["file"]["writing_software"])),
+        ("POD5 file version", str(summary["file"]["file_version"])),
+    ]
+
+
+def _raw_signal_html(data: dict[str, Any]) -> str:
+    sections = []
+    for entry in data.get("raw_signal_files", []):
+        f, meta = entry["file"], entry["run_metadata"]
+        head = (f"<h3>{escape(f['filename'])}</h3><p class='muted'>POD5 raw signal · {_fmt_bytes(f['size_bytes'])}"
+                f" · SHA-256 <code>{escape(f['sha256'] or '')}</code></p>")
+        if not f["is_valid"]:
+            sections.append(head + f"<p class='warn'>{escape(f['validation_message'] or '')}</p>")
+            continue
+        if meta is None or not meta["summary"]:
+            sections.append(head + "<p class='muted'>Run metadata have not been read for this file.</p>")
+            continue
+        summary = meta["summary"]
+        rows = "".join(f"<tr><th>{escape(k)}</th><td>{escape(v)}</td></tr>" for k, v in _pod5_rows(summary))
+        warnings = "".join(f"<li>{escape(str(w))}</li>" for w in summary.get("warnings", []))
+        sections.append(
+            head + f"<table>{rows}</table>"
+            + (f"<div class='warn'><strong>Warnings</strong><ul>{warnings}</ul></div>" if warnings else "")
+            + f"<p class='muted'>Read with {escape(meta['tool'])} {escape(meta['tool_version'])} "
+            f"(lib_pod5 {escape(str((meta['parameters'] or {}).get('lib_pod5_version')))}) · job "
+            f"<code>{escape(meta['job_id'])}</code>. System name, sequencer position, context tags and tracking ID "
+            "are not shown because they can identify people, computers or devices.</p>"
+        )
+    if not sections:
+        return ""
+    return ("<h2>Raw signal files (POD5)</h2><p>POD5 files hold raw nanopore signal, not reads. ARVA reads their run "
+            "metadata only; it does not basecall. Read statistics require the basecalled FASTQ (for example from "
+            "Dorado or MinKNOW).</p>" + "".join(sections))
+
+
 def render_html(data: dict[str, Any]) -> str:
     s = data["sample"]
     meta_rows = "".join(
@@ -374,6 +564,11 @@ def render_html(data: dict[str, Any]) -> str:
                f"by analysis job <code>{escape(f['produced_by_job_id'] or '')}</code></p>"
                if f["origin"] == "derived" else "")
         )
+        rh = entry["read_headers"]
+        if rh is not None:
+            head += "<h4>Read headers</h4><table>" + "".join(
+                f"<tr><th>{escape(k)}</th><td>{escape(v)}</td></tr>" for k, v in _header_rows(rh)
+            ) + "</table>"
         if m is None:
             sections.append(
                 head + f"<p class='warn'>No completed statistics for this file. "
@@ -444,8 +639,10 @@ def render_html(data: dict[str, Any]) -> str:
 <p class="muted">Project “{escape(data['project']['name'])}” · Sample {escape(s['sample_code'])} ·
 Generated {escape(data['generated_at'])} · ARVA {escape(data['arva_version'])}</p></header>
 <h2>Sample</h2><table>{meta_rows}</table>
+{_header_summary_html(data)}
 <h2>Read statistics</h2>
-{''.join(sections) or '<p>No files registered.</p>'}
+{''.join(sections) or '<p>No read files registered.</p>'}
+{_raw_signal_html(data)}
 {('<h2>Processing and independent checks</h2>' + steps) if steps else ''}
 <h2>Methods</h2>
 <p>Each file was streamed in full by the ARVA scientific core (<code>arva-core.seqstats</code>), which
@@ -454,6 +651,11 @@ validates FASTQ/FASTA structure record by record and computes counts, length dis
 Phred+33 quality statistics. Per-read mean quality averages per-base error probabilities before
 converting back to the Phred scale. Scatter-plot data use a seeded reservoir sample of reads. Exact
 parameters and checksums are listed with each file above.</p>
+<p>Read headers of the first records of each file (up to 1,000) were matched against documented
+Illumina, Oxford Nanopore, PacBio and NCBI SRA header grammars (<code>arva_core.header_meta</code>).
+The resulting platform hint is a suggestion with a stated confidence; it never replaces the
+technology recorded for the sample.</p>
+{_POD5_METHODS if data.get("raw_signal_files") else ""}
 <h2>Limitations</h2><ul>{limitations}</ul>
 <footer>This report is descriptive. It contains values computed from the input files and does not
 make clinical or biological claims.</footer>

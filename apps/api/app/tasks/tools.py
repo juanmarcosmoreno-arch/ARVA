@@ -23,6 +23,7 @@ from arva_tools.seqkit import SeqkitAdapter
 from app.core.config import get_settings
 from app.db.base import new_uuid
 from app.models import FileFormat, FileOrigin, RawFile
+from app.services.imports import header_metadata
 from app.tasks.common import JobContext, JobFailure, run_job
 
 
@@ -74,6 +75,7 @@ def _register_derived(ctx: JobContext, parent: RawFile, rel: str, name: str, des
         checksum_sha256=stored.sha256,
         is_valid=check.is_valid,
         validation_message=check.message,
+        header_metadata=header_metadata(check.headers),
         origin=FileOrigin.derived,
         parent_file_id=parent.id,
         produced_by_job_id=ctx.job.id,

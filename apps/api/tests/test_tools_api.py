@@ -100,6 +100,9 @@ def test_fastp_paired_end_produces_derived_files_and_stats(client, sample):
     assert {d["parent_file_id"] for d in derived} == {f1["id"], f2["id"]}
     assert all(d["produced_by_job_id"] == detail["id"] and d["is_valid"] for d in derived)
     assert {d["read_mate"] for d in derived} == {"R1", "R2"}
+    assert {d["header_metadata"]["mate_layout"] for d in derived} == {"mate_1_only", "mate_2_only"}
+    hs = client.get(f"{API}/samples/{sample['id']}/header-summary").json()
+    assert [f["file_id"] for f in hs["per_file"]] == [f1["id"], f2["id"]]
 
     jobs = client.get(f"{API}/samples/{sample['id']}/jobs").json()
     stats = [j for j in jobs if j["job_type"] == "sequence_stats"]

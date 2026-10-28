@@ -5,6 +5,7 @@ import type {
   DashboardSummary,
   FastpParams,
   FiltlongParams,
+  HeaderSummary,
   ImportListing,
   ImportRoot,
   Project,
@@ -93,6 +94,7 @@ export const api = {
     request<Sample>(`/samples/${id}`, json("PATCH", input)),
 
   files: (sampleId: string) => request<RawFile[]>(`/samples/${sampleId}/files`),
+  headerSummary: (sampleId: string) => request<HeaderSummary>(`/samples/${sampleId}/header-summary`),
   uploadFiles,
 
   storage: () => request<StorageCapacity>("/system/storage"),

@@ -4,8 +4,8 @@
  * Requires the full stack running (API, worker, web) — see docs/installation.md.
  *   ARVA_WEB_URL=http://localhost:5173 node tests/e2e/golden_path.cjs
  *
- * Creates a project and sample, uploads the synthetic paired Illumina reads,
- * runs read statistics in the background worker, checks the results, the
+ * Creates a project and sample, uploads the synthetic paired Illumina reads
+ * (whose headers must be reported as not inferable), runs read statistics in the background worker, checks the results, the
  * guide dialog, history/provenance and all report formats, then (when the tools
  * are installed) the SeqKit cross-check and a fastp before/after comparison.
  */
@@ -45,6 +45,8 @@ const DATA = path.resolve(__dirname, "../../examples/synthetic");
   ]);
   await page.getByText("structure verified").first().waitFor({ timeout: 60_000 });
   assert.equal(await page.getByText("R1", { exact: true }).count() > 0, true, "R1 mate detected");
+  await page.getByRole("heading", { name: "Read headers" }).waitFor();
+  await page.getByText("Not inferable", { exact: true }).first().waitFor();
 
   await page.getByRole("button", { name: /Analyse 2 files/ }).click();
   await page.getByText("Mean read quality").first().waitFor({ timeout: 60_000 });
@@ -66,6 +68,9 @@ const DATA = path.resolve(__dirname, "../../examples/synthetic");
     if (jobs.filter((j) => j.job_type === "sequence_stats" && j.status === "completed").length >= 2) break;
     await page.waitForTimeout(500);
   }
+  const headers = await (await page.request.get(`${BASE}/api/v1/samples/${sampleId}/header-summary`)).json();
+  assert.equal(headers.suggested_technology.value, null, "synthetic headers carry no platform information");
+  assert.equal(headers.mate_check[0]?.looks_like_pair, true, "synthetic R1/R2 read names match");
   for (const fmt of ["html", "csv", "json"]) {
     const res = await page.request.get(`${BASE}/api/v1/samples/${sampleId}/report?format=${fmt}`);
     assert.equal(res.status(), 200, `report ${fmt}`);

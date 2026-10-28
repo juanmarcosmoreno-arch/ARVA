@@ -12,6 +12,7 @@ import {
 } from "@/components/charts/QcCharts";
 import { AnalysisTimeline, JobStatusBadge, MetricTile, type Stage } from "@/components/domain/bits";
 import { FileDropzone } from "@/components/domain/FileDropzone";
+import { ReadHeadersCard, TechnologySuggestion, useHeaderSummary } from "@/components/domain/ReadHeaders";
 import { BeforeAfter } from "@/components/filtering/BeforeAfter";
 import { FilterDialog } from "@/components/filtering/FilterDialog";
 import { CrossCheckCard, FastqcCard } from "@/components/qc/ToolCards";
@@ -28,7 +29,7 @@ import { api } from "@/lib/api";
 import { fmtBases, fmtBytes, fmtDate, fmtDuration, fmtInt, fmtNum, formatLabel, technologyLabel } from "@/lib/format";
 import { lineageOrder } from "@/lib/filters";
 import { FILTER_JOBS, IMPORT_JOBS, JOB_LABEL, basename, latestResults } from "@/lib/results";
-import type { AnalysisJobDetail, RawFile, SequencingTechnology } from "@/lib/types";
+import type { AnalysisJobDetail, HeaderSummary, RawFile, SequencingTechnology } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 type Tab = "files" | "qc" | "filtering" | "history" | "metadata";
@@ -47,6 +48,7 @@ export function SampleDetailPage() {
     queryFn: () => api.sampleJobs(sampleId),
     refetchInterval: (q) => (q.state.data?.some((j) => j.status === "pending" || j.status === "running") ? 1500 : false),
   });
+  const headerSummary = useHeaderSummary(sample.data, files.data);
 
   const isActive = (j: AnalysisJobDetail) => j.status === "pending" || j.status === "running";
   const allJobs = jobs.data ?? [];
@@ -107,6 +109,7 @@ export function SampleDetailPage() {
           <span className="flex flex-wrap items-center gap-2">
             {s.organism && <i>{s.organism}</i>}
             <Badge tone={s.sequencing_technology === "unknown" ? "neutral" : "blue"}>{technologyLabel[s.sequencing_technology]}</Badge>
+            <TechnologySuggestion sample={s} summary={headerSummary.data} />
             {s.host && <span>Host: {s.host}</span>}
             {s.geographic_origin && <span>· {s.geographic_origin}</span>}
           </span>
@@ -139,6 +142,7 @@ export function SampleDetailPage() {
           sampleId={s.id}
           files={files.data ?? []}
           loading={files.isLoading}
+          headerSummary={headerSummary.data}
           onStarted={() => setTab("qc")}
           onFilter={() => setFilterOpen(true)}
         />
@@ -210,12 +214,14 @@ function FilesTab({
   sampleId,
   files,
   loading,
+  headerSummary,
   onStarted,
   onFilter,
 }: {
   sampleId: string;
   files: RawFile[];
   loading: boolean;
+  headerSummary: HeaderSummary | undefined;
   onStarted: () => void;
   onFilter: () => void;
 }) {
@@ -320,6 +326,7 @@ function FilesTab({
             )}
           </CardBody>
         </Card>
+        <ReadHeadersCard files={files} summary={headerSummary} />
       </div>
 
       <Card className="h-fit">
