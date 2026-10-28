@@ -69,7 +69,7 @@ describe("BulkImportDialog", () => {
     expect(screen.getByText("existing")).toBeInTheDocument();
     expect(screen.getByText("new")).toBeInTheDocument();
     expect(screen.getByText("R1 without its R2 file: B_R1.fastq.gz")).toBeInTheDocument();
-    expect(screen.getByText("1 file(s) ignored (not FASTQ/FASTA): SampleSheet.csv")).toBeInTheDocument();
+    expect(screen.getByText("1 file(s) ignored (not FASTQ/FASTA/POD5): SampleSheet.csv")).toBeInTheDocument();
     expect(mocked.createSample).not.toHaveBeenCalled();
     expect(mocked.uploadFiles).not.toHaveBeenCalled();
 
@@ -85,6 +85,17 @@ describe("BulkImportDialog", () => {
       ["sample-a", ["A_S1_L001_R1_001.fastq.gz", "A_S1_L001_R2_001.fastq.gz"]],
       ["new-B", ["B_R1.fastq.gz"]],
     ]);
+  });
+
+  it("imports POD5 raw-signal files as their own sample group", async () => {
+    const user = userEvent.setup();
+    const { folderInput } = setup([]);
+    await user.upload(folderInput, [file("run7_barcode02.pod5"), file("run7_barcode02.fastq.gz"), file("reads.fast5")]);
+    expect(screen.getAllByLabelText("Sample ID").map((i) => (i as HTMLInputElement).value)).toEqual(["run7_barcode02"]);
+    expect(screen.getByText("1 file(s) ignored (not FASTQ/FASTA/POD5): reads.fast5")).toBeInTheDocument();
+    await user.click(startButton());
+    await screen.findByText(/^Finished:/);
+    expect(mocked.uploadFiles.mock.calls.map(([, files]) => files.map((f) => f.name))).toEqual([["run7_barcode02.fastq.gz", "run7_barcode02.pod5"]]);
   });
 
   it("blocks duplicate sample IDs and selections larger than the free space", async () => {

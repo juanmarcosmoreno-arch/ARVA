@@ -78,7 +78,10 @@ def build_header_summary(db: Session, sample: Sample) -> dict[str, Any]:
     user = sample.sequencing_technology
     agrees = None
     if suggestion["value"] is not None and user is not SequencingTechnology.unknown:
-        agrees = suggestion["value"] == user.value
+        partial = suggestion["files_with_evidence"] < suggestion["files_considered"]
+        # Files without evidence may hold the other half of a hybrid sample: no contradiction.
+        undecided = partial and user is SequencingTechnology.hybrid and suggestion["value"] in PLATFORMS
+        agrees = None if undecided else suggestion["value"] == user.value
     per_file = []
     for f in files:
         s = _file_suggestion(f.header_metadata)

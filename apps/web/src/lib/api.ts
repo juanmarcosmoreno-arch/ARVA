@@ -8,6 +8,12 @@ import type {
   HeaderSummary,
   ImportListing,
   ImportRoot,
+  Library,
+  MetadataApplyResult,
+  MetadataImportMode,
+  MetadataImportRecord,
+  MetadataPreview,
+  MetadataTableOptions,
   Project,
   ProjectInput,
   RawFile,
@@ -75,6 +81,19 @@ function uploadFiles(sampleId: string, files: File[], onProgress?: (p: UploadPro
   });
 }
 
+/** The multipart body of a metadata preview or apply: the table plus the choices made so far. */
+export function metadataForm(file: File, options: MetadataTableOptions, extra: Record<string, string> = {}) {
+  const form = new FormData();
+  form.append("file", file, file.name);
+  if (options.sheet) form.append("sheet", options.sheet);
+  if (options.headerRow) form.append("header_row", String(options.headerRow));
+  if (options.delimiter) form.append("delimiter", options.delimiter);
+  if (options.dateOrder) form.append("date_order", options.dateOrder);
+  if (options.mapping && Object.keys(options.mapping).length > 0) form.append("mapping", JSON.stringify(options.mapping));
+  for (const [k, v] of Object.entries(extra)) form.append(k, v);
+  return form;
+}
+
 export const api = {
   dashboard: () => request<DashboardSummary>("/dashboard"),
 
@@ -92,6 +111,17 @@ export const api = {
     request<Sample>(`/projects/${projectId}/samples`, json("POST", input)),
   updateSample: (id: string, input: Partial<SampleInput>) =>
     request<Sample>(`/samples/${id}`, json("PATCH", input)),
+
+  previewMetadata: (projectId: string, file: File, options: MetadataTableOptions) =>
+    request<MetadataPreview>(`/projects/${projectId}/metadata/preview`, { method: "POST", body: metadataForm(file, options) }),
+  applyMetadata: (projectId: string, file: File, options: MetadataTableOptions, sha256: string, mode: MetadataImportMode) =>
+    request<MetadataApplyResult>(`/projects/${projectId}/metadata/apply`, {
+      method: "POST",
+      body: metadataForm(file, options, { expected_sha256: sha256, mode }),
+    }),
+  metadataImports: (projectId: string) => request<MetadataImportRecord[]>(`/projects/${projectId}/metadata/imports`),
+  metadataExportUrl: (projectId: string, format: "csv" | "xlsx") => `${BASE}/projects/${projectId}/metadata/export?format=${format}`,
+  metadataTemplateUrl: (format: "csv" | "xlsx") => `${BASE}/metadata/template?format=${format}`,
 
   files: (sampleId: string) => request<RawFile[]>(`/samples/${sampleId}/files`),
   headerSummary: (sampleId: string) => request<HeaderSummary>(`/samples/${sampleId}/header-summary`),
@@ -116,6 +146,9 @@ export const api = {
   fileDownloadUrl: (fileId: string) => `${BASE}/files/${fileId}/download`,
 
   tools: (refresh = false) => request<Tool[]>(`/tools${refresh ? "?refresh=true" : ""}`),
+  libraries: () => request<Library[]>("/tools/libraries"),
+  runPod5Summary: (sampleId: string, fileIds: string[]) =>
+    request<AnalysisJob[]>(`/samples/${sampleId}/analyses/pod5`, json("POST", { raw_file_ids: fileIds })),
   runPerFileTool: (sampleId: string, tool: "seqkit" | "fastqc", fileIds: string[]) =>
     request<AnalysisJob[]>(`/samples/${sampleId}/analyses/${tool}`, json("POST", { raw_file_ids: fileIds })),
   runFastp: (sampleId: string, body: { read1_file_id: string; read2_file_id?: string | null; params: FastpParams }) =>

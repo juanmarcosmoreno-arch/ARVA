@@ -8,11 +8,13 @@ from fastapi.responses import JSONResponse
 
 from app import __version__
 from app.api.capacity import UploadCapacityGuard, insufficient_storage_response
+from app.api.metadata_limit import MetadataUploadLimit
 from app.api.routes import (
     analyses,
     dashboard,
     files,
     imports,
+    metadata,
     projects,
     reports,
     samples,
@@ -44,6 +46,7 @@ def create_app() -> FastAPI:
     )
     # Added before CORS so that CORS stays outermost and also wraps the 507 responses.
     app.add_middleware(UploadCapacityGuard, api_prefix=settings.api_v1_prefix)
+    app.add_middleware(MetadataUploadLimit, api_prefix=settings.api_v1_prefix)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,
@@ -72,7 +75,7 @@ def create_app() -> FastAPI:
     def health():
         return {"status": "ok", "version": __version__}
 
-    for module in (dashboard, projects, samples, files, imports, analyses, tools, reports, system):
+    for module in (dashboard, projects, samples, files, imports, metadata, analyses, tools, reports, system):
         app.include_router(module.router, prefix=settings.api_v1_prefix)
     return app
 

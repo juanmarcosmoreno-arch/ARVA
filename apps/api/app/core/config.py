@@ -34,6 +34,12 @@ class Settings(BaseSettings):
     # Server folders that may be browsed and imported from (JSON list). Empty disables the feature.
     import_roots: list[Path] = []
 
+    # Sample metadata tables (CSV or .xlsx) imported into a project.
+    metadata_max_bytes: int = Field(default=10 * 1024 * 1024, gt=0)
+    metadata_max_rows: int = Field(default=10_000, gt=0)
+    metadata_max_columns: int = Field(default=256, gt=0)
+    metadata_max_cell_chars: int = Field(default=10_000, gt=0)
+
     # External tools
     tool_threads: int = 4
     tool_timeout_seconds: int = 12 * 3600

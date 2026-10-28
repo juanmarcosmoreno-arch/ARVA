@@ -274,7 +274,7 @@ def test_pod5_without_reads_is_summarised(client, sample, tmp_path):
     s = job["result_summary"]
     assert s["file"]["batch_count"] == 0 and s["file"]["num_reads"] == 0
     assert s["reads"]["count"] == 0 and s["reads"]["min_samples"] is None
-    assert s["warnings"] == ["The file contains no reads."]
+    assert s["warnings"] == [{"code": "no_reads", "params": {}, "text": "The file contains no reads."}]
 
 
 @needs_pod5
@@ -306,6 +306,42 @@ def test_reports_show_run_metadata_escaped_and_without_identifying_fields(client
     csv_text = client.get(f"{API}/samples/{sample['id']}/report", params={"format": "csv"}).text
     assert path.name not in csv_text
 
+
+
+# Found by fuzzing: one byte inside the run-information table makes unvalidated Arrow data crash pyarrow.
+DAMAGED_OFFSET, DAMAGED_BYTE = 312_459, 225
+POD5_SHA256 = "08d8512a750cd01bea47a5b2ccbda663883fbf1eef8b89fc41534eb03b268b4a"
+
+
+@needs_pod5
+def test_damaged_run_information_fails_cleanly(client, sample):
+    data = bytearray(POD5.read_bytes())
+    if hashlib.sha256(data).hexdigest() != POD5_SHA256:
+        pytest.skip("the synthetic POD5 was regenerated; its damaged-byte offset must be found again")
+    data[DAMAGED_OFFSET] = DAMAGED_BYTE
+    f = upload_one(client, sample["id"], "damaged.pod5", bytes(data))
+    assert f["is_valid"] is True  # both signatures are intact
+    job = run_pod5(client, sample["id"], f["id"])
+    assert job["status"] == "failed" and job["error_message"].startswith("The POD5 file is damaged")
+
+
+@pytest.mark.parametrize("child,expected", [
+    ("import os, signal; os.kill(os.getpid(), signal.SIGSEGV)", "The pod5 library crashed while reading this file (SIGSEGV)"),
+    ("import sys; sys.stderr.write('boom'); sys.exit(3)", "failed unexpectedly (exit code 3):\nboom"),
+    ("import time; time.sleep(30)", "took longer than 1 s and was stopped"),
+])
+def test_reader_process_failures_end_the_job(client, sample, monkeypatch, child, expected):
+    from app.tasks import pod5_summary
+
+    available = {"pod5": "0.3.49", "lib_pod5": "0.3.49"}
+    monkeypatch.setattr(jobs_service, "pod5_versions", lambda: available)
+    monkeypatch.setattr(pod5_summary, "pod5_versions", lambda: available)
+    monkeypatch.setattr(pod5_summary, "reader_command", lambda _path: [sys.executable, "-c", child])
+    monkeypatch.setattr(get_settings(), "tool_timeout_seconds", 1)
+    f = upload_one(client, sample["id"], POD5.name, POD5.read_bytes())
+    job = run_pod5(client, sample["id"], f["id"])
+    assert job["status"] == "failed" and expected in job["error_message"]
+    assert job["finished_at"] is not None and job["output_paths"] is None
 
 # --- Library listing and lazy import ------------------------------------------------------------
 

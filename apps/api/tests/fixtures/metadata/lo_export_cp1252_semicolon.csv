@@ -1,0 +1,9 @@
+"ID muestra";"Organismo";"Hospedador";"País";"Fecha de muestreo";"Tecnología";"Corrida";"Investigador";"Profundidad";"Contig N50 (fórmula)"
+1;"Escherichia coli";"Homo sapiens";"España";2024-03-15;"MiSeq";"RUN-01";"José Núñez";35.5;71
+"001";"Klebsiella pneumoniae";"Gallus gallus";"Perú";"2024-03-15";"MinION";"RUN-02";"Zoë ?? ?";120;240
+;;;;;;;;;
+1.23456789012346E+019;"Salmonella enterica";;"Colombia";"15/03/2024";"HiFi";"MERGED-RUN";;0.001;
+2;"Staphylococcus aureus";"Sus scrofa";"México";2024-03-15 13:45:00;"PacBio Sequel II";;;TRUE;
+;;;;;;;;;
+3;"Pseudomonas aeruginosa";"Bos taurus";"Chile";"03/05/2024";"Ion Torrent";;;2;
+007;"Enterococcus faecium";;;45366;;;;;

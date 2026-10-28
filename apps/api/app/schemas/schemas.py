@@ -4,7 +4,14 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_serializer
 
-from app.models import FileFormat, FileOrigin, JobStatus, SequencingTechnology
+from app.models import (
+    FileFormat,
+    FileOrigin,
+    JobStatus,
+    MetadataFileKind,
+    MetadataImportMode,
+    SequencingTechnology,
+)
 
 
 class ORMModel(BaseModel):
@@ -151,7 +158,10 @@ class HeaderSummaryRead(BaseModel):
     per_file: list[HeaderFileSummary]
     mate_check: list[MateCheck]
     user_technology: SequencingTechnology
-    agrees: bool | None = Field(description="Whether the suggestion matches the sample's technology; null when either is unknown")
+    agrees: bool | None = Field(
+        description="Whether the suggestion matches the sample's technology; null when either is unknown, or when the "
+        "sample is hybrid and only some files carry platform evidence"
+    )
 
 
 # --- Analysis jobs / QC -------------------------------------------------------
@@ -368,6 +378,105 @@ class ServerImportRequest(BaseModel):
     paths: list[Annotated[str, Field(min_length=1, max_length=4096)]] = Field(
         min_length=1, max_length=500, description="File paths relative to the import folder"
     )
+
+
+# --- Sample metadata tables (CSV / .xlsx) -----------------------------------------
+
+MetadataAction = Literal["create", "update", "unchanged", "error"]
+
+
+class MetadataFileInfo(BaseModel):
+    name: str
+    sha256: str
+    kind: MetadataFileKind
+    encoding: str | None
+    delimiter: str | None
+    sheet: str | None
+    sheets: list[str]
+    header_row: int
+
+
+class MetadataColumn(BaseModel):
+    header: str
+    field: str = Field(description="ARVA field, 'custom' (kept in custom_metadata) or 'ignore'")
+    suggested_field: str = Field(description="What ARVA suggests from the header name alone")
+
+
+class MetadataChange(BaseModel):
+    field: str
+    key: str | None = Field(default=None, description="custom_metadata key when field is 'custom_metadata'")
+    old: str | None
+    new: str | None
+
+
+class MetadataMessage(BaseModel):
+    code: str | None = Field(description="Stable identifier the interface translates (metadata.msg.<code>); null for free text")
+    params: dict[str, str | int] = Field(description="Values for the {placeholders} of the translated text")
+    text: str = Field(description="The message in English")
+
+
+class MetadataRowPreview(BaseModel):
+    row: int = Field(description="Row number as a spreadsheet shows it")
+    sample_code: str | None
+    action: MetadataAction
+    sample_id: str | None = None
+    matched_sample_code: str | None = None
+    matched_by: Literal["exact", "case_insensitive"] | None = None
+    changes: list[MetadataChange]
+    errors: list[MetadataMessage]
+    warnings: list[MetadataMessage]
+
+
+class MetadataCounts(BaseModel):
+    rows: int
+    create: int
+    update: int
+    unchanged: int
+    error: int
+
+
+class MetadataPreviewRead(BaseModel):
+    file: MetadataFileInfo
+    columns: list[MetadataColumn]
+    fields: list[str]
+    rows: list[MetadataRowPreview]
+    warnings: list[MetadataMessage]
+    errors: list[MetadataMessage] = Field(description="Problems that block every row, e.g. no sample_code column")
+    counts: MetadataCounts
+    date_order: Literal["DMY", "MDY"] | None
+    date_order_source: Literal["user", "header"] | None
+    ambiguous_dates: int
+
+
+class MetadataImportRead(ORMModel):
+    id: str
+    project_id: str
+    filename: str
+    sha256: str
+    kind: MetadataFileKind
+    sheet: str | None
+    encoding: str | None
+    delimiter: str | None
+    header_row: int
+    mapping: dict[str, str]
+    date_order: str | None
+    mode: MetadataImportMode
+    created_count: int
+    updated_count: int
+    unchanged_count: int
+    skipped_count: int
+    created_at: dt.datetime
+
+
+class MetadataSkippedRow(BaseModel):
+    row: int
+    sample_code: str | None
+    reasons: list[MetadataMessage]
+
+
+class MetadataApplyRead(BaseModel):
+    record: MetadataImportRead
+    skipped: list[MetadataSkippedRow]
 
 
 # --- Dashboard ----------------------------------------------------------------

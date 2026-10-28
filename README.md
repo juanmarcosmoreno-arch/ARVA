@@ -22,6 +22,9 @@ control**, **visual first**, **reproducibility** and **modularity**.
 |---|---|
 | Projects & samples | Create, edit, search; rich sample metadata (organism, host, origin, dates, technology, run, notes) |
 | Raw data import | Drag-and-drop files or folders; bulk import with sample IDs inferred from file names; import from a server folder without the browser; free-space checks; content-based FASTQ/FASTA + gzip detection; SHA-256 checksums; duplicate detection; R1/R2 recognition; originals stored read-only |
+| Sample metadata tables | Import from CSV or Excel (.xlsx) with a row-by-row preview, English/Spanish column names, explicit date handling, one-transaction apply and an import history with the file's SHA-256; export to CSV/Excel protected against formula injection; header-only template |
+| Read headers | Platform hints (Illumina, Oxford Nanopore, PacBio) and run values read from the first read headers (NCBI SRA deflines included), with confidence and documentation source, plus an R1/R2 name check — suggestions only, never applied silently |
+| POD5 raw signal | Recognised by content (truncated files flagged); run metadata — reads, signal duration, sample rate, flow cell, kit, protocol — read with the optional `pod5` library; no basecalling |
 | Validation | Quick structural check at import; full record-by-record validation (with line numbers) during analysis |
 | Read statistics | Reads, bases, length distribution, N50/N90, GC, ambiguous bases, Phred quality (error-probability averaging), Q20/Q30, per-position quality, reads above quality thresholds, yield by length, optional depth estimate |
 | Visualisation | Six interactive figures (ECharts) with tooltips, table views and SVG/PNG export, light/dark |

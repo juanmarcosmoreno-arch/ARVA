@@ -8,7 +8,8 @@ import { Card, CardBody, CardHeader } from "@/components/ui/card";
 import { useT } from "@/i18n";
 import { api } from "@/lib/api";
 import { fmtInt, technologyLabel } from "@/lib/format";
-import { codeKey, distinctRows, documentationLinks, dominantFormat, suggestionState } from "@/lib/headers";
+import { codeKey, distinctRows, documentationLinks, dominantFormat, partialEvidence, suggestionState } from "@/lib/headers";
+import { hasReads } from "@/lib/results";
 import type { HeaderMetadata, HeaderSummary, MateCheck, RawFile, Sample, SequencingTechnology } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -50,13 +51,21 @@ export function TechnologySuggestion({ sample, summary }: { sample: Sample; summ
   if (!suggested?.value) return null;
   const value = suggested.value;
   const technology = technologyLabel[value];
-  const state = suggestionState(sample.sequencing_technology, value);
+  const user = technologyLabel[sample.sequencing_technology];
+  const state = suggestionState(sample.sequencing_technology, suggested);
   return (
     <>
       <Badge tone="neutral" className="whitespace-normal border border-dashed">
         <Sparkles className="h-3 w-3" aria-hidden />
         {t("headers.suggested", { technology, confidence: t(`headers.confidence.${suggested.confidence}`) })}
       </Badge>
+      {partialEvidence(suggested) && (
+        <span className="text-xs">
+          {t("headers.partialEvidence", { withEvidence: suggested.files_with_evidence, considered: suggested.files_considered })}
+        </span>
+      )}
+      {state === "hint" && <span className="text-xs">{t("headers.hintOnly")}</span>}
+      {state === "undecided" && <span className="text-xs">{t("headers.undecided", { user })}</span>}
       {state === "offer" && (
         <>
           <Button size="sm" variant="outline" className="h-6 px-2" disabled={apply.isPending} onClick={() => apply.mutate(value)} aria-describedby={hintId}>
@@ -68,7 +77,7 @@ export function TechnologySuggestion({ sample, summary }: { sample: Sample; summ
         </>
       )}
       {state === "mismatch" && (
-        <span className="text-xs">{t("headers.mismatch", { suggested: technology, user: technologyLabel[sample.sequencing_technology] })}</span>
+        <span className="text-xs">{t("headers.mismatch", { suggested: technology, user })}</span>
       )}
       {apply.error && (
         <span role="alert" className="text-xs text-danger">
@@ -81,7 +90,7 @@ export function TechnologySuggestion({ sample, summary }: { sample: Sample; summ
 
 export function ReadHeadersCard({ files, summary }: { files: RawFile[]; summary: HeaderSummary | undefined }) {
   const t = useT();
-  const sequenceFiles = files.filter((f) => f.file_format !== "unknown");
+  const sequenceFiles = files.filter((f) => hasReads(f.file_format));
   if (!sequenceFiles.length) return null;
   const names = new Map(files.map((f) => [f.id, f.original_filename]));
   return (
@@ -177,7 +186,13 @@ function FileHeaders({ t, file }: { t: T; file: RawFile }) {
           {fmt && <span className="min-w-0 break-words text-xs text-muted-foreground">{formatText(t, fmt)}</span>}
         </summary>
         <div className="space-y-3 px-3 pb-3 text-sm sm:pl-9">
-          {meta ? <FileHeaderDetails t={t} meta={meta} /> : <p className="text-xs text-muted-foreground">{t("headers.notReadHint")}</p>}
+          {meta ? (
+            <FileHeaderDetails t={t} meta={meta} />
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              {t("headers.notReadHint")} {file.is_valid ? t("headers.notReadRetry") : t("headers.notReadInvalid")}
+            </p>
+          )}
         </div>
       </details>
     </li>

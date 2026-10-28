@@ -1,14 +1,15 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, CheckCircle2, Database, ExternalLink, RefreshCw, XCircle } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Database, ExternalLink, Package, RefreshCw, XCircle } from "lucide-react";
 import { useState } from "react";
+import { useLibraries } from "@/components/domain/RawSignal";
 import { useTools } from "@/components/tools/useTools";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardBody, CardHeader } from "@/components/ui/card";
 import { ErrorNote, PageHeader, Skeleton } from "@/components/ui/misc";
-import { useT } from "@/i18n";
+import { useT, type TranslationKey } from "@/i18n";
 import { api } from "@/lib/api";
-import type { Tool } from "@/lib/types";
+import type { Library, Tool } from "@/lib/types";
 
 const STATUS: Record<Tool["status"], { label: string; tone: "success" | "neutral" | "warning" | "danger" }> = {
   available: { label: "Available", tone: "success" },
@@ -29,12 +30,14 @@ export function ToolsPage() {
   const t = useT();
   const qc = useQueryClient();
   const tools = useTools();
+  const libraries = useLibraries();
   const [refreshing, setRefreshing] = useState(false);
 
   const refresh = async () => {
     setRefreshing(true);
     try {
       qc.setQueryData(["tools"], await api.tools(true));
+      qc.setQueryData(["libraries"], await api.libraries());
     } finally {
       setRefreshing(false);
     }
@@ -61,6 +64,24 @@ export function ToolsPage() {
           ))}
         </div>
       )}
+      <section aria-labelledby="python-libraries" className="space-y-3">
+        <div>
+          <h2 id="python-libraries" className="flex items-center gap-2 text-base font-semibold">
+            <Package className="h-4 w-4 text-arva-royal dark:text-arva-cyan" aria-hidden /> {t("libraries.title")}
+          </h2>
+          <p className="mt-0.5 text-sm text-muted-foreground">{t("libraries.subtitle")}</p>
+        </div>
+        <ErrorNote error={libraries.error} />
+        {libraries.isLoading ? (
+          <Skeleton className="h-40" />
+        ) : (
+          <div className="grid gap-4 lg:grid-cols-2">
+            {libraries.data?.map((lib) => (
+              <LibraryCard key={lib.id} lib={lib} />
+            ))}
+          </div>
+        )}
+      </section>
       <Card>
         <CardHeader
           title={
@@ -137,6 +158,68 @@ function ToolCard({ tool }: { tool: Tool }) {
         )}
         <a href={tool.homepage} target="_blank" rel="noreferrer noopener" className="inline-flex items-center gap-1 text-xs text-arva-royal hover:underline dark:text-arva-cyan">
           Official documentation <ExternalLink className="h-3 w-3" />
+        </a>
+      </CardBody>
+    </Card>
+  );
+}
+
+const LIBRARY_TEXT: Record<string, { description: TranslationKey; platforms: TranslationKey }> = {
+  pod5: { description: "libraries.pod5.description", platforms: "libraries.pod5.platforms" },
+};
+
+function LibraryCard({ lib }: { lib: Library }) {
+  const t = useT();
+  const text = LIBRARY_TEXT[lib.id];
+  const installed = lib.status === "available";
+  return (
+    <Card className="flex flex-col">
+      <div className="flex items-start justify-between gap-3 px-5 pt-5">
+        <div className="min-w-0">
+          <h3 className="flex flex-wrap items-center gap-2 font-semibold">
+            {lib.name}
+            {lib.version && <span className="text-sm font-normal text-muted-foreground">v{lib.version}</span>}
+          </h3>
+          {text && <p className="mt-1 text-sm text-muted-foreground">{t(text.description)}</p>}
+        </div>
+        <Badge tone={installed ? "success" : "neutral"}>
+          {installed && <CheckCircle2 className="h-3 w-3" aria-hidden />}
+          {installed ? t("libraries.available") : t("libraries.notInstalled")}
+        </Badge>
+      </div>
+      <CardBody className="flex-1 space-y-3 pt-3 text-sm">
+        {installed && !lib.version_validated && (
+          <div className="flex gap-2 rounded-lg border border-warning/40 bg-warning/5 p-2.5 text-xs">
+            <AlertTriangle className="h-4 w-4 shrink-0 text-warning" aria-hidden />
+            {t("libraries.notValidated", { version: lib.version ?? "", required: lib.required_version })}
+          </div>
+        )}
+        <dl className="grid grid-cols-[110px_1fr] gap-x-3 gap-y-1 text-xs">
+          <dt className="text-muted-foreground">{t("libraries.available")}</dt>
+          <dd>
+            {lib.version
+              ? [`${lib.name} ${lib.version}`, ...Object.entries(lib.companion_versions).filter(([, v]) => v).map(([name, v]) => `${name} ${v}`)].join(" · ")
+              : "—"}
+          </dd>
+          <dt className="text-muted-foreground">{t("libraries.validatedWith")}</dt>
+          <dd>{lib.required_version}</dd>
+          <dt className="text-muted-foreground">{t("libraries.licence")}</dt>
+          <dd>{lib.license}</dd>
+          <dt className="text-muted-foreground">{t("libraries.cite")}</dt>
+          <dd className="min-w-0 break-words">
+            {lib.citation}{" "}
+            <a href={lib.citation_url} target="_blank" rel="noreferrer noopener" className="inline-flex items-center gap-0.5 text-arva-royal hover:underline dark:text-arva-cyan">
+              {t("libraries.link")} <ExternalLink className="h-3 w-3" aria-hidden />
+            </a>
+          </dd>
+        </dl>
+        <div className="space-y-1.5">
+          <div className="text-xs font-medium">{t("libraries.install")}</div>
+          <code className="block break-all rounded bg-muted px-1.5 py-0.5 text-xs">{lib.install}</code>
+          {text && <p className="text-xs text-muted-foreground">{t(text.platforms)}</p>}
+        </div>
+        <a href={lib.homepage} target="_blank" rel="noreferrer noopener" className="inline-flex items-center gap-1 text-xs text-arva-royal hover:underline dark:text-arva-cyan">
+          {t("libraries.docs")} <ExternalLink className="h-3 w-3" aria-hidden />
         </a>
       </CardBody>
     </Card>

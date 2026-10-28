@@ -1,6 +1,6 @@
 /** Display helpers for read-header metadata (arva_core.header_meta). Pure functions, no I/O. */
 import { dictionaries, type TranslationKey } from "@/i18n";
-import type { DistinctValues, HeaderMetadata, SequencingTechnology } from "./types";
+import type { DistinctValues, HeaderMetadata, HeaderSummary, SequencingTechnology } from "./types";
 
 // Same order as the summary keys in arva_core.header_meta.
 export const DISTINCT_FIELDS = [
@@ -51,13 +51,21 @@ export function codeKey(prefix: string, code: string): TranslationKey | null {
   return key in dictionaries.en ? (key as TranslationKey) : null;
 }
 
-export type SuggestionState = "none" | "offer" | "agrees" | "mismatch";
+export type SuggestionState = "none" | "offer" | "hint" | "agrees" | "mismatch" | "undecided";
 
-/** "offer" only when the user has not recorded a technology: ARVA never replaces a user value. */
-export function suggestionState(user: SequencingTechnology, suggested: SequencingTechnology | null): SuggestionState {
-  if (!suggested) return "none";
-  if (user === "unknown") return "offer";
-  return user === suggested ? "agrees" : "mismatch";
+type Suggestion = Pick<HeaderSummary["suggested_technology"], "value" | "confidence" | "files_with_evidence" | "files_considered">;
+
+export const partialEvidence = (s: Suggestion) => s.files_with_evidence < s.files_considered;
+
+/** One-click adoption ("offer") needs an unset technology, medium or high confidence and evidence in every file;
+ * a weak or partial suggestion is only a "hint". ARVA never replaces a user value. */
+export function suggestionState(user: SequencingTechnology, suggested: Suggestion | null | undefined): SuggestionState {
+  if (!suggested?.value) return "none";
+  const partial = partialEvidence(suggested);
+  if (user === "unknown") return !partial && (suggested.confidence === "high" || suggested.confidence === "medium") ? "offer" : "hint";
+  if (user === suggested.value) return "agrees";
+  // Files without evidence may hold the other half of a hybrid sample.
+  return partial && user === "hybrid" ? "undecided" : "mismatch";
 }
 
 /** Unique documentation sources; only plain https URLs become links. */

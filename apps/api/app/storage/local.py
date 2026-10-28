@@ -11,6 +11,7 @@ import os
 import re
 import shutil
 import stat
+import unicodedata
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -50,8 +51,9 @@ class StorageBackend(Protocol):
 
 
 def sanitize_filename(name: str) -> str:
-    """Reduce a user-supplied filename to a safe basename (no directories)."""
+    """Reduce a user-supplied filename to a safe ASCII basename (no directories); 'Perú' becomes 'Peru'."""
     base = name.replace("\\", "/").split("/")[-1]
+    base = "".join(ch for ch in unicodedata.normalize("NFKD", base) if not unicodedata.combining(ch))
     base = _SAFE_NAME.sub("_", base).strip("._")
     return base[:200] or "file"
 

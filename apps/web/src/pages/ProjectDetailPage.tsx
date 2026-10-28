@@ -3,6 +3,7 @@ import { FlaskConical, Pencil, Plus, Trash2, UploadCloud } from "lucide-react";
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { BulkImportDialog } from "@/components/domain/BulkImportDialog";
+import { MetadataSection } from "@/components/domain/MetadataImport";
 import { ProjectFormDialog } from "@/components/domain/ProjectFormDialog";
 import { SampleFormDialog } from "@/components/domain/SampleForm";
 import { Badge } from "@/components/ui/badge";
@@ -87,6 +88,7 @@ export function ProjectDetailPage() {
           <SamplesTable samples={samples.data ?? []} showProject={false} />
         )}
       </Card>
+      <MetadataSection projectId={p.id} />
 
       <ProjectFormDialog open={editing} onOpenChange={setEditing} project={p} />
       <SampleFormDialog open={creating} onOpenChange={setCreating} projectId={p.id} />

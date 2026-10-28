@@ -20,6 +20,7 @@ export interface SampleGroup {
 const MAX_SAMPLE_ID = 255;
 const EXTENSION = /\.(?:(?:fastq|fq|fasta|fa|fna|fas)(?:\.gz)?|pod5)$/i;
 const SEQUENCE_FILE = /\.(?:fastq|fq|fasta|fa|fna|fas)(?:\.gz)?$/i;
+const POD5_FILE = /\.pod5$/i;
 // Only reads come in R1/R2 pairs; strain_1.fna and strain_2.fna are two assemblies.
 const FASTQ_FILE = /\.(?:fastq|fq)(?:\.gz)?$/i;
 // Most specific first: bcl2fastq / BCL Convert names, then shorter variants.
@@ -46,6 +47,8 @@ const stem = (name: string) => basename(name).replace(EXTENSION, "") || basename
 const isFastq = (name: string) => FASTQ_FILE.test(basename(name));
 
 export const isSequenceFile = (name: string) => SEQUENCE_FILE.test(basename(name));
+/** What bulk import accepts: reads plus POD5 raw signal (the server recognises POD5 by content). */
+export const isImportableFile = (name: string) => isSequenceFile(name) || POD5_FILE.test(basename(name));
 
 /** `x_1`/`x_2` are mates only if they are not part of a numbered series such as ONT chunks `x_0`, `x_3`… */
 function isNumberedSeries(prefix: string, stems: Set<string>) {

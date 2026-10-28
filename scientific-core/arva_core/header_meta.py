@@ -70,7 +70,7 @@ PLATFORMS = ("illumina", "nanopore", "pacbio")
 # re.ASCII everywhere: \d must not match non-ASCII digits.
 _A = re.ASCII
 _UUID = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
-_HEX40 = r"[0-9a-f]{40}"  # pre-UUID MinKNOW run ids (Dorado and EPI2ME fastcat test data)
+_HEX40 = r"[0-9a-f]{40}"  # pre-UUID MinKNOW run ids (older MinKNOW output)
 RE_UUID = re.compile(rf"^{_UUID}$", _A)
 RE_RUN_ID = re.compile(rf"^(?:{_UUID}|{_HEX40})$", _A)
 
@@ -95,7 +95,7 @@ RE_ILMN_COMMENT = re.compile(
     r"(?P<index>[ACGTN]+(?:\+[ACGTN]+)*|\d+)?$",
     _A,
 )
-# Pre-CASAVA-1.8: @HWUSI-EAS100R:6:73:941:1973#0/1 (instrument:lane:tile:x:y#index/mate)
+# Pre-CASAVA-1.8: instrument:lane:tile:x:y#index/mate
 RE_ILMN_LEGACY = re.compile(
     r"^(?P<instrument>[A-Za-z0-9_.-]+):(?P<lane>\d+):(?P<tile>\d+):(?P<x_pos>-?\d+):(?P<y_pos>-?\d+)"
     r"(?:#(?P<index>[A-Za-z0-9]+))?(?:/(?P<mate>[12]))?$",
@@ -135,7 +135,7 @@ RE_ONT_RG = re.compile(rf"^(?P<run_id>{_UUID}|{_HEX40})_(?P<rest>.+)$", _A)
 RE_ONT_MODEL_IN_RG = re.compile(r"^(?P<model>.*?@v\d+(?:\.\d+)*)(?:_(?P<barcode>.+))?$", _A)
 
 # MinKNOW key=value attributes (ONT output specification) plus aliases seen in ONT/EPI2ME data:
-# 'read', 'sampleid' (Dorado/fastcat fixtures) and 'model_version_id' (fastcat parser).
+# 'read', 'sampleid' (older ONT tooling) and 'model_version_id' (fastcat parser).
 ONT_KV_MAP = {
     "runid": "run_id",
     "ch": "channel",
@@ -652,9 +652,11 @@ def _parse(line: Any, depth: int = 0) -> dict[str, Any]:
     if sra:
         cand, nested = sra
         m = RE_SRA_ID.match(read_id)
-        if m and m.group("sep") == "/" and m.group("read_in_spot") in ("1", "2"):
-            mate, mate_source = int(m.group("read_in_spot")), "sra_split_read_id"
-            base_name = read_id.rsplit("/", 1)[0]
+        if m and m.group("read_in_spot") in ("1", "2"):
+            # '$ac.$si/$ri' (fasterq-dump split) or '$ac.$si.$ri' (fastq-dump --split-files --readids)
+            mate = int(m.group("read_in_spot"))
+            mate_source = "sra_split_read_id" if m.group("sep") == "/" else "sra_readids"
+            base_name = read_id.rsplit(m.group("sep"), 1)[0]
         # Platform cues surviving inside an SRA defline are capped at medium.
         inner: list[tuple[str, str, str]] = []
         if nested and nested["platform_hint"] != "unknown":
@@ -952,16 +954,18 @@ def compare_fingerprints(r1: Any, r2: Any) -> dict[str, Any]:
 
 
 def combine_suggestions(suggestions: list[Any]) -> dict[str, Any]:
-    """Sample-level suggestion from per-file ``suggested_technology`` dicts (short + long reads is 'hybrid');
-    confidence is the weakest contributing file, capped at medium when some files carry no evidence."""
+    """Sample-level suggestion from per-file ``suggested_technology`` dicts (Illumina + one long-read platform
+    is 'hybrid'; two long-read platforms conflict); confidence is the weakest contributing file, capped at
+    medium when some files carry no evidence."""
     known = [s for s in suggestions if isinstance(s, dict) and s.get("value") in PLATFORMS]
     base = {"overrides_user_metadata": False, "files_considered": len(suggestions), "files_with_evidence": len(known)}
     platforms = sorted({s["value"] for s in known})
     if not known:
         return {**base, "value": None, "confidence": "none", "basis": "no_evidence", "platforms": []}
+    long_read = [p for p in platforms if p != "illumina"]
     if len(platforms) == 1:
         value, basis = platforms[0], "single_platform"
-    elif "illumina" in platforms:
+    elif len(long_read) == 1:
         value, basis = "hybrid", "short_and_long_reads"
     else:
         return {**base, "value": None, "confidence": "none", "basis": "conflicting_platforms", "platforms": platforms}

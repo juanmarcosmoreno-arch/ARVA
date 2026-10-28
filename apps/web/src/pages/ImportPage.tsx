@@ -9,14 +9,14 @@ import { Button } from "@/components/ui/button";
 import { Card, CardBody, CardHeader } from "@/components/ui/card";
 import { Field, Select } from "@/components/ui/form";
 import { PageHeader } from "@/components/ui/misc";
-import { useT } from "@/i18n";
+import { useT, type TranslationKey } from "@/i18n";
 import { api } from "@/lib/api";
 import type { UploadResult } from "@/lib/types";
 
-const FORMATS = [
+const FORMATS: { name: string; status: string; note?: string; noteKey?: TranslationKey }[] = [
   { name: "FASTQ / FASTQ.gz", status: "Supported", note: "Illumina, Nanopore, PacBio reads (Phred+33)" },
   { name: "FASTA / FASTA.gz", status: "Supported", note: "Nucleotide sequences (e.g. assemblies, references)" },
-  { name: "POD5", status: "Planned", note: "Requires basecalling with Dorado before analysis" },
+  { name: "POD5", status: "Supported", noteKey: "import.formatPod5" },
   { name: "BAM / CRAM / SAM", status: "Planned", note: "Alignments; needs samtools-based import" },
   { name: "GFF3 / GTF / GenBank / EMBL", status: "Planned", note: "Annotations (Phase 4)" },
   { name: "VCF / BED / Newick", status: "Planned", note: "Variants, intervals and trees (Phases 7–8)" },
@@ -112,7 +112,7 @@ export function ImportPage() {
                       <span className="font-medium">{f.name}</span>
                       <span className={f.status === "Supported" ? "text-xs text-success" : "text-xs text-muted-foreground"}>{f.status}</span>
                     </div>
-                    <div className="text-xs text-muted-foreground">{f.note}</div>
+                    <div className="text-xs text-muted-foreground">{f.noteKey ? t(f.noteKey) : f.note}</div>
                   </li>
                 ))}
               </ul>

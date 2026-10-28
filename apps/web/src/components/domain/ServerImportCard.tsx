@@ -14,7 +14,7 @@ import { capacityCheck } from "@/lib/capacity";
 import { fmtBytes, fmtDate } from "@/lib/format";
 import type { AnalysisJob, ImportEntry, ImportRoot, ServerImportSummary } from "@/lib/types";
 
-const SEQUENCE_KINDS = new Set(["fastq", "fasta"]);
+const IMPORTABLE_KINDS = new Set(["fastq", "fasta", "pod5"]);
 const KIND_LABEL: Record<string, string> = { fastq: "FASTQ", fasta: "FASTA", pod5: "POD5" };
 
 export function ServerImportCard({ sampleId, sampleCode }: { sampleId: string; sampleCode?: string }) {
@@ -71,9 +71,9 @@ function ServerBrowser({ roots, sampleId, sampleCode }: { roots: ImportRoot[]; s
   const chosen = [...selected.values()];
   const size = chosen.reduce((sum, e) => sum + (e.size_bytes ?? 0), 0);
   const fits = capacityCheck(size, storage.data);
-  const notSequence = chosen.filter((e) => !SEQUENCE_KINDS.has(e.kind)).length;
+  const notImportable = chosen.filter((e) => !IMPORTABLE_KINDS.has(e.kind)).length;
   const files = listing.data?.entries.filter((e) => e.type === "file") ?? [];
-  const recognised = files.filter((e) => SEQUENCE_KINDS.has(e.kind));
+  const recognised = files.filter((e) => IMPORTABLE_KINDS.has(e.kind));
   const running = job.data?.status === "pending" || job.data?.status === "running";
 
   const start = useMutation({
@@ -181,7 +181,7 @@ function ServerBrowser({ roots, sampleId, sampleCode }: { roots: ImportRoot[]; s
                       <span className="min-w-0 flex-1 truncate" title={e.name}>
                         {e.name}
                       </span>
-                      {KIND_LABEL[e.kind] && <Badge tone={SEQUENCE_KINDS.has(e.kind) ? "teal" : "neutral"}>{KIND_LABEL[e.kind]}</Badge>}
+                      {KIND_LABEL[e.kind] && <Badge tone={IMPORTABLE_KINDS.has(e.kind) ? "teal" : "neutral"}>{KIND_LABEL[e.kind]}</Badge>}
                       <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{fmtBytes(e.size_bytes ?? 0)}</span>
                       <span className="hidden shrink-0 text-xs text-muted-foreground md:inline">{fmtDate(e.modified_at)}</span>
                     </label>
@@ -217,7 +217,7 @@ function ServerBrowser({ roots, sampleId, sampleCode }: { roots: ImportRoot[]; s
               </span>
             )}
           </div>
-          {notSequence > 0 && <p className="text-amber-700 dark:text-warning">{t("serverImport.otherSelected", { count: notSequence })}</p>}
+          {notImportable > 0 && <p className="text-amber-700 dark:text-warning">{t("serverImport.otherSelected", { count: notImportable })}</p>}
           {sampleId ? (
             <p className="text-muted-foreground">{t("serverImport.explain", { count: selected.size, size: fmtBytes(size), sample: sampleCode ?? "" })}</p>
           ) : (

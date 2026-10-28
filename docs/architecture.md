@@ -35,12 +35,17 @@
   reads), with `parent_file_id` and `produced_by_job_id` forming the lineage. `header_metadata` holds
   the summary of the first read headers (platform hint with confidence, distinct instrument/run/flow
   cell/barcode values, a bounded read-name fingerprint for R1/R2 checks); it is a suggestion and is
-  never copied into the sample automatically.
+  never copied into the sample automatically. `file_format` `pod5` marks raw nanopore signal
+  (recognised by its start and end signatures); such files are excluded from every read-level
+  analysis.
 - **AnalysisJob**: one execution of one tool on declared inputs. Records `tool_name`, `tool_version`,
   optional `database_name`/`database_version`, `parameters`, `input_raw_file_ids`, `output_paths`,
   status, start/finish timestamps, duration, log and error; for external tools also `tool_path`,
   `commands` (the exact argument vectors executed) and `result_summary` (parsed key results).
   `parent_job_id` marks jobs started automatically by another job.
+- **MetadataImport**: provenance of one sample-metadata table applied to a project (file name, SHA-256,
+  kind, sheet, encoding, delimiter, header row, column mapping, date order, mode, and the created /
+  updated / unchanged / skipped counts). The table file itself is not stored.
 - **QCResult**: structured output of a sequence-statistics job for one raw file. Headline metrics are
   indexed columns; the full payload is JSON (also written to `results/…/sequence_stats.json`).
 
@@ -76,6 +81,14 @@ and enqueue them in Redis. A worker (`apps/workers/run_worker.py`) executes them
    (e.g. enqueue follow-up statistics jobs that were created in the same transaction);
 4. on failure, roll back database changes, delete the job's partial `results/` and `processed/`
    directories (never `raw/`), and record the reason and the tool's last log lines.
+
+The `pod5_summary` job (`app/tasks/pod5_summary.py`) is the only one that uses an optional Python
+library: `pod5==0.3.49` (extra `pod5` of `apps/api/pyproject.toml`). The task never imports it; it runs
+`python -I -m app.tasks.pod5_reader FILE` as a short-lived child process with the tool timeout, which
+validates the Arrow tables before converting them. A damaged file that still crashes native code
+(lib_pod5, pyarrow) kills only that child, and the job fails with the signal name instead of staying
+`running` or taking the worker down. The API detects the library from package metadata
+(`GET /api/v1/tools/libraries`) and answers 409 with the install command when it is missing.
 
 On Linux each job runs in a forked process; on macOS the worker uses RQ's `SimpleWorker`
 (fork-after-Objective-C-init is unsafe there). Tests run the queue synchronously with `fakeredis`.

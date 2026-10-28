@@ -1,4 +1,5 @@
 from app.models.analysis_job import AnalysisJob, JobStatus
+from app.models.metadata_import import MetadataFileKind, MetadataImport, MetadataImportMode
 from app.models.project import Project
 from app.models.qc_result import QCResult
 from app.models.raw_file import FileFormat, FileOrigin, RawFile
@@ -9,6 +10,9 @@ __all__ = [
     "FileFormat",
     "FileOrigin",
     "JobStatus",
+    "MetadataFileKind",
+    "MetadataImport",
+    "MetadataImportMode",
     "Project",
     "QCResult",
     "RawFile",

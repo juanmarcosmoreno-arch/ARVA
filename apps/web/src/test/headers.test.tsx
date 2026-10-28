@@ -6,7 +6,7 @@ import { ReadHeadersCard, TechnologySuggestion } from "@/components/domain/ReadH
 import { dictionaries } from "@/i18n";
 import { api } from "@/lib/api";
 import { DISTINCT_FIELDS, codeKey, distinctRows, documentationLinks, dominantFormat, suggestionState } from "@/lib/headers";
-import type { HeaderMetadata, HeaderSummary, RawFile, Sample } from "@/lib/types";
+import type { HeaderConfidence, HeaderMetadata, HeaderSummary, RawFile, Sample, SequencingTechnology } from "@/lib/types";
 import { useSettings } from "@/store/settings";
 
 function meta(overrides: Partial<HeaderMetadata> = {}): HeaderMetadata {
@@ -34,7 +34,7 @@ function meta(overrides: Partial<HeaderMetadata> = {}): HeaderMetadata {
 }
 
 const file = (id: string, name: string, header_metadata: HeaderMetadata | null, read_mate: string | null = null) =>
-  ({ id, original_filename: name, file_format: "fastq_gz", read_mate, origin: "imported", header_metadata }) as RawFile;
+  ({ id, original_filename: name, file_format: "fastq_gz", read_mate, origin: "imported", is_valid: true, header_metadata }) as RawFile;
 
 const sample = (technology: Sample["sequencing_technology"]) => ({ id: "s1", sample_code: "S1", sequencing_technology: technology }) as Sample;
 
@@ -89,10 +89,19 @@ describe("header helpers", () => {
     expect(codeKey("headers.format", "some_future_format")).toBeNull();
   });
 
-  it("offers the suggestion only when the user has not set a technology", () => {
-    expect(suggestionState("unknown", "nanopore")).toBe("offer");
-    expect(suggestionState("nanopore", "nanopore")).toBe("agrees");
-    expect(suggestionState("illumina", "hybrid")).toBe("mismatch");
+  it("offers one-click adoption only for an unset technology, medium or high confidence and evidence in every file", () => {
+    const s = (value: SequencingTechnology | null, confidence: HeaderConfidence, withEvidence = 2, considered = 2) =>
+      ({ value, confidence, files_with_evidence: withEvidence, files_considered: considered });
+    expect(suggestionState("unknown", s("nanopore", "high"))).toBe("offer");
+    expect(suggestionState("unknown", s("illumina", "medium"))).toBe("offer");
+    expect(suggestionState("unknown", s("nanopore", "low"))).toBe("hint");
+    expect(suggestionState("unknown", s("nanopore", "medium", 1, 2))).toBe("hint");
+    expect(suggestionState("nanopore", s("nanopore", "high"))).toBe("agrees");
+    expect(suggestionState("illumina", s("hybrid", "high"))).toBe("mismatch");
+    expect(suggestionState("hybrid", s("nanopore", "medium", 1, 2))).toBe("undecided");
+    expect(suggestionState("illumina", s("nanopore", "medium", 1, 2))).toBe("mismatch");
+    expect(suggestionState("hybrid", s("nanopore", "high"))).toBe("mismatch");
+    expect(suggestionState("unknown", s(null, "none"))).toBe("none");
     expect(suggestionState("unknown", null)).toBe("none");
   });
 
@@ -122,6 +131,26 @@ describe("TechnologySuggestion", () => {
     expect(update).not.toHaveBeenCalled();
     await userEvent.click(button);
     expect(update).toHaveBeenCalledWith("s1", { sequencing_technology: "nanopore" });
+  });
+
+  it("shows a low-confidence suggestion as a hint without a button", () => {
+    wrap(<TechnologySuggestion sample={sample("unknown")} summary={summary({ confidence: "low" })} />);
+    expect(screen.getByText("Suggested from read headers: Oxford Nanopore (low)")).toBeInTheDocument();
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
+    expect(screen.getByText(/too weak or incomplete to offer it as a one-click choice/)).toBeInTheDocument();
+  });
+
+  it("says how many files carry evidence and does not call a partial match a mismatch for hybrid samples", () => {
+    wrap(
+      <TechnologySuggestion
+        sample={sample("hybrid")}
+        summary={summary({ confidence: "medium", files_considered: 2, files_with_evidence: 1 })}
+      />,
+    );
+    expect(screen.getByText("Only 1 of 2 files carry platform information.")).toBeInTheDocument();
+    expect(screen.getByText(/neither confirms nor contradicts Hybrid/)).toBeInTheDocument();
+    expect(screen.queryByText(/but the sample records/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
   });
 
   it("shows a neutral notice instead of a button when the user value differs", () => {
@@ -154,7 +183,8 @@ describe("ReadHeadersCard", () => {
     const row = screen.getByText("SYNTHETIC_illumina_R1_001.fastq.gz").closest("li")!;
     expect(within(row).getByText("Not inferable", { selector: "span" })).toBeInTheDocument();
     expect(within(row).getAllByText("Generic /1 /2 mate suffix (no platform information)").length).toBeGreaterThan(0);
-    expect(screen.getByText("Not read yet")).toBeInTheDocument();
+    expect(screen.getByText("Not summarised")).toBeInTheDocument();
+    expect(screen.getByText(/could not be summarised for this file\. ARVA tries again/)).toBeInTheDocument();
     expect(screen.getByText(/do not look like the same reads: 3 of 200 read names match/)).toBeInTheDocument();
   });
 

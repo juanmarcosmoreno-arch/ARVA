@@ -15,13 +15,23 @@ background job per import with per-file results); bulk import on the project pag
 inferred from Illumina/SRA/ONT file names; free-space checks (`ARVA_MIN_FREE_BYTES`, HTTP 507 before
 the body is received, per-file re-checks); notice when identical content exists in another sample.
 
+Metadata from the data and the lab sheet: platform hints and run values read from FASTQ/FASTA read
+headers (shown as suggestions with a confidence, never applied silently) and an R1/R2 name check;
+POD5 raw-signal files recognised by content and their run metadata read with the optional `pod5`
+library; sample metadata imported from CSV or Excel (.xlsx) tables with a row-by-row preview, column
+mapping (English/Spanish names), explicit date handling, one-transaction apply and an import history
+with the file's SHA-256; metadata export to CSV/Excel that is safe against formula injection, and the
+same protection in the report CSV.
+
 ### Still open from the original Phase 2 scope
 
 - **MultiQC** project-level aggregation: the Ubuntu 1.18 package produced reports missing a
   JavaScript asset in testing, so it was not integrated yet.
 - **NanoPlot** reports (ARVA already draws the equivalent long-read plots itself).
-- **POD5** detection and optional **Dorado** basecalling.
-- CSV/Excel metadata import.
+- **Dorado** basecalling is not integrated: Dorado is not distributed through any package channel
+  (Bioconda, conda-forge, PyPI, apt or Homebrew), is built for NVIDIA or Apple GPUs and downloads its
+  basecalling models while it runs, whereas ARVA only runs packaged tools that work offline. Basecall
+  POD5 outside ARVA (Dorado or MinKNOW) and import the FASTQ.
 
 ## Phase 1 — Foundation ✅ (v0.1.0)
 
@@ -46,18 +56,28 @@ unit, API and end-to-end tests.
   Mac by the test suite; SeqKit is 2.8.2 there and is reported as not validated.
 - PDF export: print the HTML report from the browser; native PDF is planned.
 - No authentication: intended for single-user local use (bound to localhost).
-- CSV/Excel metadata import, sample tags/cohorts, project duplication/import/export and change
-  history are not implemented yet.
+- Sample tags/cohorts, project duplication/import/export and a per-field change history are not
+  implemented yet (metadata imports are recorded, but earlier values are not kept).
+- Metadata tables: `.xls`, `.xlsm`, `.xlsb` and `.ods` are not read (save as .xlsx or CSV UTF-8);
+  formulas are never calculated, so cells without a value stored by the saving program import as
+  empty; ambiguous dates block their row until a date order is chosen, and partial dates ("2024") are
+  kept as text in the custom metadata; custom columns are stored as text (no units or types); an
+  empty cell never clears a stored value, so values are removed by editing the sample (custom fields
+  too, in its Metadata tab). The database has no unique constraint on sample IDs, so imports into one
+  project are serialised with a row lock instead (taken after the file has been parsed).
+- Read-header platform hints come from the first 1,000 records only, and headers rewritten by tools
+  or NCBI SRA carry no platform information (shown as "not inferable", never as a negative result).
 - Deleting a project/sample removes database records but intentionally leaves raw files on disk.
 - Demonstration mode (spec §34) is not included yet; the data model already has an `is_demo` flag and
   the UI/report label DEMO projects. Synthetic example reads are provided in `examples/synthetic`.
-- Only FASTQ/FASTA(.gz) are accepted; other formats are listed in the Import screen as planned.
+- Reads must be FASTQ/FASTA(.gz). POD5 raw signal is accepted, but only its run metadata are read
+  (no basecalling); other formats are listed in the Import screen as planned.
 
 ## Next recommended step — Phase 3 (assembly)
 
 Integrate Flye for long-read assembly through a new adapter (and Nextflow where multi-step), QUAST
 evaluation, contig statistics and plots, with the filtered or original reads selected explicitly by
-lineage. Before that, the small remaining Phase 2 items above (MultiQC, CSV metadata) can be added
+lineage. Before that, the small remaining Phase 2 items above (MultiQC, NanoPlot) can be added
 independently.
 
 ## Later phases

@@ -1,7 +1,9 @@
 // Mirrors apps/api/app/schemas/schemas.py and arva_core.seqstats output.
+import type { ServerMessage } from "./messages";
+
 
 export type SequencingTechnology = "illumina" | "nanopore" | "pacbio" | "hybrid" | "unknown";
-export type FileFormat = "fastq" | "fastq_gz" | "fasta" | "fasta_gz" | "unknown";
+export type FileFormat = "fastq" | "fastq_gz" | "fasta" | "fasta_gz" | "pod5" | "unknown";
 export type JobStatus = "pending" | "running" | "completed" | "failed";
 
 export interface Project {
@@ -37,6 +39,7 @@ export interface SampleInput {
   institution?: string | null;
   description?: string | null;
   notes?: string | null;
+  custom_metadata?: Record<string, unknown> | null;
 }
 
 export interface Sample extends Required<Omit<SampleInput, "sequencing_technology">> {
@@ -44,6 +47,8 @@ export interface Sample extends Required<Omit<SampleInput, "sequencing_technolog
   project_id: string;
   project_name: string | null;
   sequencing_technology: SequencingTechnology;
+  /** Free-form metadata, e.g. the custom columns of an imported table. */
+  custom_metadata: Record<string, unknown> | null;
   created_at: string;
   updated_at: string;
   file_count: number;
@@ -149,6 +154,71 @@ export interface Tool {
   version: string | null;
   version_validated: boolean;
   message: string;
+}
+
+export interface Library {
+  id: string;
+  name: string;
+  homepage: string;
+  license: string;
+  citation: string;
+  citation_url: string;
+  required_version: string;
+  install: string;
+  status: "available" | "not_installed";
+  version: string | null;
+  companion_versions: Record<string, string | null>;
+  version_validated: boolean;
+}
+
+/** One acquisition of a POD5 file (fields that may identify people or devices are not included). */
+export interface Pod5RunInfo {
+  acquisition_id: string | null;
+  acquisition_start_time: string | null;
+  protocol_start_time: string | null;
+  sample_id: string | null;
+  experiment_name: string | null;
+  flow_cell_id: string | null;
+  flow_cell_product_code: string | null;
+  sequencing_kit: string | null;
+  protocol_name: string | null;
+  protocol_run_id: string | null;
+  sample_rate: number | null;
+  software: string | null;
+  system_type: string | null;
+  sequencer_position_type: string | null;
+  reads: number;
+  samples: number;
+  signal_duration_s: number | null;
+}
+
+/** result_summary of a pod5_summary job (apps/api/app/tasks/pod5_summary.py). */
+export interface Pod5Summary {
+  schema: string;
+  file: {
+    writing_software: string;
+    file_identifier: string;
+    file_version: string;
+    original_file_version: string;
+    is_vbz_compressed: boolean;
+    batch_count: number;
+    num_reads: number;
+  };
+  reads: {
+    count: number;
+    total_samples: number;
+    min_samples: number | null;
+    max_samples: number | null;
+    distinct_channels: number | null;
+    acquisitions: number;
+    total_signal_duration_s: number | null;
+  };
+  run_info_count: number;
+  run_infos: Pod5RunInfo[];
+  run_infos_truncated: boolean;
+  /** Plain strings in summaries written before warnings had codes. */
+  warnings: (ServerMessage | string)[];
+  withheld_fields: string[];
 }
 
 export interface FastpParams {
@@ -384,4 +454,112 @@ export interface ImportListing {
 export interface ServerImportSummary {
   imported: { file_id: string; name: string; path: string; size_bytes: number }[];
   rejected: { path: string; reason: string }[];
+}
+
+// --- Sample metadata tables (CSV / .xlsx) -------------------------------------------------------
+
+export type MetadataField =
+  | "sample_code"
+  | "organism"
+  | "expected_species"
+  | "sample_type"
+  | "host"
+  | "geographic_origin"
+  | "collection_date"
+  | "sequencing_technology"
+  | "sequencing_run"
+  | "researcher"
+  | "institution"
+  | "description"
+  | "notes";
+/** Where a column goes: an ARVA field, the sample's custom metadata, or nowhere. */
+export type MetadataTarget = MetadataField | "custom" | "ignore";
+export type MetadataAction = "create" | "update" | "unchanged" | "error";
+export type DateOrder = "DMY" | "MDY";
+export type MetadataImportMode = "create_and_update" | "create_only";
+
+export interface MetadataFileInfo {
+  name: string;
+  sha256: string;
+  kind: "csv" | "xlsx";
+  encoding: string | null;
+  delimiter: string | null;
+  sheet: string | null;
+  sheets: string[];
+  header_row: number;
+}
+
+export interface MetadataColumn {
+  header: string;
+  field: MetadataTarget;
+  suggested_field: MetadataTarget;
+}
+
+export interface MetadataChange {
+  field: MetadataField | "custom_metadata";
+  /** custom_metadata key when field is "custom_metadata". */
+  key: string | null;
+  old: string | null;
+  new: string | null;
+}
+
+export interface MetadataRowPreview {
+  /** Row number as a spreadsheet shows it. */
+  row: number;
+  sample_code: string | null;
+  action: MetadataAction;
+  sample_id: string | null;
+  matched_sample_code: string | null;
+  matched_by: "exact" | "case_insensitive" | null;
+  changes: MetadataChange[];
+  errors: ServerMessage[];
+  warnings: ServerMessage[];
+}
+
+export interface MetadataPreview {
+  file: MetadataFileInfo;
+  columns: MetadataColumn[];
+  fields: MetadataTarget[];
+  rows: MetadataRowPreview[];
+  warnings: ServerMessage[];
+  /** Problems that block every row, e.g. no column mapped to sample_code. */
+  errors: ServerMessage[];
+  counts: { rows: number; create: number; update: number; unchanged: number; error: number };
+  date_order: DateOrder | null;
+  date_order_source: "user" | "header" | null;
+  ambiguous_dates: number;
+}
+
+export interface MetadataImportRecord {
+  id: string;
+  project_id: string;
+  filename: string;
+  sha256: string;
+  kind: "csv" | "xlsx";
+  sheet: string | null;
+  encoding: string | null;
+  delimiter: string | null;
+  header_row: number;
+  mapping: Record<string, MetadataTarget>;
+  date_order: DateOrder | null;
+  mode: MetadataImportMode;
+  created_count: number;
+  updated_count: number;
+  unchanged_count: number;
+  skipped_count: number;
+  created_at: string;
+}
+
+export interface MetadataApplyResult {
+  record: MetadataImportRecord;
+  skipped: { row: number; sample_code: string | null; reasons: ServerMessage[] }[];
+}
+
+/** Choices sent with a metadata table; omitted values let the server detect them. */
+export interface MetadataTableOptions {
+  sheet?: string | null;
+  headerRow?: number | null;
+  delimiter?: string | null;
+  dateOrder?: DateOrder | null;
+  mapping?: Record<string, MetadataTarget> | null;
 }

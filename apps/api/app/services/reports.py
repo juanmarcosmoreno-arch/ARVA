@@ -23,6 +23,7 @@ from app.services.jobs import (
     POD5_JOB,
     SEQKIT_JOB,
 )
+from app.services.metadata_table import sanitize_spreadsheet_cell
 from app.services.raw_signal import is_raw_signal
 from app.services.read_headers import build_header_summary, dominant_format
 
@@ -245,10 +246,10 @@ def render_csv(data: dict[str, Any]) -> str:
         a = entry["analysis"]
         writer.writerow(
             {
-                "sample_code": data["sample"]["sample_code"],
-                "filename": entry["file"]["filename"],
+                "sample_code": sanitize_spreadsheet_cell(data["sample"]["sample_code"]),
+                "filename": sanitize_spreadsheet_cell(entry["file"]["filename"]),
                 "origin": entry["file"]["origin"],
-                "derived_from": entry["file"]["derived_from"] or "",
+                "derived_from": sanitize_spreadsheet_cell(entry["file"]["derived_from"]),
                 "format": entry["file"]["format"],
                 "read_mate": entry["file"]["read_mate"] or "",
                 "sha256": entry["file"]["sha256"],
@@ -267,8 +268,8 @@ def render_csv(data: dict[str, Any]) -> str:
                 "q20_bases_percent": f"{q['q20_bases_percent']:.2f}" if q else "",
                 "q30_bases_percent": f"{q['q30_bases_percent']:.2f}" if q else "",
                 "estimated_depth": f"{cov['estimated_depth']:.2f}" if cov else "",
-                "tool": a["tool"],
-                "tool_version": a["tool_version"],
+                "tool": sanitize_spreadsheet_cell(a["tool"]),
+                "tool_version": sanitize_spreadsheet_cell(a["tool_version"]),
                 "job_id": a["job_id"],
                 "finished_at": a["finished_at"],
             }
@@ -453,13 +454,20 @@ def _header_rows(rh: dict[str, Any]) -> list[tuple[str, str]]:
 def _header_summary_html(data: dict[str, Any]) -> str:
     hs = data["read_header_summary"]
     st = hs["suggested_technology"]
-    if st["value"]:
+    if not hs["per_file"]:
+        return ""
+    if not st["files_considered"]:
+        text = "The read headers of the imported file(s) have not been read, so no platform is suggested."
+    elif st["value"]:
         text = (f"Suggested from read headers: {st['value']} ({st['confidence']} confidence), from "
                 f"{st['files_with_evidence']} of {st['files_considered']} imported file(s). ")
         if hs["agrees"] is True:
             text += "This matches the technology recorded for the sample."
         elif hs["agrees"] is False:
             text += f"The sample's recorded technology is {hs['user_technology']}; ARVA does not change it."
+        elif hs["user_technology"] != "unknown":
+            text += (f"The other files carry no platform information, so this neither confirms nor contradicts the "
+                     f"recorded technology ({hs['user_technology']}).")
         else:
             text += "The sample's technology is not recorded; ARVA does not set it automatically."
     else:
@@ -521,7 +529,8 @@ def _raw_signal_html(data: dict[str, Any]) -> str:
             continue
         summary = meta["summary"]
         rows = "".join(f"<tr><th>{escape(k)}</th><td>{escape(v)}</td></tr>" for k, v in _pod5_rows(summary))
-        warnings = "".join(f"<li>{escape(str(w))}</li>" for w in summary.get("warnings", []))
+        warnings = "".join(f"<li>{escape(w['text'] if isinstance(w, dict) else str(w))}</li>"
+                           for w in summary.get("warnings", []))
         sections.append(
             head + f"<table>{rows}</table>"
             + (f"<div class='warn'><strong>Warnings</strong><ul>{warnings}</ul></div>" if warnings else "")

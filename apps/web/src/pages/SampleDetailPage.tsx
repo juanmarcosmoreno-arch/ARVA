@@ -12,6 +12,8 @@ import {
 } from "@/components/charts/QcCharts";
 import { AnalysisTimeline, JobStatusBadge, MetricTile, type Stage } from "@/components/domain/bits";
 import { FileDropzone } from "@/components/domain/FileDropzone";
+import { CustomMetadataList } from "@/components/domain/MetadataImport";
+import { RawSignalSection } from "@/components/domain/RawSignal";
 import { ReadHeadersCard, TechnologySuggestion, useHeaderSummary } from "@/components/domain/ReadHeaders";
 import { BeforeAfter } from "@/components/filtering/BeforeAfter";
 import { FilterDialog } from "@/components/filtering/FilterDialog";
@@ -28,7 +30,7 @@ import { useT } from "@/i18n";
 import { api } from "@/lib/api";
 import { fmtBases, fmtBytes, fmtDate, fmtDuration, fmtInt, fmtNum, formatLabel, technologyLabel } from "@/lib/format";
 import { lineageOrder } from "@/lib/filters";
-import { FILTER_JOBS, IMPORT_JOBS, JOB_LABEL, basename, latestResults } from "@/lib/results";
+import { FILTER_JOBS, IMPORT_JOBS, RAW_SIGNAL_JOBS, basename, hasReads, inProcessTool, jobLabel, latestResults } from "@/lib/results";
 import type { AnalysisJobDetail, HeaderSummary, RawFile, SequencingTechnology } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -52,9 +54,11 @@ export function SampleDetailPage() {
 
   const isActive = (j: AnalysisJobDetail) => j.status === "pending" || j.status === "running";
   const allJobs = jobs.data ?? [];
-  const qcJobs = allJobs.filter((j) => !FILTER_JOBS.has(j.job_type) && !IMPORT_JOBS.has(j.job_type));
+  const qcJobs = allJobs.filter((j) => !FILTER_JOBS.has(j.job_type) && !IMPORT_JOBS.has(j.job_type) && !RAW_SIGNAL_JOBS.has(j.job_type));
   const filterJobs = allJobs.filter((j) => FILTER_JOBS.has(j.job_type));
+  const signalJobs = allJobs.filter((j) => RAW_SIGNAL_JOBS.has(j.job_type));
   const importing = allJobs.some((j) => IMPORT_JOBS.has(j.job_type) && isActive(j));
+  const readingSignal = signalJobs.some(isActive);
   const completed = qcJobs.filter((j) => j.status === "completed");
   const latestFailed = qcJobs[0]?.status === "failed";
   const [filterOpen, setFilterOpen] = useState(false);
@@ -70,8 +74,8 @@ export function SampleDetailPage() {
     {
       key: "raw",
       label: "Raw data",
-      state: importing ? "running" : files.data?.length ? "done" : "ready",
-      detail: importing ? "Importing…" : files.data?.length ? `${files.data.length} file(s)` : "Import reads",
+      state: importing || readingSignal ? "running" : files.data?.length ? "done" : "ready",
+      detail: importing ? "Importing…" : readingSignal ? t("pod5.reading") : files.data?.length ? `${files.data.length} file(s)` : "Import reads",
     },
     {
       key: "qc",
@@ -114,7 +118,7 @@ export function SampleDetailPage() {
             {s.geographic_origin && <span>· {s.geographic_origin}</span>}
           </span>
         }
-        actions={<ReportMenu sampleId={s.id} disabled={!completed.length} />}
+        actions={<ReportMenu sampleId={s.id} disabled={!completed.length && !signalJobs.some((j) => j.status === "completed")} />}
       />
 
       <Card className="px-4 pb-2 pt-5">
@@ -165,6 +169,7 @@ export function SampleDetailPage() {
         <Card>
           <CardBody>
             <SampleMetadataEditor sample={s} />
+            <CustomMetadataList sample={s} />
           </CardBody>
         </Card>
       )}
@@ -225,8 +230,9 @@ function FilesTab({
   onStarted: () => void;
   onFilter: () => void;
 }) {
+  const t = useT();
   const qc = useQueryClient();
-  const analysable = files.filter((f) => f.file_format !== "unknown");
+  const analysable = files.filter((f) => hasReads(f.file_format));
   const [selected, setSelected] = useState<Set<string> | null>(null);
   const chosen = selected ?? new Set(analysable.filter((f) => f.origin === "imported").map((f) => f.id));
   const tools = useTools();
@@ -272,7 +278,7 @@ function FilesTab({
 
   return (
     <div className="grid gap-6 xl:grid-cols-3">
-      <div className="space-y-6 xl:col-span-2">
+      <div className="min-w-0 space-y-6 xl:col-span-2">
         <Card>
           <CardHeader title="Import files" description="FASTQ/FASTA, plain or gzip-compressed. Drop several files or a whole folder." action={<Explain id="fastq" />} />
           <CardBody>
@@ -295,14 +301,19 @@ function FilesTab({
                       type="checkbox"
                       className="mt-1 h-4 w-4 accent-[#00B4A6]"
                       checked={chosen.has(f.id)}
-                      disabled={f.file_format === "unknown"}
+                      disabled={!hasReads(f.file_format)}
                       onChange={() => toggle(f.id)}
                       aria-label={`Include ${f.original_filename}`}
+                      title={f.file_format === "pod5" ? t("pod5.notAnalysable") : undefined}
                     />
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="truncate text-sm font-medium">{f.original_filename}</span>
-                        <Badge tone={f.file_format === "unknown" ? "danger" : "teal"}>{formatLabel[f.file_format]}</Badge>
+                        {f.file_format === "pod5" ? (
+                          <Badge tone="blue">{t("pod5.badge")}</Badge>
+                        ) : (
+                          <Badge tone={f.file_format === "unknown" ? "danger" : "teal"}>{formatLabel[f.file_format]}</Badge>
+                        )}
                         {f.read_mate && <Badge tone="blue">{f.read_mate}</Badge>}
                         {f.origin === "derived" && <Badge tone="neutral">Derived</Badge>}
                         {!f.is_valid && f.file_format !== "unknown" && (
@@ -434,7 +445,8 @@ function QcTab({
   const [fileId, setFileId] = useState<string | null>(null);
   const currentId = fileId && results.has(fileId) ? fileId : withResults[0]?.id;
   const current = currentId ? results.get(currentId) : undefined;
-  const failed = jobs.filter((j) => j.status === "failed" && !IMPORT_JOBS.has(j.job_type)).slice(0, 3);
+  const failed = jobs.filter((j) => j.status === "failed" && !IMPORT_JOBS.has(j.job_type) && !RAW_SIGNAL_JOBS.has(j.job_type)).slice(0, 3);
+  const rawSignal = <RawSignalSection sampleId={sampleId} files={files} jobs={jobs} />;
 
   if (!current) {
     return (
@@ -448,6 +460,7 @@ function QcTab({
             <Button onClick={onGoFiles}>Import files and run analysis</Button>
           </EmptyState>
         )}
+        {rawSignal}
         <FailedJobs jobs={failed} />
       </div>
     );
@@ -557,6 +570,7 @@ function QcTab({
         All values are computed from every record in the file. ARVA does not apply pass/fail thresholds: suitable values depend on the
         technology, chemistry and intended analysis. Compare original and filtered reads in the Filtering tab.
       </p>
+      {rawSignal}
       <FailedJobs jobs={failed} />
     </div>
   );
@@ -582,6 +596,7 @@ function FailedJobs({ jobs }: { jobs: AnalysisJobDetail[] }) {
 // --- History ----------------------------------------------------------------
 
 function HistoryTab({ jobs, files, openJob }: { jobs: AnalysisJobDetail[]; files: RawFile[]; openJob: string | null }) {
+  const t = useT();
   const [open, setOpen] = useState<string | null>(openJob);
   const byId = new Map(files.map((f) => [f.id, f]));
   if (!jobs.length) return <EmptyState title="No analyses have been run for this sample yet." />;
@@ -597,7 +612,7 @@ function HistoryTab({ jobs, files, openJob }: { jobs: AnalysisJobDetail[]; files
                 <ChevronDown className={cn("h-4 w-4 shrink-0 text-muted-foreground transition", expanded && "rotate-180")} />
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-sm font-medium">
-                    {JOB_LABEL[j.job_type] ?? j.job_type} ·{" "}
+                    {jobLabel(j.job_type, t)} ·{" "}
                     {IMPORT_JOBS.has(j.job_type)
                       ? `${((j.parameters?.paths as string[] | undefined) ?? []).length} file(s) from ${String(j.parameters?.root ?? "")}`
                       : inputs.map((f) => f?.original_filename ?? "deleted file").join(", ")}
@@ -615,7 +630,7 @@ function HistoryTab({ jobs, files, openJob }: { jobs: AnalysisJobDetail[]; files
                     {[
                       ["Analysis job ID", <code className="text-xs">{j.id}</code>],
                       ["Tool", `${j.tool_name} ${j.tool_version}`],
-                      ["Executable", j.tool_path ? <code className="text-xs">{j.tool_path}</code> : "built into ARVA"],
+                      ["Executable", j.tool_path ? <code className="text-xs">{j.tool_path}</code> : inProcessTool(j, t)],
                       ["Database", j.database_name ? `${j.database_name} ${j.database_version ?? ""}` : "None (no reference database used)"],
                       ["Queued", fmtDate(j.created_at)],
                       ["Started / finished", `${fmtDate(j.started_at)} → ${fmtDate(j.finished_at)}`],

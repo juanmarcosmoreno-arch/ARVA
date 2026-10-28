@@ -47,6 +47,7 @@ export const formatLabel: Record<string, string> = {
   fastq_gz: "FASTQ.gz",
   fasta: "FASTA",
   fasta_gz: "FASTA.gz",
+  pod5: "POD5",
   unknown: "Unrecognised",
 };
 

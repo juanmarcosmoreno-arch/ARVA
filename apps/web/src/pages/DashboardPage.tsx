@@ -25,7 +25,7 @@ import { EmptyState, ErrorNote, PageHeader, Skeleton } from "@/components/ui/mis
 import { useT } from "@/i18n";
 import { api } from "@/lib/api";
 import { fmtBytes, fmtDate, fmtDuration, fmtInt } from "@/lib/format";
-import { JOB_LABEL } from "@/lib/results";
+import { jobLabel } from "@/lib/results";
 
 const MODULE_KEYS = ["import", "qc", "assembly", "annotation", "genomic", "comparative", "phylogeny", "pangenome", "workflows"];
 
@@ -81,7 +81,7 @@ export function DashboardPage() {
                       <BarChart3 className="h-4 w-4 shrink-0 text-arva-teal" />
                       <div className="min-w-0 flex-1">
                         <div className="truncate text-sm">
-                          {JOB_LABEL[j.job_type] ?? j.job_type} · {j.tool_name} {j.tool_version}
+                          {jobLabel(j.job_type, t)} · {j.tool_name} {j.tool_version}
                         </div>
                         <div className="text-xs text-muted-foreground">
                           {fmtDate(j.created_at)} · {fmtDuration(j.duration_seconds)}

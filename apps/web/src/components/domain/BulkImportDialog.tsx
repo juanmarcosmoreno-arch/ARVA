@@ -13,11 +13,11 @@ import { api } from "@/lib/api";
 import { totalBytes, uploadSpace } from "@/lib/capacity";
 import { filesFromDrop } from "@/lib/dropFiles";
 import { fmtBytes, technologyLabel } from "@/lib/format";
-import { groupFilesBySample, isSequenceFile, matchExistingSample, type Mate, type PairingWarning } from "@/lib/sampleNames";
+import { groupFilesBySample, isImportableFile, matchExistingSample, type Mate, type PairingWarning } from "@/lib/sampleNames";
 import type { Sample, SequencingTechnology, UploadResult } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-const ACCEPT = ".fastq,.fq,.fasta,.fa,.fna,.fas,.gz";
+const ACCEPT = ".fastq,.fq,.fasta,.fa,.fna,.fas,.gz,.pod5";
 const MAX_IGNORED_LISTED = 8;
 
 interface Row {
@@ -89,8 +89,8 @@ export function BulkImportDialog({
   const storage = useQuery({ queryKey: ["storage"], queryFn: api.storage, enabled: open });
 
   const choose = (all: File[]) => {
-    const sequence = all.filter((f) => isSequenceFile(f.name));
-    setIgnored(all.filter((f) => !isSequenceFile(f.name)).map((f) => f.name));
+    const sequence = all.filter((f) => isImportableFile(f.name));
+    setIgnored(all.filter((f) => !isImportableFile(f.name)).map((f) => f.name));
     setNoneFound(all.length > 0 && sequence.length === 0);
     setRows(buildRows(sequence));
     setStatus({});

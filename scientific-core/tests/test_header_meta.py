@@ -1,5 +1,5 @@
-"""Example lines are quoted from the documentation and test data cited in each test; "constructed" lines
-follow a documented template."""
+"""All example headers are constructed by ARVA from the documented formats cited in each test (no third-party
+test data is copied); identifiers, dates and counts are made up."""
 import gzip
 import random
 import time
@@ -42,7 +42,7 @@ def check_shape(r: dict) -> None:
 
 
 def test_illumina_basespace_example():
-    # [ILLUMINA-1] help.basespace.illumina.com fastq-files
+    # [ILLUMINA-1] BaseSpace 'FASTQ files' template
     r = parse_header("@SIM:1:FCX:1:15:6329:1045 1:N:0:2")
     check_shape(r)
     assert (r["platform_hint"], r["confidence"], r["header_format"]) == ("illumina", "high", "illumina_casava18")
@@ -56,29 +56,29 @@ def test_illumina_basespace_example():
 
 
 def test_illumina_bcl2fastq_umi_example():
-    # [ILLUMINA-2] bcl2fastq2 v2.20 guide; same line in [ILLUMINA-3] DRAGEN v4.2
-    r = parse_header("@SIM:1:FCX:1:2106:15337:1063:GATCTGTACGTC 1:N:0:ATCACG")
+    # constructed from the [ILLUMINA-2]/[ILLUMINA-3] template with a UMI field
+    r = parse_header("@INSTR1:7:FCAB12:2:1203:10477:2210:TTAGCCAAGTCA 1:N:0:GGCTAC")
     assert r["platform_hint"] == "illumina" and r["confidence"] == "high"
-    assert r["fields"]["umi"] == "GATCTGTACGTC"
-    assert r["fields"]["index_sequence"] == "ATCACG"
-    assert r["fields"]["tile"] == 2106
+    assert r["fields"]["umi"] == "TTAGCCAAGTCA"
+    assert r["fields"]["index_sequence"] == "GGCTAC"
+    assert r["fields"]["tile"] == 1203
 
 
-def test_illumina_wikipedia_casava18_filtered_control_bits():
-    # [COMMUNITY-1] Wikipedia CASAVA 1.8 example
-    r = parse_header("@EAS139:136:FC706VJ:2:2104:15343:197393 1:Y:18:ATCACG")
+def test_illumina_casava18_filtered_control_bits():
+    # constructed CASAVA 1.8 header with is_filtered=Y and a non-zero control number [COMMUNITY-1]
+    r = parse_header("@INSTR2:52:FCXY12Z:3:1105:12011:40211 1:Y:18:GGCTAC")
     assert r["platform_hint"] == "illumina" and r["confidence"] == "high"
     assert r["fields"]["is_filtered"] == "Y"
     assert r["fields"]["control_number"] == 18
-    assert r["fields"]["run_number"] == 136 and r["fields"]["flowcell_id"] == "FC706VJ"
+    assert r["fields"]["run_number"] == 52 and r["fields"]["flowcell_id"] == "FCXY12Z"
 
 
-def test_illumina_wikipedia_sample_number_variant_and_legacy_tag_sequence():
-    # [COMMUNITY-2] "@EAS139:136:FC706VJ:2:2104:15343:197393 1:N:18:1" (sample number instead of index)
-    r = parse_header("@EAS139:136:FC706VJ:2:2104:15343:197393 1:N:18:1")
+def test_illumina_sample_number_variant_and_legacy_tag_sequence():
+    # constructed: sample number instead of index sequence [COMMUNITY-2]
+    r = parse_header("@INSTR2:52:FCXY12Z:3:1105:12011:40211 1:N:18:1")
     assert r["platform_hint"] == "illumina" and r["fields"]["sample_number"] == 1
     # [COMMUNITY-2] pipeline >= 1.4 uses '#NNNNNN' (tag sequence) instead of '#0' - constructed
-    r = parse_header("@HWUSI-EAS100R:6:73:941:1973#ATCACG/2")
+    r = parse_header("@HWI-ARVA01:4:51:812:1104#ATCACG/2")
     assert r["header_format"] == "illumina_legacy" and r["fields"]["legacy_index"] == "ATCACG" and r["mate"] == 2
 
 
@@ -110,13 +110,13 @@ def test_illumina_name_only_is_medium():
 
 
 def test_illumina_legacy_pre_casava18():
-    # [COMMUNITY-1] Wikipedia pre-1.8 example
-    r = parse_header("@HWUSI-EAS100R:6:73:941:1973#0/1")
+    # constructed pre-1.8 header (instrument:lane:tile:x:y#index/mate) [COMMUNITY-1]
+    r = parse_header("@HWI-ARVA01:4:51:812:1104#0/1")
     assert (r["platform_hint"], r["confidence"], r["header_format"]) == ("illumina", "medium", "illumina_legacy")
     assert r["mate"] == 1 and r["mate_source"] == "slash_suffix"
-    assert r["base_name"] == "HWUSI-EAS100R:6:73:941:1973#0"
-    assert r["fields"]["lane"] == 6 and r["fields"]["legacy_index"] == "0"
-    r2 = parse_header("@HWUSI-EAS100R:6:73:941:1973#0/2")
+    assert r["base_name"] == "HWI-ARVA01:4:51:812:1104#0"
+    assert r["fields"]["lane"] == 4 and r["fields"]["legacy_index"] == "0"
+    r2 = parse_header("@HWI-ARVA01:4:51:812:1104#0/2")
     assert r2["mate"] == 2 and r2["base_name"] == r["base_name"]
 
 
@@ -165,134 +165,147 @@ def test_sra_split_and_readids_constructed():
     assert r1["base_name"] == r2["base_name"] == "SRR390728.1"
     # fastq-dump --readids 'accession.spot.readid' [SRA-3]
     r = parse_header("@SRR390728.1.2 1 length=72")
-    assert r["fields"]["read_in_spot"] == 2 and r["mate"] is None
+    assert r["fields"]["read_in_spot"] == 2 and r["mate"] == 2 and r["mate_source"] == "sra_readids"
+    assert r["base_name"] == "SRR390728.1"
+    assert parse_header("@SRR390728.1.3 1 length=72")["mate"] is None  # a technical read, not a mate
+
+
+def test_sra_readids_mates_pair_up():
+    # constructed fastq-dump --split-files --readids deflines with original Illumina spot names [SRA-3]
+    r1 = [f"@SRR0000002.{i}.1 190101_ARVA-EAS9_s_3:4:1:{800 + i}:300 length=36" for i in range(1, 30)]
+    r2 = [f"@SRR0000002.{i}.2 190101_ARVA-EAS9_s_3:4:1:{800 + i}:300 length=36" for i in range(1, 30)]
+    cm = compare_mates(r1, r2)
+    assert cm["looks_like_pair"] is True and cm["base_name_matches"] == cm["pairs_compared"] == 29
+    assert compare_fingerprints(summarise(r1)["mate_fingerprint"], summarise(r2)["mate_fingerprint"]) == cm
+    assert summarise(r1)["mate_layout"] == "mate_1_only"
+    assert compare_mates(r2, r1)["looks_like_pair"] is False
 
 
 def test_sra_with_original_illumina_name():
-    # [COMMUNITY-1] Wikipedia NCBI SRA example
-    r = parse_header("@SRR001666.1 071112_SLXA-EAS1_s_7:5:1:817:345 length=36")
+    # constructed SRA defline that keeps the original Illumina spot name [COMMUNITY-1]
+    r = parse_header("@SRR0000002.1 190101_ARVA-EAS9_s_3:4:1:817:300 length=36")
     assert r["header_format"] == "sra_default_defline"
     assert r["platform_hint"] == "illumina" and r["confidence"] == "low"
     assert r["original_name"]["header_format"] == "illumina_legacy"
 
 
 def test_sra_with_ont_attributes_in_comment():
-    # [ONT-11] fastcat fixture bcMangled.fastq.gz
-    r = parse_header("@SRR12480552.4 /1 runid=0000000000000000000000000000000000000000 barcode=barcode01")
+    # constructed: SRA accession id with ONT attributes left in the comment
+    r = parse_header("@SRR0000001.4 /1 runid=0000000000000000000000000000000000000000 barcode=barcode01")
     assert r["platform_hint"] == "nanopore" and r["confidence"] in ("low", "medium")
     assert r["fields"]["barcode"] == "barcode01"
     assert r["header_format"] == "sra_accession_id"
 
 
 def test_ont_spec_generic_example_is_uuid_only_low():
-    # [ONT-1] ONT output specification record-structure example
-    r = parse_header("@bd8655fb-383c-45cc-bff3-eb1dc86533e0 key1=value1 key2=value2")
+    # constructed from the [ONT-1] record structure (UUID read id + generic key=value pairs)
+    r = parse_header("@e1d2c3b4-a596-4877-8695-a4b3c2d1e0f9 key1=value1 key2=value2")
     assert (r["platform_hint"], r["confidence"], r["header_format"]) == ("nanopore", "low", "uuid_read_id")
     assert r["extra"] == {"key1": "value1", "key2": "value2"}
 
 
-MINKNOW_FULL = ("@1d0fded8-95e7-4b53-858f-8391da5d6537 runid=5a21d8a6996146deceeaea3784244c52741cae93 read=13 "
-                "ch=190 start_time=2021-04-20T17:00:40Z flow_cell_id=FAP67897 protocol_group_id=2021-04-20_UKBC "
-                "sample_id=RNAsst10002_spike_BA barcode=barcode02 barcode_alias=barcode02")
+MINKNOW_FULL = ("@3f6b2c1e-8a4d-4f2b-9c7e-1a2b3c4d5e37 runid=a1b2c3d4e5f60718293a4b5c6d7e8f9012345678 read=21 "
+                "ch=150 start_time=2024-05-06T09:15:30Z flow_cell_id=FAX00001 protocol_group_id=2024-05-06_ARVA "
+                "sample_id=isolate_A1 barcode=barcode02 barcode_alias=barcode02")
 
 
 def test_ont_minknow_full_kv_header():
-    # [ONT-11] fastcat test/fixtures/fastq/basic/bc2.fastq.gz
+    # constructed from the [ONT-1] attribute list (40-hex run id as in older MinKNOW output)
     r = parse_header(MINKNOW_FULL)
     check_shape(r)
     assert (r["platform_hint"], r["confidence"], r["header_format"]) == ("nanopore", "high", "ont_minknow_kv")
     f = r["fields"]
-    assert f["run_id"] == "5a21d8a6996146deceeaea3784244c52741cae93"
-    assert f["channel"] == 190 and f["channel_read_number"] == 13
-    assert f["flowcell_id"] == "FAP67897" and f["protocol_group_id"] == "2021-04-20_UKBC"
-    assert f["sample_id"] == "RNAsst10002_spike_BA" and f["barcode"] == "barcode02"
-    assert f["start_time"] == "2021-04-20T17:00:40Z"
+    assert f["run_id"] == "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678"
+    assert f["channel"] == 150 and f["channel_read_number"] == 21
+    assert f["flowcell_id"] == "FAX00001" and f["protocol_group_id"] == "2024-05-06_ARVA"
+    assert f["sample_id"] == "isolate_A1" and f["barcode"] == "barcode02"
+    assert f["start_time"] == "2024-05-06T09:15:30Z"
     assert r["extra"] == {} and r["warnings"] == []
 
 
 def test_ont_spec_style_kv_with_model_and_parent_constructed():
-    # constructed from [ONT-1] attribute list using the spec's own example values
-    line = ("@e4994c62-93f9-439a-bc8f-d20c95a137a5 runid=e4994c62-93f9-439a-bc8f-d20c95a137a5 ch=512 "
+    # constructed from the [ONT-1] attribute list
+    line = ("@b7c8d9e0-1f2a-4b3c-8d4e-5f6a7b8c9d0e runid=b7c8d9e0-1f2a-4b3c-8d4e-5f6a7b8c9d0e ch=512 "
             "start_time=2025-01-13T10:45:28.681306+00:00 flow_cell_id=PXX12345 protocol_group_id=my-group-1 "
             "sample_id=my-sample-1 barcode=barcode01 barcode_alias=sample01 "
-            "parent_read_id=e4994c62-93f9-439a-bc8f-d20c95a137a5 basecall_model_version_id=rna004_130bps_fast@v5.1.0 "
+            "parent_read_id=b7c8d9e0-1f2a-4b3c-8d4e-5f6a7b8c9d0e basecall_model_version_id=rna004_130bps_fast@v5.1.0 "
             "basecall_gpu=Nvidia_3090")
     r = parse_header(line)
     assert (r["platform_hint"], r["confidence"]) == ("nanopore", "high")
     assert r["fields"]["basecall_model"] == "rna004_130bps_fast@v5.1.0"
     assert r["fields"]["basecall_gpu"] == "Nvidia_3090"
-    assert r["fields"]["parent_read_id"] == "e4994c62-93f9-439a-bc8f-d20c95a137a5"
+    assert r["fields"]["parent_read_id"] == "b7c8d9e0-1f2a-4b3c-8d4e-5f6a7b8c9d0e"
     assert r["warnings"] == []
 
 
-def test_ont_dorado_fixture_old_minknow():
-    # [ONT-6] dorado tests/data/aligner_test/dataset.fastq
-    r = parse_header("@c2707254-5445-4cfb-a414-fce1f12b56c0 runid=5c76f4079ee8f04e80b4b8b2c4b677bce7bebb1e "
-                     "read=1728 ch=332 start_time=2017-06-16T15:31:55Z")
+def test_ont_older_minknow_style():
+    # constructed: older MinKNOW style with read= and no flow cell id
+    r = parse_header("@7c1e9a2b-3d4f-4a5b-8c6d-9e0f1a2b3c4d runid=0f1e2d3c4b5a69788796a5b4c3d2e1f00a1b2c3d "
+                     "read=1201 ch=211 start_time=2018-03-02T11:20:05Z")
     assert (r["platform_hint"], r["confidence"]) == ("nanopore", "high")
-    # [ONT-6] dorado tests/data/barcode_demux/dual/single.fastq ('sampleid' alias)
-    r = parse_header("@83008e54-836e-4d14-8b62-2a0ebbecb9f9 runid=4c0e23c14bf67ccb61139b1279f83eeeaf30e50a "
-                     "sampleid=native11_PCR60_ecoli66 read=105042 ch=16 start_time=2019-07-13T07:52:41Z")
-    assert r["platform_hint"] == "nanopore" and r["fields"]["sample_id"] == "native11_PCR60_ecoli66"
+    # constructed: 'sampleid' alias seen in older tooling
+    r = parse_header("@5d4c3b2a-1f0e-4d9c-8b7a-6f5e4d3c2b1a runid=1234567890abcdef1234567890abcdef12345678 "
+                     "sampleid=isolate_B2 read=8842 ch=27 start_time=2019-09-10T14:03:22Z")
+    assert r["platform_hint"] == "nanopore" and r["fields"]["sample_id"] == "isolate_B2"
 
 
-def test_ont_fastcat_model_version_id_alias():
-    # fastcat test/fixtures/fastq/metadata/mixed_basecaller_model_key.fastq.gz
-    r = parse_header("@18ac90e2-814b-457b-8c43-d3b6da1503ca runid=4cbe20b5e27e673b10b44d873c8dd49f7bbe2daf "
-                     "sampleid=24_samples read=37875 ch=36 start_time=2024-02-17T02:29:18Z "
-                     "model_version_id=dna_r10.4.1_e8.2_400bps_sup@2023-12-15_episeq-cs")
+def test_ont_model_version_id_alias():
+    # constructed: 'model_version_id' alias
+    r = parse_header("@9a8b7c6d-5e4f-4a3b-9c2d-1e0f9a8b7c6d runid=fedcba9876543210fedcba9876543210fedcba98 "
+                     "sampleid=run_C3 read=4410 ch=58 start_time=2024-03-01T08:12:44Z "
+                     "model_version_id=dna_r10.4.1_e8.2_400bps_sup@2024-01-01_custom")
     assert (r["platform_hint"], r["confidence"]) == ("nanopore", "high")
-    assert r["fields"]["basecall_model"] == "dna_r10.4.1_e8.2_400bps_sup@2023-12-15_episeq-cs"
+    assert r["fields"]["basecall_model"] == "dna_r10.4.1_e8.2_400bps_sup@2024-01-01_custom"
 
 
 def test_ont_spec_violations_reduce_confidence():
-    # [ONT-7] fastcat test/fixtures/fastq/reheader/kv.fastq (synthetic values outside the spec regexes)
-    r = parse_header("@read1 runid=run-123 basecall_model_version_id=model@v1 barcode=barcode07 "
-                     "start_time=2023-01-01T00:00:00Z parent_read_id=pr-001 read=7 ch=42 flow_cell_id=FLO-MIN114 "
-                     "basecall_gpu=gpu0 barcode_alias=alias1 unknown=foo")
+    # constructed: values outside the [ONT-7] spec regexes
+    r = parse_header("@readA runid=run-456 basecall_model_version_id=model@v2 barcode=barcode05 "
+                     "start_time=2023-02-02T00:00:00Z parent_read_id=pr-002 read=9 ch=40 flow_cell_id=FLO-ABC123 "
+                     "basecall_gpu=gpu1 barcode_alias=alias2 unknown=bar")
     assert r["platform_hint"] == "nanopore" and r["confidence"] == "medium"
     assert "value_outside_spec_regex:runid" in r["warnings"]
     assert "value_outside_spec_regex:parent_read_id" in r["warnings"]
-    assert r["extra"] == {"unknown": "foo"}
+    assert r["extra"] == {"unknown": "bar"}
 
 
-DORADO_HTS_FULL = ("@0a579f20-1ab0-4e5b-91e6-30e37cf7eb96\tRG:Z:4524e8b9-b90e-4ffb-a13a-380266513b64_dna_r10.4.1_e8.2_400bps_hac@v5.0.0"
-                   "\tDT:Z:2022-10-18T10:18:07.247000+00:00\tch:i:63\tst:Z:2022-10-18T10:38:07.247+00:00\tPU:Z:PAM93185"
-                   "\tLB:Z:PCR_zymo\tSM:Z:barcode03\tal:Z:alias_for_bc03\tpi:Z:e4994c62-93f9-439a-bc8f-d20c95a137a5"
-                   "\tDS:Z:gpu:Tesla V100-PCIE-16GB\tqs:f:30.0\tmx:i:2\trn:i:432\tts:i:1048\tpt:i:120\tpa:B:i,12,30,45,232,242")
+DORADO_HTS_FULL = ("@2b3c4d5e-6f70-4812-9a3b-4c5d6e7f8091\tRG:Z:6e5d4c3b-2a19-4807-b6a5-948372615049_dna_r10.4.1_e8.2_400bps_hac@v5.0.0"
+                   "\tDT:Z:2023-11-20T09:00:00.500000+00:00\tch:i:77\tst:Z:2023-11-20T09:20:00.500+00:00\tPU:Z:PAX00002"
+                   "\tLB:Z:lib_A\tSM:Z:barcode03\tal:Z:alias_bc03\tpi:Z:b7c8d9e0-1f2a-4b3c-8d4e-5f6a7b8c9d0e"
+                   "\tDS:Z:gpu:Example GPU 16GB\tqs:f:25.0\tmx:i:3\trn:i:518\tts:i:996\tpt:i:110\tpa:B:i,10,25,40,200,210")
 
 
 def test_ont_dorado_hts_full_header():
-    # [ONT-6] dorado tests/data/aligner_test/example-hts.fastq.gz
+    # constructed from the [ONT-6]/[ONT-12] HTS tag set
     r = parse_header(DORADO_HTS_FULL)
     check_shape(r)
     assert (r["platform_hint"], r["confidence"], r["header_format"]) == ("nanopore", "high", "ont_dorado_hts")
     f = r["fields"]
-    assert f["run_id"] == "4524e8b9-b90e-4ffb-a13a-380266513b64"
+    assert f["run_id"] == "6e5d4c3b-2a19-4807-b6a5-948372615049"
     assert f["basecall_model"] == "dna_r10.4.1_e8.2_400bps_hac@v5.0.0"
-    assert f["flowcell_id"] == "PAM93185" and f["sample_id"] == "PCR_zymo"
-    assert f["barcode"] == "barcode03" and f["barcode_alias"] == "alias_for_bc03"
-    assert f["basecall_gpu"] == "Tesla V100-PCIE-16GB"  # value with a space survives tab tokenisation
-    assert f["channel"] == 63 and f["mux"] == 2 and f["channel_read_number"] == 432
-    assert f["experiment_start_time"] == "2022-10-18T10:18:07.247000+00:00"
-    assert r["extra"] == {"ts": "1048", "pa": "i,12,30,45,232,242"}
+    assert f["flowcell_id"] == "PAX00002" and f["sample_id"] == "lib_A"
+    assert f["barcode"] == "barcode03" and f["barcode_alias"] == "alias_bc03"
+    assert f["basecall_gpu"] == "Example GPU 16GB"  # value with a space survives tab tokenisation
+    assert f["channel"] == 77 and f["mux"] == 3 and f["channel_read_number"] == 518
+    assert f["experiment_start_time"] == "2023-11-20T09:00:00.500000+00:00"
+    assert r["extra"] == {"ts": "996", "pa": "i,10,25,40,200,210"}
 
 
 def test_ont_dorado_minimal_tags_hex_runid():
-    # [ONT-6] dorado tests/data/bam_reader/fastq_with_tags.fq
-    r = parse_header("@8623ac42-0956-4692-9a93-bdd99bf1a94e\tst:Z:2023-06-22T07:17:48.308+00:00"
-                     "\tRG:Z:6a94c5e38fbe36232d63fd05555e41368b204cda_dna_r10.4.1_e8.2_400bps_hac@v4.3.0")
+    # constructed: minimal st:Z + RG:Z tags with a 40-hex run id
+    r = parse_header("@4a5b6c7d-8e9f-4012-a345-6789abcdef01\tst:Z:2023-07-01T10:00:00.000+00:00"
+                     "\tRG:Z:0123456789abcdef0123456789abcdef01234567_dna_r10.4.1_e8.2_400bps_hac@v4.3.0")
     assert (r["platform_hint"], r["confidence"]) == ("nanopore", "high")
-    assert r["fields"]["run_id"] == "6a94c5e38fbe36232d63fd05555e41368b204cda"
+    assert r["fields"]["run_id"] == "0123456789abcdef0123456789abcdef01234567"
     assert r["fields"]["basecall_model"] == "dna_r10.4.1_e8.2_400bps_hac@v4.3.0"
 
 
 def test_ont_rg_with_barcode_kit_suffix():
-    # fastcat .../dna_r10.4.1_e8.2_400bps_hac@v5.0.0_5mCG_5hmCG_rbk.bam.fastq.gz (prefix of the header)
-    r = parse_header("@7da531c9-2ca9-49d9-ae08-46bd08e5e9ed\tBC:Z:SQK-RBK114-96_barcode09\tqs:f:15.8356\tch:i:5"
-                     "\tst:Z:2023-08-04T11:48:39.799+00:00\trn:i:-1"
-                     "\tRG:Z:7f49cdd331b10b0f59539902b8f2af9e42ba9eea_dna_r10.4.1_e8.2_400bps_hac@v5.0.0_SQK-RBK114-96_barcode09"
-                     "\tpi:Z:84dda407-7d66-4cf0-9700-023c12c222c0\tsp:i:0")
+    # constructed: RG with a barcode-kit suffix and a BC:Z tag
+    r = parse_header("@8b9c0d1e-2f3a-4b5c-9d6e-7f8091a2b3c4\tBC:Z:SQK-RBK114-96_barcode09\tqs:f:14.5\tch:i:5"
+                     "\tst:Z:2023-08-10T12:00:00.000+00:00\trn:i:-1"
+                     "\tRG:Z:9876543210fedcba9876543210fedcba98765432_dna_r10.4.1_e8.2_400bps_hac@v5.0.0_SQK-RBK114-96_barcode09"
+                     "\tpi:Z:c4d5e6f7-0819-4a2b-8c3d-4e5f60718293\tsp:i:0")
     assert r["platform_hint"] == "nanopore"
     assert r["fields"]["barcode_arrangement"] == "SQK-RBK114-96_barcode09"
     assert r["fields"]["channel_read_number"] == -1
@@ -300,20 +313,20 @@ def test_ont_rg_with_barcode_kit_suffix():
 
 
 def test_ont_rg_unknown_model_and_comment_tag():
-    # [ONT-11] fastcat test/expected/fastcat/demultiplex/barcode0002.fastq.gz; [ONT-12] "unknown" model rule
-    r = parse_header("@1d0fded8-95e7-4b53-858f-8391da5d6537\trn:i:13\tch:i:190\tst:Z:2021-04-20T17:00:40Z\tPU:Z:FAP67897"
-                     "\tLB:Z:RNAsst10002_spike_BA\tSM:Z:barcode02\tal:Z:barcode02\tCO:Z:protocol_group_id=2021-04-20_UKBC"
-                     "\tRG:Z:5a21d8a6996146deceeaea3784244c52741cae93_unknown_barcode02\tqs:f:7.76831")
+    # constructed: RG with an 'unknown' model [ONT-12] and a CO:Z comment tag
+    r = parse_header("@3f6b2c1e-8a4d-4f2b-9c7e-1a2b3c4d5e37\trn:i:21\tch:i:150\tst:Z:2024-05-06T09:15:30Z\tPU:Z:FAX00001"
+                     "\tLB:Z:isolate_A1\tSM:Z:barcode02\tal:Z:barcode02\tCO:Z:protocol_group_id=2024-05-06_ARVA"
+                     "\tRG:Z:a1b2c3d4e5f60718293a4b5c6d7e8f9012345678_unknown_barcode02\tqs:f:8.5")
     assert (r["platform_hint"], r["confidence"]) == ("nanopore", "high")
     assert "read_group_model_unknown" in r["warnings"]
     assert "basecall_model" not in r["fields"]
     assert r["fields"]["barcode_arrangement"] == "barcode02"
-    assert r["extra"]["CO"] == "protocol_group_id=2021-04-20_UKBC"
+    assert r["extra"]["CO"] == "protocol_group_id=2024-05-06_ARVA"
 
 
 def test_ont_spec_rg_examples_and_multi_gpu():
-    # [ONT-12] bam/spec.yaml RG examples; [ONT-13] DS example with two GPU types
-    r = parse_header("@e4994c62-93f9-439a-bc8f-d20c95a137a5\tRG:Z:e4994c62-93f9-439a-bc8f-d20c95a137a5_rna004_130bps_fast@v5.1.0_29d8704b"
+    # constructed from the [ONT-12] RG layout and an [ONT-13] DS value with two GPU types
+    r = parse_header("@b7c8d9e0-1f2a-4b3c-8d4e-5f6a7b8c9d0e\tRG:Z:b7c8d9e0-1f2a-4b3c-8d4e-5f6a7b8c9d0e_rna004_130bps_fast@v5.1.0_29d8704b"
                      "\tDS:Z:gpu:NVIDIA A100 80GB PCIe|Quadro GV100")
     assert r["platform_hint"] == "nanopore"
     assert r["fields"]["basecall_model"] == "rna004_130bps_fast@v5.1.0"
@@ -322,14 +335,14 @@ def test_ont_spec_rg_examples_and_multi_gpu():
 
 
 def test_ont_samtools_fastq_T_output():
-    # fastcat test/fixtures/fastq/basic/samtoolsfastq.fastq.gz
-    r = parse_header("@02f8ea0a-48a3-43e3-b3b4-4832304a1d63\tqs:i:18\tdu:f:3.06125\tns:i:12245\tts:i:635\tmx:i:3\tch:i:388"
-                     "\tst:Z:2022-09-27T16:54:30.522+00:00\trn:i:6040\tfn:Z:PAM14583_ee1ba89e_88.pod5\tsm:f:94.3098"
-                     "\tsd:f:27.8859\tsv:Z:quantile\tdx:i:0"
-                     "\tRG:Z:ee1ba89e9e8bdff1ed2f4b2a81d21464ff7c4f1c_dna_r10.4.1_e8.2_400bps_sup@v4.1.0")
+    # constructed: samtools fastq -T style tag set
+    r = parse_header("@d1e2f3a4-b5c6-4d7e-8f90-a1b2c3d4e5f6\tqs:i:17\tdu:f:2.5\tns:i:10000\tts:i:600\tmx:i:1\tch:i:300"
+                     "\tst:Z:2022-10-01T10:00:00.000+00:00\trn:i:5000\tfn:Z:PAX00003_abcdef12_1.pod5\tsm:f:90.0"
+                     "\tsd:f:25.0\tsv:Z:quantile\tdx:i:0"
+                     "\tRG:Z:abcdef12abcdef12abcdef12abcdef12abcdef12_dna_r10.4.1_e8.2_400bps_sup@v4.1.0")
     assert (r["platform_hint"], r["confidence"]) == ("nanopore", "high")
     assert r["fields"]["duplex_flag"] == 0
-    assert r["extra"]["fn"] == "PAM14583_ee1ba89e_88.pod5"
+    assert r["extra"]["fn"] == "PAX00003_abcdef12_1.pod5"
 
 
 def test_generic_kv_is_not_interpreted_as_ont():
@@ -348,11 +361,11 @@ def test_dorado_move_table_token_is_skipped():
 @pytest.mark.parametrize(
     "line,fmt,strand",
     [
-        ("@m64011_190714_120746/14/ccs/rev", "pacbio_ccs_bystrand", "rev"),  # [PACBIO-6] ccs.how
-        ("@m64011_190714_120746/35/ccs/fwd", "pacbio_ccs_bystrand", "fwd"),  # [PACBIO-6] ccs.how
-        ("@m64011_190830_220126/1/ccs", "pacbio_ccs", None),  # constructed {movieName}/{holeNumber}/ccs
-        ("@m64011_190830_220126/1/ccs/fwd/0_1500", "pacbio_ccs_bystrand_segmented", "fwd"),  # [PACBIO-1]
-        ("@m84001_220722_134701_s1/4325/ccs/120_9000", "pacbio_ccs_segmented", None),  # [PACBIO-1]+[PACBIO-7]
+        ("@m64012_200102_101112/14/ccs/rev", "pacbio_ccs_bystrand", "rev"),  # [PACBIO-6] ccs.how
+        ("@m64012_200102_101112/35/ccs/fwd", "pacbio_ccs_bystrand", "fwd"),  # [PACBIO-6] ccs.how
+        ("@m64012_200203_131415/1/ccs", "pacbio_ccs", None),  # constructed {movieName}/{holeNumber}/ccs
+        ("@m64012_200203_131415/1/ccs/fwd/0_1500", "pacbio_ccs_bystrand_segmented", "fwd"),  # [PACBIO-1]
+        ("@m84002_230115_093000_s2/4325/ccs/120_9000", "pacbio_ccs_segmented", None),  # [PACBIO-1]+[PACBIO-7]
     ],
 )
 def test_pacbio_ccs(line, fmt, strand):
@@ -365,11 +378,11 @@ def test_pacbio_ccs(line, fmt, strand):
 
 
 def test_pacbio_revio_movie_context_decoding():
-    r = parse_header("@m84001_220722_134701_s1/4325/ccs")
+    r = parse_header("@m84002_230115_093000_s2/4325/ccs")
     f = r["fields"]
-    assert f["movie_name"] == "m84001_220722_134701_s1"
+    assert f["movie_name"] == "m84002_230115_093000_s2"
     assert (f["movie_instrument_id"], f["movie_date_yymmdd"], f["movie_time_hhmmss"], f["movie_stage"]) == (
-        "84001", "220722", "134701", "1")
+        "84002", "230115", "093000", "2")
     assert f["hole_number"] == 4325
 
 
@@ -382,18 +395,18 @@ def test_pacbio_subread_and_rs_movie():
 
 def test_pacbio_prefixed_name_is_low():
     # bam2fastq -p/--seqid-prefix [PACBIO-5] may change the movie part
-    r = parse_header("@sample1_m64011_190830_220126/1/ccs")
+    r = parse_header("@sample1_m64012_200203_131415/1/ccs")
     assert r["platform_hint"] == "pacbio" and r["confidence"] == "low"
 
 
 def test_pacbio_tags_from_samtools_fastq():
-    r = parse_header("@m64011_190830_220126/1/ccs\tnp:i:12\trq:f:0.999\tzm:i:1\tqs:i:0")
+    r = parse_header("@m64012_200203_131415/1/ccs\tnp:i:12\trq:f:0.999\tzm:i:1\tqs:i:0")
     assert r["fields"]["num_passes"] == "12" and r["fields"]["read_quality"] == "0.999"
     assert r["extra"]["qs"] == "0"  # not interpreted as an ONT mean q-score
 
 
 def test_fasta_prefix():
-    r = parse_header(">m64011_190830_220126/1/ccs")
+    r = parse_header(">m64012_200203_131415/1/ccs")
     assert r["record_type"] == "fasta" and r["platform_hint"] == "pacbio"
 
 
@@ -458,10 +471,10 @@ def test_summarise_ont_runs_and_models():
     hs = [MINKNOW_FULL, DORADO_HTS_FULL] * 3
     s = summarise(hs)
     d = s["distinct"]
-    assert set(d["run_id"]["values"]) == {"5a21d8a6996146deceeaea3784244c52741cae93", "4524e8b9-b90e-4ffb-a13a-380266513b64"}
+    assert set(d["run_id"]["values"]) == {"a1b2c3d4e5f60718293a4b5c6d7e8f9012345678", "6e5d4c3b-2a19-4807-b6a5-948372615049"}
     assert d["basecall_model"]["values"] == ["dna_r10.4.1_e8.2_400bps_hac@v5.0.0"]
-    assert set(d["flowcell_id"]["values"]) == {"FAP67897", "PAM93185"}
-    assert set(d["sample_id"]["values"]) == {"RNAsst10002_spike_BA", "PCR_zymo"}
+    assert set(d["flowcell_id"]["values"]) == {"FAX00001", "PAX00002"}
+    assert set(d["sample_id"]["values"]) == {"isolate_A1", "lib_A"}
     assert s["suggested_technology"]["value"] == "nanopore"
     assert s["suggested_technology"]["confidence"] == "high"
 
@@ -572,8 +585,8 @@ def test_huge_numbers_stay_strings():
         "@" + "1" * 10_000 + " 1:N:0:" + "A" * 100_000,
         "@m" + "0" * 100_000 + "/1/ccs",
         "@" + "a/" * 200_000 + "1",
-        "@0a579f20-1ab0-4e5b-91e6-30e37cf7eb96\t" + "\t".join(f"x{i % 9}:Z:" + "v" * 50 for i in range(100_000)),
-        "@e4994c62-93f9-439a-bc8f-d20c95a137a5\tRG:Z:e4994c62-93f9-439a-bc8f-d20c95a137a5_" + "@v1" * 1300,
+        "@2b3c4d5e-6f70-4812-9a3b-4c5d6e7f8091\t" + "\t".join(f"x{i % 9}:Z:" + "v" * 50 for i in range(100_000)),
+        "@b7c8d9e0-1f2a-4b3c-8d4e-5f6a7b8c9d0e\tRG:Z:b7c8d9e0-1f2a-4b3c-8d4e-5f6a7b8c9d0e_" + "@v1" * 1300,
     ],
     ids=["2M_char_id", "500k_colons", "300k_kv_tokens", "50_oversized_tokens", "huge_illumina_like",
          "100k_digit_movie", "200k_slashes", "100k_tab_tags", "rg_backtracking_probe"],
@@ -606,7 +619,7 @@ def test_summary_keeps_evidence_sources_and_a_bounded_fingerprint():
     assert s["sources"]["unrecognised"] == []
     fp = s["mate_fingerprint"]
     assert len(fp["base_names"]) == len(fp["mates"]) == hm.FINGERPRINT_SIZE
-    assert fp["base_names"][0] == "1d0fded8-95e7-4b53-858f-8391da5d6537"
+    assert fp["base_names"][0] == "3f6b2c1e-8a4d-4f2b-9c7e-1a2b3c4d5e37"
     assert summarise(["@a/1", ""], fingerprint_size=5)["mate_fingerprint"] == {"base_names": ["a", None], "mates": [1, None]}
 
 
@@ -650,6 +663,8 @@ def _suggestion(value, confidence):
         ([_suggestion("illumina", "high"), _suggestion("nanopore", "high")], "hybrid", "high", "short_and_long_reads"),
         ([_suggestion("illumina", "high"), _suggestion("pacbio", "low")], "hybrid", "low", "short_and_long_reads"),
         ([_suggestion("nanopore", "high"), _suggestion("pacbio", "high")], None, "none", "conflicting_platforms"),
+        ([_suggestion("illumina", "high"), _suggestion("nanopore", "high"), _suggestion("pacbio", "high")],
+         None, "none", "conflicting_platforms"),
         ([_suggestion("nanopore", "high"), _suggestion(None, "none")], "nanopore", "medium", "single_platform"),
         ([_suggestion("nanopore", "high"), None, "junk"], "nanopore", "medium", "single_platform"),
     ],

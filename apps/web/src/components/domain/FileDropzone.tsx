@@ -10,7 +10,7 @@ import { fmtBytes, formatLabel } from "@/lib/format";
 import type { StorageCapacity, UploadResult } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-const ACCEPT = ".fastq,.fq,.fasta,.fa,.fna,.fas,.gz";
+const ACCEPT = ".fastq,.fq,.fasta,.fa,.fna,.fas,.gz,.pod5";
 
 export function UploadResultList({ result }: { result: UploadResult }) {
   return (

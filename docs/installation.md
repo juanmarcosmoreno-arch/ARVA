@@ -78,6 +78,33 @@ SeqKit, FastQC, fastp and Filtlong features show as unavailable on the **Tools &
 Resolution order for each tool: `ARVA_TOOL_<ID>` (absolute path, e.g. `ARVA_TOOL_FASTP`), then the
 folders in `ARVA_TOOLS_PATH`, then `PATH`. Re-detect from the Tools page after installing.
 
+### Optional: POD5 run metadata (pod5 library)
+
+ARVA recognises POD5 raw-signal files without any library. To read their run metadata (reads, signal
+duration, sample rate, flow cell, kit, protocol, software) install Oxford Nanopore's `pod5` library
+(MPL-2.0) into ARVA's own Python environment yourself; the Docker image already includes it.
+
+```bash
+apps/api/.venv/bin/pip install "pod5==0.3.49"        # or: pip install -e "apps/api[pod5]"
+```
+
+Wheels exist for Linux x86-64 and ARM64 (glibc 2.28 or newer), Windows and Apple Silicon (macOS 14
+or newer). There is no wheel for Intel Macs; install bioconda's `lib-pod5` / `pod5` 0.3.49 there
+instead. The package pulls in pyarrow 22 (about 450 MB with its dependencies). ARVA does not
+basecall: basecall with Dorado (or MinKNOW) outside ARVA and import the FASTQ.
+
+### Sample metadata tables (CSV / Excel)
+
+Importing and exporting sample metadata needs no extra step: `openpyxl==3.1.5` (MIT; it pulls in
+`et_xmlfile` 2.0.0, MIT AND PSF-2.0) is a regular dependency of the API, installed by
+`scripts/setup-dev.sh`, by `pip install ./apps/api` and in the Docker image. It is pure Python (one
+wheel for every platform, including Intel and Apple Silicon Macs) and makes no network access. The
+version is pinned because ARVA reads one private attribute of its read-only worksheets. CSV files are
+read with Python's own `csv` module. Old `.xls`, `.xlsm`, `.xlsb` and `.ods` files are refused with
+"save the sheet as .xlsx or CSV UTF-8"; no other spreadsheet library is used. Limits are set with the
+`ARVA_METADATA_MAX_*` variables below; uploads above `ARVA_METADATA_MAX_BYTES` are refused with
+`413` before the body is received.
+
 ## Importing large files from a server folder
 
 Browser uploads work for any size, but multi-gigabyte runs are faster and more robust when ARVA
@@ -149,6 +176,10 @@ Environment variables (prefix `ARVA_`), also read from `apps/api/.env`:
 | `ARVA_IMPORT_ROOTS` | `[]` (disabled) | Server folders that may be browsed and imported from (JSON list); Docker: `["/import"]` |
 | `ARVA_IMPORT_DIR` | `./import` | Docker Compose only: host folder mounted read-only at `/import` |
 | `ARVA_CORS_ORIGINS` | `["http://localhost:5173","http://localhost:4173"]` | Allowed web origins (JSON list) |
+| `ARVA_METADATA_MAX_BYTES` | 10485760 (10 MiB) | Largest sample-metadata table (CSV or .xlsx) accepted |
+| `ARVA_METADATA_MAX_ROWS` | 10000 | Data rows per metadata table |
+| `ARVA_METADATA_MAX_COLUMNS` | 256 | Columns per metadata table |
+| `ARVA_METADATA_MAX_CELL_CHARS` | 10000 | Characters per cell of a metadata table |
 | `ARVA_TOOLS_PATH` | — | Extra folders (`:`-separated) searched for external tools |
 | `ARVA_TOOL_<ID>` | — | Explicit executable for one tool (`SEQKIT`, `FASTQC`, `FASTP`, `FILTLONG`) |
 | `ARVA_TOOL_THREADS` | 4 | Maximum threads given to a tool run |
@@ -177,6 +208,8 @@ The API test suite **drops and recreates** the schema of the test database — n
 | Upload or import refused with "Not enough free space" (HTTP 507) | Free disk space where `ARVA_STORAGE_ROOT` lives, or lower `ARVA_MIN_FREE_BYTES` |
 | Import page says server folder import is not enabled | Set `ARVA_IMPORT_ROOTS` for both API and worker and restart them |
 | Import folder shows "permission denied" / files rejected | The ARVA (container) user cannot read them: `chmod -R a+rX` the folder |
+| Metadata table refused: "save the sheet as .xlsx or CSV UTF-8" | The file is `.xls`, `.xlsm`, `.xlsb` or `.ods`: open it and save it as Excel Workbook (.xlsx) or CSV UTF-8 |
+| Metadata rows blocked by "ambiguous" dates | Dates such as 03/05/2024: choose the date order in the import dialog, or write dates as YYYY-MM-DD |
 | File marked *Unrecognised* | Content does not start with `@` (FASTQ) or `>` (FASTA) after decompression |
 | A tool shows *Not installed* | Install it (see above) or point `ARVA_TOOL_<ID>`/`ARVA_TOOLS_PATH` at it, then **Re-detect** |
 | fastp report shows tables but no charts inside ARVA | Expected: its charts load plotly.js from the internet, which ARVA blocks; ARVA's own comparison charts cover the same data, and the original report can be downloaded |

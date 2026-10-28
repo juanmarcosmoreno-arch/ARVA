@@ -8,9 +8,9 @@ from app.db.session import engine
 
 API = "/api/v1"
 EXAMPLES = Path(__file__).resolve().parents[3] / "examples" / "synthetic"
-# fastcat test/fixtures/fastq/basic/bc2.fastq.gz (EPI2ME), read id varied per record
-MINKNOW = ("@1d0fded8-95e7-4b53-858f-8391da5d65{i:02d} runid=5a21d8a6996146deceeaea3784244c52741cae93 read=13 "
-           "ch=190 start_time=2021-04-20T17:00:40Z flow_cell_id=FAP67897 protocol_group_id=2021-04-20_UKBC "
+# constructed MinKNOW-style header (ONT output specification), read id varied per record
+MINKNOW = ("@3f6b2c1e-8a4d-4f2b-9c7e-1a2b3c4d5e{i:02d} runid=a1b2c3d4e5f60718293a4b5c6d7e8f9012345678 read=21 "
+           "ch=150 start_time=2024-05-06T09:15:30Z flow_cell_id=FAX00001 protocol_group_id=2024-05-06_ARVA "
            "sample_id={sample} barcode=barcode02 barcode_alias=barcode02")
 # help.basespace.illumina.com fastq-files template, tile varied per record
 ILLUMINA = "@SIM:1:FCX:1:{i}:6329:1045 {mate}:N:0:ATCACG"
@@ -80,8 +80,8 @@ def test_nanopore_headers_suggest_but_never_set_the_technology(client):
     assert client.get(f"{API}/samples/{s['id']}").json()["sequencing_technology"] == "unknown"
 
     meta = client.get(f"{API}/samples/{s['id']}/files").json()[0]["header_metadata"]
-    assert meta["distinct"]["flowcell_id"] == {"values": ["FAP67897"], "n_distinct": 1, "truncated": False}
-    assert meta["distinct"]["run_id"]["values"] == ["5a21d8a6996146deceeaea3784244c52741cae93"]
+    assert meta["distinct"]["flowcell_id"] == {"values": ["FAX00001"], "n_distinct": 1, "truncated": False}
+    assert meta["distinct"]["run_id"]["values"] == ["a1b2c3d4e5f60718293a4b5c6d7e8f9012345678"]
     assert meta["sources"]["ont_minknow_kv"][0].startswith("https://software-docs.nanoporetech.com/")
 
     client.patch(f"{API}/samples/{s['id']}", json={"sequencing_technology": "illumina"})
@@ -194,3 +194,53 @@ def test_mate_pairs_follow_file_names_with_a_lone_pair_fallback():
     lone = [f("reads_1.fq", "R1"), f("other_R2.fastq", "R2")]
     assert [(a.id, b.id) for a, b in mate_pairs(lone)] == [("reads_1.fq", "other_R2.fastq")]
     assert mate_pairs([f("a_R1.fastq", "R1"), f("b_R1.fastq", "R1"), f("c_R2.fastq", "R2")]) == []
+
+
+def test_sra_readids_mates_are_recognised_as_a_pair(client):
+    # fastq-dump --split-files --readids: '$ac.$si.$ri $sn length=$rl' (constructed spot names)
+    s = sample(client)
+    defline = "@SRR0000002.{i}.{mate} 190101_ARVA-EAS9_s_3:4:1:{x}:300 length=4"
+    upload(
+        client, s["id"],
+        ("SRR0000002_1.fastq", fastq([defline.format(i=i, mate=1, x=800 + i) for i in range(1, 30)])),
+        ("SRR0000002_2.fastq", fastq([defline.format(i=i, mate=2, x=800 + i) for i in range(1, 30)])),
+    )
+    (check,) = summary(client, s["id"])["mate_check"]
+    assert (check["note"], check["looks_like_pair"], check["matched"], check["compared"]) == ("same_read_names", True, 29, 29)
+
+
+def test_partial_evidence_does_not_contradict_a_hybrid_sample(client):
+    s = sample(client, technology="hybrid")
+    upload(
+        client, s["id"],
+        ("SRR390728_1.fastq", fastq([f"@SRR390728.{i} {i} length=4" for i in range(1, 20)])),
+        ("ont.fastq", fastq([MINKNOW.format(i=i, sample="x") for i in range(20)])),
+    )
+    hs = summary(client, s["id"])
+    st = hs["suggested_technology"]
+    assert (st["value"], st["confidence"], st["files_with_evidence"], st["files_considered"]) == ("nanopore", "medium", 1, 2)
+    assert hs["agrees"] is None
+    html = client.get(f"{API}/samples/{s['id']}/report", params={"format": "html"}).text
+    assert "neither confirms nor contradicts the recorded technology (hybrid)" in html
+    client.patch(f"{API}/samples/{s['id']}", json={"sequencing_technology": "illumina"})
+    assert summary(client, s["id"])["agrees"] is False
+
+
+def test_report_says_nothing_about_headers_without_read_files(client):
+    s = sample(client)
+    html = client.get(f"{API}/samples/{s['id']}/report", params={"format": "html"}).text
+    assert "imported file(s) do not indicate" not in html and "Suggested from read headers" not in html
+    (f,) = upload(client, s["id"], ("reads.fastq", fastq(["@r1", "@r2"])))
+    with engine.begin() as conn:
+        conn.execute(text("UPDATE raw_files SET header_metadata = NULL WHERE id = :id"), {"id": f["id"]})
+    html = client.get(f"{API}/samples/{s['id']}/report", params={"format": "html"}).text
+    assert "Read headers of 0" not in html and "have not been read, so no platform is suggested" in html
+
+
+def test_a_single_uuid_among_unrecognised_headers_is_only_a_low_confidence_hint(client):
+    # The interface offers one-click adoption only for medium or high confidence (apps/web/src/lib/headers.ts).
+    s = sample(client)
+    headers = [f"@read{i}" for i in range(999)] + ["@3f6b2c1e-8a4d-4f2b-9c7e-1a2b3c4d5e37"]
+    upload(client, s["id"], ("mixed.fastq", fastq(headers)))
+    st = summary(client, s["id"])["suggested_technology"]
+    assert (st["value"], st["confidence"], st["files_with_evidence"]) == ("nanopore", "low", 1)

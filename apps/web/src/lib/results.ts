@@ -1,4 +1,5 @@
-import type { AnalysisJobDetail, QCResult } from "./types";
+import type { TranslationKey, TranslationVars } from "@/i18n";
+import type { AnalysisJobDetail, FileFormat, QCResult } from "./types";
 
 /** Latest completed ARVA statistics per file (jobs are ordered newest first by the API). */
 export function latestResults(jobs: AnalysisJobDetail[]) {
@@ -28,5 +29,21 @@ export const JOB_LABEL: Record<string, string> = {
 
 export const FILTER_JOBS = new Set(["fastp", "filtlong"]);
 export const IMPORT_JOBS = new Set(["server_import"]);
+/** Jobs on raw signal (POD5): part of the raw-data stage, not of read QC. */
+export const RAW_SIGNAL_JOBS = new Set(["pod5_summary"]);
+
+export function jobLabel(type: string, t: (key: TranslationKey) => string) {
+  return RAW_SIGNAL_JOBS.has(type) ? t("pod5.jobLabel") : JOB_LABEL[type] ?? type;
+}
+
+/** What ran a job that has no executable path: the separately installed pod5 library, or ARVA itself. */
+export function inProcessTool(job: Pick<AnalysisJobDetail, "job_type" | "tool_version" | "parameters">, t: (key: TranslationKey, vars?: TranslationVars) => string) {
+  if (!RAW_SIGNAL_JOBS.has(job.job_type)) return t("history.builtIn");
+  const lib = job.parameters?.lib_pod5_version;
+  return t("pod5.executable", { version: job.tool_version, lib: typeof lib === "string" ? lib : "?" });
+}
+
+/** Files with reads; POD5 raw signal and unrecognised files are never offered for read-level analyses. */
+export const hasReads = (format: FileFormat) => format !== "unknown" && format !== "pod5";
 
 export const basename = (p: string) => p.split("/").pop() ?? p;
