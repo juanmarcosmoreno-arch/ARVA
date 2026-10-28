@@ -16,4 +16,5 @@ def storage():
         total_bytes=c.total_bytes,
         min_free_bytes=c.min_free_bytes,
         available_for_data_bytes=c.available_for_data_bytes,
+        upload_overhead_factor=c.upload_overhead_factor,
     )

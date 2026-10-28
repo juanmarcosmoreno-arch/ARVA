@@ -7,7 +7,12 @@ from fastapi import status
 from fastapi.responses import JSONResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
 
-from app.services.capacity import InsufficientStorageError, ensure_space
+from app.services.capacity import InsufficientStorageError, ensure_upload_space
+
+LENGTH_REQUIRED = (
+    "Uploads must send a Content-Length header so that ARVA can check the free space before "
+    "receiving them (chunked uploads are not accepted)."
+)
 
 
 def insufficient_storage_response(exc: InsufficientStorageError) -> JSONResponse:
@@ -41,10 +46,14 @@ class UploadCapacityGuard:
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] == "http" and scope["method"] == "POST" and self.pattern.match(scope["path"]):
             length = _content_length(scope)
-            if length is not None:
-                try:
-                    ensure_space(length)
-                except InsufficientStorageError as exc:
-                    await insufficient_storage_response(exc)(scope, receive, send)
-                    return
+            if length is None:
+                # Without a length the body would be spooled to disk before any check could run.
+                response = JSONResponse(status_code=status.HTTP_411_LENGTH_REQUIRED, content={"detail": LENGTH_REQUIRED})
+                await response(scope, receive, send)
+                return
+            try:
+                ensure_upload_space(length)
+            except InsufficientStorageError as exc:
+                await insufficient_storage_response(exc)(scope, receive, send)
+                return
         await self.app(scope, receive, send)

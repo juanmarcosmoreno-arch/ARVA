@@ -98,7 +98,13 @@ file. Source files are opened read-only and are never modified, moved or deleted
 
 Safety rules: paths are always relative to a configured folder; `..`, absolute paths and hidden
 names are refused; symbolic links are followed only when their target stays inside the folder;
-listings show at most 2,000 entries per folder.
+listings show at most 2,000 entries per folder. Names that are not valid UTF-8 (for example
+Latin-1 names copied from Windows shares) are not listed (the listing says how many) and must be
+renamed before import. Files larger than `ARVA_MAX_UPLOAD_SIZE_BYTES` are refused when the import is
+requested, before anything is copied. The copy opens the validated file without following any symbolic
+link, so a folder or file replaced after the check cannot redirect it outside the import folder. A file
+that changes while it is copied (size or modification time differ, e.g. a run still being written) is
+rejected and nothing is stored: import it once the sequencer has finished.
 
 To create many samples at once from browser files, use **Bulk import** on a project page: drop the
 files or a run folder, review the proposed sample IDs (derived from Illumina/SRA/ONT file names, with
@@ -109,10 +115,23 @@ warnings for unpaired R1/R2), adjust them, then confirm.
 Before an upload or import, ARVA checks the free space on the disk that holds `ARVA_STORAGE_ROOT`
 and refuses anything that would leave less than `ARVA_MIN_FREE_BYTES` (default 1 GiB) free:
 
-- the web interface shows *Selected … · Free …* and does not start a selection that cannot fit;
+- the web interface shows *Selected … · Usable for new data …* (the same figure as the storage card)
+  and does not start a selection that cannot fit;
 - the API answers `507 Insufficient Storage` to an upload whose `Content-Length` exceeds the usable
-  space, before receiving the body, and re-checks each file before storing it;
-- server imports check the total at request time and each file again before copying it.
+  space, before receiving the body, and re-checks each file before storing it. Uploads without a
+  `Content-Length` (chunked transfer encoding) are refused with `411 Length Required`, since their size
+  cannot be checked first; browsers always send it;
+- server imports check the total at request time and each file again before copying it;
+- while a file is being written ARVA re-checks the free space every 256 MB and stops (deleting the
+  partial copy) if the rest no longer fits, so parallel uploads and imports cannot use up the reserve.
+
+**Browser uploads need twice their size while they are received.** The API first buffers each
+request body in a temporary file (Python's temporary directory, `TMPDIR`) and then copies it into the
+data directory. When that temporary directory is on the same disk as `ARVA_STORAGE_ROOT` — the default
+with Docker Compose and for most local installs — the upload is briefly stored twice, so the API and the
+web interface require twice the request size (bulk import: the whole selection plus its largest group).
+`upload_overhead_factor` in the storage figures is `2` in that case and `1` when the temporary directory
+is on another disk. Server folder import copies directly and needs only the files' size.
 
 `GET /api/v1/system/storage` reports the figures (also shown on the Import page).
 

@@ -10,6 +10,7 @@ from app.services.capacity import InsufficientStorageError, fmt_bytes
 from app.services.import_roots import (
     ImportPathError,
     ImportRoot,
+    SourceChangedError,
     open_source,
     resolve_file,
     root_by_path,
@@ -18,7 +19,9 @@ from app.services.imports import DuplicateFileError, register_raw_file
 from app.storage.local import FileTooLargeError
 from app.tasks.common import JobContext, JobFailure, run_job
 
-_PER_FILE_ERRORS = (ImportPathError, DuplicateFileError, FileTooLargeError, InsufficientStorageError, OSError)
+_PER_FILE_ERRORS = (
+    ImportPathError, SourceChangedError, DuplicateFileError, FileTooLargeError, InsufficientStorageError, OSError,
+)
 _REASONS_IN_ERROR = 5
 
 
@@ -61,7 +64,7 @@ class _ServerImport:
         try:
             src = resolve_file(root, rel)
             ctx.log(f"Copying {src.relative} ({fmt_bytes(src.size_bytes)})", flush=True)
-            with open_source(src) as fh:
+            with open_source(root, src) as fh:
                 raw = register_raw_file(
                     ctx.db, ctx.job.sample, src.name, fh,
                     expected_size=src.size_bytes,

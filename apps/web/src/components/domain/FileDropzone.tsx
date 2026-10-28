@@ -4,10 +4,10 @@ import { useRef, useState } from "react";
 import { ErrorNote } from "@/components/ui/misc";
 import { useT } from "@/i18n";
 import { api, type UploadProgress } from "@/lib/api";
-import { capacityCheck, totalBytes } from "@/lib/capacity";
+import { totalBytes, uploadSpace } from "@/lib/capacity";
 import { filesFromDrop } from "@/lib/dropFiles";
 import { fmtBytes, formatLabel } from "@/lib/format";
-import type { UploadResult } from "@/lib/types";
+import type { StorageCapacity, UploadResult } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 const ACCEPT = ".fastq,.fq,.fasta,.fa,.fna,.fas,.gz";
@@ -52,7 +52,7 @@ export function FileDropzone({ sampleId, onUploaded }: { sampleId: string; onUpl
   const [progress, setProgress] = useState<UploadProgress | null>(null);
   const [result, setResult] = useState<UploadResult | null>(null);
   const [pending, setPending] = useState<File[]>([]);
-  const [selection, setSelection] = useState<{ bytes: number; free: number | null } | null>(null);
+  const [selection, setSelection] = useState<{ bytes: number; capacity: StorageCapacity | null } | null>(null);
   const [refusal, setRefusal] = useState<string | null>(null);
 
   const upload = useMutation({
@@ -80,18 +80,10 @@ export function FileDropzone({ sampleId, onUploaded }: { sampleId: string; onUpl
     // Fresh figures: another upload or import may have used space since the page loaded.
     const capacity = await qc.fetchQuery({ queryKey: ["storage"], queryFn: api.storage, staleTime: 0 }).catch(() => null);
     setChecking(false);
-    setSelection({ bytes: needed, free: capacity?.available_for_data_bytes ?? null });
-    if (capacity && capacityCheck(needed, capacity) === "insufficient") {
-      setRefusal(
-        t("storage.insufficient", {
-          needed: fmtBytes(needed),
-          available: fmtBytes(capacity.available_for_data_bytes),
-          reserve: fmtBytes(capacity.min_free_bytes),
-        }),
-      );
-      return;
-    }
-    setRefusal(null);
+    setSelection({ bytes: needed, capacity });
+    const { refusal } = uploadSpace(t, needed, [needed], capacity);
+    setRefusal(refusal);
+    if (refusal) return;
     setPending(files);
     upload.mutate(files);
   };
@@ -140,7 +132,7 @@ export function FileDropzone({ sampleId, onUploaded }: { sampleId: string; onUpl
 
       {selection && (
         <p className="text-xs text-muted-foreground" aria-live="polite">
-          {t("storage.selected", { selected: fmtBytes(selection.bytes), free: selection.free == null ? "—" : fmtBytes(selection.free) })}
+          {uploadSpace(t, selection.bytes, [selection.bytes], selection.capacity).line}
         </p>
       )}
       <ErrorNote error={refusal} />

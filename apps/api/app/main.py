@@ -1,4 +1,8 @@
+import json
+
 from fastapi import FastAPI, Request, status
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
@@ -19,6 +23,16 @@ from app.core.config import get_settings
 from app.services.capacity import InsufficientStorageError
 from app.services.import_roots import ImportPathError
 from app.storage.local import StoragePathError
+
+
+class _EscapingJSONResponse(JSONResponse):
+    """Escapes lone surrogates (echoed invalid input such as "\\udcff") instead of failing with a 500."""
+
+    def render(self, content) -> bytes:
+        try:
+            return super().render(content)
+        except UnicodeEncodeError:
+            return json.dumps(content, allow_nan=False, separators=(",", ":")).encode("ascii")
 
 
 def create_app() -> FastAPI:
@@ -43,6 +57,12 @@ def create_app() -> FastAPI:
     @app.exception_handler(ImportPathError)
     async def storage_path_error(_: Request, exc: ValueError):
         return JSONResponse(status_code=status.HTTP_400_BAD_REQUEST, content={"detail": str(exc)})
+
+    @app.exception_handler(RequestValidationError)
+    async def validation_error(_: Request, exc: RequestValidationError):
+        return _EscapingJSONResponse(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, content={"detail": jsonable_encoder(exc.errors())}
+        )
 
     @app.exception_handler(InsufficientStorageError)
     async def insufficient_storage(_: Request, exc: InsufficientStorageError):

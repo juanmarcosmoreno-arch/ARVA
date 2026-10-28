@@ -42,6 +42,7 @@ export function StorageCard() {
                 <span className={cn("font-semibold tabular-nums", s.available_for_data_bytes === 0 && "text-danger")}>{fmtBytes(s.available_for_data_bytes)}</span>
               </div>
               <p className="text-xs text-muted-foreground">{t("storage.reserve", { reserve: fmtBytes(s.min_free_bytes) })}</p>
+              {s.upload_overhead_factor > 1 && <p className="text-xs text-muted-foreground">{t("storage.bufferNote")}</p>}
               <code className="block break-all rounded-md bg-muted px-2 py-1 text-[11px] text-muted-foreground">{s.storage_root}</code>
             </>
           )

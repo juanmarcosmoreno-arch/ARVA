@@ -255,6 +255,7 @@ class SequenceStatsRequest(BaseModel):
 class UploadRejection(BaseModel):
     filename: str
     reason: str
+    code: Literal["duplicate", "too_large", "insufficient_storage"]
 
 
 class UploadResult(BaseModel):
@@ -270,6 +271,9 @@ class StorageCapacityRead(BaseModel):
     total_bytes: int
     min_free_bytes: int
     available_for_data_bytes: int
+    upload_overhead_factor: Literal[1, 2] = Field(
+        description="2 when browser uploads are buffered on the same disk and so need twice their size while received"
+    )
 
 
 class ImportRootRead(BaseModel):
@@ -294,6 +298,7 @@ class ImportListingRead(BaseModel):
     parent: str | None
     entries: list[ImportEntryRead]
     truncated: bool
+    unsupported_names: int = Field(description="Entries hidden because their names are not valid UTF-8")
 
 
 class ServerImportRequest(BaseModel):

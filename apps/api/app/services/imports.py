@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from typing import BinaryIO
 
 from arva_core.formats import SequenceFormat
@@ -14,7 +15,7 @@ from app.db.base import new_uuid
 from app.models import FileFormat, RawFile, Sample
 from app.services.capacity import ensure_space
 from app.storage import get_storage
-from app.storage.local import sanitize_filename
+from app.storage.local import FileTooLargeError, sanitize_filename
 
 # Illumina-style mate markers: sample_R1_001.fastq.gz, sample_1.fq, sample.R2.fastq
 _MATE = re.compile(r"(?:^|[._-])R?([12])(?:[._-]\d{3})?\.(?:fastq|fq)(?:\.gz)?$", re.IGNORECASE)
@@ -58,6 +59,13 @@ def _same_content_elsewhere(db: Session, sample: Sample, sha256: str) -> tuple[s
     return (row[0], row[1]) if row else None
 
 
+def _space_check(expected_size: int | None) -> Callable[[int], None]:
+    """While streaming, the rest of the file must still fit: other uploads or imports may be writing too."""
+    def check(written: int) -> None:
+        ensure_space(max(1, (expected_size or 0) - written))
+    return check
+
+
 def register_raw_file(
     db: Session,
     sample: Sample,
@@ -71,11 +79,13 @@ def register_raw_file(
     settings = get_settings()
     storage = get_storage()
     if expected_size is not None:
+        if expected_size > settings.max_upload_size_bytes:
+            raise FileTooLargeError(settings.max_upload_size_bytes)
         ensure_space(expected_size)
     file_id = new_uuid()
     safe_name = sanitize_filename(filename)
     rel = f"raw/{sample.project_id}/{sample.id}/{file_id}__{safe_name}"
-    stored = storage.save_stream(stream, rel, settings.max_upload_size_bytes)
+    stored = storage.save_stream(stream, rel, settings.max_upload_size_bytes, _space_check(expected_size))
 
     duplicate = db.scalar(
         select(RawFile).where(

@@ -44,6 +44,7 @@ def browse_import_root(
             for e in listing.entries
         ],
         truncated=listing.truncated,
+        unsupported_names=listing.unsupported_names,
     )
 
 

@@ -151,9 +151,11 @@ export interface CrossCheck {
   note: string;
 }
 
+export type UploadRejectionCode = "duplicate" | "too_large" | "insufficient_storage";
+
 export interface UploadResult {
   files: RawFile[];
-  rejected: { filename: string; reason: string }[];
+  rejected: { filename: string; reason: string; code: UploadRejectionCode }[];
 }
 
 export interface Histogram {
@@ -285,6 +287,8 @@ export interface StorageCapacity {
   total_bytes: number;
   min_free_bytes: number;
   available_for_data_bytes: number;
+  /** 2 when browser uploads are buffered on the same disk and so need twice their size while received. */
+  upload_overhead_factor: 1 | 2;
 }
 
 export interface ImportRoot {
@@ -311,6 +315,8 @@ export interface ImportListing {
   parent: string | null;
   entries: ImportEntry[];
   truncated: boolean;
+  /** Entries hidden because their names are not valid UTF-8. */
+  unsupported_names: number;
 }
 
 export interface ServerImportSummary {

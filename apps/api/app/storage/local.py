@@ -11,6 +11,7 @@ import os
 import re
 import shutil
 import stat
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import BinaryIO, Protocol
@@ -18,6 +19,8 @@ from typing import BinaryIO, Protocol
 from app.core.config import get_settings
 
 CHUNK_SIZE = 1 << 20
+# How often save_stream re-checks free space: other uploads or imports may be writing at the same time.
+SPACE_CHECK_BYTES = 256 * CHUNK_SIZE
 _SAFE_NAME = re.compile(r"[^A-Za-z0-9._-]+")
 
 
@@ -26,7 +29,8 @@ class StoragePathError(ValueError):
 
 
 class FileTooLargeError(ValueError):
-    pass
+    def __init__(self, max_bytes: int):
+        super().__init__(f"file exceeds the {max_bytes} byte limit (ARVA_MAX_UPLOAD_SIZE_BYTES)")
 
 
 @dataclass(frozen=True)
@@ -37,7 +41,10 @@ class StoredFile:
 
 
 class StorageBackend(Protocol):
-    def save_stream(self, stream: BinaryIO, relative_path: str, max_bytes: int) -> StoredFile: ...
+    def save_stream(
+        self, stream: BinaryIO, relative_path: str, max_bytes: int,
+        space_check: Callable[[int], None] | None = None,
+    ) -> StoredFile: ...
     def resolve(self, relative_path: str) -> Path: ...
     def write_text(self, relative_path: str, content: str) -> str: ...
 
@@ -60,23 +67,30 @@ class LocalStorage:
             raise StoragePathError(f"path escapes storage root: {relative_path!r}")
         return candidate
 
-    def save_stream(self, stream: BinaryIO, relative_path: str, max_bytes: int) -> StoredFile:
-        """Stream to disk while hashing; the stored raw file is made read-only."""
+    def save_stream(
+        self, stream: BinaryIO, relative_path: str, max_bytes: int,
+        space_check: Callable[[int], None] | None = None,
+    ) -> StoredFile:
+        """Stream to disk while hashing (space_check(written) may abort every SPACE_CHECK_BYTES); stored read-only."""
         target = self.resolve(relative_path)
         target.parent.mkdir(parents=True, exist_ok=True)
         if target.exists():
             raise StoragePathError(f"refusing to overwrite existing file: {relative_path!r}")
         tmp = target.with_name(target.name + ".part")
         digest = hashlib.sha256()
-        size = 0
+        size = checked = 0
         try:
             with open(tmp, "xb") as out:
                 while chunk := stream.read(CHUNK_SIZE):
                     size += len(chunk)
                     if size > max_bytes:
-                        raise FileTooLargeError(f"file exceeds the {max_bytes} byte limit")
+                        raise FileTooLargeError(max_bytes)
                     digest.update(chunk)
                     out.write(chunk)
+                    if space_check is not None and size - checked >= SPACE_CHECK_BYTES:
+                        checked = size
+                        out.flush()
+                        space_check(size)
             os.replace(tmp, target)
         except BaseException:
             tmp.unlink(missing_ok=True)

@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, CheckCircle2, FilePlus, FolderOpen, Loader2, UploadCloud } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { AlertTriangle, CheckCircle2, FilePlus, FolderOpen, Loader2, UploadCloud, XCircle } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { UploadResultList } from "@/components/domain/FileDropzone";
 import { Badge } from "@/components/ui/badge";
@@ -10,11 +10,11 @@ import { Field, Input, Select } from "@/components/ui/form";
 import { ErrorNote } from "@/components/ui/misc";
 import { useT } from "@/i18n";
 import { api } from "@/lib/api";
-import { capacityCheck, totalBytes } from "@/lib/capacity";
+import { totalBytes, uploadSpace } from "@/lib/capacity";
 import { filesFromDrop } from "@/lib/dropFiles";
 import { fmtBytes, technologyLabel } from "@/lib/format";
-import { groupFilesBySample, isSequenceFile, type Mate } from "@/lib/sampleNames";
-import type { Sample, SequencingTechnology, StorageCapacity, UploadResult } from "@/lib/types";
+import { groupFilesBySample, isSequenceFile, matchExistingSample, type Mate, type PairingWarning } from "@/lib/sampleNames";
+import type { Sample, SequencingTechnology, UploadResult } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 const ACCEPT = ".fastq,.fq,.fasta,.fa,.fna,.fas,.gz";
@@ -26,15 +26,20 @@ interface Row {
   include: boolean;
   technology: SequencingTechnology;
   files: { file: File; mate: Mate }[];
-  warnings: string[];
+  warnings: PairingWarning[];
 }
+
+type DoneStatus = { state: "done"; sampleId: string; result: UploadResult };
 
 type RowStatus =
   | { state: "waiting" }
   | { state: "creating" }
   | { state: "uploading"; pct: number }
-  | { state: "done"; sampleId: string; result: UploadResult }
-  | { state: "error"; message: string };
+  | DoneStatus
+  | { state: "error"; message: string }
+  | { state: "notStarted" };
+
+type Translate = ReturnType<typeof useT>;
 
 function buildRows(files: File[]): Row[] {
   const byName = new Map<string, File[]>();
@@ -48,6 +53,13 @@ function buildRows(files: File[]): Row[] {
     warnings: g.warnings,
   }));
 }
+
+const warningText = (t: Translate, w: PairingWarning) =>
+  w.kind === "unpaired"
+    ? t(w.mate === "R1" ? "bulk.warnR1Alone" : "bulk.warnR2Alone", { files: w.files.join(", ") })
+    : t("bulk.warnTooMany", { count: w.count, mate: w.mate });
+
+const isOutOfSpace = (e: unknown) => typeof e === "object" && e !== null && "status" in e && e.status === 507;
 
 export function BulkImportDialog({
   open,
@@ -64,15 +76,16 @@ export function BulkImportDialog({
   const qc = useQueryClient();
   const filesInput = useRef<HTMLInputElement | null>(null);
   const folderInput = useRef<HTMLInputElement | null>(null);
+  const mounted = useRef(true);
   const [rows, setRows] = useState<Row[]>([]);
   const [ignored, setIgnored] = useState<string[]>([]);
   const [noneFound, setNoneFound] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [status, setStatus] = useState<Record<number, RowStatus>>({});
   const [phase, setPhase] = useState<"review" | "running" | "finished">("review");
-  const [refusal, setRefusal] = useState<string | null>(null);
+  const [stopped, setStopped] = useState(false);
   // The plan shown while and after running: refetched samples must not turn "new" rows into "existing".
-  const [frozen, setFrozen] = useState<Map<string, Sample> | null>(null);
+  const [frozen, setFrozen] = useState<Sample[] | null>(null);
   const storage = useQuery({ queryKey: ["storage"], queryFn: api.storage, enabled: open });
 
   const choose = (all: File[]) => {
@@ -82,7 +95,7 @@ export function BulkImportDialog({
     setRows(buildRows(sequence));
     setStatus({});
     setPhase("review");
-    setRefusal(null);
+    setStopped(false);
     setFrozen(null);
   };
 
@@ -90,8 +103,22 @@ export function BulkImportDialog({
     if (open) choose([]);
   }, [open]);
 
-  const existing = useMemo(() => new Map(samples.map((s) => [s.sample_code.trim().toLowerCase(), s])), [samples]);
-  const match = (row: Row) => (frozen ?? existing).get(row.code.trim().toLowerCase());
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (phase !== "running") return;
+    const warn = (e: BeforeUnloadEvent) => e.preventDefault();
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [phase]);
+
+  const lookup = (row: Row) => matchExistingSample(row.code, frozen ?? samples);
+  const match = (row: Row) => lookup(row).sample;
   const update = (id: number, change: Partial<Row>) => setRows((rs) => rs.map((r) => (r.id === id ? { ...r, ...change } : r)));
   const setRowStatus = (id: number, st: RowStatus) => setStatus((s) => ({ ...s, [id]: st }));
 
@@ -101,32 +128,29 @@ export function BulkImportDialog({
     (c) => included.find((r) => r.code.trim().toLowerCase() === c)?.code.trim() ?? c,
   );
   const emptyId = included.some((r) => !r.code.trim());
-  const selectedBytes = totalBytes(included.flatMap((r) => r.files.map((f) => f.file)));
-  const fits = capacityCheck(selectedBytes, storage.data);
+  const ambiguous = included.some((r) => lookup(r).ambiguous.length > 0);
+  const groupSizes = included.map((r) => totalBytes(r.files.map((f) => f.file)));
+  const selectedBytes = groupSizes.reduce((sum, n) => sum + n, 0);
+  const space = uploadSpace(t, selectedBytes, groupSizes, storage.data);
   const newCount = included.filter((r) => !match(r)).length;
   const fileCount = included.reduce((n, r) => n + r.files.length, 0);
-  const canStart = phase === "review" && included.length > 0 && duplicated.length === 0 && !emptyId && fits !== "insufficient";
-  const doneCount = Object.values(status).filter((s) => s.state === "done").length;
-
-  const insufficient = (c: StorageCapacity) =>
-    t("storage.insufficient", {
-      needed: fmtBytes(selectedBytes),
-      available: fmtBytes(c.available_for_data_bytes),
-      reserve: fmtBytes(c.min_free_bytes),
-    });
+  const canStart = phase === "review" && included.length > 0 && duplicated.length === 0 && !emptyId && !ambiguous && !space.refusal;
 
   const run = async () => {
+    // Fresh figures; a refusal then shows up through the refreshed ["storage"] query.
     const capacity = await qc.fetchQuery({ queryKey: ["storage"], queryFn: api.storage, staleTime: 0 }).catch(() => null);
-    if (capacity && capacityCheck(selectedBytes, capacity) === "insufficient") {
-      setRefusal(insufficient(capacity));
-      return;
-    }
-    setRefusal(null);
-    setFrozen(existing);
+    if (uploadSpace(t, selectedBytes, groupSizes, capacity).refusal) return;
+    setFrozen(samples);
     setPhase("running");
     setStatus(Object.fromEntries(included.map((r) => [r.id, { state: "waiting" } as RowStatus])));
     const touched = new Set<string>();
+    let outOfSpace = false;
     for (const row of included) {
+      // Once the disk is full (or the dialog is gone), creating more samples would only leave them empty.
+      if (outOfSpace || !mounted.current) {
+        setRowStatus(row.id, { state: "notStarted" });
+        continue;
+      }
       let target = match(row);
       let created = false;
       try {
@@ -144,7 +168,9 @@ export function BulkImportDialog({
           (p) => setRowStatus(row.id, { state: "uploading", pct: p.total ? Math.round((100 * p.loaded) / p.total) : 0 }),
         );
         setRowStatus(row.id, { state: "done", sampleId, result });
+        outOfSpace = result.rejected.some((r) => r.code === "insufficient_storage");
       } catch (e) {
+        outOfSpace = isOutOfSpace(e);
         const reason = e instanceof Error ? e.message : String(e);
         setRowStatus(row.id, {
           state: "error",
@@ -152,10 +178,28 @@ export function BulkImportDialog({
         });
       }
     }
+    setStopped(outOfSpace);
     setPhase("finished");
     const keys = [["samples"], ["projects"], ["project", projectId], ["dashboard"], ["storage"], ...[...touched].flatMap((id) => [["files", id], ["sample", id]])];
     for (const key of keys) qc.invalidateQueries({ queryKey: key });
   };
+
+  const states = Object.values(status);
+  const done = states.filter((s): s is DoneStatus => s.state === "done");
+  const uploaded = done.filter((s) => s.result.files.length > 0);
+  const finishedText = [
+    t("bulk.finished", { ok: uploaded.length, total: states.length }),
+    ...(
+      [
+        ["bulk.finishedPartial", uploaded.filter((s) => s.result.rejected.length > 0).length],
+        ["bulk.finishedRejected", done.length - uploaded.length],
+        ["bulk.finishedFailed", states.filter((s) => s.state === "error").length],
+        ["bulk.finishedSkipped", states.filter((s) => s.state === "notStarted").length],
+      ] as const
+    )
+      .filter(([, count]) => count > 0)
+      .map(([key, count]) => t(key, { count })),
+  ].join(" ");
 
   const techOptions = Object.entries(technologyLabel).map(([v, l]) => (
     <option key={v} value={v}>
@@ -264,7 +308,7 @@ export function BulkImportDialog({
 
           <ul className="max-h-[50vh] space-y-2 overflow-y-auto pr-1">
             {rows.map((row) => {
-              const target = match(row);
+              const { sample: target, ambiguous: candidates } = lookup(row);
               const st = status[row.id];
               const locked = phase !== "review";
               return (
@@ -283,12 +327,18 @@ export function BulkImportDialog({
                       value={row.code}
                       maxLength={255}
                       disabled={locked}
-                      aria-invalid={row.include && !row.code.trim()}
+                      aria-invalid={row.include && (!row.code.trim() || candidates.length > 0)}
                       onChange={(e) => update(row.id, { code: e.target.value })}
                       className="h-9 min-w-[10rem] flex-1"
                     />
-                    {target ? <Badge tone="blue">{t("bulk.existing")}</Badge> : <Badge tone="teal">{t("bulk.new")}</Badge>}
-                    {!target && (
+                    {target ? (
+                      <Badge tone="blue">{t("bulk.existing")}</Badge>
+                    ) : candidates.length > 0 ? (
+                      <Badge tone="warning">?</Badge>
+                    ) : (
+                      <Badge tone="teal">{t("bulk.new")}</Badge>
+                    )}
+                    {!target && candidates.length === 0 && (
                       <Select
                         aria-label={t("bulk.technology")}
                         value={row.technology}
@@ -300,6 +350,13 @@ export function BulkImportDialog({
                       </Select>
                     )}
                   </div>
+                  {row.include && candidates.length > 0 && (
+                    <div className="mt-2">
+                      <ErrorNote
+                        error={t("bulk.ambiguous", { code: row.code.trim(), matches: candidates.map((s) => s.sample_code).join(", ") })}
+                      />
+                    </div>
+                  )}
                   <ul className="mt-2 space-y-0.5 text-xs text-muted-foreground">
                     {row.files.map((f, i) => (
                       <li key={i} className="flex min-w-0 items-center gap-2">
@@ -311,35 +368,33 @@ export function BulkImportDialog({
                       </li>
                     ))}
                   </ul>
-                  {row.warnings.map((w) => (
-                    <p key={w} className="mt-1 flex gap-1 break-words text-xs text-amber-700 dark:text-warning">
+                  {row.warnings.map((w, i) => (
+                    <p key={i} className="mt-1 flex gap-1 break-words text-xs text-amber-700 dark:text-warning">
                       <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" aria-hidden />
-                      <span className="min-w-0">{w}</span>
+                      <span className="min-w-0">{warningText(t, w)}</span>
                     </p>
                   ))}
-                  {st && <RowProgress status={st} />}
+                  {/* Links only once everything has run: leaving the page mid-run would hide the rest of it. */}
+                  {st && <RowProgress status={st} showLink={phase === "finished"} />}
                 </li>
               );
             })}
           </ul>
 
           <p className="text-xs text-muted-foreground" aria-live="polite">
-            {t("storage.selected", {
-              selected: fmtBytes(selectedBytes),
-              free: storage.data ? fmtBytes(storage.data.available_for_data_bytes) : "—",
-            })}
+            {space.line}
           </p>
           {duplicated.length > 0 && <ErrorNote error={t("bulk.duplicateIds", { ids: duplicated.join(", ") })} />}
           {emptyId && <ErrorNote error={t("bulk.emptyId")} />}
-          {fits === "insufficient" && storage.data && <ErrorNote error={insufficient(storage.data)} />}
-          <ErrorNote error={refusal} />
+          {phase === "review" && <ErrorNote error={space.refusal} />}
+          {stopped && <ErrorNote error={t("bulk.stoppedNoSpace")} />}
           {phase === "review" && <p className="text-xs text-muted-foreground">{t("bulk.explain")}</p>}
 
           <div className="flex flex-wrap items-center justify-end gap-2">
             {phase === "finished" ? (
               <>
                 <span className="mr-auto text-sm" aria-live="polite">
-                  {t("bulk.finished", { ok: doneCount, total: Object.keys(status).length })}
+                  {finishedText}
                 </span>
                 <Button onClick={() => onOpenChange(false)}>{t("common.close")}</Button>
               </>
@@ -368,11 +423,13 @@ function IgnoredNote({ names }: { names: string[] }) {
   return <p className="break-words text-xs text-muted-foreground">{t("bulk.ignored", { count: names.length, names: listed })}</p>;
 }
 
-function RowProgress({ status }: { status: RowStatus }) {
+function RowProgress({ status, showLink }: { status: RowStatus; showLink: boolean }) {
   const t = useT();
   switch (status.state) {
     case "waiting":
       return <p className="mt-2 text-xs text-muted-foreground">{t("bulk.waiting")}</p>;
+    case "notStarted":
+      return <p className="mt-2 text-xs text-muted-foreground">{t("bulk.notStarted")}</p>;
     case "creating":
       return (
         <p className="mt-2 flex items-center gap-1 text-xs">
@@ -394,19 +451,35 @@ function RowProgress({ status }: { status: RowStatus }) {
           <ErrorNote error={`${t("bulk.failed")}: ${status.message}`} />
         </div>
       );
-    case "done":
+    case "done": {
+      const { files, rejected } = status.result;
+      const outcome =
+        files.length === 0 ? (
+          <span className="flex items-center gap-1 text-danger">
+            <XCircle className="h-3.5 w-3.5" /> {t("bulk.nothingStored")}
+          </span>
+        ) : rejected.length > 0 ? (
+          <span className="flex items-center gap-1 text-amber-700 dark:text-warning">
+            <AlertTriangle className="h-3.5 w-3.5" /> {t("bulk.donePartial")}
+          </span>
+        ) : (
+          <span className="flex items-center gap-1 text-success">
+            <CheckCircle2 className="h-3.5 w-3.5" /> {t("bulk.done")}
+          </span>
+        );
       return (
         <div className="mt-2 space-y-2">
           <div className="flex items-center justify-between gap-2 text-xs">
-            <span className="flex items-center gap-1 text-success">
-              <CheckCircle2 className="h-3.5 w-3.5" /> {t("bulk.done")}
-            </span>
-            <Link to={`/samples/${status.sampleId}`} className="text-arva-royal hover:underline dark:text-arva-cyan">
-              {t("serverImport.openSample")}
-            </Link>
+            {outcome}
+            {showLink && (
+              <Link to={`/samples/${status.sampleId}`} className="text-arva-royal hover:underline dark:text-arva-cyan">
+                {t("serverImport.openSample")}
+              </Link>
+            )}
           </div>
           <UploadResultList result={status.result} />
         </div>
       );
+    }
   }
 }

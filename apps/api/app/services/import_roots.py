@@ -14,6 +14,7 @@ from pathlib import Path, PurePosixPath
 from typing import BinaryIO
 
 from app.core.config import get_settings
+from app.services.capacity import fmt_bytes
 
 MAX_ENTRIES = 2000
 # Bounds the work for huge folders; anything beyond is reported as truncated.
@@ -28,6 +29,10 @@ _KINDS = (
 
 class ImportPathError(ValueError):
     """A requested location is not an accessible path inside an import folder."""
+
+
+class SourceChangedError(ValueError):
+    """A source file changed while it was being copied (for example a run that is still being written)."""
 
 
 @dataclass(frozen=True)
@@ -62,6 +67,7 @@ class Listing:
     parent: str | None
     entries: list[Entry]
     truncated: bool
+    unsupported_names: int
 
 
 @dataclass(frozen=True)
@@ -69,6 +75,9 @@ class SelectedFile:
     relative: str
     real: Path
     size_bytes: int
+    mtime_ns: int
+    dev: int
+    ino: int
 
     @property
     def name(self) -> str:
@@ -107,9 +116,19 @@ def root_by_path(path: str) -> ImportRoot:
     raise ImportPathError(f"{path} is not a configured import folder (check ARVA_IMPORT_ROOTS)")
 
 
+def _utf8(name: str) -> bool:
+    try:
+        name.encode("utf-8")
+    except UnicodeEncodeError:
+        return False
+    return True
+
+
 def _clean(relative: str) -> PurePosixPath:
     if len(relative) > _MAX_PATH or "\x00" in relative or "\\" in relative:
         raise ImportPathError("Invalid path")
+    if not _utf8(relative):
+        raise ImportPathError("Invalid path: file and folder names must be valid UTF-8")
     if relative.startswith("/"):
         raise ImportPathError("Absolute paths are not allowed; give a path relative to the import folder")
     parts = PurePosixPath(relative).parts
@@ -140,10 +159,14 @@ def browse(root: ImportRoot, relative: str) -> Listing:
         raise ImportPathError(f"{rel or '/'} is not a folder")
     found: list[tuple[bool, str, os.stat_result]] = []
     truncated = False
+    unsupported = 0
     try:
         with os.scandir(real) as it:
             for entry in it:
                 if entry.name.startswith("."):
+                    continue
+                if not _utf8(entry.name):
+                    unsupported += 1
                     continue
                 if len(found) >= _SCAN_LIMIT:
                     truncated = True
@@ -175,7 +198,7 @@ def browse(root: ImportRoot, relative: str) -> Listing:
         for is_dir, name, st in found
     ]
     parent = None if not rel else PurePosixPath(rel).parent.as_posix()
-    return Listing(root.index, rel, "" if parent == "." else parent, entries, truncated)
+    return Listing(root.index, rel, "" if parent == "." else parent, entries, truncated, unsupported)
 
 
 def resolve_file(root: ImportRoot, relative: str) -> SelectedFile:
@@ -193,16 +216,75 @@ def resolve_file(root: ImportRoot, relative: str) -> SelectedFile:
         raise ImportPathError(f"{rel}: not a regular file")
     if not os.access(real, os.R_OK):
         raise ImportPathError(f"{rel}: ARVA has no permission to read this file")
-    return SelectedFile(rel, real, st.st_size)
+    limit = get_settings().max_upload_size_bytes
+    if st.st_size > limit:
+        raise ImportPathError(
+            f"{rel}: {fmt_bytes(st.st_size)} is larger than the per-file limit of {fmt_bytes(limit)} "
+            f"(ARVA_MAX_UPLOAD_SIZE_BYTES={limit})"
+        )
+    return SelectedFile(rel, real, st.st_size, st.st_mtime_ns, st.st_dev, st.st_ino)
 
 
-def open_source(selected: SelectedFile) -> BinaryIO:
-    """Open read-only, refusing a symlink swapped in after validation."""
-    fd = os.open(selected.real, os.O_RDONLY | os.O_NOFOLLOW)
+class SourceReader:
+    """Read-only source; fails if the file grows or differs at EOF from what was validated."""
+
+    def __init__(self, selected: SelectedFile, fh: BinaryIO):
+        self._selected = selected
+        self._fh = fh
+        self._read = 0
+
+    def read(self, size: int = -1) -> bytes:
+        chunk = self._fh.read(size)
+        self._read += len(chunk)
+        if self._read > self._selected.size_bytes or (not chunk and size != 0 and not self._unchanged()):
+            raise SourceChangedError(
+                f"{self._selected.relative}: the file changed while it was being copied (is it still being "
+                "written?); nothing was stored. Import it again once it is complete."
+            )
+        return chunk
+
+    def _unchanged(self) -> bool:
+        st = os.fstat(self._fh.fileno())
+        s = self._selected
+        return self._read == s.size_bytes == st.st_size and st.st_mtime_ns == s.mtime_ns
+
+    def __enter__(self) -> SourceReader:
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        self._fh.close()
+
+
+def _open_beneath(root: ImportRoot, parts: tuple[str, ...]) -> int:
+    """Open root/parts without following any symlink, so a folder swapped in after validation cannot redirect it."""
+    fd = os.open(root.real, os.O_RDONLY | os.O_DIRECTORY)
     try:
-        if not stat.S_ISREG(os.fstat(fd).st_mode):
-            raise ImportPathError(f"{selected.relative}: not a regular file")
-        return os.fdopen(fd, "rb")
+        for part in parts[:-1]:
+            parent, fd = fd, os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+            os.close(parent)
+        # O_NONBLOCK: a FIFO swapped in for the file must not block the worker.
+        return os.open(parts[-1], os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=fd)
+    finally:
+        os.close(fd)
+
+
+def open_source(root: ImportRoot, selected: SelectedFile) -> SourceReader:
+    """Open the validated real path read-only; anything replaced since validation is refused."""
+    changed = ImportPathError(f"{selected.relative}: changed after it was checked; not imported")
+    parts = selected.real.relative_to(root.real).parts
+    if not parts:
+        raise changed
+    try:
+        fd = _open_beneath(root, parts)
+    except OSError as exc:
+        raise changed from exc
+    try:
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode) or (st.st_dev, st.st_ino) != (selected.dev, selected.ino):
+            raise changed
+        os.set_blocking(fd, True)
+        fh = os.fdopen(fd, "rb")
     except BaseException:
         os.close(fd)
         raise
+    return SourceReader(selected, fh)

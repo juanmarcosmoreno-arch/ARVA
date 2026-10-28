@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { groupFilesBySample, inferSampleName, isSequenceFile } from "@/lib/sampleNames";
+import { groupFilesBySample, inferSampleName, isSequenceFile, matchExistingSample } from "@/lib/sampleNames";
 
 const groups = (names: string[]) => groupFilesBySample(names).map((g) => [g.sampleName, g.files.map((f) => [f.name, f.mate])]);
 
@@ -58,6 +58,19 @@ describe("inferSampleName", () => {
     expect(inferSampleName("x_1.fastq.gz", ["x_1.fastq.gz", "x_2.fq"])).toBe("x");
   });
 
+  it("never treats FASTA or POD5 names as mates", () => {
+    expect(inferSampleName("strain_1.fna", ["strain_1.fna", "strain_2.fna"])).toBe("strain_1");
+    expect(inferSampleName("isolate_2.fasta", ["isolate_1.fasta", "isolate_2.fasta"])).toBe("isolate_2");
+    expect(inferSampleName("assembly_R1.fasta.gz", ["assembly_R1.fasta.gz"])).toBe("assembly_R1");
+    expect(inferSampleName("SA-001_S1_L001_R1_001.fa", [])).toBe("SA-001_S1_L001_R1_001");
+    expect(inferSampleName("run_1.pod5", ["run_1.pod5", "run_2.pod5"])).toBe("run_1");
+  });
+
+  it("only pairs a FASTQ with a FASTQ partner", () => {
+    expect(inferSampleName("x_1.fastq", ["x_1.fastq", "x_2.fasta"])).toBe("x_1");
+    expect(inferSampleName("x_2.fasta", ["x_1.fastq", "x_2.fasta"])).toBe("x_2");
+  });
+
   it("does not treat numbered chunks as mates", () => {
     const chunks = ["reads_0.fastq.gz", "reads_1.fastq.gz", "reads_2.fastq.gz", "reads_3.fastq.gz"];
     expect(chunks.map((c) => inferSampleName(c, chunks))).toEqual(["reads_0", "reads_1", "reads_2", "reads_3"]);
@@ -102,21 +115,44 @@ describe("groupFilesBySample", () => {
     expect(g.warnings).toEqual([]);
   });
 
+  it("keeps FASTA assemblies of different isolates apart, without mate labels", () => {
+    expect(groups(["strain_1.fna", "strain_2.fna"])).toEqual([
+      ["strain_1", [["strain_1.fna", null]]],
+      ["strain_2", [["strain_2.fna", null]]],
+    ]);
+    expect(groups(["isolate_1.fasta", "isolate_2.fasta", "isolate_R1.fa"]).map(([name]) => name)).toEqual([
+      "isolate_1",
+      "isolate_2",
+      "isolate_R1",
+    ]);
+    expect(groups(["sample_1.fastq", "sample_2.fasta"])).toEqual([
+      ["sample_1", [["sample_1.fastq", null]]],
+      ["sample_2", [["sample_2.fasta", null]]],
+    ]);
+    expect(groupFilesBySample(["strain_1.fna", "strain_2.fna"]).flatMap((g) => g.warnings)).toEqual([]);
+  });
+
+  it("puts reads and the assembly of one sample together", () => {
+    expect(groups(["A_R1.fastq.gz", "A_R2.fastq.gz", "A.fasta"])).toEqual([
+      ["A", [["A_R1.fastq.gz", "R1"], ["A_R2.fastq.gz", "R2"], ["A.fasta", null]]],
+    ]);
+  });
+
   it("warns about R1 without R2 and the reverse", () => {
-    expect(groupFilesBySample(["A_R1_001.fastq.gz"])[0].warnings).toEqual(["R1 without its R2 file: A_R1_001.fastq.gz"]);
-    expect(groupFilesBySample(["A_R2.fq"])[0].warnings).toEqual(["R2 without its R1 file: A_R2.fq"]);
+    expect(groupFilesBySample(["A_R1_001.fastq.gz"])[0].warnings).toEqual([{ kind: "unpaired", mate: "R1", files: ["A_R1_001.fastq.gz"] }]);
+    expect(groupFilesBySample(["A_R2.fq"])[0].warnings).toEqual([{ kind: "unpaired", mate: "R2", files: ["A_R2.fq"] }]);
   });
 
   it("warns about a lane missing its mate even when other lanes are paired", () => {
     const names = ["A_S1_L001_R1_001.fastq.gz", "A_S1_L001_R2_001.fastq.gz", "A_S1_L002_R1_001.fastq.gz"];
-    expect(groupFilesBySample(names)[0].warnings).toEqual(["R1 without its R2 file: A_S1_L002_R1_001.fastq.gz"]);
+    expect(groupFilesBySample(names)[0].warnings).toEqual([{ kind: "unpaired", mate: "R1", files: ["A_S1_L002_R1_001.fastq.gz"] }]);
   });
 
   it("warns when a mate has more than two files", () => {
     const names = [1, 2, 3].flatMap((l) => [`A_S1_L00${l}_R1_001.fastq.gz`, `A_S1_L00${l}_R2_001.fastq.gz`]);
     expect(groupFilesBySample(names)[0].warnings).toEqual([
-      "3 R1 files in one sample: check that they belong together (e.g. several lanes or runs)",
-      "3 R2 files in one sample: check that they belong together (e.g. several lanes or runs)",
+      { kind: "tooMany", mate: "R1", count: 3 },
+      { kind: "tooMany", mate: "R2", count: 3 },
     ]);
   });
 
@@ -135,5 +171,24 @@ describe("isSequenceFile", () => {
   it("recognises FASTQ/FASTA with optional gzip only", () => {
     expect(["a.fastq", "a.FQ.GZ", "a.fasta.gz", "a.fna", "a.fas", "dir/a.fa"].every(isSequenceFile)).toBe(true);
     expect(["a.pod5", "SampleSheet.csv", "a.fastq.bz2", "a.gz", "report.html"].some(isSequenceFile)).toBe(false);
+  });
+});
+
+describe("matchExistingSample", () => {
+  const samples = [{ sample_code: "S1" }, { sample_code: "s1" }, { sample_code: "Ab" }, { sample_code: "aB" }, { sample_code: "Solo" }];
+
+  it("prefers the exact (trimmed) code", () => {
+    expect(matchExistingSample("S1", samples)).toEqual({ sample: samples[0], ambiguous: [] });
+    expect(matchExistingSample(" s1 ", samples)).toEqual({ sample: samples[1], ambiguous: [] });
+  });
+
+  it("falls back to a case-insensitive match only when it is unique", () => {
+    expect(matchExistingSample("SOLO", samples)).toEqual({ sample: samples[4], ambiguous: [] });
+    expect(matchExistingSample("AB", samples)).toEqual({ sample: null, ambiguous: [samples[2], samples[3]] });
+  });
+
+  it("finds nothing for unknown or empty codes", () => {
+    expect(matchExistingSample("S2", samples)).toEqual({ sample: null, ambiguous: [] });
+    expect(matchExistingSample("  ", samples)).toEqual({ sample: null, ambiguous: [] });
   });
 });

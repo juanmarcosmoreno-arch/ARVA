@@ -108,9 +108,13 @@ therefore do not draw inside ARVA, while its tables do, and the original file ca
 - Originals are written once (`open(..., "xb")`), then chmod read-only.
 - Server-folder import (`app/services/import_roots.py`) only reads inside `ARVA_IMPORT_ROOTS`: paths
   are root-relative, `..`/absolute/hidden names are refused, real paths are checked against the root
-  (symlinks leaving it are rejected), and sources are opened `O_RDONLY | O_NOFOLLOW` and never altered.
-- Uploads whose `Content-Length` exceeds the usable free space are answered with 507 by an ASGI
-  middleware before the body is read; each file is re-checked before it is stored.
+  (symlinks leaving it are rejected), and sources are opened component by component from the root with
+  `O_NOFOLLOW` (so a folder swapped for a symlink after the check is refused), checked to be the same
+  inode, and rejected if their size or mtime change during the copy. Sources are never altered.
+- Uploads whose `Content-Length` (times 2 when the request spool shares the data disk) exceeds the
+  usable free space are answered with 507 by an ASGI middleware before the body is read, and uploads
+  without `Content-Length` with 411; each file is re-checked before it is stored and every 256 MB
+  while it is written.
 - User-supplied text is HTML-escaped in reports; the React UI never injects raw HTML from data.
 - External tools run from argument vectors only (no shell), with a credential-free environment,
   timeouts and process-group termination. User-supplied names appear in commands only inside

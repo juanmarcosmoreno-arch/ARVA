@@ -2,8 +2,11 @@
 import gzip
 import hashlib
 import io
+import os
 import shutil
 import stat
+import tempfile
+import threading
 from types import SimpleNamespace
 
 import pytest
@@ -11,7 +14,16 @@ import pytest
 from app import __version__
 from app.api.capacity import UploadCapacityGuard
 from app.core.config import Settings, get_settings
-from app.services.import_roots import MAX_ENTRIES
+from app.services import capacity as capacity_service
+from app.services.import_roots import (
+    MAX_ENTRIES,
+    ImportPathError,
+    get_root,
+    open_source,
+    resolve_file,
+)
+from app.storage import local as local_storage
+from app.tasks import server_import
 
 API = "/api/v1"
 GIB = 1024**3
@@ -35,6 +47,15 @@ def fake_disk(monkeypatch, *free_values, total=2000 * GIB):
 @pytest.fixture
 def reserve(monkeypatch):
     monkeypatch.setattr(get_settings(), "min_free_bytes", RESERVE)
+
+
+@pytest.fixture
+def spool_factor(monkeypatch):
+    """Pins whether uploads are spooled on the data disk (2) or elsewhere (1)."""
+    def set_factor(factor):
+        monkeypatch.setattr(capacity_service, "upload_overhead_factor", lambda _root: factor)
+    set_factor(1)
+    return set_factor
 
 
 @pytest.fixture
@@ -85,17 +106,41 @@ def test_default_reserve_is_one_gib():
     assert Settings.model_fields["min_free_bytes"].default == GIB
 
 
-def test_storage_endpoint(client, monkeypatch, reserve, storage_root):
+def test_storage_endpoint(client, monkeypatch, reserve, storage_root, spool_factor):
     fake_disk(monkeypatch, 5000)
+    spool_factor(2)
     assert client.get(f"{API}/system/storage").json() == {
         "storage_root": str(storage_root.resolve()),
         "free_bytes": 5000,
         "total_bytes": 2000 * GIB,
         "min_free_bytes": RESERVE,
         "available_for_data_bytes": 4000,
+        "upload_overhead_factor": 2,
     }
     fake_disk(monkeypatch, 10)
-    assert client.get(f"{API}/system/storage").json()["available_for_data_bytes"] == 0
+    spool_factor(1)
+    body = client.get(f"{API}/system/storage").json()
+    assert body["available_for_data_bytes"] == 0 and body["upload_overhead_factor"] == 1
+
+
+def test_upload_overhead_factor_follows_the_spool_disk(monkeypatch, storage_root):
+    monkeypatch.setattr(tempfile, "tempdir", str(storage_root))
+    assert capacity_service.upload_overhead_factor(storage_root) == 2
+
+    spool = str(storage_root / "elsewhere")
+    real_stat = os.stat
+
+    def other_device(path, *args, **kwargs):
+        if str(path) == spool:
+            return SimpleNamespace(st_dev=real_stat(storage_root).st_dev + 1)
+        return real_stat(path, *args, **kwargs)
+
+    monkeypatch.setattr(tempfile, "tempdir", spool)
+    monkeypatch.setattr(os, "stat", other_device)
+    assert capacity_service.upload_overhead_factor(storage_root) == 1
+    # Unknown spool location: assume the worst case.
+    monkeypatch.setattr(os, "stat", real_stat)
+    assert capacity_service.upload_overhead_factor(storage_root) == 2
 
 
 def test_upload_larger_than_free_space_is_refused_with_507(client, monkeypatch, reserve, storage_root):
@@ -110,7 +155,7 @@ def test_upload_larger_than_free_space_is_refused_with_507(client, monkeypatch, 
     assert not (storage_root / "raw" / p["id"]).exists()
 
 
-async def test_upload_guard_answers_before_reading_the_body(monkeypatch, reserve):
+async def test_upload_guard_answers_before_reading_the_body(monkeypatch, reserve, spool_factor):
     fake_disk(monkeypatch, RESERVE + 10)
     reached = []
 
@@ -136,6 +181,55 @@ async def test_upload_guard_answers_before_reading_the_body(monkeypatch, reserve
     await guard({**scope, "method": "GET"}, receive, send)
     assert reached == ["/api/v1/samples/abc/files/import-server", "/api/v1/projects", "/api/v1/samples/abc/files"]
 
+    sent.clear()
+    for headers in ([], [(b"transfer-encoding", b"chunked")], [(b"content-length", b"lots")]):
+        await guard({**scope, "headers": headers}, receive, send)
+        assert sent[-2]["status"] == 411
+    assert len(reached) == 3
+
+
+def test_chunked_upload_is_refused_before_it_is_spooled(client, monkeypatch, reserve):
+    _, s = make_sample(client)
+    fake_disk(monkeypatch, 10 * GIB)
+
+    def body():
+        for _ in range(4):
+            yield b"x" * 1024
+
+    r = client.post(
+        f"{API}/samples/{s['id']}/files",
+        content=body(),
+        headers={"content-type": "multipart/form-data; boundary=b"},
+    )
+    assert r.status_code == 411
+    assert "Content-Length" in r.json()["detail"]
+    assert client.get(f"{API}/samples/{s['id']}/files").json() == []
+
+
+def test_spooled_upload_counts_twice_on_the_data_disk(client, monkeypatch, reserve, spool_factor):
+    _, s = make_sample(client)
+    content = FASTQ * 20
+    # Room for the file once (plus multipart overhead), not for the spooled copy as well.
+    fake_disk(monkeypatch, RESERVE + len(content) + 400)
+    spool_factor(2)
+    r = upload(client, s["id"], "a.fastq", content)
+    assert r.status_code == 507
+    assert "twice its size" in r.json()["detail"] and r.json()["needed_bytes"] > 2 * len(content)
+
+    spool_factor(1)
+    assert upload(client, s["id"], "a.fastq", content).json()["rejected"] == []
+
+
+def test_spooled_upload_that_was_admitted_is_stored(client, monkeypatch, reserve, spool_factor):
+    _, s = make_sample(client)
+    content = FASTQ * 20
+    spool_factor(2)
+    # The guard sees room for 2x; spooling then uses 1x before the per-file check.
+    fake_disk(monkeypatch, RESERVE + 2 * len(content) + 800, RESERVE + len(content) + 400)
+    r = upload(client, s["id"], "a.fastq", content)
+    assert r.status_code == 201, r.text
+    assert r.json()["rejected"] == [] and len(r.json()["files"]) == 1
+
 
 def test_each_file_is_rechecked_before_storing(client, monkeypatch, reserve):
     _, s = make_sample(client)
@@ -145,6 +239,30 @@ def test_each_file_is_rechecked_before_storing(client, monkeypatch, reserve):
     assert r.status_code == 201, r.text
     assert r.json()["files"] == []
     assert "Not enough free space" in r.json()["rejected"][0]["reason"]
+    assert r.json()["rejected"][0]["code"] == "insufficient_storage"
+
+
+def test_free_space_is_rechecked_while_streaming(client, monkeypatch, reserve, storage_root):
+    p, s = make_sample(client)
+    monkeypatch.setattr(local_storage, "SPACE_CHECK_BYTES", 1)
+    # Guard and per-file check pass; then another writer uses the rest while this file streams.
+    fake_disk(monkeypatch, 10 * GIB, 10 * GIB, RESERVE)
+    r = upload(client, s["id"], "a.fastq", FASTQ)
+    assert r.status_code == 201, r.text
+    assert r.json()["files"] == []
+    assert r.json()["rejected"][0]["code"] == "insufficient_storage"
+    assert not [f for f in (storage_root / "raw" / p["id"]).rglob("*") if f.is_file()]
+
+
+def test_oversize_upload_is_refused_before_copying(client, monkeypatch):
+    _, s = make_sample(client)
+    monkeypatch.setattr(get_settings(), "max_upload_size_bytes", 100)
+    copies = []
+    monkeypatch.setattr(local_storage.LocalStorage, "save_stream", lambda *a, **k: copies.append(a))
+    r = upload(client, s["id"], "a.fastq", FASTQ * 20)
+    assert r.json()["files"] == [] and copies == []
+    rejection = r.json()["rejected"][0]
+    assert rejection["code"] == "too_large" and "100 byte limit" in rejection["reason"]
 
 
 # --- Duplicates across samples ----------------------------------------------------
@@ -164,6 +282,7 @@ def test_identical_content_in_another_sample_is_accepted_with_a_note(client):
     again = upload(client, b["id"], "copy.fastq", FASTQ).json()
     assert again["files"] == []
     assert "already registered for this sample" in again["rejected"][0]["reason"]
+    assert again["rejected"][0]["code"] == "duplicate"
 
     _, other_project_sample = make_sample(client, "C-3")
     third = upload(client, other_project_sample["id"], "reads_c.fastq", FASTQ).json()["files"][0]
@@ -385,3 +504,172 @@ def test_server_import_disabled_without_roots(client, no_import_roots):
     r = start_import(client, s["id"], ["a.fastq"])
     assert r.status_code == 400
     assert "not enabled" in r.json()["detail"]
+
+
+def test_server_import_refuses_files_over_the_upload_limit(client, import_root, monkeypatch):
+    (import_root / "ok.fastq").write_bytes(FASTQ)
+    (import_root / "big.fastq").write_bytes(FASTQ * 100)
+    monkeypatch.setattr(get_settings(), "max_upload_size_bytes", 1000)
+    _, s = make_sample(client)
+    r = start_import(client, s["id"], ["ok.fastq", "big.fastq"])
+    assert r.status_code == 400
+    assert r.json()["detail"] == (
+        "big.fastq: 3.5 KB is larger than the per-file limit of 1000 B (ARVA_MAX_UPLOAD_SIZE_BYTES=1000)"
+    )
+    assert client.get(f"{API}/samples/{s['id']}/jobs").json() == []
+
+
+def test_server_import_rejects_a_source_that_changes_while_copied(client, import_root, storage_root, monkeypatch):
+    growing = import_root / "growing.fastq"
+    growing.write_bytes(FASTQ)
+    rewritten = import_root / "rewritten.fastq"
+    rewritten.write_bytes(FASTQ_B)
+    real_open = server_import.open_source
+
+    def open_then_change(root, selected):
+        fh = real_open(root, selected)
+        if selected.relative == "growing.fastq":
+            with open(growing, "ab") as w:
+                w.write(FASTQ * 50)
+        else:
+            # Same size, rewritten in place.
+            with open(rewritten, "r+b") as w:
+                w.write(b"@y")
+            st = rewritten.stat()
+            os.utime(rewritten, ns=(st.st_atime_ns, selected.mtime_ns + 10**9))
+        return fh
+
+    monkeypatch.setattr(server_import, "open_source", open_then_change)
+    p, s = make_sample(client)
+    job = run_import(client, s["id"], ["growing.fastq", "rewritten.fastq"])
+    assert job["status"] == "failed", job["log_text"]
+    reasons = {r["path"]: r["reason"] for r in job["result_summary"]["rejected"]}
+    assert set(reasons) == {"growing.fastq", "rewritten.fastq"}
+    assert all("changed while it was being copied" in r for r in reasons.values())
+    assert client.get(f"{API}/samples/{s['id']}/files").json() == []
+    assert not [f for f in (storage_root / "raw" / p["id"]).rglob("*") if f.is_file()]
+
+
+def test_server_import_keeps_files_imported_before_an_unexpected_error(client, import_root, monkeypatch):
+    (import_root / "a.fastq").write_bytes(FASTQ)
+    (import_root / "b.fastq").write_bytes(FASTQ_B)
+    real = server_import.register_raw_file
+    calls = []
+
+    def fail_second(*args, **kwargs):
+        calls.append(1)
+        if len(calls) == 2:
+            raise RuntimeError("disk controller exploded")
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(server_import, "register_raw_file", fail_second)
+    _, s = make_sample(client)
+    job = run_import(client, s["id"], ["a.fastq", "b.fastq"])
+    assert job["status"] == "failed"
+    assert "disk controller exploded" in job["error_message"]
+    assert [i["name"] for i in job["result_summary"]["imported"]] == ["a.fastq"]
+    assert "1 file(s) imported before the failure stay registered" in job["log_text"]
+    files = client.get(f"{API}/samples/{s['id']}/files").json()
+    assert [f["original_filename"] for f in files] == ["a.fastq"]
+
+
+def test_server_import_notes_identical_content_in_another_sample(client, import_root):
+    (import_root / "reads.fastq").write_bytes(FASTQ)
+    p, a = make_sample(client, "A-1")
+    _, b = make_sample(client, "B-2", project=p)
+    upload(client, a["id"], "reads_a.fastq", FASTQ)
+    job = run_import(client, b["id"], ["reads.fastq"])
+    assert job["status"] == "completed", job["log_text"]
+    [f] = client.get(f"{API}/samples/{b['id']}/files").json()
+    assert f["validation_message"].endswith("Note: identical content is already registered in sample A-1 as reads_a.fastq.")
+
+
+@pytest.fixture
+def swappable(import_root, tmp_path):
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "a.fastq").write_bytes(b"SECRET OUTSIDE THE ROOT\n")
+    (import_root / "run1").mkdir()
+    (import_root / "run1" / "a.fastq").write_bytes(FASTQ)
+    return import_root, outside
+
+
+def _swap(kind, import_root, outside):
+    run1 = import_root / "run1"
+    target = run1 / "a.fastq"
+    if kind == "folder_symlink":
+        run1.rename(import_root / "run1_old")
+        run1.symlink_to(outside)
+    elif kind == "file_symlink":
+        target.unlink()
+        target.symlink_to(outside / "a.fastq")
+    elif kind == "fifo":
+        target.unlink()
+        os.mkfifo(target)
+    else:
+        # Kept under another name so the new file cannot reuse its inode number.
+        target.rename(run1 / "a.old")
+        target.write_bytes(FASTQ)
+
+
+@pytest.mark.parametrize("kind", ["folder_symlink", "file_symlink", "fifo", "replaced"])
+def test_open_source_refuses_anything_swapped_in_after_validation(swappable, kind):
+    import_root, outside = swappable
+    root = get_root(0)
+    selected = resolve_file(root, "run1/a.fastq")
+    _swap(kind, import_root, outside)
+    outcome = {}
+
+    def attempt():
+        try:
+            with open_source(root, selected) as fh:
+                outcome["read"] = fh.read(-1)
+        except ImportPathError as exc:
+            outcome["error"] = str(exc)
+
+    worker = threading.Thread(target=attempt, daemon=True)
+    worker.start()
+    worker.join(5)
+    assert not worker.is_alive(), "opening the source blocked"
+    assert outcome == {"error": "run1/a.fastq: changed after it was checked; not imported"}
+
+
+def test_server_import_does_not_follow_a_folder_swapped_for_a_symlink(client, swappable, monkeypatch):
+    import_root, outside = swappable
+    real_open = server_import.open_source
+
+    def swap_then_open(root, selected):
+        _swap("folder_symlink", import_root, outside)
+        return real_open(root, selected)
+
+    monkeypatch.setattr(server_import, "open_source", swap_then_open)
+    _, s = make_sample(client)
+    job = run_import(client, s["id"], ["run1/a.fastq"])
+    assert job["status"] == "failed"
+    assert "changed after it was checked" in job["result_summary"]["rejected"][0]["reason"]
+    assert client.get(f"{API}/samples/{s['id']}/files").json() == []
+
+
+def test_names_that_are_not_utf8_are_hidden_and_refused(client, import_root):
+    weird = import_root / "weird"
+    weird.mkdir()
+    (weird / "good.fastq").write_bytes(FASTQ)
+    (weird / os.fsdecode(b"bad\xff.fastq")).write_bytes(FASTQ)
+    r = browse(client, "weird")
+    assert r.status_code == 200, r.text
+    assert [e["name"] for e in r.json()["entries"]] == ["good.fastq"]
+    assert r.json()["unsupported_names"] == 1
+    assert browse(client).json()["unsupported_names"] == 0
+
+    _, s = make_sample(client)
+    r = client.post(
+        f"{API}/samples/{s['id']}/files/import-server",
+        content=b'{"root": 0, "paths": ["weird/bad\\udcff.fastq"]}',
+        headers={"content-type": "application/json"},
+    )
+    assert r.status_code == 422, r.text
+    assert "valid string" in r.json()["detail"][0]["msg"]
+    assert client.get(f"{API}/samples/{s['id']}/jobs").json() == []
+    # Should such a name get past the request schema, the path check refuses it too.
+    with pytest.raises(ImportPathError, match="UTF-8"):
+        resolve_file(get_root(0), os.fsdecode(b"weird/bad\xff.fastq"))

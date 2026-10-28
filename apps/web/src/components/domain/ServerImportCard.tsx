@@ -191,6 +191,9 @@ function ServerBrowser({ roots, sampleId, sampleCode }: { roots: ImportRoot[]; s
             </ul>
           )}
           {listing.data?.truncated && <p className="text-xs text-amber-700 dark:text-warning">{t("serverImport.truncated", { count: listing.data.entries.length })}</p>}
+          {!!listing.data?.unsupported_names && (
+            <p className="text-xs text-amber-700 dark:text-warning">{t("serverImport.unsupportedNames", { count: listing.data.unsupported_names })}</p>
+          )}
         </>
       )}
 
