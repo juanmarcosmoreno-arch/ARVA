@@ -3,7 +3,7 @@
 </p>
 
 <h1 align="center">ARVA</h1>
-<p align="center"><b>Integrated Genomic Discovery Platform</b><br><i>From Sequence to Discovery.</i></p>
+<p align="center"><b>Integrated Genomic Discovery Platform</b><br><i>From sequence to insight.</i></p>
 
 ARVA is a local-first platform for analysing sequencing data, starting with bacterial
 genomics. It is built around six principles: **scientific integrity** (every result comes

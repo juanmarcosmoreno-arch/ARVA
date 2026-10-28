@@ -52,7 +52,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
         ))}
       </div>
       <div className="border-t border-white/5 px-5 py-3 text-[10px] tracking-[0.18em] text-slate-500">
-        FROM SEQUENCE TO DISCOVERY
+        FROM SEQUENCE TO INSIGHT
       </div>
     </nav>
   );

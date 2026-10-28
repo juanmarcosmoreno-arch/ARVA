@@ -42,7 +42,7 @@ def create_app() -> FastAPI:
     settings = get_settings()
     app = FastAPI(
         title="ARVA API",
-        description="ARVA — Integrated Genomic Discovery Platform. From Sequence to Discovery.",
+        description="ARVA — Integrated Genomic Discovery Platform. From sequence to insight.",
         version=__version__,
     )
     # Added before CORS so that CORS stays outermost and also wraps the 507 responses.
