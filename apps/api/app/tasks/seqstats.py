@@ -26,12 +26,13 @@ def _body(ctx: JobContext) -> None:
     ctx.log(f"Input: {raw.original_filename} ({raw.size_bytes} bytes, sha256 {raw.checksum_sha256})",
             flush=True)
     params = StatsParameters(**(ctx.job.parameters or {}))
+
+    def progress(n: int) -> None:
+        ctx.log(f"Processed {n:,} records", flush=True)
+        ctx.check_cancelled()
+
     try:
-        stats = compute_sequence_stats(
-            ctx.path(raw.stored_path),
-            params,
-            progress=lambda n: ctx.log(f"Processed {n:,} records", flush=True),
-        )
+        stats = compute_sequence_stats(ctx.path(raw.stored_path), params, progress=progress)
     except SequenceFormatError as exc:
         raise JobFailure(f"Invalid input: {exc}") from exc
     ctx.log(f"Processed {stats['read_count']:,} records, {stats['total_bases']:,} bases")

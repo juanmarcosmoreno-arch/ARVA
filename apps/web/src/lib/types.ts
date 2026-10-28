@@ -4,7 +4,7 @@ import type { ServerMessage } from "./messages";
 
 export type SequencingTechnology = "illumina" | "nanopore" | "pacbio" | "hybrid" | "unknown";
 export type FileFormat = "fastq" | "fastq_gz" | "fasta" | "fasta_gz" | "pod5" | "unknown";
-export type JobStatus = "pending" | "running" | "completed" | "failed";
+export type JobStatus = "pending" | "running" | "completed" | "failed" | "cancelled";
 
 export interface Project {
   id: string;
@@ -652,6 +652,59 @@ export interface AnalysisJob {
   parent_job_id: string | null;
   /** Live monitoring of a long tool run (e.g. Flye stages), updated while it runs. */
   progress?: JobProgress | null;
+  /** When cancelling was asked; a running job stays "running" until the worker has stopped its tool. */
+  cancel_requested_at?: string | null;
+  /** A stopped Flye run's work folder, kept so that Flye's own --resume can continue it. */
+  checkpoint?: JobCheckpoint | null;
+}
+
+export interface JobCheckpoint {
+  tool: string;
+  /** The Flye version that wrote the folder; resuming needs the same one. */
+  tool_version: string;
+  path: string;
+  /** Cancelled by the user, stopped by the time limit, or killed from outside (signal, out of memory). */
+  reason: "cancelled" | "time_limit" | "stopped";
+  /** The stage Flye reruns (its folder from the interrupted run was removed). */
+  resume_stage: string;
+  completed_stages: string[];
+  stages: string[];
+  size_bytes: number;
+  kept_at: string;
+}
+
+export type BatchAnalysis = "sequence_stats" | "seqkit" | "fastqc";
+export type BatchDecision = "run" | "derived_excluded" | "raw_signal" | "not_reads" | "not_fastq" | "invalid" | "active" | "completed";
+
+export interface BatchQcRequest {
+  analyses: BatchAnalysis[];
+  include_derived: boolean;
+  recompute: boolean;
+  sample_ids?: string[];
+  dry_run: boolean;
+  plan_id?: string;
+}
+
+export interface BatchQcPlan {
+  plan_id: string;
+  analyses: BatchAnalysis[];
+  include_derived: boolean;
+  recompute: boolean;
+  sample_ids: string[] | null;
+  tools: { analysis: BatchAnalysis; tool: string; version: string | null; available: boolean; message: string }[];
+  samples: {
+    sample_id: string;
+    sample_code: string;
+    /** Jobs per analysis that would be (or were) created. */
+    jobs: Partial<Record<BatchAnalysis, number>>;
+    total: number;
+    files: { file_id: string; name: string; origin: RawFile["origin"]; file_format: FileFormat; decisions: Partial<Record<BatchAnalysis, BatchDecision>> }[];
+  }[];
+  totals: Partial<Record<BatchAnalysis, number>>;
+  total_jobs: number;
+  samples_with_jobs: number;
+  dry_run: boolean;
+  created_job_ids: string[];
 }
 
 export interface JobProgress {
@@ -985,14 +1038,22 @@ export interface AssemblyStats {
   files: Record<"contigs" | "graph" | "info", { path: string; sha256: string; size_bytes: number } | null>;
 }
 
+/** What an assembler's per-contig coverage measures; values of different kinds are not comparable. */
+export type CoverageKind = "read_depth" | "kmer_coverage" | "relative_depth" | "mapped_read_depth";
+/** "polished": made from parent_assembly_id by the polisher named in `assembler`. */
+export type AssemblyKind = "assembly" | "polished";
+
 export interface Assembly {
   id: string;
   sample_id: string;
   job_id: string;
+  kind: AssemblyKind;
+  parent_assembly_id: string | null;
   assembler: string;
   assembler_version: string;
   mode: "long" | "short" | "hybrid";
   read_type: string;
+  coverage_kind?: CoverageKind | null;
   input_file_ids: string[];
   stats: AssemblyStats;
   warnings: AssemblyWarning[];
@@ -1053,6 +1114,8 @@ export interface ProjectAssembly {
   sample_id: string;
   sample_code: string;
   job_id: string;
+  kind: AssemblyKind;
+  parent_assembly_id: string | null;
   assembler: string;
   assembler_version: string;
   mode: Assembly["mode"];
@@ -1066,6 +1129,7 @@ export interface ProjectAssembly {
   circular_contigs: number;
   contigs_with_circularity: number;
   median_coverage: number | null;
+  coverage_kind?: CoverageKind | null;
   warning_codes: string[];
   created_at: string;
 }
@@ -1157,4 +1221,265 @@ export interface QuastSummary {
   warnings: string[];
   quast_log_empty: boolean;
   html: { report: string; icarus: string; viewers: string[] };
+}
+
+// --- SPAdes and Unicycler ------------------------------------------------------------------------------------
+
+export type ReadRole = "r1" | "r2" | "unpaired" | "long";
+export type SpadesMode = "isolate" | "careful" | "standard";
+export type UnicyclerBridging = "conservative" | "normal" | "bold";
+export type AssemblyModeName = Assembly["mode"];
+
+export interface ShortReadInputs {
+  r1_file_id?: string | null;
+  r2_file_id?: string | null;
+  unpaired_file_id?: string | null;
+}
+
+export interface UnicyclerInputs extends ShortReadInputs {
+  long_file_id?: string | null;
+}
+
+export interface SpadesParams {
+  mode: SpadesMode;
+  /** Passed as -k; null lets SPAdes choose from the read length. */
+  k: number[] | null;
+  cov_cutoff: "off" | "auto" | number;
+  memory_gb: number | null;
+  threads: number | null;
+  output: "contigs" | "scaffolds";
+}
+
+export interface SpadesRequest {
+  inputs: ShortReadInputs;
+  params: SpadesParams;
+  reads_confirmed: boolean;
+}
+
+export interface UnicyclerParams {
+  mode: UnicyclerBridging;
+  keep: 0 | 1;
+  kmers: number[] | null;
+  depth_filter: number;
+  min_fasta_length: number;
+  linear_seqs: number;
+  threads: number | null;
+  spades_memory_gb: number | null;
+}
+
+export interface UnicyclerRequest {
+  inputs: UnicyclerInputs;
+  params: UnicyclerParams;
+  reads_confirmed: boolean;
+}
+
+export interface AssemblyToolInfo {
+  status: ToolStatus;
+  version: string | null;
+  version_validated: boolean;
+  message: string;
+  reason: string | null;
+  /** Options of interest this installed version lists in its help. */
+  options: string[];
+  max_threads: number;
+  /** Most memory ARVA may give a run (ARVA_TOOL_MEMORY_GB, or the computer's memory). */
+  max_memory_gb: number;
+  /** Used when no memory is given: min(250, max_memory_gb), as SPAdes does. */
+  default_memory_gb: number;
+}
+
+export interface AssemblyFileEvidence extends FlyeFileEvidence {
+  role: ReadRole;
+  read_mate: string | null;
+  read_count: number | null;
+}
+
+export interface ShortReadPlan {
+  tool: AssemblyToolInfo;
+  files: AssemblyFileEvidence[];
+  assembly_mode: AssemblyModeName | null;
+  read_layout: string;
+  /** Why these files cannot be assembled as chosen; null when they can. */
+  problem: string | null;
+  sample_technology: SequencingTechnology;
+  confirmation_required: boolean;
+}
+
+export interface UnicyclerPlan extends ShortReadPlan {
+  tool: AssemblyToolInfo & {
+    modes: AssemblyModeName[];
+    helpers: Record<"spades" | "racon" | "makeblastdb" | "tblastn", { path: string | null; version: string | null }>;
+  };
+}
+
+// --- Polishing ------------------------------------------------------------------------------------------------
+
+export type PolishingStrategy = "racon" | "pilon" | "hybrid";
+/** minimap2 presets for the long reads Racon polishes with. */
+export type LongReadPreset = "map-ont" | "map-pb" | "map-hifi";
+export type PilonFix = "snps" | "indels" | "gaps" | "local";
+
+export interface PolishingTool {
+  status: ToolStatus;
+  version: string | null;
+  version_validated: boolean;
+  message: string;
+  reason: string | null;
+  path: string | null;
+}
+
+export type PolishingToolId = "racon" | "minimap2" | "pilon" | "java" | "bwa" | "samtools" | "dnadiff";
+
+export interface PolishingPlan {
+  draft: {
+    assembly_id: string;
+    kind: AssemblyKind;
+    assembler: string;
+    assembler_version: string;
+    mode: AssemblyModeName;
+    read_type: string;
+    parent_assembly_id: string | null;
+    contig_count: number;
+    total_length: number;
+    n50: number;
+    circular_contigs: number;
+    created_at: string;
+  };
+  tools: Record<PolishingToolId, PolishingTool>;
+  /** Strategies whose tools are all installed. */
+  strategies_available: PolishingStrategy[];
+  files: AssemblyFileEvidence[];
+  /** The strategy the chosen reads imply. */
+  strategy: PolishingStrategy | null;
+  /** The strategy the sample's sequencing technology calls for. */
+  suggested_strategy: PolishingStrategy | null;
+  preset_suggestion: { heuristic: true; value: LongReadPreset | null; basis: string; flye_read_type: string | null; platform?: "nanopore" | "pacbio" | null };
+  problem: string | null;
+  sample_technology: SequencingTechnology;
+  confirmation_required: boolean;
+  max_threads: number;
+  max_memory_gb: number;
+  default_heap_gb: number;
+}
+
+export interface RaconSettings {
+  read_type: LongReadPreset | null;
+  rounds: number;
+  match: number;
+  mismatch: number;
+  gap: number;
+  window_length: number;
+  quality_threshold: number;
+  error_threshold: number;
+}
+
+export interface PilonSettings {
+  rounds: number;
+  fix: PilonFix[];
+  mindepth: number;
+  minmq: number;
+  minqual: number;
+  heap_gb: number | null;
+  stop_when_unchanged: boolean;
+}
+
+export interface PolishingRequest {
+  strategy: PolishingStrategy;
+  inputs: UnicyclerInputs;
+  racon: RaconSettings;
+  pilon: PilonSettings;
+  threads: number | null;
+  quast: boolean;
+  quast_reference_file_id: string | null;
+  reads_confirmed: boolean;
+}
+
+export type ChangeKind = "snp" | "insertion" | "deletion" | "other";
+export type Changes = Record<ChangeKind, { events: number; bases: number }>;
+
+/** One side (draft or polished) of a MUMmer dnadiff report. */
+export interface DnadiffSide {
+  sequences: number;
+  aligned_sequences: number;
+  unaligned_sequences: number;
+  bases: number;
+  aligned_bases: number;
+  unaligned_bases: number;
+  one_to_one_identity: number;
+  breakpoints: number;
+  substituted_bases: number;
+  indel_bases: number;
+}
+
+export interface DnadiffComparison {
+  before: DnadiffSide;
+  after: DnadiffSide;
+  events: { substitutions: number; insertions: number; inserted_bases: number; deletions: number; deleted_bases: number };
+  ends: { contig: string; length: number; unaligned_start: number; unaligned_end: number }[];
+}
+
+export interface AlignmentStats {
+  reads: number;
+  reads_mapped: number;
+  mapped_percent: number | null;
+  reads_properly_paired: number | null;
+  properly_paired_percent: number | null;
+  bases_mapped_cigar: number;
+  nm_sum: number;
+  edit_distance_per_100_bases: number | null;
+  insertion_events: number;
+  deletion_events: number;
+  indel_events_per_100kb: number | null;
+}
+
+export interface CoverageRow {
+  contig: string;
+  length: number;
+  reads: number;
+  covered_percent: number;
+  mean_depth: number;
+}
+
+export interface PolishingRound {
+  round: number;
+  changes: Changes | null;
+  changes_source: "dnadiff" | "pilon_changes" | null;
+  pilon_changes?: Changes;
+  racon_contigs?: Record<string, { length: number | null; reads: number | null; windows_polished: number | null }>;
+}
+
+export interface PolishingObservation {
+  code: "ends_trimmed" | "contigs_unaligned" | "no_changes" | "edit_distance_increased";
+  params: Record<string, string | number | boolean | null>;
+  message: string;
+}
+
+export interface AssemblySummaryStats {
+  contig_count: number;
+  total_length: number;
+  largest_contig: number;
+  n50: number;
+  l50: number;
+  gc_percent: number | null;
+  n_count: number;
+}
+
+/** result_summary of a racon_polish or pilon_polish job. */
+export interface PolishingSummary {
+  polisher: "Racon" | "Pilon";
+  polisher_version: string;
+  strategy: PolishingStrategy | null;
+  draft: { assembly_id: string; assembler: string; assembler_version: string; kind: AssemblyKind };
+  polished_assembly_id: string;
+  read_type: string;
+  rounds_requested: number;
+  rounds_run: number;
+  stopped_early?: boolean;
+  rounds: PolishingRound[];
+  direct: { source: "dnadiff" | "pilon_changes" | null; dnadiff: DnadiffComparison | null; pilon_changes: Changes | null };
+  indirect: { aligner: string; reads: string; before: { stats: AlignmentStats; coverage: CoverageRow[] }; after: { stats: AlignmentStats; coverage: CoverageRow[] } };
+  assembly_stats: { before: AssemblySummaryStats; after: AssemblySummaryStats };
+  observations: PolishingObservation[];
+  helpers: { name: string; version: string | null; path: string }[];
+  followups: { pilon_job_id?: string; quast_job_id?: string; pilon_error?: string; quast_error?: string };
 }

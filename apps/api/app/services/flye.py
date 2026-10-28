@@ -75,6 +75,7 @@ def evidence(db: Session, files: list[RawFile]) -> list[dict[str, Any]]:
             "file_id": f.id, "name": f.original_filename, "origin": f.origin, "read_mate": f.read_mate,
             "header_platform": platform, "header_confidence": confidence, "basecall_models": models,
             "pacbio_read_types": pacbio, "stats_job_id": job_id,
+            "read_count": m["read_count"] if m else None,
             "total_bases": m["total_bases"] if m else None, "max_read_length": m["max_length"] if m else None,
             "read_n50": m["n50"] if m else None, "mean_base_quality": quality.get("mean_base_quality"),
         })

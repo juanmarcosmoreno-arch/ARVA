@@ -7,6 +7,7 @@ import { ErrorNote } from "@/components/ui/misc";
 import { type TranslationKey, useT } from "@/i18n";
 import { api } from "@/lib/api";
 import { fmtBases, fmtDate, fmtInt, fmtNum } from "@/lib/format";
+import { COVERAGE_LABEL, coverageKind, fmtCoverage } from "@/lib/shortReads";
 
 const TH = "px-2 py-1.5 text-left font-medium text-muted-foreground whitespace-nowrap";
 const TD = "px-2 py-1.5 tabular-nums whitespace-nowrap";
@@ -54,7 +55,13 @@ export function ProjectAssemblies({ projectId }: { projectId: string }) {
                     </Link>
                   </td>
                   <td className="whitespace-nowrap px-2 py-1.5">
-                    {r.assembler} {r.assembler_version} <span className="text-muted-foreground">· --{r.read_type}</span>
+                    {r.assembler} {r.assembler_version}{" "}
+                    <span className="text-muted-foreground">· {r.assembler === "Flye" ? `--${r.read_type}` : r.read_type}</span>
+                    {r.kind === "polished" && (
+                      <Badge tone="teal" className="ml-1.5" title={r.parent_assembly_id ? t("polishing.polishedFrom", { label: r.parent_assembly_id.slice(0, 8) }) : undefined}>
+                        {t("polishing.polishedTag")}
+                      </Badge>
+                    )}
                   </td>
                   <td className={TD}>{fmtInt(r.contig_count)}</td>
                   <td className={TD} title={`${fmtInt(r.total_length)} bp`}>
@@ -64,7 +71,9 @@ export function ProjectAssemblies({ projectId }: { projectId: string }) {
                   <td className={TD}>{fmtInt(r.largest_contig)} bp</td>
                   <td className={TD}>{r.gc_percent === null ? "—" : `${fmtNum(r.gc_percent, 2)}%`}</td>
                   <td className={TD}>{t("assembly.circularValue", { circular: r.circular_contigs, total: r.contigs_with_circularity })}</td>
-                  <td className={TD}>{r.median_coverage === null ? "—" : `${fmtNum(r.median_coverage, 0)}×`}</td>
+                  <td className={TD} title={coverageKind(r) ? t(COVERAGE_LABEL[coverageKind(r)!]) : undefined}>
+                    {fmtCoverage(r.median_coverage, coverageKind(r))}
+                  </td>
                   <td className="px-2 py-1.5">
                     {r.warning_codes.length ? (
                       <Badge tone="warning" title={r.warning_codes.join(", ")}>

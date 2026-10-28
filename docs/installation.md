@@ -62,11 +62,15 @@ Vite dev server (port 5173, proxying `/api` to the API).
 ARVA detects tools but never installs them. Without them, ARVA's own read statistics still work;
 SeqKit, FastQC, fastp and Filtlong features show as unavailable on the **Tools & Databases** page.
 
-- **Docker**: the API/worker image already contains them (Debian packages: SeqKit 2.3.0 binary,
-  FastQC 0.11.9, fastp 0.23.2, Filtlong 0.2.1 — all validated with ARVA).
-- **Ubuntu 24.04 / Debian**: `sudo apt install seqkit fastqc fastp filtlong flye samtools minimap2`
-  (Ubuntu 24.04: SeqKit 2.3.0, FastQC 0.12.1, fastp 0.23.4, Filtlong 0.2.1, Flye 2.9.3 — validated;
-  minimap2 2.26 is used by QUAST, below).
+- **Docker**: the API/worker image already contains them (Debian bookworm packages: SeqKit 2.3.0 binary,
+  FastQC 0.11.9, fastp 0.23.2, Filtlong 0.2.1 — validated with ARVA), and for assembly and polishing Flye 2.9.1,
+  SPAdes 3.15.5, Unicycler 0.5.0, Racon 1.5.0, Pilon 1.24, BWA 0.7.17, MUMmer 3.23, BLAST+, samtools 1.16.1 and
+  minimap2 2.24 (SPAdes, Unicycler, Racon, Pilon, BWA and MUMmer are the releases validated on Ubuntu 24.04; Flye
+  2.9.1, samtools 1.16.1 and minimap2 2.24 are not validated, and each job records the versions it ran).
+- **Ubuntu 24.04 / Debian**: `sudo apt install seqkit fastqc fastp filtlong flye samtools minimap2 spades unicycler
+  racon ncbi-blast+ pilon bwa mummer default-jre-headless` (Ubuntu 24.04: SeqKit 2.3.0, FastQC 0.12.1, fastp 0.23.4,
+  Filtlong 0.2.1, Flye 2.9.3, SPAdes 3.15.5, Unicycler 0.5.0, Racon 1.5.0, Pilon 1.24, BWA 0.7.17, samtools 1.19.2,
+  minimap2 2.26, MUMmer 3.23 — validated; minimap2 is also used by QUAST, below).
 - **macOS (Apple Silicon or Intel) / any Linux with conda**:
   ```bash
   mamba env create -f workflows/tool-adapters/environment.yml
@@ -154,9 +158,63 @@ version* (no `--nano-hq`); other 2.9.x versions run with a "not validated" warni
 installs Debian bookworm's `flye` (2.9.1) and `samtools` (1.16.1); 2.9.1 has not been validated yet.
 A bacterial genome needs a few GB of memory; Flye's own benchmarks list about 2 GB for *E. coli*
 PacBio reads at 50×.
+### SPAdes and Unicycler (short-read and hybrid assembly)
+
+```bash
+sudo apt install spades unicycler racon ncbi-blast+   # Ubuntu 24.04: SPAdes 3.15.5, Unicycler 0.5.0, Racon 1.5.0, BLAST+ 2.12.0
+```
+
+Validated: SPAdes 3.15.5 (GPL-2.0-only; Ubuntu package 3.15.5+dfsg-7) and Unicycler 0.5.0 (GPL-3.0-or-later;
+Ubuntu package 0.5.0+dfsg-1) — the same upstream releases as Debian bookworm, which the Docker image installs.
+SPAdes older than 3.14 (no `--isolate`) is *Incompatible version*. Unicycler calls SPAdes for short reads, Racon
+for long reads and makeblastdb/tblastn (NCBI BLAST+) to rotate circular replicons; ARVA finds each of them like a
+tool (`ARVA_TOOL_SPADES`, `ARVA_TOOL_RACON`, `ARVA_TOOL_MAKEBLASTDB`, `ARVA_TOOL_TBLASTN`, `ARVA_TOOLS_PATH`,
+`PATH`) and passes their paths to Unicycler. Without BLAST+ the Tools page reports Unicycler as *Detection failed*;
+without SPAdes or Racon it notes which modes remain. Debian's unicycler package also pulls in Pilon (with a Java
+runtime), Bowtie 2 and BCFtools, which Unicycler 0.5.0 does not call. Both tools run on the distribution's
+`/usr/bin/python3`.
+
+SPAdes needs memory in proportion to the genome and to the read errors (the SPAdes manual lists about 8 GB for an
+*E. coli* isolate). ARVA passes a memory limit to SPAdes (`-m`, also inside Unicycler); by default
+min(250 GB, `ARVA_TOOL_MEMORY_GB`), where `ARVA_TOOL_MEMORY_GB` defaults to the computer's physical memory. When
+SPAdes needs more, it stops and the job says so.
+
+### Polishing (Racon, Pilon)
+
+```bash
+sudo apt install racon minimap2 pilon bwa samtools mummer default-jre-headless
+# Ubuntu 24.04: Racon 1.5.0, minimap2 2.26, Pilon 1.24, BWA 0.7.17, samtools 1.19.2, MUMmer 3.23 (dnadiff 1.3), OpenJDK 21
+```
+
+Validated: Racon 1.5.0 (MIT), Pilon 1.24 (GPL-2.0), minimap2 2.26 (MIT), BWA 0.7.17 (MIT and GPL-2.0-or-later
+per Debian's copyright file), samtools 1.19.2 (MIT) and MUMmer 3.23 (dnadiff 1.3, Artistic licence). Debian
+bookworm, which the Docker image installs, ships the same Racon, Pilon, BWA and MUMmer releases, with minimap2 2.24
+and samtools 1.16.1 (not validated; ARVA records the versions each run used). Long-read polishing needs racon,
+minimap2 and samtools; short-read polishing needs Pilon, Java, BWA and samtools; MUMmer is optional but without it
+there is no direct evidence of Racon's changes (Pilon's own list of changes is still kept). The polishing dialog
+lists what is missing for each strategy.
+
+Pilon is a Java program. Debian's `/usr/bin/pilon` runs it with a fixed 16 GB heap, so ARVA runs the jar it names
+(`/usr/share/java/pilon.jar`) with `java -Xmx<heap>` itself, the heap chosen in the dialog (default min(16 GB,
+`ARVA_TOOL_MEMORY_GB`)). For another installation set `ARVA_TOOL_PILON` to the path of `pilon.jar`. Debian's build
+prints no version number (`Pilon version [COMMIT] [DATE]`), so ARVA reads the version from dpkg and says so on the
+Tools page. `JAVA_TOOL_OPTIONS`, `_JAVA_OPTIONS` and `JDK_JAVA_OPTIONS` are removed from every tool's environment,
+as they would change the recorded heap. Medaka is not integrated (it needs a model matching the reads' basecaller,
+and downloads models).
+
 The assembly charts, the comparison and the assembly-graph view are drawn by ARVA in the browser from
 the stored statistics and the GFA file; they need no further tool. To explore a large graph in full,
 download `assembly_graph.gfa` and open it in a graph viewer such as Bandage (not installed by ARVA).
+
+### Cancelling jobs and resuming Flye
+
+Queued and running jobs can be cancelled from the Assembly tab and from a sample's Analysis history (or with
+`POST /api/v1/jobs/{id}/cancel`). The worker stops a running tool within about 5 seconds; the job stays
+*Cancelling…* until then. Partial outputs are removed and the job log is kept. When a Flye run is stopped from
+outside after its first stages (cancelled, time limit, killed or out of memory), ARVA keeps Flye's work folder in
+`<ARVA_STORAGE_ROOT>/checkpoints/` so the run can be resumed with Flye's `--resume` (same reads, options, threads
+and Flye version) or the folder discarded; it is as large as Flye's intermediate files (tens of MB for a
+bacterial genome). Nothing more needs installing.
 
 ### QUAST (assembly evaluation)
 
@@ -291,8 +349,9 @@ Environment variables (prefix `ARVA_`), also read from `apps/api/.env`:
 | `ARVA_METADATA_MAX_COLUMNS` | 256 | Columns per metadata table |
 | `ARVA_METADATA_MAX_CELL_CHARS` | 10000 | Characters per cell of a metadata table |
 | `ARVA_TOOLS_PATH` | — | Extra folders (`:`-separated) searched for external tools |
-| `ARVA_TOOL_<ID>` | — | Explicit executable for one tool (`SEQKIT`, `FASTQC`, `FASTP`, `FILTLONG`, `MULTIQC`, `NANOPLOT`, `FLYE`; `SAMTOOLS` for Flye's helper) |
+| `ARVA_TOOL_<ID>` | — | Explicit executable for one tool (`SEQKIT`, `FASTQC`, `FASTP`, `FILTLONG`, `MULTIQC`, `NANOPLOT`, `FLYE`, `SPADES`, `UNICYCLER`, `QUAST`, `RACON`, `MINIMAP2`, `BWA`, `SAMTOOLS`, `DNADIFF`; `PILON` takes the path of `pilon.jar`; helpers: `MAKEBLASTDB` and `TBLASTN` for Unicycler, `JAVA` for Pilon) |
 | `ARVA_TOOL_THREADS` | 4 | Maximum threads given to a tool run |
+| `ARVA_TOOL_MEMORY_GB` | physical memory | Most memory (GB) a tool run may be given (SPAdes' `-m`, also inside Unicycler; Pilon's Java heap) |
 | `ARVA_TOOL_TIMEOUT_SECONDS` | 43200 | A tool run is stopped after this time |
 
 ## Running tests
@@ -311,6 +370,11 @@ The API test suite **drops and recreates** the schema of the test database — n
 | Symptom | Cause / fix |
 |---|---|
 | Jobs stay *Queued* | The worker is not running or cannot reach Redis — start `apps/workers/run_worker.py` |
+| A job stays *Cancelling…* | The worker stops the tool at its next check (about 5 s); if the worker is not running, start it. A job whose worker died is ended when cancelled, once the task queue reports it is no longer executing |
+| A job stays *Running* after the worker was restarted | Its worker died with it: cancel the job. ARVA ends it at once when the task queue reports it is no longer executing; RQ marks such a task failed at a worker's registry clean-up (when a worker starts, then every 10 minutes) once the dead worker's heartbeat has expired (about 90 s) |
+| Flye: "Resume is not offered for this run" | Flye stopped with an error of its own (resuming would repeat it) or before any stage after configure completed; the job log says which. Start a new assembly |
+| Flye resume refused: "written by Flye … installed now" | The work folder must be resumed with the Flye version that wrote it; reinstall that version or start a new assembly |
+| Batch QC: "The files or results changed since the preview" (HTTP 409) | A file or job changed between the preview and the confirmation; the new preview is shown, confirm again |
 | `connection refused` on start | PostgreSQL not running or wrong `ARVA_DATABASE_URL` |
 | macOS worker crashes with `objc[...] +[__NSCFConstantString initialize]` | Use the bundled worker script (it selects `SimpleWorker` on macOS) |
 | Upload rejected as duplicate | The identical file (same SHA-256) is already registered for that sample |
@@ -330,5 +394,14 @@ The API test suite **drops and recreates** the schema of the test database — n
 | Flye: "found no read longer than the minimum overlap" | The reads are shorter than 1,000 bp (or than the minimum overlap you set): Flye needs long reads |
 | Flye: "could not assemble the reads" | Too few reads or too little coverage, or a read type that does not match the data (check the error rate on the Read statistics tab) |
 | Two Flye runs on the same reads differ | Expected with more than one thread: Flye is not deterministic then; the thread count is recorded with each run |
+| SPAdes or Unicycler: "ran out of memory" | Raise the memory limit in the dialog (up to `ARVA_TOOL_MEMORY_GB`) if the computer has more, or assemble fewer reads (e.g. Filtlong/fastp first) |
+| SPAdes refused with "paths with white space" | The storage folder (`ARVA_STORAGE_ROOT`) contains a space or `* ? [ ]`, which Debian's SPAdes launcher splits: move it |
+| Unicycler: "needs racon" / "needs tblastn" (HTTP 409) | Install `racon` (long reads) or `ncbi-blast+` (always), then **Re-detect** on the Tools page |
+| A SPAdes contig shows a lower coverage than Flye's for the same genome | Expected: SPAdes reports k-mer coverage, which is lower than read depth; ARVA labels each kind and never compares them |
+| Pilon: "ran out of Java heap memory" | Raise the Java heap in the polishing dialog (up to `ARVA_TOOL_MEMORY_GB`) if the computer has the memory |
+| Pilon shows *Detection failed*: "does not name the jar it runs" | The `pilon` found is not Debian's launcher: set `ARVA_TOOL_PILON` to the path of `pilon.jar` |
+| Racon: "found no overlaps" | No read aligned to the draft: check that the reads belong to the isolate and that the long-read type (minimap2 preset) matches them |
+| A Racon-polished contig is a few bases shorter than its draft | Expected: Racon trims its consensus where few reads support it, which happens at contig ends; the polishing result lists the bases removed at each end |
+| Polishing reports changes on an assembly that was already correct | Changes are what the polisher did, not proven corrections; compare with a trusted reference (QUAST) to judge them |
 | NanoPlot asks to confirm long reads | The sample's sequencing technology is not Nanopore or PacBio: set it in the sample's Metadata tab, or tick the confirmation if the file does hold long reads |
 | fastp report shows tables but no charts inside ARVA | Expected: its charts load plotly.js from the internet, which ARVA blocks; ARVA's own comparison charts cover the same data, and the original report can be downloaded |

@@ -1,0 +1,36 @@
+
+  USAGE: dnadiff  [options]  <reference>  <query>
+    or   dnadiff  [options]  -d <delta file>
+
+  DESCRIPTION:
+    Run comparative analysis of two sequence sets using nucmer and its
+    associated utilities with recommended parameters. See MUMmer
+    documentation for a more detailed description of the
+    output. Produces the following output files:
+
+    .report  - Summary of alignments, differences and SNPs
+    .delta   - Standard nucmer alignment output
+    .1delta  - 1-to-1 alignment from delta-filter -1
+    .mdelta  - M-to-M alignment from delta-filter -m
+    .1coords - 1-to-1 coordinates from show-coords -THrcl .1delta
+    .mcoords - M-to-M coordinates from show-coords -THrcl .mdelta
+    .snps    - SNPs from show-snps -rlTHC .1delta
+    .rdiff   - Classified ref breakpoints from show-diff -rH .mdelta
+    .qdiff   - Classified qry breakpoints from show-diff -qH .mdelta
+    .unref   - Unaligned reference IDs and lengths (if applicable)
+    .unqry   - Unaligned query IDs and lengths (if applicable)
+
+  MANDATORY:
+    reference       Set the input reference multi-FASTA filename
+    query           Set the input query multi-FASTA filename
+      or
+    delta file      Unfiltered .delta alignment file from nucmer
+
+  OPTIONS:
+    -d|delta        Provide precomputed delta file for analysis
+    -h
+    --help          Display help information and exit
+    -p|prefix       Set the prefix of the output files (default "out")
+    -V
+    --version       Display the version information and exit
+    

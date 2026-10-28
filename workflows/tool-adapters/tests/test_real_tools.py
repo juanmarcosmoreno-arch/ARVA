@@ -17,6 +17,9 @@ from arva_tools.fastqc import FastqcAdapter
 from arva_tools.filtlong import FiltlongAdapter, FiltlongParams
 from arva_tools.flye import FlyeAdapter, FlyeParams, read_link_name, samtools_helper
 from arva_tools.registry import detect
+from arva_tools.spades import OUTPUTS as SPADES_OUTPUTS
+from arva_tools.spades import SpadesAdapter, SpadesParams, parse_node_name
+from arva_tools.unicycler import UnicyclerAdapter, UnicyclerParams, helper_paths, modes_available
 
 EXAMPLES = Path(__file__).resolve().parents[3] / "examples" / "synthetic"
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
@@ -553,3 +556,207 @@ def test_quast_turns_iupac_codes_into_n(tmp_path):
     assert q["GC (%)"] == pytest.approx(a["gc_percent"], abs=0.005) == 50.0
     assert q["# N's per 100 kbp"] == pytest.approx(a["ambiguous_per_100kb"], abs=0.005)
     assert a["n_per_100kb"] == pytest.approx(1e5 * 100 / 1100) and a["ambiguous_per_100kb"] == pytest.approx(1e5 * 700 / 1100)
+
+
+@pytest.fixture(scope="module")
+def small_genome(tmp_path_factory):
+    """A 100 kb circular chromosome (2 kb repeat in two copies) and an 8 kb circular plasmid at two copies, with
+    Illumina-like pairs at 40x and Nanopore-like reads at 30x."""
+    out = tmp_path_factory.mktemp("small") / "genome"
+    subprocess.run([sys.executable, str(Path(__file__).resolve().parents[3] / "scripts" / "make_synthetic_genome.py"),
+                    str(out), "--chromosome-length", "100000", "--plasmid-length", "8000", "--repeat-length", "2000",
+                    "--ont-depth", "30", "--illumina-depth", "40"], check=True, capture_output=True)
+    return out
+
+
+def _linked(tmp_path: Path, genome: Path, names: list[str]) -> list[Path]:
+    links = tmp_path / "input"
+    links.mkdir()
+    out = []
+    for n, name in enumerate(names, 1):
+        link = links / read_link_name(n, name, compressed=True)
+        link.symlink_to(genome / name)
+        out.append(link)
+    return out
+
+
+def _follow(log: Path, stage_of):
+    seen: list[str] = []
+
+    def monitor():
+        if log.is_file():
+            seen[:] = [s for line in log.read_text(errors="replace").splitlines() if (s := stage_of(line))]
+
+    return seen, monitor
+
+
+def test_spades_isolate_assembles_the_synthetic_pairs(tmp_path, small_genome):
+    """Recorded with SPAdes 3.15.5: k 21,33,55,77 chosen by SPAdes for 150 bp reads; a 98,152 bp chromosome contig
+    (the repeat collapsed) at k-mer coverage 13.4 and the 8,077 bp plasmid (8,000 bp plus the k-1 overlap at its
+    ends) at 26.8, about twice the chromosome's; no circularity is reported."""
+    exe = tool("spades")
+    r1, r2 = _linked(tmp_path, small_genome, ["illumina_R1.fastq.gz", "illumina_R2.fastq.gz"])
+    params = SpadesParams(memory_gb=4, threads=2)
+    out = tmp_path / "spades"
+    argv = SpadesAdapter.argv(exe, params, out, SpadesAdapter.help_options(exe), r1=r1, r2=r2)
+    log = tmp_path / "spades.console.log"
+    seen, monitor = _follow(log, SpadesAdapter.stage)
+    run_command(argv, cwd=tmp_path, stderr_path=log, monitor=monitor, monitor_seconds=1)
+    monitor()
+    assert tuple(seen) == SpadesAdapter.planned_stages((out / "run_spades.yaml").read_text())
+    assert all((out / name).is_file() for name in SPADES_OUTPUTS)
+    summary = SpadesAdapter.parse_log((out / "spades.log").read_text())
+    assert summary["k_values"] == [21, 33, 55, 77] and summary["finished"]
+    names = [line[1:].strip() for line in (out / "contigs.fasta").read_text().splitlines() if line.startswith(">")]
+    nodes = [parse_node_name(n) for n in names]
+    assert all(nodes) and len(nodes) <= 6
+    chromosome, plasmid = nodes[0], next(n for n in nodes if 8_000 <= n["length"] <= 8_000 + 77)
+    assert chromosome["length"] > 90_000
+    assert 1.5 <= plasmid["kmer_coverage"] / chromosome["kmer_coverage"] <= 2.5
+
+
+def test_unicycler_hybrid_completes_the_synthetic_genome(tmp_path, small_genome):
+    """Recorded with Unicycler 0.5.0 (SPAdes 3.15.5, Racon 1.5.0, BLAST+ 2.12.0): two complete circular replicons,
+    100,000 bp at depth 1.00x and 8,000 bp at 2.04x (relative depth)."""
+    exe = tool("unicycler")
+    helpers = helper_paths()
+    if modes_available(helpers) != ["short", "long", "hybrid"]:
+        pytest.skip(f"Unicycler's helpers are missing: {helpers}")
+    r1, r2, ont = _linked(tmp_path, small_genome, ["illumina_R1.fastq.gz", "illumina_R2.fastq.gz", "ont.fastq.gz"])
+    params = UnicyclerParams("hybrid", keep=0, kmers=[27, 53, 77], threads=2, spades_memory_gb=4)
+    out = tmp_path / "unicycler"
+    argv = UnicyclerAdapter.argv(exe, params, out, UnicyclerAdapter.help_options(exe), helpers, r1=r1, r2=r2, long=ont)
+    console = tmp_path / "unicycler.console.log"
+    seen, monitor = _follow(console, UnicyclerAdapter.stage)
+    run_command(argv, cwd=tmp_path, stderr_path=console, monitor=monitor, monitor_seconds=1)
+    monitor()
+    assert seen[0] == "Starting Unicycler" and seen[-1] == "Assembly complete" and set(seen) <= set(params.stages())
+    headers = [line[1:].strip() for line in (out / "assembly.fasta").read_text().splitlines() if line.startswith(">")]
+    contigs = sorted(UnicyclerAdapter.parse_headers(headers).values(), key=lambda c: -c["length"])
+    assert [c["circular"] for c in contigs] == [True, True]
+    assert abs(contigs[0]["length"] - 100_000) <= 10 and abs(contigs[1]["length"] - 8_000) <= 10
+    assert contigs[0]["depth"] == 1.0 and 1.5 <= contigs[1]["depth"] <= 2.5
+    summary = UnicyclerAdapter.parse_log((out / "unicycler.log").read_text())
+    assert summary["version"] == "0.5.0" and summary["kmer_range"] is None
+    assert {d["program"]: d["status"] for d in summary["dependencies"]} == {
+        "spades": "good", "racon": "good", "makeblastdb": "good", "tblastn": "good"}
+    assert sorted(p.name for p in out.iterdir()) == ["assembly.fasta", "assembly.gfa", "unicycler.log"]
+
+
+def test_unicycler_long_read_only_writes_bare_names(tmp_path, small_genome):
+    """Recorded with Unicycler 0.5.0 and Racon 1.5.0: '>1' (99,996 bp) and '>2' (8,000 bp), both complete circular
+    replicons by the graph's links."""
+    exe = tool("unicycler")
+    helpers = helper_paths()
+    if "long" not in modes_available(helpers):
+        pytest.skip(f"Unicycler's helpers are missing: {helpers}")
+    (ont,) = _linked(tmp_path, small_genome, ["ont.fastq.gz"])
+    params = UnicyclerParams("long", keep=0, threads=2)
+    out = tmp_path / "unicycler"
+    argv = UnicyclerAdapter.argv(exe, params, out, UnicyclerAdapter.help_options(exe), helpers, long=ont)
+    run_command(argv, cwd=tmp_path, stderr_path=tmp_path / "console.log")
+    headers = [line.strip() for line in (out / "assembly.fasta").read_text().splitlines() if line.startswith(">")]
+    assert headers == [">1", ">2"]
+    graph = UnicyclerAdapter.parse_gfa_annotations((out / "assembly.gfa").read_text())
+    assert [(abs(g["length"] - want) <= 10, g["circular"]) for g, want in zip(graph.values(), (100_000, 8_000),
+                                                                               strict=True)] == [(True, True)] * 2
+    assert graph["1"]["depth"] == 1.0 and 1.5 <= graph["2"]["depth"] <= 2.5
+
+
+# --- Polishing (Racon, Pilon) ------------------------------------------------------------------------------------
+
+@pytest.fixture(scope="module")
+def polishing_draft(small_genome, tmp_path_factory):
+    """scripts/make_polishing_draft.py on the small genome: 7 substitutions, 4 insertions (5 bases) and 5 deletions
+    (7 bases) relative to the reference."""
+    out = tmp_path_factory.mktemp("draft")
+    subprocess.run([sys.executable, str(Path(__file__).resolve().parents[3] / "scripts" / "make_polishing_draft.py"),
+                    str(small_genome / "reference.fasta"), str(out)], check=True, capture_output=True)
+    return out / "draft.fasta"
+
+
+def _dnadiff(tmp_path: Path, reference: Path, query: Path, prefix: str) -> dict:
+    from arva_tools.dnadiff import DnadiffAdapter
+
+    exe = tool("dnadiff")
+    work = tmp_path / f"dnadiff_{prefix}"
+    work.mkdir()
+    (work / "a.fasta").write_bytes(reference.read_bytes())
+    (work / "b.fasta").write_bytes(query.read_bytes())
+    run_command(DnadiffAdapter.argv(exe, "out", "a.fasta", "b.fasta"), cwd=work, stderr_path=work / "log")
+    return {"report": DnadiffAdapter.parse_report((work / "out.report").read_text()),
+            "snps": DnadiffAdapter.parse_snps((work / "out.snps").read_text()),
+            "coords": DnadiffAdapter.parse_coords((work / "out.1coords").read_text())}
+
+
+def test_racon_corrects_most_known_errors_and_trims_contig_ends(tmp_path, small_genome, polishing_draft):
+    """Recorded with Racon 1.5.0, minimap2 2.26 and MUMmer 3.23 (dnadiff 1.3): one round with the Nanopore-like reads
+    leaves no substitution and at most a few indel bases of the 16 known edits, and trims tens of bases at contig
+    ends (Racon's consensus trimming where fewer reads align)."""
+    from arva_tools.mapping import Minimap2Adapter
+    from arva_tools.racon import RaconAdapter, RaconParams
+
+    racon, minimap2 = tool("racon"), tool("minimap2")
+    (ont,) = _linked(tmp_path, small_genome, ["ont.fastq.gz"])
+    target = tmp_path / "round0.fasta"
+    target.write_bytes(polishing_draft.read_bytes())
+    paf, polished = tmp_path / "round1.paf", tmp_path / "round1.fasta"
+    run_command(Minimap2Adapter.argv(minimap2, "map-ont", 2, target, ont, paf), cwd=tmp_path,
+                stderr_path=tmp_path / "minimap2.log")
+    params = RaconParams("map-ont", threads=2)
+    run_command(RaconAdapter.argv(racon, params, ont, paf, target, RaconAdapter.help_options(racon)), cwd=tmp_path,
+                stderr_path=tmp_path / "racon.log", stdout_path=polished)
+    headers = [line[1:].strip() for line in polished.read_text().splitlines() if line.startswith(">")]
+    rows = RaconAdapter.parse_headers(headers)
+    assert list(rows) == ["contig_1", "contig_2"] and all(r["reads"] > 0 for r in rows.values())
+
+    before = _dnadiff(tmp_path, small_genome / "reference.fasta", polishing_draft, "before")
+    after = _dnadiff(tmp_path, small_genome / "reference.fasta", polished, "after")
+    assert before["report"]["reference"]["substituted_bases"] == 7 and before["report"]["reference"]["indel_bases"] == 12
+    assert after["report"]["reference"]["substituted_bases"] == 0
+    assert after["report"]["reference"]["indel_bases"] <= 3
+    changes = _dnadiff(tmp_path, polishing_draft, polished, "changes")
+    assert changes["snps"]["substitutions"] == 7
+    trimmed = {c["contig"]: c["unaligned_start"] + c["unaligned_end"] for c in changes["coords"]}
+    assert all(0 < t < 100 for t in trimmed.values())
+
+
+def test_pilon_corrects_every_known_error_and_lists_it(tmp_path, small_genome, polishing_draft):
+    """Recorded with Pilon 1.24 (Java 21), BWA 0.7.17 and samtools 1.19.2: one round with the Illumina-like pairs
+    corrects all 16 edits; its .changes file and dnadiff agree, and the polished genome equals the reference."""
+    from arva_tools.mapping import BwaAdapter, SamtoolsAdapter
+    from arva_tools.pilon import PilonAdapter, PilonParams, java_executable
+
+    d = detect("pilon", refresh=True)
+    if d.status is not ToolStatus.available:
+        pytest.skip(f"pilon not available: {d.message}")
+    bwa, samtools, java = tool("bwa"), tool("samtools"), java_executable()
+    r1, r2 = _linked(tmp_path, small_genome, ["illumina_R1.fastq.gz", "illumina_R2.fastq.gz"])
+    genome = tmp_path / "round0.fasta"
+    genome.write_bytes(polishing_draft.read_bytes())
+    run_command(BwaAdapter.index_argv(bwa, genome, tmp_path / "round0"), cwd=tmp_path, stderr_path=tmp_path / "i.log")
+    sam, bam = tmp_path / "pe.sam.gz", tmp_path / "pe.bam"
+    run_command(BwaAdapter.mem_argv(bwa, tmp_path / "round0", [r1, r2], 2), cwd=tmp_path,
+                stderr_path=tmp_path / "mem.log", stdout_path=sam)
+    run_command(SamtoolsAdapter.sort_argv(samtools, sam, bam, 2, tmp_path / "sort"), cwd=tmp_path,
+                stderr_path=tmp_path / "sort.log")
+    run_command(SamtoolsAdapter.index_argv(samtools, bam), cwd=tmp_path, stderr_path=tmp_path / "index.log")
+    stats = tmp_path / "pe.stats"
+    run_command(SamtoolsAdapter.stats_argv(samtools, bam), cwd=tmp_path, stderr_path=tmp_path / "s.log", stdout_path=stats)
+    assert SamtoolsAdapter.parse_stats(stats.read_text())["properly_paired_percent"] > 95
+
+    params = PilonParams(heap_gb=2)
+    argv = PilonAdapter.argv(java, d.path, params, genome, tmp_path / "out", "round1",
+                             PilonAdapter.help_options(java, d.path), frags=bam)
+    log = tmp_path / "pilon.log"
+    run_command(argv, cwd=tmp_path, stderr_path=log)
+    changes = PilonAdapter.parse_changes((tmp_path / "out" / "round1.changes").read_text())["totals"]
+    assert {k: (v["events"], v["bases"]) for k, v in changes.items() if v["events"]} == {
+        "snp": (7, 7), "insertion": (5, 7), "deletion": (4, 5)}
+    summary = PilonAdapter.parse_log(log.read_text())
+    assert summary["finished"] and summary["totals"]["snps"] == 7
+    polished = tmp_path / "out" / "round1.fasta"
+    assert [line for line in polished.read_text().splitlines() if line.startswith(">")] == [
+        ">contig_1_pilon", ">contig_2_pilon"]
+    after = _dnadiff(tmp_path, small_genome / "reference.fasta", polished, "after")
+    assert (after["report"]["reference"]["substituted_bases"], after["report"]["reference"]["indel_bases"]) == (0, 0)

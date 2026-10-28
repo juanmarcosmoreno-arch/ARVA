@@ -1,10 +1,12 @@
 import type { TranslationKey } from "@/i18n";
+import { PILON_JOB, RACON_JOB } from "./polishing";
 import { QUAST_JOB } from "./quast";
+import { SPADES_JOB, UNICYCLER_JOB } from "./shortReads";
 import type { AnalysisJobDetail, FlyeContigRow, FlyeParams, FlyePlan, FlyeReadType, GenomeSizeBasis, JobStatus, RawFile } from "./types";
 
 export const FLYE_JOB = "flye_assembly";
-/** Jobs shown in the Assembly tab: assemblers and assembly evaluation. */
-export const ASSEMBLY_JOBS = new Set([FLYE_JOB, QUAST_JOB]);
+/** Jobs shown in the Assembly tab: assemblers, assembly evaluation and polishing. */
+export const ASSEMBLY_JOBS = new Set([FLYE_JOB, SPADES_JOB, UNICYCLER_JOB, QUAST_JOB, RACON_JOB, PILON_JOB]);
 
 /** Flye's read-type options with Flye's own descriptions (flye --help). */
 export const READ_TYPES: { value: FlyeReadType; label: TranslationKey }[] = [
@@ -163,11 +165,13 @@ export type StageState = "done" | "current" | "failed" | "waiting";
 export function stageStates(job: Pick<AnalysisJobDetail, "progress"> & { status: JobStatus }): { name: string; state: StageState }[] {
   const p = job.progress;
   if (!p) return [];
-  const current = p.stage ? p.stages.indexOf(p.stage) : -1;
+  // SPAdes can announce a stage name twice (its read error correction): the index says which one is current.
+  const at = (p.stage_index ?? 0) - 1;
+  const current = p.stage ? (p.stages[at] === p.stage ? at : p.stages.lastIndexOf(p.stage)) : -1;
   return p.stages.map((name, i) => {
     if (job.status === "completed") return { name, state: "done" };
     if (i < current) return { name, state: "done" };
-    if (i === current) return { name, state: job.status === "failed" ? "failed" : "current" };
+    if (i === current) return { name, state: job.status === "failed" || job.status === "cancelled" ? "failed" : "current" };
     return { name, state: "waiting" };
   });
 }

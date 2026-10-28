@@ -2,6 +2,7 @@ import { Card, CardBody, CardHeader } from "@/components/ui/card";
 import { type TranslationKey, useT } from "@/i18n";
 import { MAX_COMPARED, assemblyLabel, compared } from "@/lib/assembly";
 import { fmtBases, fmtDate, fmtInt, fmtNum } from "@/lib/format";
+import { COVERAGE_LABEL, coverageKind, fmtCoverage } from "@/lib/shortReads";
 import type { Assembly, RawFile } from "@/lib/types";
 import { CompareCumulativeChart } from "./AssemblyCharts";
 import { inputLineage } from "./AssemblyResult";
@@ -29,7 +30,13 @@ export function AssemblyComparison({ assemblies, files }: { assemblies: Assembly
       label: "assembly.stat.circular",
       value: (a) => t("assembly.circularValue", { circular: a.stats.circularity.circular_contigs, total: a.stats.circularity.contigs_with_circularity }),
     },
-    { label: "assembly.stat.medianCoverage", value: (a) => (a.stats.coverage.length_weighted_median === null ? "—" : `${fmtNum(a.stats.coverage.length_weighted_median, 0)}×`) },
+    {
+      label: "assembly.stat.medianCoverage",
+      value: (a) => {
+        const kind = coverageKind(a);
+        return `${fmtCoverage(a.stats.coverage.length_weighted_median, kind)}${kind ? ` (${t(COVERAGE_LABEL[kind])})` : ""}`;
+      },
+    },
     { label: "assembly.compare.warnings", value: (a) => (a.warnings.length ? a.warnings.map((w) => w.code).join(", ") : "—") },
   ];
   return (
@@ -68,6 +75,9 @@ export function AssemblyComparison({ assemblies, files }: { assemblies: Assembly
           </table>
         </div>
         <p className="text-[11px] text-muted-foreground">{t("assembly.compare.note")}</p>
+        {new Set(shown.map((a) => coverageKind(a))).size > 1 && (
+          <p className="text-[11px] text-amber-700 dark:text-warning">{t("assembly.compare.coverageKinds")}</p>
+        )}
         <CompareCumulativeChart assemblies={shown} />
       </CardBody>
     </Card>

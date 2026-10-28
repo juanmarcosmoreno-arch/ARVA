@@ -1,9 +1,13 @@
 """Central application configuration, loaded from environment variables."""
+import os
 from functools import lru_cache
 from pathlib import Path
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Used when the physical memory cannot be read and ARVA_TOOL_MEMORY_GB is unset.
+FALLBACK_MEMORY_GB = 8
 
 
 class Settings(BaseSettings):
@@ -43,6 +47,17 @@ class Settings(BaseSettings):
     # External tools
     tool_threads: int = 4
     tool_timeout_seconds: int = 12 * 3600
+    # Most memory (GB) a tool run may be given (SPAdes' -m); unset: this computer's physical memory.
+    tool_memory_gb: int | None = Field(default=None, ge=1)
+
+    @property
+    def max_tool_memory_gb(self) -> int:
+        if self.tool_memory_gb:
+            return self.tool_memory_gb
+        try:
+            return max(1, os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES") // 1024**3)
+        except (ValueError, OSError, AttributeError):
+            return FALLBACK_MEMORY_GB
 
     @property
     def raw_dir(self) -> Path:

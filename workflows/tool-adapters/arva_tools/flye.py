@@ -23,11 +23,22 @@ Verified against `flye --help`, the 2.9.3 USAGE.md and README, the source of Fly
   15 kb in runs whose bytes differed, while 1 or 2 threads (identical bytes run to run) and --deterministic
   (which only runs the disjointig stage single-threaded; its runs still differed) assembled it as a 30 kb
   dimer. ARVA records and logs the thread count and does not offer --deterministic.
+* --resume (main.py, 2.9.3): Flye writes params.json in --out-dir before each stage starts ("stage_name" is the
+  stage it was running) and, on --resume, reruns that stage after checking only that the previous stage's output
+  files exist; it does not check that the reads or options are those of the first run, so ARVA passes the
+  original command again. The stage folders are found from --out-dir, so a moved folder resumes. Flye 2.9.3's
+  polishing stage appends to 40-polishing/bubbles_<n>.fasta (polishing/bubbles.py opens it with "a"): on the
+  default synthetic genome (2 threads), a run killed during polishing and resumed gave a 30,000 bp plasmid where
+  the uninterrupted run gives 15,000 bp, without any error. ARVA therefore deletes the interrupted stage's folder
+  before resuming; with that, runs killed during assembly, consensus, repeat and polishing, moved to a new folder
+  and resumed, gave byte-identical assembly.fasta, assembly_info.txt and assembly_graph.gfa to the uninterrupted
+  run.
 """
 from __future__ import annotations
 
 import csv
 import io
+import json
 import math
 import os
 import re
@@ -43,12 +54,17 @@ from arva_tools.runner import isolated_home, tool_environment
 READ_TYPES = ("nano-raw", "nano-corr", "nano-hq", "pacbio-raw", "pacbio-corr", "pacbio-hifi")
 READ_ERROR_TYPES = frozenset({"nano-corr", "nano-hq", "pacbio-corr", "pacbio-hifi"})
 STAGES = ("configure", "assembly", "consensus", "repeat", "contigger", "polishing", "finalize")
+# The folder each stage writes in --out-dir (main.py); configure writes params.json only, finalize the final files.
+STAGE_DIRS = {"assembly": "00-assembly", "consensus": "10-consensus", "repeat": "20-repeat",
+              "contigger": "30-contigger", "polishing": "40-polishing"}
+CHECKPOINT_FILE = "params.json"
 GENOME_SIZE_BASES = ("entered", "expected_genome_size", "reads_over_depth")
 OUTPUTS = ("assembly.fasta", "assembly_graph.gfa", "assembly_info.txt", "flye.log")
 SAMTOOLS_HELPER = "flye-samtools"
 INFO_COLUMNS = ("seq_name", "length", "cov.", "circ.", "repeat", "mult.", "graph_path")
 
 _STAGE = re.compile(r">>>STAGE: (\S+)")
+_STAGE_OR_RESUME = re.compile(r">>>STAGE: (\S+)|(Resuming previous run)")
 _READ_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,120}\.(fastq|fq)(\.gz)?")
 _FLAG = re.compile(r"(?<![\w-])(--[a-z][a-z0-9-]*)")
 _ERROR = re.compile(r"ERROR: (.+)")
@@ -219,8 +235,11 @@ class FlyeAdapter(ToolAdapter):
 
     @staticmethod
     def argv(executable: str, params: FlyeParams, reads: list[Path], out_dir: Path,
-             supported: frozenset[str]) -> list[str]:
+             supported: frozenset[str], resume: bool = False) -> list[str]:
+        """With `resume`, the same command plus --resume: Flye continues the run kept in out_dir."""
         params.validate(supported)
+        if resume and "--resume" not in supported:
+            raise ValueError("this Flye version does not offer --resume (not in its --help)")
         if not reads:
             raise ValueError("Flye needs at least one read file")
         for path in (*reads, out_dir):
@@ -239,7 +258,7 @@ class FlyeAdapter(ToolAdapter):
                          ("--no-alt-contigs", params.no_alt_contigs), ("--scaffold", params.scaffold)):
             if on:
                 a.append(flag)
-        return a
+        return a + (["--resume"] if resume else [])
 
     @staticmethod
     def stage(line: str) -> str | None:
@@ -303,8 +322,31 @@ class FlyeAdapter(ToolAdapter):
         if rates:
             out["alignment_error_rate"] = rates
         out["warnings"] = [m.group(1).strip() for m in _COVERAGE_WARNING.finditer(text)]
-        out["stages_seen"] = [m.group(1) for m in _STAGE.finditer(text)]
+        # A resumed run appends to the same log: the stage it restarts replaces the interrupted attempt.
+        seen: list[str] = []
+        resumed_at: list[str] = []
+        resuming = False
+        for m in _STAGE_OR_RESUME.finditer(text):
+            if m.group(2):
+                resuming = True
+                continue
+            stage = m.group(1)
+            if resuming:
+                resumed_at.append(stage)
+                seen = seen[:seen.index(stage)] if stage in seen else seen
+                resuming = False
+            seen.append(stage)
+        out["stages_seen"] = seen
+        if resumed_at:
+            out["resumed_at"] = resumed_at
         return out
+
+    @staticmethod
+    def resumable_failure(log_text: str, returncode: int | None) -> bool:
+        """Whether a failed run was stopped from outside (a signal, the operating system running out of memory)
+        rather than by an error Flye reported itself, which resuming with the same reads and options would repeat."""
+        return (returncode is not None and (returncode < 0 or returncode == 137)) or \
+            "Looks like the system ran out of memory" in log_text
 
     @staticmethod
     def failure_reason(log_text: str, returncode: int | None) -> str | None:
@@ -330,6 +372,22 @@ class FlyeAdapter(ToolAdapter):
         if errors:
             return f"Flye failed{where}: {errors[-1]}"
         return None
+
+
+def read_checkpoint(out_dir: Path, stages: tuple[str, ...]) -> dict[str, Any] | None:
+    """What a stopped run with these `stages` left for --resume: the stage Flye would rerun and the stages completed
+    before it (each completed stage's folder must exist). None when nothing beyond configure completed or
+    params.json is unreadable."""
+    try:
+        stage = json.loads((out_dir / CHECKPOINT_FILE).read_text())["stage_name"]
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+    if stage not in stages or stages.index(stage) < 2:
+        return None
+    done = list(stages[:stages.index(stage)])
+    if any(not (out_dir / STAGE_DIRS[s]).is_dir() for s in done if s in STAGE_DIRS):
+        return None
+    return {"resume_stage": stage, "completed_stages": done}
 
 
 def samtools_helper(flye_path: str) -> dict[str, Any]:

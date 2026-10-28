@@ -1,0 +1,27 @@
+Pilon version [COMMIT] [DATE]
+Genome: round0.fasta
+Fixing snps, indels, gaps, local
+Input genome size: 107998
+Scanning BAMs
+pe.bam: 31005 reads, 0 filtered, 31005 mapped, 30831 proper, 146 stray, FR 100% 350+/-50, max 500
+Processing contig_1:1-99999
+frags pe.bam: coverage 34
+Total Reads: 26606, Coverage: 34, minDepth: 5
+Confirmed 99974 of 99999 bases (99.97%)
+Corrected 6 snps; 0 ambiguous bases; corrected 4 small insertions totaling 6 bases, 4 small deletions totaling 5 bases
+# Attempting to fix local continuity breaks
+contig_1:1-99999 log:
+Finished processing contig_1:1-99999
+Processing contig_2:1-7999
+frags pe.bam: coverage 69
+Total Reads: 4399, Coverage: 69, minDepth: 7
+Confirmed 7997 of 7999 bases (99.97%)
+Corrected 1 snps; 0 ambiguous bases; corrected 1 small insertions totaling 1 bases, 0 small deletions totaling 0 bases
+contig_2:1-7999 log:
+Finished processing contig_2:1-7999
+Writing contig_1:1-99999 changes to ./pilon1.changes
+Writing updated contig_1_pilon to ./pilon1.fasta
+Writing contig_2:1-7999 changes to ./pilon1.changes
+Writing updated contig_2_pilon to ./pilon1.fasta
+Mean frags coverage: 37
+Mean total coverage: 37

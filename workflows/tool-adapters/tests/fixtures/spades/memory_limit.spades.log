@@ -1,0 +1,40 @@
+  0:00:02.167    70M / 219M  INFO    General                 (binary_converter.cpp      :  96)   524288 reads processed
+  0:00:03.808    78M / 219M  INFO    General                 (binary_converter.cpp      :  96)   1048576 reads processed
+  0:00:04.399    63M / 219M  INFO    General                 (binary_converter.cpp      : 111)   1220000 reads written
+  0:00:04.403    41M / 219M  INFO    General                 (read_converter.cpp        :  86)   Converting single reads
+  0:00:04.403    51M / 219M  INFO    General                 (binary_converter.cpp      : 111)   0 reads written
+  0:00:04.403    41M / 219M  INFO    General                 (read_converter.cpp        :  92)   Converting merged reads
+  0:00:04.405    51M / 219M  INFO    General                 (binary_converter.cpp      : 111)   0 reads written
+  0:00:04.409     1M / 219M  INFO   StageManager             (stage.cpp                 : 185)   STAGE == de Bruijn graph construction (id: construction)
+  0:00:04.410     1M / 219M  INFO    General                 (construction.cpp          : 153)   Max read length 150
+  0:00:04.410     1M / 219M  INFO    General                 (construction.cpp          : 159)   Average read length 150
+  0:00:04.410     1M / 219M  INFO    General                 (stage.cpp                 : 117)   PROCEDURE == k+1-mer counting (id: construction:kpomer_counting)
+  0:00:04.410     1M / 219M  INFO    General                 (kmer_index_builder.hpp    : 243)   Splitting kmer instances into 40 files using 4 threads. This might take a while.
+  0:00:04.410     1M / 219M  INFO    General                 (file_limit.hpp            :  42)   Open file limit set to 20000
+  0:00:04.410     1M / 219M  INFO    General                 (kmer_splitter.hpp         :  93)   Memory available for splitting buffers: 0.0833144 Gb
+  0:00:04.410     1M / 219M  INFO    General                 (kmer_splitter.hpp         : 101)   Using cell size of 279556
+  0:00:06.346   401M / 477M  INFO    General                 (kmer_splitters.hpp        : 125)   Processed 688976 reads
+  0:00:08.102   401M / 478M  INFO    General                 (kmer_splitters.hpp        : 125)   Processed 1378840 reads
+  0:00:09.911   401M / 478M  INFO    General                 (kmer_splitters.hpp        : 125)   Processed 2069014 reads
+  0:00:11.681   401M / 478M  INFO    General                 (kmer_splitters.hpp        : 125)   Processed 2758955 reads
+  0:00:13.304   401M / 478M  INFO    General                 (kmer_splitters.hpp        : 125)   Processed 3449173 reads
+  0:00:14.998   401M / 478M  INFO    General                 (kmer_splitters.hpp        : 125)   Processed 4138559 reads
+  0:00:16.736   401M / 478M  INFO    General                 (kmer_splitters.hpp        : 125)   Processed 4827821 reads
+  0:00:16.898   401M / 478M  INFO    General                 (kmer_splitters.hpp        : 125)   Processed 4880000 reads
+  0:00:16.898     1M / 478M  INFO    General                 (kmer_splitters.hpp        : 131)   Used 4880000 reads
+  0:00:16.898     1M / 478M  INFO    General                 (kmer_index_builder.hpp    : 249)   Starting k-mer counting.
+  0:00:17.290     1M / 549M  INFO    General                 (kmer_index_builder.hpp    : 260)   K-mer counting done. There are 37689749 kmers in total.
+  0:00:17.290     1M / 549M  INFO    General                 (stage.cpp                 : 117)   PROCEDURE == Extension index construction (id: construction:extension_index_construction)
+  0:00:17.290     1M / 549M  ERROR   General                 (mmapped_reader.hpp        :  52)   mmap(2) failed. Reason: Cannot allocate memory. Error code: 12
+
+
+== Error ==  system call for: "['/usr/libexec/spades/spades-core', 'sp_mem/K21/configs/config.info', 'sp_mem/K21/configs/isolate_mode.info']" finished abnormally, OS return value: 12
+None
+
+In case you have troubles running SPAdes, you can write to spades.support@cab.spbu.ru
+or report an issue on our GitHub repository github.com/ablab/spades
+Please provide us with params.txt and spades.log files from the output directory.
+
+SPAdes log can be found here: sp_mem/spades.log
+
+Thank you for using SPAdes!

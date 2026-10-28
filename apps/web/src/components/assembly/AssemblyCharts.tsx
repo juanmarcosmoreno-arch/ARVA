@@ -4,6 +4,7 @@ import { ChartCard, Segmented } from "@/components/charts/ChartCard";
 import { axisStyle, baseOption, type ChartTheme, useChartTheme } from "@/components/charts/theme";
 import { useT } from "@/i18n";
 import { assemblyLabel, cumulativePoints, nxSteps } from "@/lib/assembly";
+import { COVERAGE_LABEL, coverageKind, fmtCoverage } from "@/lib/shortReads";
 import { escapeHtml, fmtBases, fmtCompact, fmtInt, fmtNum } from "@/lib/format";
 import type { Assembly, AssemblyContig } from "@/lib/types";
 
@@ -178,6 +179,7 @@ type ScatterAxis = "length" | "gc";
 export function ContigScatter({ assembly: a, contigs, x }: { assembly: Assembly; contigs: AssemblyContig[]; x: ScatterAxis }) {
   const t = useT();
   const th = useChartTheme();
+  const kind = coverageKind(a);
   const rows = contigs.filter((c) => c.coverage !== null && (x === "length" || c.gc_percent !== null));
   const groups = [
     { name: t("assembly.chart.circular"), color: th.series[2], rows: rows.filter((c) => c.circular === true) },
@@ -199,7 +201,7 @@ export function ContigScatter({ assembly: a, contigs, x }: { assembly: Assembly;
         return (
           `<b>${escapeHtml(c.name)}</b>` +
           row(t("assembly.col.length"), `${fmtInt(c.length)} bp`) +
-          row(t("assembly.col.coverage"), `${fmtNum(c.coverage ?? 0, 0)}×`) +
+          row(kind ? t(COVERAGE_LABEL[kind]) : t("assembly.col.coverage"), fmtCoverage(c.coverage, kind)) +
           (c.gc_percent !== null ? row(t("assembly.col.gc"), `${fmtNum(c.gc_percent, 2)} %`) : "") +
           (c.repeat ? row(t("assembly.col.repeat"), t("assembly.yes")) : "")
         );
@@ -209,7 +211,7 @@ export function ContigScatter({ assembly: a, contigs, x }: { assembly: Assembly;
       x === "length"
         ? { type: logX ? "log" : "value", ...axisStyle(th, t("assembly.chart.lengthAxis") + (logX ? ` · ${t("assembly.chart.logScale")}` : ""), { nameGap: 28 }), axisLabel: compactAxis(th), min: logX ? undefined : "dataMin" }
         : { type: "value", ...axisStyle(th, t("assembly.chart.gcAxis"), { nameGap: 28 }), min: (v: { min: number }) => Math.floor(v.min - 1), max: (v: { max: number }) => Math.ceil(v.max + 1) },
-    yAxis: { type: "value", ...axisStyle(th, t("assembly.chart.coverageAxis", { assembler: a.assembler }), { nameGap: 44 }), axisLabel: compactAxis(th), min: 0 },
+    yAxis: { type: "value", ...axisStyle(th, kind ? t(COVERAGE_LABEL[kind]) : t("assembly.chart.coverageAxis", { assembler: a.assembler }), { nameGap: 44 }), axisLabel: compactAxis(th), min: 0 },
     series: groups.map((g, i) => ({
       name: g.name,
       type: "scatter",
@@ -239,7 +241,7 @@ export function ContigScatter({ assembly: a, contigs, x }: { assembly: Assembly;
         </>
       }
       table={{
-        columns: [t("assembly.col.name"), t("assembly.col.length"), t("assembly.col.coverage"), t("assembly.col.gc"), t("assembly.col.circular")],
+        columns: [t("assembly.col.name"), t("assembly.col.length"), kind ? t(COVERAGE_LABEL[kind]) : t("assembly.col.coverage"), t("assembly.col.gc"), t("assembly.col.circular")],
         rows: rows.map((c) => [c.name, c.length, c.coverage ?? "—", c.gc_percent === null ? "—" : fmtNum(c.gc_percent, 2), c.circular === null ? "—" : c.circular ? t("assembly.yes") : t("assembly.no")]),
       }}
     />

@@ -1,0 +1,2 @@
+>1 length=100000 depth=1.00x circular=true
+>2 length=8000 depth=2.04x circular=true

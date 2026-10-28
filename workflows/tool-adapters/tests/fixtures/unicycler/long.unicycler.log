@@ -1,0 +1,78 @@
+
+Starting Unicycler (2026-10-28 15:48:10)
+----------------------------------------
+    Welcome to Unicycler, an assembly pipeline for bacterial genomes. Since you provided only long reads, Unicycler will assemble the reads with miniasm and then run repeated polishing rounds using Racon.
+    For more information, please see https://github.com/rrwick/Unicycler
+
+Command: /usr/bin/unicycler -l genome/ont.fastq.gz -o uni_l -t 2 --mode normal --keep 0
+
+Unicycler version: v0.5.0
+Using 2 threads
+
+Making output directory:
+  uni_l
+
+Dependencies:
+  Program       Version   Status  
+  spades                  not used
+  racon         1.5.0     good    
+  makeblastdb   2.12.0+   good    
+  tblastn       2.12.0+   good    
+
+
+Loading reads (2026-10-28 15:48:10)
+-----------------------------------
+515 / 515 (100.0%) - 3,470,039 bp
+
+
+Assembling contigs and long reads with miniasm (2026-10-28 15:48:10)
+--------------------------------------------------------------------
+Saving to uni_l/miniasm_assembly/01_assembly_reads.fastq:
+  515 long reads
+
+Finding overlaps with minimap... 
+success
+  18,013 overlaps
+
+Assembling reads with miniasm... 
+success
+  48 segments, 48 links
+
+Saving uni_l/miniasm_assembly/11_branching_paths_removed.gfa
+Merging segments into unitigs:
+  2 circular unitigs
+  total size = 107,591 bp
+Saving uni_l/miniasm_assembly/12_unitig_graph.gfa
+
+
+Polishing miniasm assembly with Racon (2026-10-28 15:48:11)
+-----------------------------------------------------------
+    Unicycler now uses Racon to polish the miniasm assembly. It does multiple rounds of polishing to get the best consensus. Circular unitigs are rotated between rounds such that all parts (including the ends) are polished well.
+
+Saving to uni_l/miniasm_assembly/racon_polish/polishing_reads.fastq:
+  515 long reads
+
+Polish       Assembly          Mapping
+round            size          quality
+begin         107,591           379.03
+1             107,996           478.66
+2             108,000           475.62
+3             108,000           477.93
+
+Best polish: uni_l/miniasm_assembly/racon_polish/006_rotated.fasta
+Saving uni_l/miniasm_assembly/13_racon_polished.gfa
+
+
+Rotating completed replicons (2026-10-28 15:48:17)
+--------------------------------------------------
+    Any completed circular contigs (i.e. single contigs which have one link connecting end to start) can have their start position changed without altering the sequence. For consistency, Unicycler now searches for a starting gene (dnaA or repA) in each such contig, and if one is found, the contig is rotated to start with that gene on the forward strand.
+
+Segment   Length   Depth   Starting gene   Position   Strand   Identity   Coverage
+      1   99,996   1.00x   none found                                             
+      2    8,000   1.84x   none found                                             
+
+
+Assembly complete (2026-10-28 15:48:36)
+---------------------------------------
+Saving uni_l/assembly.gfa
+

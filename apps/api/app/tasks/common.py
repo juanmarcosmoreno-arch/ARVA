@@ -3,7 +3,11 @@
 `run_job` marks the job running, records the environment, runs the job body,
 and on any failure rolls back database changes, removes partial outputs and
 records the reason. A job therefore ends either completed with all outputs
-registered, or failed with none.
+registered, or failed (or cancelled) with none.
+
+Cancellation: the API records `cancel_requested_at`; the worker reads it while a tool runs (every few seconds,
+through the monitor callback of run_command, which then kills the tool's process group) and at the points where
+ARVA's own code can stop safely. A job cancelled before a worker started it is never run.
 """
 from __future__ import annotations
 
@@ -17,6 +21,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from arva_tools import ToolExecutionError
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db.session import SessionLocal
@@ -26,6 +31,10 @@ from app.storage import LocalStorage, get_storage
 
 class JobFailure(Exception):
     """An expected failure with a clear, user-facing reason (no traceback)."""
+
+
+class JobCancelled(Exception):
+    """Someone asked to cancel the job; raised in the worker at the next check."""
 
 
 def now() -> datetime:
@@ -56,6 +65,9 @@ class JobContext:
     log: JobLog
     # Run after the job is committed as completed (e.g. queue follow-up analyses).
     after_commit: list[Callable[[], None]] = field(default_factory=list)
+    # Run when the job fails or is cancelled, after the rollback and before partial outputs are removed (e.g. keep
+    # Flye's work folder for --resume).
+    before_cleanup: list[Callable[[BaseException], None]] = field(default_factory=list)
 
     @property
     def _scope(self) -> str:
@@ -70,6 +82,20 @@ class JobContext:
     def processed_rel(self) -> str:
         return f"processed/{self._scope}"
 
+    @property
+    def checkpoint_rel(self) -> str:
+        return f"checkpoints/{self._scope}"
+
+    def cancel_requested(self, lock: bool = False) -> bool:
+        """Read from the database, not the session, so a request made while the job runs is seen."""
+        query = select(AnalysisJob.cancel_requested_at).where(AnalysisJob.id == self.job.id)
+        with self.db.no_autoflush:
+            return self.db.scalar(query.with_for_update() if lock else query) is not None
+
+    def check_cancelled(self) -> None:
+        if self.cancel_requested():
+            raise JobCancelled()
+
     def path(self, rel: str) -> Path:
         return self.storage.resolve(rel)
 
@@ -83,6 +109,11 @@ class JobContext:
         return files
 
 
+def cancellation_note(job: AnalysisJob) -> str:
+    asked = job.cancel_requested_at.isoformat(timespec="seconds") if job.cancel_requested_at else "?"
+    return f"Cancelled at the user's request (asked at {asked})"
+
+
 def run_job(
     job_id: str,
     body: Callable[[JobContext], None],
@@ -90,9 +121,13 @@ def run_job(
 ) -> str:
     db = SessionLocal()
     try:
-        job = db.get(AnalysisJob, job_id)
+        # Locked so that a cancellation of the queued job and its start cannot interleave.
+        job = db.get(AnalysisJob, job_id, with_for_update=True)
         if job is None:
             raise LookupError(f"analysis job {job_id} not found")
+        if job.status is not JobStatus.pending:
+            db.rollback()
+            return job.status.value
         storage = get_storage()
         log = JobLog(db, job)
         ctx = JobContext(db, job, storage, log)
@@ -105,14 +140,18 @@ def run_job(
 
         try:
             body(ctx)
+            # Locked until the commit below, so a cancellation is either seen here or finds the job completed.
+            if ctx.cancel_requested(lock=True):
+                raise JobCancelled()
             job.status = JobStatus.completed
         except BaseException as exc:
             db.rollback()
             job = db.get(AnalysisJob, job_id)
             ctx.job = log.job = job
-            for rel in (ctx.results_rel, ctx.processed_rel):
-                storage.remove_tree(rel)
-            if isinstance(exc, JobFailure):
+            if isinstance(exc, JobCancelled):
+                job.error_message = None
+                log(f"{cancellation_note(job)}; any running tool was stopped and partial outputs were removed")
+            elif isinstance(exc, JobFailure):
                 job.error_message = str(exc)
                 log(f"ERROR: {exc}")
             elif isinstance(exc, ToolExecutionError):
@@ -123,9 +162,13 @@ def run_job(
             else:
                 job.error_message = f"{type(exc).__name__}: {exc}"
                 log("ERROR: unexpected failure\n" + traceback.format_exc())
+            for hook in ctx.before_cleanup:
+                hook(exc)
+            for rel in (ctx.results_rel, ctx.processed_rel):
+                storage.remove_tree(rel)
             if on_failure is not None:
                 on_failure(ctx, exc)
-            job.status = JobStatus.failed
+            job.status = JobStatus.cancelled if isinstance(exc, JobCancelled) else JobStatus.failed
             if not isinstance(exc, Exception):
                 raise
 

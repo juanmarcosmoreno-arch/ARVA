@@ -14,7 +14,7 @@
    ▼                         ▼
  Local storage  ◄──────  Worker process(es)  ──►  arva_core (scientific-core)
  raw/ processed/                │
- results/ reports/ logs/        └──►  arva_tools adapters ──► SeqKit · FastQC · fastp · Filtlong · Flye · QUAST …
+ results/ reports/ logs/        └──►  arva_tools adapters ──► SeqKit · FastQC · fastp · Filtlong · Flye · SPAdes · Unicycler · QUAST · Racon · Pilon · dnadiff …
 ```
 
 ## Layers and contracts
@@ -47,7 +47,10 @@
   `parent_job_id` marks jobs started automatically by another job. `progress` (JSON, nullable) is
   written while a long tool runs (Flye: stage, stage index, expected stages, elapsed time, live log
   path) and committed every few seconds; `GET /jobs/{id}/log?tail=N` serves the last lines of that
-  live log (only inside the job's results folder), else of the ARVA job log.
+  live log (only inside the job's results folder), else of the ARVA job log. Status is `pending`, `running`,
+  `completed`, `failed` or `cancelled`; `cancel_requested_at` records a cancellation request (a running job keeps
+  status `running` until the worker has stopped its tool), and `checkpoint` (JSON, nullable) describes a stopped
+  Flye run's work folder kept under `checkpoints/` for `--resume` (never a result).
 - **MetadataImport**: provenance of one sample-metadata table applied to a project (file name, SHA-256,
   kind, sheet, encoding, delimiter, header row, column mapping, date order, mode, and the created /
   updated / unchanged / skipped counts). The table file itself is not stored.
@@ -65,7 +68,23 @@
   `POST /samples/{id}/assembly/flye` (202; 409 when Flye is unavailable; 400 for inputs it cannot
   assemble) after `POST /samples/{id}/assembly/flye/preview`, which returns the installed Flye and the
   options its `--help` lists, each file's evidence, a heuristic read-type suggestion and the
-  genome-size options, without running anything.
+  genome-size options, without running anything. SPAdes and Unicycler assemblies are started with
+  `POST /samples/{id}/assembly/spades` and `POST /samples/{id}/assembly/unicycler` (202; 409 when the tool or a
+  helper the mode needs is unavailable; 400 for files that cannot play their roles — R1, R2, unpaired, long — or
+  that contradict the sample's technology; 422 for invalid options), after the matching `…/preview`, which
+  returns the installed tool (and Unicycler's helpers and modes), the thread and memory limits, each file's
+  evidence by role and any problem, without running anything. Each assembly names its `coverage_kind`
+  (`read_depth` for Flye, `kmer_coverage` for SPAdes, `relative_depth` for Unicycler).
+  An assembly is polished with `POST /assemblies/{id}/polishing` (202; `strategy` racon, pilon or hybrid, the
+  reads by role, Racon and Pilon settings, optional QUAST; 400 when the reads do not fit the strategy, the read
+  type or the sample's technology; 409 when a tool the strategy needs is unavailable) after
+  `POST /assemblies/{id}/polishing/preview` (the tools of each strategy, the strategy the reads imply and the one
+  the sample's technology calls for, a heuristic minimap2 preset, the limits). The `racon_polish` and
+  `pilon_polish` jobs (`app/tasks/polishing.py`) record each round's commands and changes in `result_summary`
+  (direct evidence from dnadiff and Pilon's `.changes`, indirect indicators from samtools, assembly statistics
+  before and after) and register the result as an Assembly with `kind` "polished" and `parent_assembly_id`
+  (FK, SET NULL) its draft; the hybrid strategy's Racon job queues the Pilon job, and the last job the optional
+  QUAST job, in the transaction that completes it.
   Assemblies are evaluated with `POST /samples/{id}/assembly/quast` (202; 1–10 assemblies of the sample, an
   optional reference chosen among the sample's FASTA files, `min_contig`; 409 when QUAST, or minimap2 for a
   reference, is unavailable) after `POST /samples/{id}/assembly/quast/preview` (labels, contigs kept and
@@ -107,12 +126,23 @@ Endpoints create `AnalysisJob` rows (status `pending`, with the tool version det
 and enqueue them in Redis. A worker (`apps/workers/run_worker.py`) executes them through
 `app/tasks/common.run_job`, which every task shares:
 
-1. mark the job running and log tool, version, executable, environment and parameters;
+1. lock the job row and run it only if it is still `pending` (a job cancelled while queued never runs), then mark
+   it running and log tool, version, executable, environment and parameters;
 2. run the task body (ARVA statistics or an external tool);
-3. on success, commit status, outputs and any new records, then run *after-commit hooks*
+3. on success, check once more, with the row locked, that no cancellation was requested, then commit status,
+   outputs and any new records, then run *after-commit hooks*
    (e.g. enqueue follow-up statistics jobs that were created in the same transaction);
-4. on failure, roll back database changes, delete the job's partial `results/` and `processed/`
-   directories (never `raw/`), and record the reason and the tool's last log lines.
+4. on failure or cancellation, roll back database changes, run the task's *before-clean-up hooks* (Flye moves a
+   resumable work folder to `checkpoints/`), delete the job's partial `results/` and `processed/`
+   directories (never `raw/`), and record the reason (or the cancellation) and the tool's last log lines.
+
+Cancellation (`POST /jobs/{id}/cancel`) of a queued job marks it `cancelled` and removes it from the queue. For a
+running job the API records the request; the worker reads it every few seconds through the monitor callback of
+every tool run (and at checkpoints of ARVA's own code), which raises, so that `run_command` kills the tool's
+process group and step 4 runs. RQ's stop-job command is not used: it kills only the work horse, leaving the tool
+(in its own process group) running and the job record unfinished. Batch QC
+(`POST /projects/{id}/analyses/batch`) plans per-file jobs for every sample and creates exactly the previewed set
+in one transaction.
 
 The `pod5_summary` job (`app/tasks/pod5_summary.py`) is the only one that uses an optional Python
 library: `pod5==0.3.49` (extra `pod5` of `apps/api/pyproject.toml`). The task never imports it; it runs
@@ -134,7 +164,8 @@ vectors without a shell, in their own process group (killed on timeout), with st
 to files (optionally gzip-compressed) and an environment stripped of ARVA settings, of `MULTIQC_*`
 configuration variables and of anything resembling a credential; `HOME` and the XDG base directories
 point at a fresh empty folder that is deleted after the run. A `monitor` callback can follow a long
-run: it is called every few seconds while the tool runs (Flye's stages), and the run stops if it raises. `GET /api/v1/tools` reports status (`available`, `not_installed`,
+run: it is called every few seconds while the tool runs (Flye's stages, ARVA's cancellation check), also with
+gzip-streamed stdout (compressed in a thread), and the tool's process group is killed if it raises. `GET /api/v1/tools` reports status (`available`, `not_installed`,
 `incompatible`, `failed`) and whether the detected version has been validated.
 
 Tool HTML reports are served by `GET /jobs/{id}/outputs/{name}` with

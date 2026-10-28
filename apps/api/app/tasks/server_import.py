@@ -17,7 +17,7 @@ from app.services.import_roots import (
 )
 from app.services.imports import DuplicateFileError, register_raw_file
 from app.storage.local import FileTooLargeError
-from app.tasks.common import JobContext, JobFailure, run_job
+from app.tasks.common import JobCancelled, JobContext, JobFailure, run_job
 
 _PER_FILE_ERRORS = (
     ImportPathError, SourceChangedError, DuplicateFileError, FileTooLargeError, InsufficientStorageError, OSError,
@@ -48,6 +48,7 @@ class _ServerImport:
             flush=True,
         )
         for rel in paths:
+            ctx.check_cancelled()
             self._copy(ctx, root, rel)
         ctx.job.result_summary = self.summary()
         if self.duplicates:
@@ -89,10 +90,11 @@ class _ServerImport:
             flush=True,
         )
 
-    def on_failure(self, ctx: JobContext, _exc: BaseException) -> None:
+    def on_failure(self, ctx: JobContext, exc: BaseException) -> None:
         ctx.job.result_summary = self.summary()
         if self.imported:
-            ctx.log(f"{len(self.imported)} file(s) imported before the failure stay registered in the sample.")
+            when = "the cancellation" if isinstance(exc, JobCancelled) else "the failure"
+            ctx.log(f"{len(self.imported)} file(s) imported before {when} stay registered in the sample.")
 
 
 def run_server_import_job(job_id: str) -> str:

@@ -230,6 +230,8 @@ test suite has run against them; other versions run with a recorded warning.
 | MultiQC | 1.35 | Project-level report gathering the four tools' results |
 | NanoPlot | 1.48.0 | Long-read statistics and interactive report (with nanoget 1.19.6) |
 | Flye | 2.9.3 | Long-read de novo assembly (Phase 3; with samtools for its `flye-samtools` helper) |
+| SPAdes | 3.15.5 | Short-read de novo assembly of bacterial isolates (Phase 3) |
+| Unicycler | 0.5.0 | Short-read, long-read-only and hybrid assembly (Phase 3; with SPAdes 3.15.5, Racon 1.5.0 and BLAST+ 2.12.0) |
 
 ### Independent cross-check (SeqKit)
 
@@ -529,7 +531,13 @@ FASTA, so the same definitions apply whatever the assembler.
   with their cumulative length (all contigs up to 1,000; above that the 500 longest, then evenly spaced
   ranks up to the last contig, marked as down-sampled).
 - **Assembler annotations**: per-contig coverage, circularity and repeat flags are what the assembler
-  reports (e.g. Flye's `assembly_info.txt`); ARVA does not recompute them. The coverage summary is the
+  reports (e.g. Flye's `assembly_info.txt`); ARVA does not recompute them. The assemblers define coverage
+  differently, and every assembly carries its `coverage_kind`: Flye's is a mean **read depth**
+  (`read_depth`), SPAdes' a **k-mer coverage** (`kmer_coverage`), Unicycler's a **depth relative** to the
+  main replicons (`relative_depth`). The interface, reports and exports label values by kind, format them
+  in the assembler's terms, and never compare values of different kinds (the comparison view says so when
+  assemblies of different kinds are shown together). SPAdes reports no circularity: such assemblies show
+  "not reported", and the chromosome-circularity check is listed as not evaluated. The coverage summary is the
   **length-weighted median**: the coverage of the contig holding the middle base when the contigs with
   a coverage are ordered by coverage.
 - **Storage**: one row per contig is kept for the 2,000 longest contigs (the statistics always use every
@@ -565,7 +573,10 @@ segments with their length and numeric tags, links with orientations and overlap
 with the segments they run through. Tags are returned as written, because assemblers define them
 differently (Flye's `dp` is a mean read depth; Unicycler's `dp` is relative to the chromosome; SPAdes'
 `KC` is a k-mer count); the API names the tag that holds each assembler's segment coverage
-(`coverage_tag`: Flye `dp`, "mean read depth") and leaves it empty for assemblers it does not know.
+(`coverage_tag`: Flye `dp`, mean read depth; SPAdes `DP`, k-mer coverage — its `KC` is the segment's k-mer
+count and DP = KC ÷ (segment length − k); Unicycler `dp`, relative depth) and leaves it empty for assemblers
+it does not know. SPAdes' P lines are scaffold paths named after the scaffold with a part suffix (`_1`,
+`_2`…), so they are listed as written and not matched to contig rows; Unicycler writes no P lines.
 Above `max_nodes` (default 2,000) the longest segments are kept and only links between them are
 returned, at most `max_edges` (default 5,000), with `truncated: true`. GFA 2 files and malformed
 records (including path steps without an orientation) are rejected with the line number.
@@ -713,6 +724,131 @@ against `flye --help`, the Flye 2.9.3 manual and README, and the source of the i
   identical bytes; 38 s on 2 threads. Tests: `workflows/tool-adapters/tests/test_real_tools.py` and
   `apps/api/tests/test_flye_api.py` (skipped without Flye).
 
+### SPAdes (short-read assembly)
+
+Implementation: `workflows/tool-adapters/arva_tools/spades.py` (parameters, command, stage plan, log,
+contig names, failure reasons), the `spades_assembly` job in `apps/api/app/tasks/tools.py`, and
+`apps/api/app/services/short_hybrid.py` (input roles and checks, shared with Unicycler). Verified against
+`spades.py --help`, the SPAdes 3.15.5 README and pipeline source (`spades_pipeline/options_parser.py`,
+`options_storage.py`, `stages/`, `executors/executor_local.py`) of the Ubuntu 24.04 package
+3.15.5+dfsg-7 (the same upstream release as Debian bookworm's), and real runs on the synthetic genome.
+Licence GPL-2.0-only (upstream `assembler/LICENSE`: GPL version 2; Debian's copyright file says GPL-2+);
+citation: Prjibelski et al., Curr Protoc Bioinformatics 2020;70:e102.
+
+- **Inputs by role.** An R1/R2 pair (`-1`/`-2`, both or neither), unpaired reads (`-s`), or both; one file
+  per role, original or filtered copy, recorded as the job's inputs in the order R1, R2, unpaired. Checks
+  (HTTP 400, each with its reason): FASTQ only, valid files, not POD5; R1 not marked as mate R2 and the
+  reverse; no file whose read headers identify Nanopore or PacBio reads (high or medium confidence); no
+  file with a read longer than 1,000 bp in ARVA's statistics (short-read platforms write at most a few
+  hundred bases); a pair whose statistics show different read counts is refused (the files must hold the
+  same reads in the same order); a sample whose technology is `nanopore` or `pacbio` is refused, `illumina`
+  and `hybrid` are accepted, `unknown` needs the user's confirmation. Unknown request fields are refused
+  (HTTP 422). The tool missing gives HTTP 409.
+- **Command.** `spades.py [--isolate|--careful] [-1 R1 -2 R2] [-s U] -o <job>/spades -t <threads> -m <GB>
+  --cov-cutoff <off|auto|x> [-k k1,k2,…]`. The mode is explicit: `--isolate` (default; SPAdes' recommendation
+  for high-coverage isolates; implies `--only-assembler`), `--careful` (BayesHammer read correction and the
+  mismatch corrector), or no mode flag (SPAdes then warns). SPAdes refuses `--isolate` with `--careful`,
+  `--mismatch-correction` or `--only-error-correction`; ARVA's modes are exclusive. Threads are capped by
+  `ARVA_TOOL_THREADS`; `-m` defaults to min(250 GB, ARVA's memory cap) — SPAdes' own rule — and may not exceed
+  the cap (`ARVA_TOOL_MEMORY_GB`, else the computer's physical memory). `--cov-cutoff` is passed explicitly
+  (`off` is SPAdes' default). `-k` is passed only when the user gives k-mer sizes (odd, 1–127, ascending and
+  distinct, because SPAdes uses them in the given order); otherwise SPAdes chooses them from the longest
+  read (21,33,55 below 150 bp; 21,33,55,77 from 150 bp; 21,33,55,77,99,127 from 250 bp; values not below the
+  read length are dropped, also user-given ones, with a log message) and ARVA records the values it ran
+  from the `===== K<k> started.` stages of `spades.log`, with SPAdes' own message about them. When the k
+  given and the k run differ, the job log says so. Every option used must appear in the installed SPAdes'
+  `--help`. Reads are linked as `NN_<name>.fastq[.gz]`: SPAdes recognises reads by their file name, and
+  Debian's `/usr/bin/spades.py` is a `/bin/sh` wrapper that expands its arguments unquoted, so ARVA refuses
+  paths with white space or `* ? [ ]`.
+- **Monitoring.** SPAdes writes its plan to `run_spades.yaml` before the first stage; ARVA reads it (the
+  entries whose short name ends in `_finish` announce no start) and follows the `===== <stage> started.`
+  lines of SPAdes' console output, so the progress shows SPAdes' own stage list (for example Before start,
+  Assembling, K21, K33, K55, K77, Copy files, Breaking scaffolds, Terminate in isolate mode; `--careful`
+  adds read error correction — announced twice — and mismatch correction).
+- **Outputs.** Kept: `contigs.fasta`, `scaffolds.fasta`, `assembly_graph_with_scaffolds.gfa`, `spades.log`,
+  `params.txt` and the console log; the per-k folders, corrected reads and temporary files are removed. The
+  user chooses which FASTA is registered as the assembly (contigs by default; scaffolds join contigs with
+  runs of N); the choice is recorded.
+- **Coverage.** Contig names are `NODE_<n>_length_<bp>_cov_<coverage>`. ARVA parses them, checks that the
+  length in each name equals the sequence length (otherwise nothing is registered), and stores the value as
+  **k-mer coverage**: how many times, on average, each of the contig's k-mers (largest k) occurs in the
+  reads. It is lower than read depth (for reads of length L, read depth ≈ k-mer coverage × L / (L − k + 1),
+  and errors lower it further); ARVA does not convert it. SPAdes reports no circularity; ARVA records none.
+- **Failures.** From SPAdes' own lines: exceeding `-m` ("mmap(2) failed. Reason: Cannot allocate memory",
+  `std::bad_alloc`, "Not enough memory") becomes "SPAdes ran out of memory during the K21 stage (memory
+  limit -m 1 GB): …"; a process killed by the operating system (signal 9) is reported as likely memory
+  exhaustion before SPAdes' limit; an unsupported read file and a crashed SPAdes program are named with
+  their stage. Recorded: on a 6 Mb synthetic genome at 60× with `-m 1`, spades-core stopped in K21 and
+  spades.py exited with status 12 (fixture `memory_limit.spades.log`).
+- **Recorded result on a small synthetic genome.** `make_synthetic_genome.py --chromosome-length 100000
+  --plasmid-length 8000 --repeat-length 2000 --illumina-depth 40` (150 bp pairs), `--isolate`, 2–4
+  threads: k 21,33,55,77 chosen by SPAdes; contig 1 98,152 bp (the 2 kb repeat collapsed) at k-mer coverage
+  13.4, contig 2 8,077 bp (the 8,000 bp plasmid plus the k − 1 bases its circular graph repeats) at 26.8,
+  about twice the chromosome's; two short contigs below 1×; 6 s. Tests:
+  `workflows/tool-adapters/tests/test_spades_unicycler.py`, `test_real_tools.py` and
+  `apps/api/tests/test_short_hybrid_api.py` (real runs skipped without SPAdes).
+
+### Unicycler (short-read, long-read-only and hybrid assembly)
+
+Implementation: `workflows/tool-adapters/arva_tools/unicycler.py`, the `unicycler_assembly` job in
+`apps/api/app/tasks/tools.py`, `apps/api/app/services/short_hybrid.py`. Verified against
+`unicycler --help_all`, the Unicycler 0.5.0 README and source (`unicycler.py`, `spades_func.py`, `misc.py`,
+`assembly_graph.py`, `assembly_graph_segment.py`, `string_graph.py`, `miniasm_assembly.py`, `blast_func.py`)
+of the Ubuntu 24.04 package 0.5.0+dfsg-1 (the same release as Debian bookworm's), and real runs. Licence
+GPL-3.0-or-later; citation: Wick, Judd, Gorrie & Holt, PLoS Comput Biol 2017;13(6):e1005595.
+
+- **Modes from the roles.** R1/R2 and/or unpaired short reads only: short-read assembly (SPAdes over a range
+  of k-mer sizes; Unicycler keeps the graph scoring best by 1/(c × (d + 2)) for c contigs and d dead ends).
+  One long-read file only: long-read-only assembly (Unicycler's built-in miniasm, then Racon polishing).
+  Both: short-read-first hybrid assembly. The short-read checks are those of SPAdes; the long-read file must
+  not be a mate of a pair, nor have Illumina headers, nor lack any read longer than 1,000 bp; a sample whose
+  technology is `illumina` cannot be given long reads, and one whose technology is `nanopore` or `pacbio`
+  cannot be given short reads (set `hybrid`). Long-read-only Unicycler is offered as a second strategy; Flye
+  remains ARVA's main long-read assembler, and the README's 2022 update recommends long-read-first assembly
+  when long reads are deep.
+- **Helpers.** Unicycler calls SPAdes (≥ 3.13.1; short reads), Racon (long reads, unless `--no_miniasm`),
+  and makeblastdb/tblastn (rotation of completed circular replicons to a dnaA/repA start, unless
+  `--no_rotate`, which ARVA does not offer). Debian's package also depends on Pilon, Bowtie 2 and BCFtools,
+  which 0.5.0 does not call. ARVA resolves each helper (`ARVA_TOOL_SPADES`, `_RACON`, `_MAKEBLASTDB`,
+  `_TBLASTN`, `ARVA_TOOLS_PATH`, `PATH`), passes its path explicitly (`--spades_path`, `--racon_path`,
+  `--makeblastdb_path`, `--tblastn_path`), refuses a mode whose helpers are missing (HTTP 409), and records
+  Unicycler's own dependency table (program, version, status) from its log.
+- **Command.** `unicycler [-1 R1 -2 R2] [-s U] [-l L] -o <job>/unicycler -t <threads> --mode
+  <conservative|normal|bold> --keep <0|1> --verbosity 1 --min_fasta_length <n> --linear_seqs <n>`, plus with
+  short reads `--depth_filter <x> [--kmers k1,k2,…] --spades_path … --spades_options=-m <GB>`, plus `--racon_path`
+  with long reads, plus the BLAST paths. Unicycler runs SPAdes with `--isolate` and `-m 1024` (GB) unless
+  `-m` is in `--spades_options`, i.e. with no practical limit; ARVA passes its memory limit so SPAdes keeps
+  to it. `--keep` 2 and 3 (alignments, temporary files) are not offered. `--kmers` must be odd, 11–127,
+  ascending and distinct (Unicycler's own rule); without it Unicycler chooses a range from the median read
+  length, and ARVA records the range and the best k-mer from the log. Every option used must appear in the
+  installed Unicycler's `--help_all`.
+- **Monitoring.** Each section of `unicycler.log` starts with `<Title> (YYYY-MM-DD HH:MM:SS)`; the console
+  copy is coloured (ANSI escapes, removed when parsed). ARVA follows the log and shows the sections seen in
+  its validation runs for the mode; sections that only appear when there is work for them (e.g. rotation)
+  may be absent, and others are logged as unexpected.
+- **Outputs.** Kept: `assembly.fasta`, `assembly.gfa`, `unicycler.log`, the console log and, with `--keep 1`,
+  the graphs Unicycler saves at its checkpoints (in `unicycler/`). In short-read and hybrid modes each FASTA
+  header is `N length=<bp> depth=<d>x` plus ` circular=true` for a completed circular replicon (one segment
+  whose only links join its end to its start); ARVA parses them and checks the lengths. In long-read-only
+  mode Unicycler 0.5.0 writes bare names (`>1`): ARVA reads each contig's depth from the GFA's `dp:f` tag and
+  its circularity from the GFA's links with Unicycler's own definition (only self-links, same orientation at
+  both ends), and records that the values come from the graph. The two sources agree on the short-read
+  fixture.
+- **Depth.** Relative, not a read depth: in short-read and hybrid modes each segment's depth divided by the
+  length-weighted median depth of the 10 longest segments (`AssemblyGraph.normalise_read_depths`); in
+  long-read-only mode, divided by the length-weighted median depth of all segments
+  (`StringGraph.normalise_read_depths`). The chromosome is therefore near 1.00×.
+- **Failures.** Unicycler reports `Error: <message>` with exit status 1. When SPAdes fails inside it,
+  Unicycler's message ("SPAdes encountered an error:") omits the reason, which stays in
+  `<out>/spades_assembly/spades.log`; ARVA reads that log and reports, e.g., "Unicycler stopped because
+  SPAdes failed: SPAdes ran out of memory (memory limit -m 1 GB): …" (recorded on the 6 Mb genome with
+  `--spades_options=-m 1`).
+- **Recorded results on the small synthetic genome** (as for SPAdes, Nanopore-like reads at 30×,
+  `--mode normal`, 2 threads): hybrid — two complete circular replicons, 100,000 bp at 1.00× and 8,000 bp at
+  2.04×, 74 s (45–65 s with `--kmers 27,53,77`); short reads only — four contigs (57,998 and 37,998 bp split
+  at the repeat, the 8,000 bp plasmid circular at 2.05×, and the 2,002 bp repeat at 1.81×), 43 s; long reads
+  only — `>1` 99,996 bp and `>2` 8,000 bp, both circular by the graph, depth 1.00 and 1.84, 26 s.
+
 ### QUAST (assembly evaluation)
 
 Implementation: `workflows/tool-adapters/arva_tools/quast.py`, `apps/api/app/services/quast.py`, the
@@ -773,6 +909,144 @@ QUAST 5.2.0 (PyPI sdist) and real runs on assemblies with known differences from
   handler); the job notes it and the console log is kept. QUAST's locale warning (no `en_US.UTF-8`)
   affects only the dates in the HTML report.
 
+### Polishing (Racon, Pilon) and the before/after comparison
+
+A polished assembly is a new assembly record (`kind` "polished") linked to the draft it was made from
+(`parent_assembly_id`); the draft is never changed. The strategy follows the reads, not one recipe for
+every technology: long reads → Racon, short reads → Pilon, both → Racon then Pilon on Racon's result (the
+Pilon job is queued when Racon's result is registered). Every tool, version, parameter, command, input
+checksum and log is recorded per round; the draft's contigs checksum is checked again before the run.
+Verified with Racon 1.5.0, minimap2 2.26, Pilon 1.24 (OpenJDK 21), BWA 0.7.17, samtools 1.19.2 and
+MUMmer 3.23 (dnadiff 1.3, NUCmer 3.1) on Ubuntu 24.04, using their help texts, Pilon's bytecode (javap) for its
+defaults, and real runs on the synthetic genome with a draft carrying 16 known errors
+(`scripts/make_polishing_draft.py`: 7 substitutions, 4 insertions of 5 bases, 5 deletions of 7 bases).
+
+- **Racon round.** `minimap2 -x map-ont|map-pb|map-hifi -t <threads> -o roundN.paf <current> <reads>`, then
+  `racon -m 3 -x -5 -g -4 -w 500 -q 10 -e 0.3 -t <threads> -u <reads> roundN.paf <current>` (Racon's defaults,
+  passed explicitly, or the user's values). `-u` keeps contigs without overlaps, which Racon otherwise drops.
+  Racon trims each window's consensus where few reads support it; at contig ends fewer reads align, so each
+  round can shorten contigs (8 + 17 bp of a 100 kb circular chromosome in one round on the synthetic data, 5 bp
+  more in a second). `--no-trimming` instead left 60 spurious insertions at window boundaries (every 500 bp), so
+  ARVA keeps the default and reports the bases lost at each end. One round fixed all 7 substitutions and all
+  but 2 indel bases of the known errors; a second fixed the rest.
+- **Pilon round.** `bwa index`, `bwa mem -t <threads> -K 100000000` per library (the fixed batch size makes the
+  result independent of the thread count; the SAM is streamed gzip-compressed and read by samtools), `samtools
+  sort` and `index`, then `java -Xmx<heap>g -jar pilon.jar --genome <current> --frags <pairs.bam> [--unpaired
+  <se.bam>] --output roundN --outdir <work> --changes --fix <list> --mindepth 0.1 --minmq 0 --minqual 0 --flank 10
+  --defaultqual 10 --gapmargin 100000 --mingap 10 --K 47 --chunksize 10000000`. The defaults were read from the
+  jar's bytecode: the default fix list is exactly snps, indels, gaps and local; mindepth 0.1 is a fraction of
+  the mean coverage with a floor of 5. Debian's launcher would fix the heap at 16 GB, so ARVA runs the jar with
+  its own `-Xmx` and removes `JAVA_TOOL_OPTIONS`, `_JAVA_OPTIONS` and `JDK_JAVA_OPTIONS` from every tool's
+  environment. Pilon 1.24 has no thread option. Debian's build prints `Pilon version [COMMIT] [DATE]`; ARVA
+  records the version of the Debian package that owns the jar (dpkg) and says so. With "stop after a round
+  that changes nothing" (default), the run stops after a round with an empty `.changes` file. One round
+  corrected all 16 known errors; its `.changes` file (7 SNPs, 5 insertions of 7 bases, 4 deletions of 5
+  bases) and dnadiff agreed exactly, and the result equalled the reference.
+- **Direct evidence.** MUMmer dnadiff (`dnadiff -p <prefix> <before> <after>`, run in the work folder on
+  file names ARVA chooses, because dnadiff passes its arguments to a shell) between the input and output of
+  every round and between the draft and the final result. From `.snps` (show-snps -rlTHC on the one-to-one
+  alignments) ARVA counts substituted bases and groups consecutive indel bases into events (insertion rows
+  share the reference position, deletion rows the query position); from `.1coords` the draft bases left
+  unaligned at each contig end; from `.report` aligned/unaligned bases, breakpoints and one-to-one identity.
+  On the known edits dnadiff reported exactly 7 substitutions, 4 insertions (5 bases) and 5 deletions (7
+  bases). Differences outside one-to-one alignments are not in `.snps`; they appear as unaligned bases and
+  breakpoints. Pilon's own `.changes` list is kept and counted by type (SNP; insertion or deletion relative to
+  the input; equal-length multi-base substitution and other replacements as "other"). Without MUMmer, Racon's
+  rounds have no direct evidence and are shown as such, never as zero changes.
+- **Indirect indicators.** The polishing reads are aligned with the polisher's aligner (`minimap2 -a -x
+  <preset>` or `bwa mem -K 100000000`) to the draft and to the result; `samtools stats` gives reads mapped,
+  the sum of the NM tags (edit distance: mismatched, inserted and deleted bases) per 100 aligned bases
+  ("error rate" in samtools), indels in the alignments per 100 kb aligned and properly paired reads;
+  `samtools coverage` the per-contig mean depth. These are labelled indirect: read errors dominate them (3.92 →
+  3.90 per 100 bases for the Nanopore-like reads of the test), and the same reads drove the polishing.
+- **Polished assembly record.** Contig statistics are ARVA's; per-contig coverage is the mean depth of the
+  mapped polishing reads (`mapped_read_depth`, not comparable with Flye's, SPAdes' or Unicycler's values);
+  circularity is the draft assembler's flag for the draft contig (Pilon's `_pilon` suffixes removed to match).
+  Notes record bases trimmed at contig ends (with a note on circular contigs, which polishers treat as linear),
+  draft contigs with no alignment, a round without changes, and an edit distance that rose.
+- **Not integrated.** Medaka (model-based Nanopore polishing) needs a model matching the reads' basecaller and
+  downloads models; it is planned. A change is not proof of a correction: Racon also changed a Flye draft that
+  was already identical to the reference (5 substitutions, 4 indel bases, 36 bases trimmed at the ends); only a
+  trusted reference (QUAST with one) can show which version is closer to the truth.
+
+### Evidence levels across assembly and polishing
+
+Every value ARVA shows for an assembly belongs to one of these levels, and the interface, reports and exports
+keep them apart:
+
+1. **Computed by ARVA** from the files, with stated definitions (`arva_core.assembly_stats`): contig counts and
+   lengths, Nx/Lx, GC, the length histogram, cumulative curves. Identical definitions for every assembler.
+2. **Reported by the tool**, recorded as the tool wrote it and labelled with its meaning: Flye's mean read depth,
+   SPAdes' k-mer coverage, Unicycler's relative depth, the polished assembly's mapped read depth
+   (`coverage_kind`), the assemblers' circularity and repeat flags, QUAST's metrics. Values of different kinds
+   are never compared; SPAdes' missing circularity is "not reported", never "linear".
+3. **Heuristics**: the assembly warnings and ARVA's suggestions (Flye read type, polishing strategy), each
+   labelled as such with its rule; the user decides.
+4. For polishing, **direct evidence** (what changed in the sequence: dnadiff between versions, Pilon's change
+   list) is shown apart from **indirect indicators** (how the same reads align to each version), which read
+   errors dominate. A change is not proof of a correction; only a trusted reference (QUAST with one) shows which
+   version is closer to the truth.
+
+### Job cancellation, recovery and resume
+
+Implementation: `apps/api/app/tasks/common.py` (job lifecycle), `apps/api/app/services/jobs.py` (cancel, resume,
+discard), `workflows/tool-adapters/arva_tools/runner.py` (process groups), `arva_tools/flye.py` (checkpoints).
+
+- **Cancelling a queued job** (`POST /jobs/{id}/cancel`): the job is marked `cancelled` and removed from the task
+  queue at once. The job row is locked while this happens, and the worker locks it before starting a job and
+  runs only jobs still `pending`, so a job cancelled while a worker picks it up never runs.
+- **Cancelling a running job**: the request is recorded (`cancel_requested_at`); the job stays `running` until
+  the worker acts. The worker reads the request from the database every 5 s while a tool runs (the monitor
+  callback of `run_command`, also with gzip-streamed output such as Filtlong's), before each tool command, every
+  100,000 records of ARVA's read statistics and between the files of a server import. It then kills the tool's
+  process group with SIGKILL (every tool runs in its own session, so its child processes stop too), rolls back the
+  database changes, removes the partial outputs under `results/` and `processed/` exactly as for a failure, and
+  records `cancelled` with the log kept (`logs/<job>.log`). Before a job is recorded as completed, the worker
+  checks the request once more with the row locked, so a cancellation is either honoured or answered with "already
+  finished", never lost. ARVA does not use RQ's stop-job command: it kills the worker's work horse only, so a tool
+  in its own process group would keep running, ARVA's clean-up would not run, and it is not available with the
+  macOS worker (`SimpleWorker`).
+- **A job no worker runs any more** (the worker was killed, e.g. by the system when memory ran out): cancelling it
+  ends the record at once when the task queue reports that its task is no longer executing (failed, stopped,
+  cancelled, finished or gone); partial outputs are removed and no work folder is kept, because ARVA cannot
+  confirm that the tool's processes stopped.
+- **Flye resume.** Verified in Flye 2.9.3's source (`flye/main.py`) and with real runs. Flye writes
+  `params.json` in its output folder before each stage, naming the stage it starts; `--resume` reruns that
+  stage after checking only that the previous stage's output files exist, and it does not check that the reads,
+  options or version match the first run. The stage folders are found from `--out-dir`, so a moved folder
+  resumes. Its polishing stage appends to `40-polishing/bubbles_<n>.fasta` (`polishing/bubbles.py` opens it
+  with mode "a"): on the default synthetic genome (2 threads), a run killed 2 s into polishing and resumed gave a
+  30,000 bp plasmid where the uninterrupted run gives 15,000 bp, without any error. With the interrupted stage's
+  folder deleted first, runs killed during assembly, consensus, repeat and polishing, moved to another folder
+  and resumed gave `assembly.fasta`, `assembly_info.txt` and `assembly_graph.gfa` byte-identical to the
+  uninterrupted run. ARVA therefore:
+  - keeps Flye's work folder (in `checkpoints/`, outside the results) only when the run was cancelled, reached
+    the time limit or was killed from outside (a negative exit status or 137, or Flye's "ran out of memory"
+    message) after a stage beyond configure had completed, and deletes the interrupted stage's folder; when Flye
+    stopped with an error of its own, resuming with the same reads and options would repeat it, so nothing is
+    kept and the log says why;
+  - resumes in a new job (`POST /jobs/{id}/resume`) with the original job's reads, parameters and thread count,
+    only with the Flye version that wrote the folder and only when the installed Flye's `--help` lists
+    `--resume`; the new job moves the folder into its own results, runs the original command plus `--resume`,
+    records the run it continued and the stages completed there, and counts each stage once in the
+    progress and in its summary of Flye's log (Flye appends the resumed run to the same `flye.log`);
+  - deletes a kept folder on request (`DELETE /jobs/{id}/checkpoint`).
+  Resuming is not offered for SPAdes (`--continue`, `--restart-from`) or Unicycler: not validated in ARVA.
+
+### Batch QC (project)
+
+`POST /projects/{id}/analyses/batch` runs ARVA's read statistics, SeqKit and/or FastQC on the files of every
+sample (or of the chosen samples). With `dry_run` (the default) it returns the plan only: for every file and
+analysis either `run` or the reason no job is created, checked in this order — a derived file when only
+imported files are chosen, POD5 raw signal, not FASTQ/FASTA, FASTA for FastQC (it needs FASTQ), a file that
+failed validation, a queued or running job of the same analysis (always skipped, also with recompute), a
+completed result (skipped unless `recompute`). Failed and cancelled jobs are not results. The plan has a
+`plan_id`, a hash of the selection and of every planned (analysis, sample, file); creating the jobs requires
+it, and if anything changed since the preview the request is refused (409) with the new plan, so exactly the
+jobs that were shown are created. The jobs are ordinary per-sample jobs with the same parameters as from the
+sample's page (statistics: ARVA's defaults, 50 length bins, no genome size; SeqKit and FastQC: ARVA's thread
+setting), created in one transaction with each tool's version detected once.
+
 ### Synthetic genome for assembly
 
 `scripts/make_synthetic_genome.py` writes a SYNTHETIC genome with known structure (circular 300 kb
@@ -810,6 +1084,20 @@ report parsers on real QUAST 5.2.0 outputs and failure logs, and the minimap2 lo
 run QUAST on assemblies with known differences from the synthetic genome (and on IUPAC codes) and compare
 it with ARVA; `apps/api/tests/test_quast_api.py` runs the job with a stand-in QUAST (requests refused,
 recorded command, cross-check, served pages, failures) and the real QUAST end to end.
+`workflows/tool-adapters/tests/test_polishing.py` checks every flag ARVA passes to Racon, Pilon, minimap2, BWA,
+samtools and dnadiff against their recorded help texts, the argument vectors, and the parsers on real outputs
+(`fixtures/polishing`); the real-tool tests polish a draft with known errors and compare the results with the
+true reference; `apps/api/tests/test_polishing_api.py` checks the request rules, the lineage migration, and
+runs Racon, Pilon, the hybrid strategy (with QUAST when installed) and Racon on a real Flye draft end to end.
+`apps/api/tests/test_job_control_api.py` cancels a queued job (removed from the queue, never run by a worker that
+had already taken it), a running one (a stand-in tool and the child it started are killed, partial outputs
+removed, the log kept) and one no worker runs any more, keeps and resumes a stand-in Flye's work folder (the
+interrupted stage's folder removed, `--resume` passed, refusals for another Flye version, an error of Flye's own,
+or nothing completed beyond configure), and runs the real Flye: cancelled during polishing, resumed, it gives
+the 300 kb chromosome and the 15 kb plasmid at their lengths. `apps/api/tests/test_batch_qc_api.py` checks the
+plan's counts and reasons per sample, creation of exactly the planned jobs, refusal of a changed plan, recompute
+and a missing tool. `workflows/tool-adapters/tests/test_framework.py` checks that a monitor can stop a tool with
+gzip-streamed output and that its child processes are killed with it.
 `workflows/tool-adapters/tests/` checks command construction for every option, output parsing,
 safe execution (no shell, no secrets in the tool environment, timeouts) and runs each real tool on
 the synthetic data; `apps/api/tests/test_tools_api.py` runs complete jobs, lineage and reports.
@@ -837,6 +1125,8 @@ specification 13.1 (QNAME convention); NCBI sra-tools wiki "HowTo: fasterq-dump"
 - Kolmogorov M, Yuan J, Lin Y, Pevzner PA. Assembly of long, error-prone reads using repeat graphs. *Nat Biotechnol* 2019;37(5):540–546. doi:10.1038/s41587-019-0072-8
 - Kolmogorov M et al. metaFlye: scalable long-read metagenome assembly using repeat graphs. *Nat Methods* 2020;17(11):1103–1110. doi:10.1038/s41592-020-00971-x
 - Flye 2.9.3 manual (USAGE.md). https://github.com/mikolmogorov/Flye/blob/2.9.3/docs/USAGE.md
+- Flye 2.9.3 source: `flye/main.py` (stages, params.json, --resume) and `flye/polishing/bubbles.py`. https://github.com/mikolmogorov/Flye/tree/2.9.3/flye
+- RQ documentation, Jobs (stopping a currently executing job). https://python-rq.org/docs/jobs/
 - Gurevich A et al. QUAST: quality assessment tool for genome assemblies. *Bioinformatics* 2013;29:1072–1075. doi:10.1093/bioinformatics/btt086
 - Mikheenko A, Prjibelski A, Saveliev V, Antipov D, Gurevich A. Versatile genome assembly evaluation with QUAST-LG. *Bioinformatics* 2018;34(13):i142–i150. doi:10.1093/bioinformatics/bty266
 - Mikheenko A, Valin G, Prjibelski A, Saveliev V, Gurevich A. Icarus: visualizer for de novo assembly evaluation. *Bioinformatics* 2016;32(21):3321–3323. doi:10.1093/bioinformatics/btw379
@@ -851,3 +1141,11 @@ specification 13.1 (QNAME convention); NCBI sra-tools wiki "HowTo: fasterq-dump"
 - Wick RR. Filtlong. https://github.com/rrwick/Filtlong
 - Andrews S. FastQC: a quality control tool for high throughput sequence data. https://www.bioinformatics.babraham.ac.uk/projects/fastqc/
 - Cornish-Bowden A. Nomenclature for incompletely specified bases in nucleic acid sequences. *Nucleic Acids Res* 1985;13:3021–3030. doi:10.1093/nar/13.9.3021
+- Vaser R, Sović I, Nagarajan N, Šikić M. Fast and accurate de novo genome assembly from long uncorrected reads. *Genome Res* 2017;27(5):737–746. doi:10.1101/gr.214270.116
+- Walker BJ et al. Pilon: an integrated tool for comprehensive microbial variant detection and genome assembly improvement. *PLoS ONE* 2014;9(11):e112963. doi:10.1371/journal.pone.0112963
+- Li H. Minimap2: pairwise alignment for nucleotide sequences. *Bioinformatics* 2018;34(18):3094–3100. doi:10.1093/bioinformatics/bty191
+- Li H. Aligning sequence reads, clone sequences and assembly contigs with BWA-MEM. arXiv:1303.3997, 2013.
+- Danecek P et al. Twelve years of SAMtools and BCFtools. *GigaScience* 2021;10(2):giab008. doi:10.1093/gigascience/giab008
+- Kurtz S et al. Versatile and open software for comparing large genomes. *Genome Biol* 2004;5(2):R12. doi:10.1186/gb-2004-5-2-r12
+- Wick RR, Holt KE. Polypolish: Short-read polishing of long-read bacterial genome assemblies. *PLoS Comput Biol* 2022;18(1):e1009802. doi:10.1371/journal.pcbi.1009802
+- Wick RR, Judd LM, Holt KE. Assembling the perfect bacterial genome using Oxford Nanopore and Illumina sequencing. *PLoS Comput Biol* 2023;19(3):e1010905. doi:10.1371/journal.pcbi.1010905

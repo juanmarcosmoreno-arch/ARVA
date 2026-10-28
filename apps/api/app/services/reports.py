@@ -23,9 +23,13 @@ from app.services.jobs import (
     FILTLONG_JOB,
     FLYE_JOB,
     NANOPLOT_JOB,
+    PILON_JOB,
     POD5_JOB,
     QUAST_JOB,
+    RACON_JOB,
     SEQKIT_JOB,
+    SPADES_JOB,
+    UNICYCLER_JOB,
 )
 from app.services.metadata_table import sanitize_spreadsheet_cell
 from app.services.raw_signal import is_raw_signal
@@ -47,7 +51,21 @@ ASSEMBLY_LIMITATIONS = [
     "Contig coverage, circularity and repeat flags are the assembler's own values; contig lengths, N50/L50, "
     "N90/L90 and GC are computed by ARVA from the contigs file.",
     "Assembly N50 describes contigs, read N50 describes reads: the two are not comparable.",
+    "Contig coverage means something different for each assembler: Flye reports mean read depth, SPAdes k-mer "
+    "coverage (lower than read depth), Unicycler depth relative to the main replicons (about 1 for the "
+    "chromosome). Values of different kinds are not comparable. SPAdes reports no circularity.",
 ]
+POLISHING_LIMITATIONS = [
+    "Polishing changes (dnadiff between draft and polished sequence, Pilon's list of changes) are direct evidence "
+    "of what changed, not of improvement: a change is a correction only if the polished base is the true one, which "
+    "only a trusted reference can show.",
+    "Read alignment statistics before and after polishing (mapped reads, edit distance per aligned base) are "
+    "indirect indicators: they mix read errors with assembly errors, and the reads were also used to polish.",
+    "A polished contig's coverage is the mean depth of the polishing reads mapped to it (samtools coverage); its "
+    "circularity is the draft assembler's report for the draft contig. Racon and Pilon treat every contig as linear.",
+]
+COVERAGE_LABELS = {"read_depth": "mean read depth", "kmer_coverage": "k-mer coverage",
+                   "relative_depth": "relative depth", "mapped_read_depth": "mean depth of mapped polishing reads"}
 # QUAST fields copied into the HTML report (the JSON report keeps every field QUAST wrote).
 QUAST_REPORT_FIELDS = (
     "# contigs", "Total length", "Largest contig", "GC (%)", "N50", "N90", "L50", "L90", "auN", "# N's per 100 kbp",
@@ -211,10 +229,14 @@ def _assemblies(db: Session, sample: Sample, by_id: dict[str, RawFile]) -> list[
             })
         out.append({
             "id": a.id,
+            "kind": a.kind.value,
+            "parent_assembly_id": a.parent_assembly_id,
+            "polishing": _polishing(job) if a.kind.value == "polished" and job is not None else None,
             "assembler": a.assembler,
             "assembler_version": a.assembler_version,
             "mode": a.mode.value,
             "read_type": a.read_type,
+            "coverage_kind": a.coverage_kind,
             "created_at": a.created_at.isoformat(),
             "inputs": inputs,
             "job": None if job is None else {
@@ -235,6 +257,30 @@ def _assemblies(db: Session, sample: Sample, by_id: dict[str, RawFile]) -> list[
             "quast": quast,
         })
     return out
+
+
+def _polishing(job: AnalysisJob) -> dict[str, Any] | None:
+    """The polishing job's comparison of draft and polished assembly, labelled by kind of evidence."""
+    s = job.result_summary or {}
+    if not s:
+        return None
+    direct = s.get("direct") or {}
+    diff = direct.get("dnadiff")
+    return {
+        "polisher": s.get("polisher"), "polisher_version": s.get("polisher_version"), "strategy": s.get("strategy"),
+        "draft_assembly_id": (s.get("draft") or {}).get("assembly_id"), "rounds_run": s.get("rounds_run"),
+        "rounds": [{"round": r["round"], "changes": r["changes"], "source": r["changes_source"]} for r in s["rounds"]],
+        "direct_evidence": {"source": direct.get("source"),
+                            "dnadiff_events": diff["events"] if diff else None,
+                            "dnadiff_draft_unaligned_bases": diff["before"].get("unaligned_bases") if diff else None,
+                            "pilon_changes": direct.get("pilon_changes")},
+        "indirect_indicators": {"aligner": (s.get("indirect") or {}).get("aligner"),
+                                "before": (s.get("indirect") or {}).get("before", {}).get("stats"),
+                                "after": (s.get("indirect") or {}).get("after", {}).get("stats")},
+        "assembly_statistics": s.get("assembly_stats"),
+        "observations": s.get("observations", []),
+        "helpers": [f"{h['name']} {h['version']}" for h in s.get("helpers", []) if h.get("version")],
+    }
 
 
 def _raw_signal_files(db: Session, sample: Sample, files: list[RawFile]) -> list[dict[str, Any]]:
@@ -270,7 +316,7 @@ def _processing_steps(db: Session, sample: Sample, latest: dict) -> list[dict[st
             AnalysisJob.sample_id == sample.id,
             AnalysisJob.status == JobStatus.completed,
             AnalysisJob.job_type.in_([FASTP_JOB, FILTLONG_JOB, SEQKIT_JOB, FASTQC_JOB, NANOPLOT_JOB, FLYE_JOB,
-                                      QUAST_JOB]),
+                                      SPADES_JOB, UNICYCLER_JOB, QUAST_JOB, RACON_JOB, PILON_JOB]),
         )
         .order_by(AnalysisJob.finished_at)
     ).all()
@@ -330,8 +376,12 @@ def _processing_steps(db: Session, sample: Sample, latest: dict) -> list[dict[st
                     "after these statistics; see NanoStats_post_filtering.txt")
         elif j.job_type == FLYE_JOB and summary:
             step["highlights"] = _flye_highlights(db, j, summary)
+        elif j.job_type in (SPADES_JOB, UNICYCLER_JOB) and summary:
+            step["highlights"] = _short_hybrid_highlights(db, j, summary)
         elif j.job_type == QUAST_JOB and summary:
             step["highlights"] = _quast_highlights(summary)
+        elif j.job_type in (RACON_JOB, PILON_JOB) and summary:
+            step["highlights"] = _polishing_highlights(summary)
         elif j.job_type == FASTQC_JOB and summary:
             flags = {}
             for m in summary.get("modules", []):
@@ -361,6 +411,59 @@ def _flye_highlights(db: Session, job: AnalysisJob, summary: dict[str, Any]) -> 
         out.append(f"Minimum overlap {log['min_overlap']:,} bp (chosen by Flye from the reads' N90)")
     if (params.get("threads") or 1) > 1:
         out.append(f"{params['threads']} threads: Flye's output can differ between runs and thread counts")
+    return out
+
+
+def _short_hybrid_highlights(db: Session, job: AnalysisJob, summary: dict[str, Any]) -> list[str]:
+    params = job.parameters or {}
+    out = []
+    assembly = db.scalar(select(Assembly).where(Assembly.job_id == job.id))
+    if assembly is not None:
+        st = assembly.stats
+        circular = ("circularity not reported by SPAdes" if assembly.assembler == "SPAdes" else
+                    f"{st['circularity']['circular_contigs']} reported circular by Unicycler")
+        out.append(f"Assembly ({assembly.mode.value}, {assembly.read_type}): {st['contig_count']:,} contigs, "
+                   f"{st['total_length']:,} bp, N50 {st['n50']:,} bp, largest {st['largest_contig']:,} bp; {circular}")
+        if assembly.warnings:
+            out.append("Heuristic warnings: " + ", ".join(w["code"] for w in assembly.warnings))
+    if job.job_type == SPADES_JOB:
+        ks = ", ".join(map(str, summary.get("k_values") or []))
+        out.append(f"SPAdes mode {params.get('mode')}; k = {ks} "
+                   f"({'set by the user' if summary.get('k_source') == 'user' else 'chosen by SPAdes'}); "
+                   f"--cov-cutoff {params.get('cov_cutoff')}; {summary.get('output', 'contigs')}.fasta registered")
+        out.append("Contig coverage is SPAdes' k-mer coverage, not read depth")
+    else:
+        log = summary.get("log") or {}
+        kmers = params.get("kmers") or log.get("kmer_range")
+        out.append(f"Unicycler {summary.get('assembly_mode')} assembly, --mode {params.get('mode')}"
+                   + (f"; SPAdes k-mer sizes {', '.join(map(str, kmers))}" if kmers else "")
+                   + (f", best k {log['best_kmer']}" if log.get("best_kmer") else ""))
+        helpers = [f"{h['name']} {h['version']}" for h in summary.get("helpers", []) if h.get("version")]
+        if helpers:
+            out.append("Helpers used: " + ", ".join(helpers))
+        out.append("Contig depth is Unicycler's relative depth (about 1 for the chromosome), not read depth")
+    return out
+
+
+def _changes_line(changes: dict[str, Any]) -> str:
+    return ", ".join(f"{k} {v['events']:,} ({v['bases']:,} bp)" for k, v in changes.items() if v["events"]) or "none"
+
+
+def _polishing_highlights(summary: dict[str, Any]) -> list[str]:
+    draft = summary.get("draft") or {}
+    out = [f"{summary['polisher']} {summary.get('polisher_version')} polished {draft.get('assembler')} "
+           f"{draft.get('assembler_version')} assembly {str(draft.get('assembly_id', ''))[:8]} in "
+           f"{summary.get('rounds_run')} round(s)"]
+    for r in summary.get("rounds", []):
+        source = {"dnadiff": "dnadiff", "pilon_changes": "Pilon's .changes"}.get(r.get("changes_source"))
+        out.append(f"Round {r['round']} changes (direct evidence, {source}): {_changes_line(r['changes'])}"
+                   if r.get("changes") else f"Round {r['round']}: no direct evidence (MUMmer dnadiff not installed)")
+    ind = summary.get("indirect") or {}
+    b, a = (ind.get("before") or {}).get("stats") or {}, (ind.get("after") or {}).get("stats") or {}
+    if b.get("edit_distance_per_100_bases") is not None and a.get("edit_distance_per_100_bases") is not None:
+        out.append(f"Indirect indicator ({ind.get('aligner')}): reads' edit distance per 100 aligned bases "
+                   f"{b['edit_distance_per_100_bases']:.4f} → {a['edit_distance_per_100_bases']:.4f}")
+    out += [f"Note [{o['code']}]: {o['message']}" for o in summary.get("observations", [])]
     return out
 
 
@@ -456,7 +559,8 @@ CSV_COLUMNS = [
     # Assembly summary rows (record_type "assembly") fill these and leave the read columns empty.
     "record_type", "assembly_id", "assembly_read_type", "assembly_inputs", "contigs", "assembly_total_length",
     "largest_contig", "contig_n50", "contig_l50", "contig_n90", "contig_l90", "assembly_gc_percent",
-    "circular_contigs", "median_contig_coverage", "heuristic_warnings",
+    "circular_contigs", "median_contig_coverage", "contig_coverage_kind", "heuristic_warnings", "assembly_kind",
+    "parent_assembly_id",
 ]
 
 
@@ -528,7 +632,10 @@ def render_csv(data: dict[str, Any]) -> str:
             "assembly_gc_percent": "" if st["gc_percent"] is None else f"{st['gc_percent']:.3f}",
             "circular_contigs": circ["circular_contigs"],
             "median_contig_coverage": "" if median is None else f"{median:g}",
+            "contig_coverage_kind": asm.get("coverage_kind") or "",
             "heuristic_warnings": "; ".join(w["code"] for w in asm["warnings"]),
+            "assembly_kind": asm["kind"],
+            "parent_assembly_id": asm["parent_assembly_id"] or "",
         })
     return out.getvalue()
 
@@ -670,7 +777,8 @@ _ASSEMBLY_METHODS = (
     "contigs FASTA: contigs ranked by length (ties keep file order); Nx is the length of the contig at which the "
     "cumulative length first reaches x % of the total, Lx its rank (QUAST's definitions); GC = (G + C) / (A + C + "
     "G + T) over unambiguous bases. The median coverage is the coverage of the contig holding the middle base when "
-    "contigs are ordered by the assembler's coverage. Heuristic warnings use fixed thresholds stated with each "
+    "contigs are ordered by the assembler's coverage, which is Flye's mean read depth, SPAdes' k-mer coverage or "
+    "Unicycler's relative depth: the three are not comparable. Heuristic warnings use fixed thresholds stated with each "
     "warning; every check, including those that could not run, is stored with the assembly. QUAST values, when "
     "present, are QUAST's own and describe only contigs of at least its minimum length.</p>"
 )
@@ -851,6 +959,8 @@ def _assembly_html(data: dict[str, Any]) -> str:
         )
         g = st["expected_genome_size"]
         cov = st["coverage"]["length_weighted_median"]
+        kind = a.get("coverage_kind")
+        label = COVERAGE_LABELS.get(kind, "coverage")
         rows = [
             ("Contigs", _fmt_int(st["contig_count"])),
             ("Total length", f"{st['total_length']:,} bp"),
@@ -860,9 +970,10 @@ def _assembly_html(data: dict[str, Any]) -> str:
             ("GC content", "—" if st["gc_percent"] is None else f"{st['gc_percent']:.2f} % (unambiguous bases)"),
             ("N per 100 kb", f"{st['n_per_100kb']:.2f}"),
             ("Circular contigs", f"{st['circularity']['circular_contigs']} of "
-                                 f"{st['circularity']['contigs_with_circularity']} (as reported by {a['assembler']})"),
-            ("Median contig coverage", "—" if cov is None else
-             f"{cov:g}× (length-weighted; {a['assembler']}'s per-contig coverage)"),
+                                 f"{st['circularity']['contigs_with_circularity']} (as reported by {a['assembler']})"
+             if st["circularity"]["contigs_with_circularity"] else f"not reported by {a['assembler']}"),
+            (f"Median contig {label}", "—" if cov is None else
+             f"{_coverage(cov, kind)} (length-weighted; {a['assembler']}'s per-contig {label})"),
             ("Expected genome size", f"{g['bp']:,} bp ({(g.get('basis') or g.get('source') or '').replace('_', ' ')})"
              if g["bp"] else "not known (genome-size check not run)"),
         ]
@@ -875,15 +986,17 @@ def _assembly_html(data: dict[str, Any]) -> str:
         )
         skipped = "".join(f"<li>{escape(c['code'])}: not evaluated — {escape(c['skipped_reason'] or '')}</li>"
                           for c in a["warning_checks"] if not c["evaluated"])
-        contigs = "".join(_contig_row(c) for c in a["longest_contigs"])
+        contigs = "".join(_contig_row(c, kind) for c in a["longest_contigs"])
         files = "".join(f"<tr><th>{escape(k)}</th><td><code>{escape(v['path'])}</code><br>SHA-256 "
                         f"<code>{escape(v['sha256'])}</code></td></tr>" for k, v in (a["files"] or {}).items() if v)
         hist = st["length_histogram"]
         chart = _bar_chart([f"{b['min_length']:,}" for b in hist], [b["contigs"] for b in hist],
                            "Contig length distribution", "Contig length (bp, bin start)", "Contigs")
+        lineage = (f" · polished from assembly <code>{escape(a['parent_assembly_id'] or 'deleted')}</code>"
+                   if a["kind"] == "polished" else "")
         sections.append(
             f"<h3>{escape(a['assembler'])} {escape(a['assembler_version'])} · {escape(a['read_type'])}</h3>"
-            f"<p class='muted'>Assembly <code>{escape(a['id'])}</code> · {escape(a['mode'])}-read assembly · "
+            f"<p class='muted'>Assembly <code>{escape(a['id'])}</code> · {escape(a['mode'])}-read assembly{lineage} · "
             f"created {escape(a['created_at'])}</p>"
             f"<h4>Input reads (file ← the file it was derived from)</h4><ul>{inputs}</ul>"
             f"<h4>Statistics</h4><table>{table}</table>"
@@ -892,9 +1005,10 @@ def _assembly_html(data: dict[str, Any]) -> str:
             + (f"<p class='muted'>Checks not evaluated:</p><ul class='muted'>{skipped}</ul>" if skipped else "")
             + f"<div class='charts'><div class='chart'>{chart}</div></div>"
             + f"<h4>Longest contigs</h4><table class='grid'><tr><th>#</th><th>Contig</th><th>Length (bp)</th>"
-            f"<th>Coverage</th><th>GC (%)</th><th>Circular</th><th>Repeat</th></tr>{contigs}</table>"
+            f"<th>{escape(label.capitalize())}</th><th>GC (%)</th><th>Circular</th><th>Repeat</th></tr>{contigs}</table>"
             + (f"<p class='muted'>{len(a['longest_contigs'])} of {st['contig_count']:,} contigs shown; the JSON report "
                "and the contigs FASTA have them all.</p>" if st["contig_count"] > len(a["longest_contigs"]) else "")
+            + _polishing_html(a["polishing"])
             + _quast_html(a["quast"])
             + "<h4>Provenance</h4><table>"
             + f"<tr><th>Tool</th><td>{escape(job.get('tool') or a['assembler'])} "
@@ -912,12 +1026,49 @@ def _assembly_html(data: dict[str, Any]) -> str:
             + "".join(sections))
 
 
+def _polishing_html(p: dict[str, Any] | None) -> str:
+    if not p:
+        return ""
+    rounds = "".join(
+        f"<tr><td>{r['round']}</td><td>{escape(r['source'] or 'not available')}</td>"
+        + "".join(f"<td>{_count((r['changes'] or {}).get(k, {}).get('events'))}</td>"
+                  for k in ("snp", "insertion", "deletion", "other")) + "</tr>"
+        for r in p["rounds"])
+    b, a = p["indirect_indicators"]["before"] or {}, p["indirect_indicators"]["after"] or {}
+    def num(v: Any, digits: int) -> str:
+        return "—" if v is None else f"{v:.{digits}f}"
+    indirect = "".join(
+        f"<tr><th>{escape(label)}</th><td>{num(b.get(key), d)}</td><td>{num(a.get(key), d)}</td></tr>"
+        for label, key, d in (("Reads mapped (%)", "mapped_percent", 2),
+                              ("Edit distance per 100 aligned bases (NM)", "edit_distance_per_100_bases", 4),
+                              ("Indel events per 100 kb aligned", "indel_events_per_100kb", 1),
+                              ("Properly paired (%)", "properly_paired_percent", 2)))
+    st = p["assembly_statistics"] or {}
+    before, after = st.get("before") or {}, st.get("after") or {}
+    stats = "".join(f"<tr><th>{escape(label)}</th><td>{_count(before.get(k))}</td><td>{_count(after.get(k))}</td></tr>"
+                    for label, k in (("Contigs", "contig_count"), ("Total length (bp)", "total_length"),
+                                     ("N50 (bp)", "n50")))
+    notes = "".join(f"<li>{escape(o['message'])}</li>" for o in p["observations"])
+    return (f"<h4>Polishing ({escape(p['polisher'] or '')} {escape(p['polisher_version'] or '')})</h4>"
+            "<p><strong>Direct evidence</strong>: changes between the draft and the polished sequence, by round.</p>"
+            "<table class='grid'><tr><th>Round</th><th>Source</th><th>SNPs</th><th>Insertions</th><th>Deletions</th>"
+            f"<th>Other</th></tr>{rounds}</table>"
+            f"<p><strong>Indirect indicators</strong>: the polishing reads aligned with "
+            f"{escape(p['indirect_indicators']['aligner'] or '')} to the draft and to the polished assembly.</p>"
+            f"<table class='grid'><tr><th></th><th>Draft</th><th>Polished</th></tr>{indirect}{stats}</table>"
+            + (f"<ul>{notes}</ul>" if notes else ""))
+
+
 def _yes_no(v: bool | None) -> str:
     return "—" if v is None else "yes" if v else "no"
 
 
-def _contig_row(c: dict[str, Any]) -> str:
-    coverage = "—" if c["coverage"] is None else f"{c['coverage']:g}×"
+def _coverage(value: float, kind: str | None) -> str:
+    return f"{value:g}" if kind == "kmer_coverage" else f"{value:g}×"
+
+
+def _contig_row(c: dict[str, Any], kind: str | None) -> str:
+    coverage = "—" if c["coverage"] is None else _coverage(c["coverage"], kind)
     gc = "—" if c["gc_percent"] is None else f"{c['gc_percent']:.2f}"
     return (f"<tr><td>{c['rank']}</td><td><code>{escape(c['name'])}</code></td><td>{c['length']:,}</td>"
             f"<td>{coverage}</td><td>{gc}</td><td>{_yes_no(c['circular'])}</td><td>{_yes_no(c['repeat'])}</td></tr>")
@@ -985,7 +1136,9 @@ def render_html(data: dict[str, Any]) -> str:
         else ""
     )
     limitations = "".join(f"<li>{escape(x)}</li>" for x in data["limitations"]
-                          + (ASSEMBLY_LIMITATIONS if data.get("assemblies") else []))
+                          + (ASSEMBLY_LIMITATIONS if data.get("assemblies") else [])
+                          + (POLISHING_LIMITATIONS if any(a["kind"] == "polished" for a in data.get("assemblies", []))
+                             else []))
     steps = "".join(
         f"<h3>{escape(st['tool'])} {escape(st['tool_version'])}</h3>"
         f"<p class='muted'>Inputs: {escape(', '.join(st['inputs']))} · finished {escape(st['finished_at'] or '')}"

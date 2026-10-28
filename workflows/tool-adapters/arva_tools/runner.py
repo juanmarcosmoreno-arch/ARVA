@@ -8,7 +8,8 @@
   inspect), so no user configuration applies and nothing is cached in the
   user's home.
 * stdout/stderr go to files, never into memory; stdout can be gzip-streamed.
-* Each tool runs in its own process group so a timeout kills all children.
+* Each tool runs in its own process group, so a timeout, or an exception raised by the monitor callback (ARVA's
+  cancellation), kills the tool with all its children.
 """
 from __future__ import annotations
 
@@ -18,6 +19,7 @@ import re
 import signal
 import subprocess
 import tempfile
+import threading
 import time
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager, nullcontext
@@ -25,8 +27,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 _SECRET = re.compile(r"PASSWORD|SECRET|TOKEN|CREDENTIAL|API_?KEY|PRIVATE", re.IGNORECASE)
-# MultiQC reads any MULTIQC_<KEY> variable as configuration.
-_TOOL_CONFIG_PREFIXES = ("ARVA_", "DATABASE", "MULTIQC_")
+# MultiQC reads any MULTIQC_<KEY> variable as configuration. Java reads options (heap size, system properties) from
+# the three Java variables, which would override a tool's recorded settings, e.g. Pilon's -Xmx.
+_TOOL_CONFIG_PREFIXES = ("ARVA_", "DATABASE", "MULTIQC_", "JAVA_TOOL_OPTIONS", "_JAVA_OPTIONS", "JDK_JAVA_OPTIONS")
 HOME_VARIABLES = ("HOME", "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_DATA_HOME")
 CHUNK = 1 << 20
 
@@ -88,10 +91,8 @@ def run_command(
 ) -> RunResult:
     """Run `argv` and wait. stdout goes to `stdout_path` (gzip if it ends in .gz)
     or is appended to the stderr log. `home` replaces the temporary HOME. While the tool runs, `monitor` is
-    called every `monitor_seconds` (not with gzip stdout); if it raises, the tool is stopped.
+    called every `monitor_seconds`; if it raises, the tool's process group is killed and the exception propagates.
     Raises ToolExecutionError on failure."""
-    if monitor is not None and stdout_path is not None and stdout_path.suffix == ".gz":
-        raise ValueError("monitor cannot be combined with gzip-streamed stdout")
     with nullcontext(home) if home is not None else isolated_home() as tool_home:
         return _run(argv, cwd, stderr_path, stdout_path, timeout_seconds,
                     {**tool_environment(tool_home), **(extra_env or {})}, monitor, monitor_seconds)
@@ -135,35 +136,22 @@ def _run(
                 out_handle.close()
             raise ToolExecutionError(f"could not start {argv[0]}: {exc}") from exc
 
+        pump = _GzipPump(proc, stdout_path) if gz_out and stdout_path is not None else None
         try:
-            if gz_out:
-                deadline = start + timeout_seconds
-                with gzip.open(stdout_path, "wb", compresslevel=6) as gz:
-                    assert proc.stdout is not None
-                    while chunk := proc.stdout.read(CHUNK):
-                        gz.write(chunk)
-                        if time.monotonic() > deadline:
-                            raise subprocess.TimeoutExpired(argv, timeout_seconds)
-                proc.wait(timeout=max(1.0, deadline - time.monotonic()))
-            elif monitor is None:
-                proc.wait(timeout=timeout_seconds)
-            else:
-                deadline = start + timeout_seconds
-                while True:
-                    try:
-                        proc.wait(timeout=max(0.0, min(monitor_seconds, deadline - time.monotonic())))
-                        break
-                    except subprocess.TimeoutExpired:
-                        if time.monotonic() >= deadline:
-                            raise
-                        monitor()
+            _wait(proc, start + timeout_seconds, monitor, monitor_seconds)
+            if pump is not None:
+                pump.finish()
         except subprocess.TimeoutExpired:
             _kill_group(proc)
+            if pump is not None:
+                pump.join()
             raise ToolTimeoutError(
                 f"{argv[0]} exceeded the time limit of {timeout_seconds:.0f} s", None, _tail(stderr_path)
             ) from None
         except BaseException:
             _kill_group(proc)
+            if pump is not None:
+                pump.join()
             raise
         finally:
             if out_handle:
@@ -177,6 +165,52 @@ def _run(
             _tail(stderr_path),
         )
     return RunResult(argv, proc.returncode, duration, stderr_path, stdout_path)
+
+
+def _wait(proc: subprocess.Popen, deadline: float, monitor: Callable[[], None] | None, monitor_seconds: float) -> None:
+    if monitor is None:
+        proc.wait(timeout=max(0.0, deadline - time.monotonic()))
+        return
+    while True:
+        try:
+            proc.wait(timeout=max(0.0, min(monitor_seconds, deadline - time.monotonic())))
+            return
+        except subprocess.TimeoutExpired:
+            if time.monotonic() >= deadline:
+                raise
+            monitor()
+
+
+class _GzipPump(threading.Thread):
+    """Compresses the tool's stdout in a thread, so the main thread can wait with the monitor. A write error
+    (e.g. a full disk) stops the tool, which would otherwise block on a full pipe."""
+
+    def __init__(self, proc: subprocess.Popen, path: Path):
+        super().__init__(daemon=True)
+        self.proc, self.path = proc, path
+        self.error: BaseException | None = None
+        self.start()
+
+    def run(self) -> None:
+        try:
+            with gzip.open(self.path, "wb", compresslevel=6) as gz:
+                assert self.proc.stdout is not None
+                while chunk := self.proc.stdout.read(CHUNK):
+                    gz.write(chunk)
+        except BaseException as exc:
+            self.error = exc
+            try:
+                os.killpg(self.proc.pid, signal.SIGKILL)
+            except (ProcessLookupError, PermissionError):
+                pass
+        finally:
+            if self.proc.stdout is not None:
+                self.proc.stdout.close()
+
+    def finish(self) -> None:
+        self.join()
+        if self.error is not None:
+            raise self.error
 
 
 def _kill_group(proc: subprocess.Popen) -> None:

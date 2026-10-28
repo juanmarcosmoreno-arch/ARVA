@@ -303,12 +303,15 @@ def _check(code: str, rule: str, skipped: str | None = None) -> dict[str, Any]:
 
 
 def assembly_warnings(
-    stats: dict[str, Any], mode: AssemblyMode, expected_genome_size_bp: int | None = None
+    stats: dict[str, Any], mode: AssemblyMode, expected_genome_size_bp: int | None = None,
+    coverage_label: str = "coverage", coverage_unit: str = "×",
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Heuristic warnings for compute_assembly_stats() output, and the list of checks with their rules.
 
     Every check is listed, also when it could not be evaluated (with the reason), so an absent
-    warning is never mistaken for a passed check that was not run.
+    warning is never mistaken for a passed check that was not run. coverage_label and coverage_unit name
+    what the assembler's coverage measures (e.g. "k-mer coverage" and no unit for SPAdes); the coverage
+    checks compare ratios, so they apply to any of these measures.
     """
     if mode not in CONTIGS_PER_MB:
         raise ValueError(f"unknown assembly mode {mode!r}")
@@ -354,7 +357,7 @@ def assembly_warnings(
          "possible plasmids or other multi-copy elements, or collapsed repeats"),
     ):
         side = "below" if code.startswith("low") else "above"
-        rule = f"contig coverage {side} {ratio:g} × the length-weighted median coverage"
+        rule = f"contig {coverage_label} {side} {ratio:g} × the length-weighted median {coverage_label}"
         if median is None or stats["coverage"]["contigs_with_coverage"] < 2:
             checks.append(_check(code, rule, "the assembler reported coverage for fewer than two contigs"))
             continue
@@ -363,8 +366,8 @@ def assembly_warnings(
         if rows:
             warnings.append(_warning(
                 code,
-                f"{len(rows)} contig(s) with coverage {side} {ratio:g} × the length-weighted median of {median:g}× "
-                f"(heuristic): {meaning}.",
+                f"{len(rows)} contig(s) with {coverage_label} {side} {ratio:g} × the length-weighted median of "
+                f"{median:g}{coverage_unit} (heuristic): {meaning}.",
                 {"median_coverage": median, "ratio": ratio, "count": len(rows)}, rows,
             ))
 

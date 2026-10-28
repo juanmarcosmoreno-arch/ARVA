@@ -10,8 +10,17 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 # Flye calls flye-samtools; when the flye package lacks it (Ubuntu's 2.9.3 does), ARVA links it to samtools per run.
 # minimap2 is the aligner QUAST uses with a reference (bookworm: 2.24, the version QUAST 5.2.0 bundles).
+# SPAdes 3.15.5 and Unicycler 0.5.0 (bookworm's versions, validated with ARVA); Unicycler calls SPAdes, Racon (long
+# reads) and makeblastdb/tblastn from ncbi-blast+ (rotating circular replicons). Both run on Debian's own
+# /usr/bin/python3 (absolute shebangs), not the image's Python. Debian's unicycler package also depends on pilon
+# (and so a Java runtime), bowtie2 and bcftools, which Unicycler 0.5.0 no longer calls.
+# Polishing: Racon (with minimap2) for long reads; Pilon 1.24 with BWA and samtools for short reads, run by ARVA as
+# `java -Xmx<heap> -jar /usr/share/java/pilon.jar` (Debian's launcher fixes a 16 GB heap), hence the explicit Java
+# runtime; MUMmer 3.23 (nucmer, dnadiff) compares draft and polished sequence. Debian's Pilon prints no version
+# number, so ARVA reads it from dpkg.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends seqkit fastp filtlong fastqc flye samtools minimap2 \
+       spades unicycler racon ncbi-blast+ pilon bwa mummer default-jre-headless \
     && rm -rf /var/lib/apt/lists/*
 
 # Python report tools, each in its own virtual environment with the versions validated with ARVA.

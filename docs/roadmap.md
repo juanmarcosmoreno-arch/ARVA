@@ -97,7 +97,15 @@ unit, API and end-to-end tests.
 - Reads must be FASTQ/FASTA(.gz). POD5 raw signal is accepted, but only its run metadata are read
   (no basecalling); other formats are listed in the Import screen as planned.
 
-## Phase 3 — Assembly (in progress)
+## Phase 3 — Assembly ✅
+
+Phase 3 delivered assembly of bacterial isolates from long reads (Flye), short reads (SPAdes, Unicycler) and both
+(Unicycler hybrid); ARVA's own assembly statistics with heuristic warnings; QUAST evaluation and comparison;
+assembly views (tiles, contig table, charts, graph explorer, comparison) and reports; polishing by technology
+(Racon, Pilon, both) with direct evidence kept apart from indirect indicators; and job control: cancelling,
+recovery of a stopped Flye run with Flye's own `--resume`, and batch QC over a project. Every metric that tools
+define differently (read depth, k-mer coverage, relative depth, mapped read depth) is labelled by kind and never
+compared as equal.
 
 ### 3A — Long-read assembly, evaluation and assembly views ✅
 
@@ -114,8 +122,8 @@ unit, API and end-to-end tests.
   each option (read type with a heuristic suggestion, genome size with its basis, threads, polishing;
   advanced options collapsed), summarises what the run will do and starts only after an explicit
   confirmation. Running jobs show a stage stepper, live elapsed time and the live log (auto-scroll,
-  pause); ARVA cannot cancel a running job yet, so no cancel button is shown. On the default synthetic
-  genome Flye recovers both replicons, circular and identical to the reference.
+  pause), and can be cancelled (3B3). On the default synthetic genome Flye recovers both replicons,
+  circular and identical to the reference.
 - **Results**: ten summary tiles, heuristic warnings (and checks that could not run), a sortable contig
   table with Flye's columns and FASTA download, five charts (contig length histogram, Nx curve,
   cumulative length, coverage vs length, GC vs coverage) with data tables and SVG/PNG export, an
@@ -132,27 +140,99 @@ unit, API and end-to-end tests.
 - **Guide** entries: genome assembly (long, short, hybrid), assembly N50/L50/N90/L90 versus read N50,
   circularity, contig coverage, the assembly graph (GFA), Flye read types, Flye and QUAST.
 
-### 3B — Next
+### 3B1 — Short-read and hybrid assembly (done)
 
-- Short-read assembly with **SPAdes** and hybrid assembly with **Unicycler** (both packaged in
-  Debian), offered by the same dialog according to the sample's reads.
-- **Polishing** of assemblies, with before/after comparison: candidates are Racon (packaged in
-  Debian), Medaka for Nanopore reads and Polypolish for short reads; each is integrated only once it
-  is confirmed to install from a package channel and run offline.
-- Cancelling a running job, and the Assembly navigation page across projects.
+- **SPAdes 3.15.5** (short reads: an R1/R2 pair, unpaired reads or both; `--isolate`, `--careful` or no mode;
+  explicit threads, memory limit and `--cov-cutoff`; `-k` only when given, otherwise the k values SPAdes ran
+  are read from its log; contigs or scaffolds registered as chosen). Contig coverage is SPAdes' k-mer
+  coverage, labelled as such everywhere; circularity is "not reported".
+- **Unicycler 0.5.0** (short reads, long reads only, or hybrid, as the files' roles imply; bridging mode,
+  `--keep`, k-mer sizes, depth filter, minimum FASTA length and linear sequences; helpers SPAdes, Racon and
+  BLAST+ passed explicitly and recorded with Unicycler's own dependency table). Depth is Unicycler's relative
+  depth; in long-read-only mode, which writes bare FASTA names, depth and circularity come from its GFA.
+- Both register assemblies like Flye (lineage, statistics, warnings, live stage progress, plain failure
+  reasons such as running out of memory); `coverage_kind` keeps read depth, k-mer coverage and relative depth
+  apart in the interface, reports and exports.
+- **New assembly dialog**: the assembler that fits the sample's reads (long → Flye; short → SPAdes or
+  Unicycler; both → Unicycler hybrid), each with a plain-language explanation, defaults visible and advanced
+  options collapsed; **run several strategies** queues one job per chosen assembler for side-by-side comparison.
+- Guide entries: SPAdes, Unicycler, hybrid assembly, k-mer coverage.
 
-Known limitations of 3A: one assembler (Flye) and long reads only; the Docker image installs Debian
-bookworm's Flye 2.9.1 and minimap2 2.24, which have not been validated (2.9.3 and 2.26 were tested);
-the graph view draws at most 500 segments (the GFA can be downloaded for Bandage) and does not draw a
-segment's link to itself; coverage, circularity and repeat flags are the assembler's own values.
+### 3B2 — Polishing (done)
+
+- **Strategy by technology**, never one recipe for all reads: long reads → **Racon 1.5.0** (minimap2 overlaps with
+  the preset of the reads, every Racon option explicit, `-u` so no contig is dropped), short reads → **Pilon 1.24**
+  (BWA-MEM with a fixed batch size, samtools, Pilon's jar with an explicit Java heap, `--fix` and every pileup
+  heuristic explicit), both → Racon, then Pilon on Racon's result (queued automatically). N rounds, each recorded
+  with its commands and logs; Pilon can stop after a round without changes.
+- **Lineage**: a polished assembly is a new record (`kind` polished, `parent_assembly_id` its draft); the
+  Assembly tab and the project table show draft → polished.
+- **Before/after comparison** for every run, separating **direct evidence** (MUMmer dnadiff between the input and
+  output of every round and between draft and result: substitutions, insertions and deletions as events and
+  bases, bases lost at contig ends, breakpoints; Pilon's own list of changes) from **indirect indicators** (the
+  polishing reads aligned to both versions: mapped reads, edit distance per 100 aligned bases, indels in the
+  alignments, properly paired reads), plus ARVA's assembly statistics before and after, a chart of changes by
+  type per round, labelled notes (trimmed ends of circular contigs, rising edit distance) and optional QUAST on
+  the draft and every polished version.
+- Reports: polished assemblies carry their lineage and the comparison in the HTML/JSON/CSV reports.
+- Guide entries: polishing, Racon, Pilon, direct evidence versus indirect indicators.
+- Not integrated: **Medaka** and **Polypolish** (see *Not yet integrated* below).
+
+### 3B3 — Job cancellation, recovery and batch QC (done)
+
+- **Cancelling** (`POST /jobs/{id}/cancel`; Cancel buttons with confirmation on running assemblies, polishing and
+  QUAST runs and in every sample's Analysis history; status *Cancelled*): a queued job is removed from the task
+  queue and never runs; for a running one the worker kills the tool's whole process group within about 5 s
+  (a cancellation flag read by the monitor callback, chosen over RQ's stop-job, which would leave the tool
+  running), removes the partial outputs exactly as for a failure and keeps the log. A job whose worker died is
+  ended when cancelled once the task queue reports it is no longer executing.
+- **Flye recovery**: Flye 2.9.3's `--resume` was confirmed in its source and with real runs, including after the
+  work folder was moved. Its polishing stage appends to a file of the interrupted run, which turned the synthetic
+  genome's 15 kb plasmid into 30 kb without any error, so ARVA deletes the interrupted stage's folder before
+  resuming; resumed runs then matched an uninterrupted run byte for byte. ARVA keeps the work folder only when a
+  run was stopped from outside (cancelled, time limit, killed, out of memory) after a stage beyond configure, and
+  offers **Resume** (same reads, options, threads and Flye version, checked by ARVA because Flye does not) or
+  **Discard**; otherwise it says why resuming is not offered.
+- **Batch QC** on the project page and `POST /projects/{id}/analyses/batch`: ARVA read statistics, SeqKit and/or
+  FastQC on every sample's files (imported only, or also derived; files with a completed result skipped unless
+  *Recompute*), with a dry-run preview of exactly how many jobs each sample gets and why files are skipped;
+  confirming creates exactly the previewed jobs (a changed plan is refused with the new one). Jobs are ordinary
+  per-sample jobs.
+- Guide entries: cancelling, recovering and resuming jobs; batch QC.
+
+### Not yet integrated (Phase 3 scope)
+
+Checked in the package indexes of Ubuntu 24.04 (the development system) and Debian bookworm (the Docker image):
+
+| Tool | Purpose | Why not yet |
+|---|---|---|
+| Medaka | Model-based Nanopore polishing | Not packaged in Ubuntu 24.04 or Debian bookworm; needs a model matching the reads' basecaller and downloads its models |
+| Polypolish | Short-read polishing that handles repeats | Not packaged in Ubuntu 24.04 or Debian bookworm |
+| Raven | Fast long-read assembler | Not packaged in Ubuntu 24.04 or Debian bookworm (would have to be built from source) |
+| Canu | Long-read assembler | Packaged, but in different versions (Ubuntu 2.2, Debian 2.0), so one validation would not cover both systems; not evaluated in ARVA yet (Flye covers long-read isolates) |
+| MEGAHIT | Short-read assembler | Packaged (1.2.9 in both), but described by its package as a metagenome assembler; not evaluated on isolates against SPAdes `--isolate` |
+| BUSCO | Gene-content completeness | Packaged (Ubuntu 5.5.0, Debian 5.4.4) but needs lineage datasets downloaded from its server, which ARVA does not do during runs; database handling is planned with the annotation phase |
+| CheckM2 | Completeness and contamination | Not packaged in Ubuntu 24.04 or Debian bookworm; needs its DIAMOND reference database (several GB, downloaded) |
+
+### Next
+
+- The Assembly navigation page across projects; batch processing beyond QC (filtering, assembly) on top of the
+  batch plan; resume for SPAdes or Unicycler only once their own restart options are validated.
+
+Known limitations: the Docker image installs Debian bookworm's Flye 2.9.1 and minimap2 2.24, which have not
+been validated (2.9.3 and 2.26 were tested); SPAdes and Unicycler take one file per role (several runs of the
+same library must be merged first), and so do Racon and Pilon; polishing treats circular contigs as linear (their
+ends are polished less well, and Racon may trim them); the graph view draws at most 500 segments (the GFA can be downloaded for
+Bandage) and does not draw a segment's link to itself; coverage, circularity and repeat flags are the
+assembler's own values.
 
 ## Later phases
 
 | Phase | Scope |
 |---|---|
-| 3 | Assembly (Flye first; then SPAdes/Unicycler/Raven), QUAST, contig plots, GFA view, polishing (Medaka/Polypolish) |
+| 3 ✅ | Assembly (Flye, SPAdes, Unicycler), QUAST, contig plots, GFA view, polishing (Racon, Pilon), job cancellation and Flye resume, batch QC; Medaka, Polypolish, Raven, Canu, MEGAHIT, BUSCO and CheckM2 not yet integrated (above) |
 | 4 | Annotation (Bakta; Prokka), Genome Explorer (linear + circular), exports (GFF3, GenBank, FASTA) |
 | 5 | MLST, AMRFinderPlus, virulence (VFDB), BLAST, species identification (Mash/FastANI/Kraken2/GTDB-Tk) |
 | 6 | Comparative genomics: ANI, synteny, dot plots, Genome Region Explorer |
 | 7 | Pangenome (Panaroo), alignments (MAFFT), phylogeny (IQ-TREE), Tree Explorer |
-| 8 | Workflow Builder (Nextflow DSL2), batch processing, mobilome, variants, ARVA Discover, full reports, optional ARVA Assist, multi-user |
+| 8 | Workflow Builder (Nextflow DSL2), batch processing beyond QC (first step: batch QC, Phase 3), mobilome, variants, ARVA Discover, full reports, optional ARVA Assist, multi-user |

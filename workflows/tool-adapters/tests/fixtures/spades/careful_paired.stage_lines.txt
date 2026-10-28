@@ -1,0 +1,33 @@
+Mode: read error correction and assembling
+======= SPAdes pipeline started. Log can be found here: sp_car/spades.log
+Default k-mer sizes were set to [21, 33, 55, 77] because estimated read length (150) is equal to or greater than 150
+===== Before start started. 
+===== Read error correction started. 
+===== Read error correction started. 
+===== Read error correction finished. 
+===== corrected reads compression started. 
+===== corrected reads compression finished. 
+===== Read error correction finished. 
+===== Assembling started. 
+===== K21 started. 
+===== K21 finished. 
+===== K33 started. 
+===== K33 finished. 
+===== K55 started. 
+===== K55 finished. 
+===== K77 started. 
+===== K77 finished. 
+===== Copy files started. 
+===== Copy files finished. 
+===== Assembling finished. 
+===== Mismatch correction started. 
+===== Mismatch correction contigs started. 
+===== Mismatch correction contigs finished. 
+===== Mismatch correction scaffolds started. 
+===== Mismatch correction scaffolds finished. 
+===== Mismatch correction finished. 
+===== Breaking scaffolds started. 
+===== Breaking scaffolds finished. 
+===== Terminate started. 
+===== Terminate finished. 
+======= SPAdes pipeline finished.

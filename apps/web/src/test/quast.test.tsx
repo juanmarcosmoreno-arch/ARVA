@@ -121,7 +121,7 @@ describe("QUAST helpers", () => {
 
 describe("Assembly tab with QUAST", () => {
   it("shows QUAST's values, links to its pages and a cross-check difference without hiding it", async () => {
-    renderWith(<AssemblyTab sampleId="s" jobs={[job("completed", { result_summary: summary as unknown as Record<string, unknown> })]} files={[reads, fasta]} onNew={() => undefined} onEvaluate={() => undefined} />);
+    renderWith(<AssemblyTab sampleId="s" jobs={[job("completed", { result_summary: summary as unknown as Record<string, unknown> })]} files={[reads, fasta]} onNew={() => undefined} onEvaluate={() => undefined} onPolish={() => undefined} />);
     expect(await screen.findByText("QUAST 5.2.0 · 1 ensamblaje(s) · contigs ≥ 500 pb")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Informe de QUAST/ })).toHaveAttribute("href", "/api/v1/jobs/job-q/outputs/quast/report.html");
     expect(screen.getByRole("link", { name: /Navegador de contigs Icarus/ })).toHaveAttribute("href", "/api/v1/jobs/job-q/outputs/quast/icarus.html");
@@ -146,7 +146,7 @@ describe("Assembly tab with QUAST", () => {
     };
     vi.spyOn(api, "jobLog").mockResolvedValue({ text: "Running Contig analyzer...", source: "tool" });
     const failed = job("failed", { id: "job-f", progress: { ...progress, stage: "basic_stats", finished: true }, error_message: "QUAST left out Flye 2.9.3 aaaaaaaa" });
-    renderWith(<AssemblyTab sampleId="s" jobs={[job("running", { progress }), failed]} files={[reads, fasta]} onNew={() => undefined} onEvaluate={() => undefined} />);
+    renderWith(<AssemblyTab sampleId="s" jobs={[job("running", { progress }), failed]} files={[reads, fasta]} onNew={() => undefined} onEvaluate={() => undefined} onPolish={() => undefined} />);
     expect(await screen.findByText("QUAST 5.2.0 está evaluando")).toBeInTheDocument();
     expect(screen.getAllByText("Ensamblajes: Flye 2.9.3 aaaaaaaa · referencia reference.fasta")).toHaveLength(1);
     expect(screen.getByText("Etapa 2 de 5: contig_analyzer")).toBeInTheDocument();

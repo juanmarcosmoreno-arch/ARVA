@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { CheckCircle2, Circle, Loader2, Pause, Play, XCircle } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { CancelJobButton, CancellingNote, FlyeRecovery } from "@/components/domain/JobControls";
 import { Button } from "@/components/ui/button";
 import { Card, CardBody, CardHeader } from "@/components/ui/card";
 import { ErrorNote } from "@/components/ui/misc";
@@ -8,19 +9,30 @@ import { dictionaries, type TranslationKey, useT } from "@/i18n";
 import { api } from "@/lib/api";
 import { elapsedSeconds } from "@/lib/assembly";
 import { FLYE_JOB, stageStates } from "@/lib/flye";
+import { POLISHING_JOBS, RACON_JOB } from "@/lib/polishing";
 import { fmtDate, fmtDuration } from "@/lib/format";
 import { QUAST_JOB } from "@/lib/quast";
-import type { AnalysisJobDetail } from "@/lib/types";
+import type { AnalysisJob, AnalysisJobDetail } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 const LOG_LINES = 200;
 
 const TEXT = {
-  [FLYE_JOB]: { running: "assembly.running", starting: "assembly.startingTool", liveLog: "assembly.liveLog", failed: "assembly.failed", failedAt: "assembly.failedAt", failedNote: "assembly.failedNote", stages: "assembly.stages" },
-  [QUAST_JOB]: { running: "quast.running", starting: "quast.startingTool", liveLog: "quast.liveLog", failed: "quast.failed", failedAt: "quast.failedAt", failedNote: "quast.failedNote", stages: "quast.stages" },
+  [FLYE_JOB]: { running: "assembly.running", starting: "assembly.startingTool", liveLog: "assembly.liveLog", failed: "assembly.failed", cancelled: "assembly.cancelled", failedAt: "assembly.failedAt", failedNote: "assembly.failedNote", stages: "assembly.stages" },
+  [QUAST_JOB]: { running: "quast.running", starting: "quast.startingTool", liveLog: "quast.liveLog", failed: "quast.failed", cancelled: "quast.cancelled", failedAt: "quast.failedAt", failedNote: "quast.failedNote", stages: "quast.stages" },
+  [RACON_JOB]: { running: "polishing.running", starting: "polishing.startingTool", liveLog: "polishing.liveLog", failed: "polishing.failed", cancelled: "polishing.cancelled", failedAt: "polishing.failedAt", failedNote: "polishing.failedNote", stages: "polishing.stages" },
 } as const satisfies Record<string, Record<string, TranslationKey>>;
 
-const texts = (job: AnalysisJobDetail) => (job.job_type === QUAST_JOB ? TEXT[QUAST_JOB] : TEXT[FLYE_JOB]);
+const texts = (job: AnalysisJobDetail) =>
+  job.job_type === QUAST_JOB ? TEXT[QUAST_JOB] : POLISHING_JOBS.has(job.job_type) ? TEXT[RACON_JOB] : TEXT[FLYE_JOB];
+
+/** A polishing step's name in the interface language: "Racon round 2", "Reads aligned to both", ... */
+function stageName(t: ReturnType<typeof useT>, stage: string) {
+  const round = /^(racon|pilon)_round_(\d+)$/.exec(stage);
+  if (round) return t("polishing.stage.round", { tool: round[1] === "racon" ? "Racon" : "Pilon", n: round[2] });
+  const key = `polishing.stage.${stage}`;
+  return key in dictionaries.en ? t(key as TranslationKey) : stage;
+}
 
 /** The current time, ticking every second while `active`. */
 function useNow(active: boolean) {
@@ -44,7 +56,7 @@ export function StageList({ job }: { job: AnalysisJobDetail }) {
         const Icon = s.state === "done" ? CheckCircle2 : s.state === "failed" ? XCircle : s.state === "current" ? Loader2 : Circle;
         return (
           <li
-            key={s.name}
+            key={`${i}-${s.name}`}
             aria-current={s.state === "current" ? "step" : undefined}
             className={cn(
               "flex items-start gap-2 rounded-lg border px-2.5 py-1.5 text-xs",
@@ -64,7 +76,7 @@ export function StageList({ job }: { job: AnalysisJobDetail }) {
             />
             <span>
               <span className="font-medium">
-                {i + 1}. {s.name}
+                {i + 1}. {stageName(t, s.name)}
               </span>
               <span className="block text-muted-foreground">{stageDescription(t, s.name)}</span>
             </span>
@@ -77,17 +89,27 @@ export function StageList({ job }: { job: AnalysisJobDetail }) {
 
 function stageDescription(t: ReturnType<typeof useT>, stage: string) {
   const key = `assembly.stage.${stage}`;
+  if (/^(racon|pilon)_round_\d+$/.test(stage)) return t(stage.startsWith("racon") ? "polishing.stage.raconRoundHint" : "polishing.stage.pilonRoundHint");
   return key in dictionaries.en ? t(key as TranslationKey) : "";
 }
 
 /** What a run works on: the read files of an assembly, or the assemblies (and reference) QUAST evaluates. */
 function runInputs(t: ReturnType<typeof useT>, job: AnalysisJobDetail, names: Map<string, string>) {
+  if (POLISHING_JOBS.has(job.job_type)) {
+    const draft = (job.parameters?.draft ?? {}) as { assembler?: string; assembler_version?: string; assembly_id?: string };
+    return t("polishing.runInputs", {
+      draft: `${draft.assembler ?? "?"} ${draft.assembler_version ?? ""} · ${(draft.assembly_id ?? "").slice(0, 8)}`,
+      files: (job.input_raw_file_ids ?? []).map((id) => names.get(id) ?? id).join(", "),
+    });
+  }
   if (job.job_type === QUAST_JOB) {
     const planned = (job.parameters?.assemblies ?? []) as { label: string }[];
     const ref = job.input_raw_file_ids?.[0];
     return t("quast.evaluating", { labels: planned.map((a) => a.label).join(", ") }) + (ref ? ` · ${t("quast.withReference", { name: names.get(ref) ?? ref })}` : "");
   }
-  return t("assembly.inputs", { files: (job.input_raw_file_ids ?? []).map((id) => names.get(id) ?? id).join(", ") });
+  const inputs = t("assembly.inputs", { files: (job.input_raw_file_ids ?? []).map((id) => names.get(id) ?? id).join(", ") });
+  const resumed = job.parameters?.resume as { of_job_id: string; completed_stages: string[] } | undefined;
+  return resumed ? `${inputs} · ${t("resume.resumedFrom", { id: resumed.of_job_id.slice(0, 8), stages: resumed.completed_stages.join(", ") })}` : inputs;
 }
 
 /** The last lines of the tool's live log, following new lines unless paused. */
@@ -139,36 +161,40 @@ export function RunningCard({ job, names }: { job: AnalysisJobDetail; names: Map
           </span>
         }
         description={runInputs(t, job, names)}
+        action={<CancelJobButton job={job} />}
       />
       <CardBody className="space-y-4 pt-3">
         <div className="text-sm">
           {job.status === "pending"
             ? t("assembly.waiting")
             : p?.stage
-              ? t("assembly.stageLine", { index: p.stage_index ?? "?", total: p.stages_total ?? "?", stage: p.stage })
+              ? t("assembly.stageLine", { index: p.stage_index ?? "?", total: p.stages_total ?? "?", stage: stageName(t, p.stage) })
               : t(k.starting)}
           {elapsed != null && <span className="ml-2 text-xs text-muted-foreground">{t("assembly.elapsed", { time: fmtDuration(elapsed) })}</span>}
         </div>
         <StageList job={job} />
+        <CancellingNote job={job} />
         {running && <LogTail job={job} />}
-        <p className="text-[11px] text-muted-foreground">{t("assembly.noCancel")}</p>
       </CardBody>
     </Card>
   );
 }
 
-export function FailedCard({ job }: { job: AnalysisJobDetail }) {
+/** A failed or cancelled run: why it stopped, where, and (Flye) whether it can be resumed. */
+export function FailedCard({ job, resumedBy }: { job: AnalysisJobDetail; resumedBy?: AnalysisJob }) {
   const t = useT();
   const k = texts(job);
   const stage = job.progress?.stage;
+  const cancelled = job.status === "cancelled";
   return (
-    <Card className="border-danger/30">
-      <CardHeader title={t(k.failed, { tool: `${job.tool_name} ${job.tool_version}` })} description={fmtDate(job.finished_at ?? job.created_at)} />
+    <Card className={cancelled ? "border-warning/40" : "border-danger/30"}>
+      <CardHeader title={t(cancelled ? k.cancelled : k.failed, { tool: `${job.tool_name} ${job.tool_version}` })} description={fmtDate(job.finished_at ?? job.created_at)} />
       <CardBody className="space-y-2 pt-3">
-        <ErrorNote error={job.error_message} />
-        {stage && <p className="text-xs text-muted-foreground">{t(k.failedAt, { stage })}</p>}
+        {!cancelled && <ErrorNote error={job.error_message} />}
+        {stage && <p className="text-xs text-muted-foreground">{t(cancelled ? "assembly.cancelledAt" : k.failedAt, { stage: stageName(t, stage) })}</p>}
         <StageList job={job} />
-        <p className="text-xs text-muted-foreground">{t(k.failedNote)}</p>
+        <p className="text-xs text-muted-foreground">{t(cancelled ? "assembly.cancelledNote" : k.failedNote)}</p>
+        <FlyeRecovery job={job} resumedBy={resumedBy} />
       </CardBody>
     </Card>
   );

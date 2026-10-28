@@ -1,0 +1,136 @@
+
+Starting Unicycler (2026-10-28 15:46:17)
+----------------------------------------
+    Welcome to Unicycler, an assembly pipeline for bacterial genomes. Since you provided only short reads, Unicycler will essentially function as a SPAdes-optimiser. It will try many k-mer sizes, choose the best based on contig length and graph connectivity, and scaffold the graph using SPAdes repeat resolution.
+    For more information, please see https://github.com/rrwick/Unicycler
+
+Command: /usr/bin/unicycler -1 genome/illumina_R1.fastq.gz -2 genome/illumina_R2.fastq.gz -o uni_s -t 2 --mode normal --keep 0 --spades_path /usr/bin/spades.py
+
+Unicycler version: v0.5.0
+Using 2 threads
+
+Making output directory:
+  uni_s
+
+Dependencies:
+  Program       Version   Status  
+  spades        3.15.5    good    
+  racon                   not used
+  makeblastdb   2.12.0+   good    
+  tblastn       2.12.0+   good    
+
+
+Choosing k-mer range for assembly (2026-10-28 15:46:18)
+-------------------------------------------------------
+    Unicycler chooses a k-mer range for SPAdes based on the length of the input reads. It uses a wide range of many k-mer sizes to maximise the chance of finding an ideal assembly.
+
+SPAdes maximum k-mer: 127
+Median read length: 150
+K-mer range: 27, 53, 71, 87, 99, 111, 119, 127
+
+
+SPAdes assemblies (2026-10-28 15:46:18)
+---------------------------------------
+    Unicycler now uses SPAdes to assemble the short reads. It scores the assembly graph for each k-mer using the number of contigs (fewer is better) and the number of dead ends (fewer is better). The score function is 1/(c*(d+2)), where c is the contig count and d is the dead end count.
+
+/usr/bin/spades.py -o uni_s/spades_assembly -k 27 --threads 2 --isolate -1 /job/input/illumina_R1.fastq.gz -2 /job/input/illumina_R2.fastq.gz -m 1024
+
+/usr/bin/spades.py -o uni_s/spades_assembly -k 27,53 --threads 2 --restart-from k27 -m 1024
+
+/usr/bin/spades.py -o uni_s/spades_assembly -k 27,53,71 --threads 2 --restart-from k53 -m 1024
+
+/usr/bin/spades.py -o uni_s/spades_assembly -k 27,53,71,87 --threads 2 --restart-from k71 -m 1024
+
+/usr/bin/spades.py -o uni_s/spades_assembly -k 27,53,71,87,99 --threads 2 --restart-from k87 -m 1024
+
+/usr/bin/spades.py -o uni_s/spades_assembly -k 27,53,71,87,99,111 --threads 2 --restart-from k99 -m 1024
+
+/usr/bin/spades.py -o uni_s/spades_assembly -k 27,53,71,87,99,111,119 --threads 2 --restart-from k111 -m 1024
+
+/usr/bin/spades.py -o uni_s/spades_assembly -k 27,53,71,87,99,111,119,127 --threads 2 --restart-from k119 -m 1024
+
+K-mer   Contigs   Dead ends   Score   
+   27         4           0   1.25e-01 ← best
+   53         4           0   1.25e-01
+   71         4           0   1.25e-01
+   87         4           0   1.25e-01
+   99         4           0   1.25e-01
+  111         4           0   1.25e-01
+  119         4           0   1.25e-01
+  127         4           0   1.25e-01
+
+Read depth filter: removed 0 contigs totalling 0 bp
+Deleting uni_s/001_spades_graph_k027.gfa
+Deleting uni_s/001_spades_graph_k053.gfa
+Deleting uni_s/001_spades_graph_k071.gfa
+Deleting uni_s/001_spades_graph_k087.gfa
+Deleting uni_s/001_spades_graph_k099.gfa
+Deleting uni_s/001_spades_graph_k111.gfa
+Deleting uni_s/001_spades_graph_k119.gfa
+Deleting uni_s/001_spades_graph_k127.gfa
+Deleting uni_s/spades_assembly/
+
+
+Determining graph multiplicity (2026-10-28 15:46:53)
+----------------------------------------------------
+    Multiplicity is the number of times a sequence occurs in the underlying sequence. Single-copy contigs (those with a multiplicity of one, occurring only once in the underlying sequence) are particularly useful.
+
+
+Cleaning graph (2026-10-28 15:46:53)
+------------------------------------
+    Unicycler now performs various cleaning procedures on the graph to remove overlaps and simplify the graph structure. The end result is a graph ready for bridging.
+
+Graph overlaps removed
+
+    Unicycler now selects a set of anchor contigs from the single-copy contigs. These are the contigs which will be connected via bridges to form the final assembly.
+
+3 anchor segments (103,996 bp) out of 4 total segments (105,998 bp)
+
+
+Creating SPAdes contig bridges (2026-10-28 15:46:53)
+----------------------------------------------------
+    SPAdes uses paired-end information to perform repeat resolution (RR) and produce contigs from the assembly graph. SPAdes saves the graph paths corresponding to these contigs in the contigs.paths file. When one of these paths contains two or more anchor contigs, Unicycler can create a bridge from the path.
+
+                         Bridge
+Start    Path   End     quality
+    1     -4    2           8.1
+
+
+Creating loop unrolling bridges (2026-10-28 15:46:53)
+-----------------------------------------------------
+    When a SPAdes contig path connects an anchor contig with the middle contig of a simple loop, Unicycler concludes that the sequences are contiguous (i.e. the loop is not a separate piece of DNA). It then uses the read depth of the middle and repeat contigs to guess the number of times to traverse the loop and makes a bridge.
+
+No loop unrolling bridges made
+
+
+Applying bridges (2026-10-28 15:46:53)
+--------------------------------------
+    Unicycler now applies to the graph in decreasing order of quality. This ensures that when multiple, contradictory bridges exist, the most supported option is used.
+
+Bridge type   Start → end   Path   Quality
+
+
+Bridged assembly graph (2026-10-28 15:46:53)
+--------------------------------------------
+    The assembly is now mostly finished and no more structural changes will be made. Ideally the assembly graph should now have one contig per replicon and no erroneous contigs (i.e. a complete assembly). If there are more contigs, then the assembly is not complete.
+
+
+Component   Segments   Links   Length    N50      Longest segment   Status    
+    total          4       5   105,998   57,998            57,998             
+        1          3       4    97,998   57,998            57,998   incomplete
+        2          1       1     8,000    8,000             8,000     complete
+
+
+Rotating completed replicons (2026-10-28 15:46:53)
+--------------------------------------------------
+    Any completed circular contigs (i.e. single contigs which have one link connecting end to start) can have their start position changed without altering the sequence. For consistency, Unicycler now searches for a starting gene (dnaA or repA) in each such contig, and if one is found, the contig is rotated to start with that gene on the forward strand.
+
+Segment   Length   Depth   Starting gene   Position   Strand   Identity   Coverage
+      3    8,000   2.05x   none found                                             
+
+
+Assembly complete (2026-10-28 15:47:01)
+---------------------------------------
+Saving uni_s/assembly.gfa
+Saving uni_s/assembly.fasta
+

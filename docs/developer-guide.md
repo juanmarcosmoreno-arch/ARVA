@@ -79,9 +79,14 @@ Follow the existing adapters in `workflows/tool-adapters/arva_tools/` (fastp is 
    pass `home=` (an empty job folder) when you need to inspect what the tool wrote there (NanoPlot).
    Check outputs, not only the exit status (MultiQC, for example, exits 0 when it found nothing).
    For long runs pass `monitor=` to follow the tool's log and save `job.progress` (Flye's
-   `_StageMonitor` in `app/tasks/tools.py`); check every option against the installed tool's own
-   `--help` when options differ between versions (`FlyeAdapter.help_options`). Check also that an option
+   `_StageMonitor` in `app/tasks/tools.py`; give it `plan=` when the tool writes its own stage list, as
+   SPAdes does in `run_spades.yaml`); check every option against the installed tool's own
+   `--help` when options differ between versions (`FlyeAdapter.help_options`; `arva_tools.base.help_options`
+   reads short and long options from a help text, as for SPAdes and Unicycler). Check also that an option
    passed at its documented default really behaves as the default (QUAST's `--ambiguity-score` does not).
+   A tool that builds shell commands from its arguments (MUMmer's `dnadiff`) gets only relative file names
+   ARVA chose, run in the job's work folder. Java tools run as `java -Xmx<heap> -jar <jar>` (Pilon), never
+   through a launcher that fixes the heap; `run_command` removes the Java option variables.
 3. **Parsers.** Parse outputs by field name, not position; tolerate extra fields from newer versions.
 4. **Tests.** Command construction and validation (`tests/test_adapters.py`), parsing from small
    fixtures, and a real-tool test skipped when the tool is absent (`tests/test_real_tools.py`).
@@ -89,7 +94,10 @@ Follow the existing adapters in `workflows/tool-adapters/arva_tools/` (fastp is 
 5. **Job.** Add a task in `apps/api/app/tasks/tools.py` using `run_job`: resolve the tool, record
    `commands`, write outputs under `ctx.results_rel` / `ctx.processed_rel`, register derived files with
    `_register_derived`, store a compact `result_summary`, and queue follow-up work via
-   `ctx.after_commit`.
+   `ctx.after_commit`. Run every external command through `_run` (it checks for a cancellation before the
+   command and every few seconds while it runs); long loops in ARVA's own code call `ctx.check_cancelled()` at
+   safe points. Something that must survive a failure or cancellation (Flye's resumable work folder) is moved out
+   of the results by a `ctx.before_cleanup` hook, never kept in `results/`.
 6. **API + UI + Guide.** Endpoint returning `202` with the job; UI showing every parameter and a
    plain-language summary; Guide entries in English and Spanish with references. Tool HTML pages are
    served by `GET /jobs/{id}/outputs/{name}`; pages that link to each other (QUAST's Icarus viewers) are

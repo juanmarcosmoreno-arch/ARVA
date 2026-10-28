@@ -2,7 +2,7 @@
 import datetime as dt
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_serializer
+from pydantic import BaseModel, ConfigDict, Field, field_serializer, model_validator
 
 from app.models import (
     AssemblyMode,
@@ -194,6 +194,21 @@ class JobProgress(BaseModel):
     finished: bool = Field(default=False, description="True once the tool has exited")
 
 
+class JobCheckpoint(BaseModel):
+    """A stopped Flye run's work folder, kept so that Flye's own --resume can continue it (not a result)."""
+    tool: str
+    tool_version: str = Field(description="The version that wrote the folder; resuming needs the same one")
+    path: str = Field(description="Storage-relative folder")
+    reason: Literal["cancelled", "time_limit", "stopped"] = Field(
+        description="Why the run stopped: cancelled by the user, the time limit, or killed from outside (a signal, "
+                    "the system running out of memory)")
+    resume_stage: str = Field(description="The stage Flye reruns (its folder from the interrupted run was removed)")
+    completed_stages: list[str]
+    stages: list[str] = Field(description="Every stage of the run")
+    size_bytes: int
+    kept_at: dt.datetime
+
+
 class AnalysisJobRead(ORMModel):
     id: str
     project_id: str
@@ -218,6 +233,9 @@ class AnalysisJobRead(ORMModel):
     result_summary: dict[str, Any] | None = None
     parent_job_id: str | None = None
     progress: JobProgress | None = Field(default=None, description="Live monitoring of a long tool run (e.g. Flye)")
+    cancel_requested_at: dt.datetime | None = Field(
+        default=None, description="When cancelling was asked; a running job stays 'running' until the worker stops it")
+    checkpoint: JobCheckpoint | None = None
 
 
 class AnalysisJobDetail(AnalysisJobRead):
@@ -385,7 +403,141 @@ class FlyePreviewRequest(BaseModel):
                                           description="Estimate the genome size as total read bases ÷ this depth")
 
 
+FileId = Annotated[str, Field(max_length=64)]
+SpadesMode = Literal["isolate", "careful", "standard"]
+UnicyclerBridging = Literal["conservative", "normal", "bold"]
+
+
+class ShortReadInputsIn(BaseModel):
+    """Files by role. Paired-end reads need both R1 and R2; SPAdes also takes unpaired reads, alone or with pairs."""
+    model_config = ConfigDict(extra="forbid")
+
+    r1_file_id: FileId | None = None
+    r2_file_id: FileId | None = None
+    unpaired_file_id: FileId | None = None
+
+    def roles(self) -> dict[str, str | None]:
+        return {"r1": self.r1_file_id, "r2": self.r2_file_id, "unpaired": self.unpaired_file_id}
+
+
+class UnicyclerInputsIn(ShortReadInputsIn):
+    long_file_id: FileId | None = Field(default=None, description="Long reads (Oxford Nanopore or PacBio), one file")
+
+    def roles(self) -> dict[str, str | None]:
+        return {**super().roles(), "long": self.long_file_id}
+
+
+class SpadesParamsIn(BaseModel):
+    mode: SpadesMode = Field(default="isolate", description="isolate: --isolate (no read error correction, "
+                             "recommended for isolates); careful: --careful (read and mismatch correction); standard: "
+                             "no mode flag")
+    k: list[Annotated[int, Field(ge=1, le=127)]] | None = Field(
+        default=None, min_length=1, max_length=20, description="Passed as -k (odd, ascending); unset: SPAdes chooses")
+    cov_cutoff: Literal["off", "auto"] | Annotated[float, Field(gt=0)] = Field(
+        default="off", description="Passed as --cov-cutoff ('off' is SPAdes' default)")
+    memory_gb: int | None = Field(default=None, ge=1, description="Passed as -m; unset: min(250, ARVA's memory cap)")
+    threads: int | None = Field(default=None, ge=1, le=128, description="Capped at the server's thread limit")
+    output: Literal["contigs", "scaffolds"] = Field(default="contigs", description="The file registered as the assembly")
+
+
+class SpadesRequest(BaseModel):
+    inputs: ShortReadInputsIn
+    params: SpadesParamsIn = SpadesParamsIn()
+    reads_confirmed: bool = Field(default=False, description="Required when the sample's technology is unknown: the "
+                                  "user confirms that the files hold the reads their roles say")
+
+
+class ShortReadPreviewRequest(BaseModel):
+    inputs: ShortReadInputsIn
+
+
+class UnicyclerParamsIn(BaseModel):
+    mode: UnicyclerBridging = Field(default="normal", description="Passed as --mode (bridging mode)")
+    keep: Literal[0, 1] = Field(default=1, description="Passed as --keep: 0 final files only, 1 also checkpoint graphs")
+    kmers: list[Annotated[int, Field(ge=11, le=127)]] | None = Field(
+        default=None, min_length=1, max_length=20, description="Passed as --kmers (short reads only); unset: automatic")
+    depth_filter: float = Field(default=0.25, ge=0, le=1, description="Passed as --depth_filter (short reads only)")
+    min_fasta_length: int = Field(default=100, ge=1, description="Passed as --min_fasta_length")
+    linear_seqs: int = Field(default=0, ge=0, description="Passed as --linear_seqs")
+    threads: int | None = Field(default=None, ge=1, le=128, description="Capped at the server's thread limit")
+    spades_memory_gb: int | None = Field(default=None, ge=1, description="SPAdes' -m inside Unicycler (short reads); "
+                                         "unset: min(250, ARVA's memory cap)")
+
+
+class UnicyclerRequest(BaseModel):
+    inputs: UnicyclerInputsIn
+    params: UnicyclerParamsIn = UnicyclerParamsIn()
+    reads_confirmed: bool = False
+
+
+class UnicyclerPreviewRequest(BaseModel):
+    inputs: UnicyclerInputsIn
+
+
 MultiqcModule = Literal["fastqc", "fastp", "seqkit", "filtlong"]
+
+
+BatchAnalysis = Literal["sequence_stats", "seqkit", "fastqc"]
+BatchDecision = Literal["run", "derived_excluded", "raw_signal", "not_reads", "not_fastq", "invalid", "active",
+                        "completed"]
+
+
+class BatchQcRequest(BaseModel):
+    analyses: list[BatchAnalysis] = Field(min_length=1, max_length=3)
+    include_derived: bool = Field(default=False, description="Also analyse derived (filtered) files")
+    recompute: bool = Field(default=False, description="Also analyse files that already have a completed result")
+    sample_ids: list[Annotated[str, Field(max_length=64)]] | None = Field(
+        default=None, min_length=1, max_length=10_000, description="Samples to include; every sample if omitted")
+    dry_run: bool = Field(default=True, description="Only return the plan; nothing is created")
+    plan_id: str | None = Field(default=None, max_length=64,
+                                description="Required to create jobs: the plan_id of the preview that was confirmed")
+
+    @model_validator(mode="after")
+    def _check(self) -> "BatchQcRequest":
+        if len(set(self.analyses)) != len(self.analyses):
+            raise ValueError("each analysis may be listed once")
+        if not self.dry_run and not self.plan_id:
+            raise ValueError("plan_id is required to create jobs: confirm a preview (dry_run) first")
+        return self
+
+
+class BatchToolRead(BaseModel):
+    analysis: BatchAnalysis
+    tool: str
+    version: str | None
+    available: bool
+    message: str
+
+
+class BatchFileRead(BaseModel):
+    file_id: str
+    name: str
+    origin: FileOrigin
+    file_format: FileFormat
+    decisions: dict[str, BatchDecision] = Field(description="Per analysis: 'run', or why no job is created")
+
+
+class BatchSampleRead(BaseModel):
+    sample_id: str
+    sample_code: str
+    jobs: dict[str, int] = Field(description="Jobs that would be (or were) created, per analysis")
+    total: int
+    files: list[BatchFileRead]
+
+
+class BatchQcPlanRead(BaseModel):
+    plan_id: str
+    analyses: list[BatchAnalysis]
+    include_derived: bool
+    recompute: bool
+    sample_ids: list[str] | None
+    tools: list[BatchToolRead]
+    samples: list[BatchSampleRead]
+    totals: dict[str, int]
+    total_jobs: int
+    samples_with_jobs: int
+    dry_run: bool
+    created_job_ids: list[str] = []
 
 
 class MultiqcRequest(BaseModel):
@@ -807,8 +959,11 @@ class AssemblyContigRead(BaseModel):
     gc_percent: float | None = Field(description="(G+C)/(A+C+G+T) × 100; null when the contig has no A, C, G or T")
     n_count: int
     other_iupac_count: int = Field(description="Bases other than A, C, G, T and N")
-    coverage: float | None = Field(description="As reported by the assembler (Flye: mean read depth)")
-    circular: bool | None = Field(description="As reported by the assembler; null when it reports no circularity")
+    coverage: float | None = Field(description="As reported by the assembler (Flye: mean read depth; SPAdes: k-mer "
+                                           "coverage; Unicycler: relative depth) or, for a polished assembly, the "
+                                           "mean depth of the polishing reads mapped to it; see coverage_kind")
+    circular: bool | None = Field(description="As reported by the assembler; null when it reports no circularity "
+                                           "(SPAdes). A polished contig keeps its draft contig's value")
     repeat: bool | None = Field(description="As reported by the assembler")
 
 
@@ -915,14 +1070,25 @@ class AssemblyStatsRead(BaseModel):
     files: AssemblyFiles
 
 
+CoverageKind = Literal["read_depth", "kmer_coverage", "relative_depth", "mapped_read_depth"]
+COVERAGE_KIND_DESCRIPTION = ("What the per-contig coverage measures: Flye's mean read depth, SPAdes' k-mer coverage, "
+                             "Unicycler's depth relative to the main replicons, or (polished assemblies) the mean depth "
+                             "of the polishing reads mapped with minimap2 or BWA-MEM (samtools coverage); values of "
+                             "different kinds are not comparable")
+AssemblyKindName = Literal["assembly", "polished"]
+
+
 class AssemblyRead(ORMModel):
     id: str
     sample_id: str
     job_id: str
+    kind: AssemblyKindName = Field(description="'polished': made from parent_assembly_id by the polisher in `assembler`")
+    parent_assembly_id: str | None = Field(description="The draft a polished assembly was made from")
     assembler: str
     assembler_version: str
     mode: AssemblyMode
     read_type: str
+    coverage_kind: CoverageKind | None = Field(description=COVERAGE_KIND_DESCRIPTION)
     input_file_ids: list[str] = Field(description="The imported or derived read files the assembler used")
     contigs_path: str
     graph_path: str | None
@@ -981,6 +1147,8 @@ class ProjectAssemblyRead(BaseModel):
     sample_id: str
     sample_code: str
     job_id: str
+    kind: AssemblyKindName
+    parent_assembly_id: str | None
     assembler: str
     assembler_version: str
     mode: AssemblyMode
@@ -994,6 +1162,7 @@ class ProjectAssemblyRead(BaseModel):
     circular_contigs: int
     contigs_with_circularity: int
     median_coverage: float | None = Field(description="Length-weighted median of the assembler's contig coverage")
+    coverage_kind: CoverageKind | None = Field(description=COVERAGE_KIND_DESCRIPTION)
     warning_codes: list[AssemblyWarningCode]
     created_at: dt.datetime
 
@@ -1055,6 +1224,48 @@ class FlyePlanRead(BaseModel):
     genome_size: FlyeGenomeSizeOptions
     sample_technology: SequencingTechnology
     long_reads_confirmation_required: bool
+
+
+class AssemblyToolRead(BaseModel):
+    status: str
+    version: str | None
+    version_validated: bool
+    message: str
+    reason: str | None
+    options: list[str] = Field(description="Options of interest this installed version lists in its help")
+    max_threads: int
+    max_memory_gb: int = Field(description="Most memory ARVA may give a run (ARVA_TOOL_MEMORY_GB or physical memory)")
+    default_memory_gb: int = Field(description="Used when no memory is given: min(250, max_memory_gb), as SPAdes does")
+
+
+class UnicyclerHelperRead(BaseModel):
+    path: str | None
+    version: str | None
+
+
+class UnicyclerToolRead(AssemblyToolRead):
+    modes: list[Literal["short", "long", "hybrid"]] = Field(description="Modes whose helpers are installed")
+    helpers: dict[str, UnicyclerHelperRead]
+
+
+class AssemblyFileEvidence(FlyeFileEvidence):
+    role: Literal["r1", "r2", "unpaired", "long"]
+    read_mate: str | None
+    read_count: int | None
+
+
+class ShortReadPlanRead(BaseModel):
+    tool: AssemblyToolRead
+    files: list[AssemblyFileEvidence]
+    assembly_mode: AssemblyMode | None
+    read_layout: str
+    problem: str | None = Field(description="Why these files cannot be assembled as chosen; null when they can")
+    sample_technology: SequencingTechnology
+    confirmation_required: bool
+
+
+class UnicyclerPlanRead(ShortReadPlanRead):
+    tool: UnicyclerToolRead
 
 
 class QuastPreviewRequest(BaseModel):
@@ -1130,3 +1341,106 @@ class DashboardSummary(BaseModel):
     storage_used_bytes: int
     recent_jobs: list[AnalysisJobRead]
     recent_projects: list[ProjectRead]
+
+
+# --- Polishing ---------------------------------------------------------------------------------------------------
+
+PolishingStrategy = Literal["racon", "pilon", "hybrid"]
+LongReadPreset = Literal["map-ont", "map-pb", "map-hifi"]
+PilonFix = Literal["snps", "indels", "gaps", "local"]
+
+
+class PolishingInputsIn(UnicyclerInputsIn):
+    """Files by role: long reads for Racon, paired-end (R1 and R2) and/or unpaired short reads for Pilon."""
+
+
+class RaconSettingsIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    read_type: LongReadPreset | None = Field(default=None, description="minimap2 preset: map-ont (Nanopore), map-pb "
+                                             "(PacBio CLR), map-hifi (PacBio HiFi); required with long reads")
+    rounds: int = Field(default=1, ge=1, le=5, description="Rounds of minimap2 + Racon, each on the previous result")
+    match: int = Field(default=3, ge=1, le=100, description="Passed as -m (Racon's default 3)")
+    mismatch: int = Field(default=-5, ge=-100, le=-1, description="Passed as -x (Racon's default -5)")
+    gap: int = Field(default=-4, ge=-100, le=-1, description="Passed as -g (Racon's default -4)")
+    window_length: int = Field(default=500, ge=100, le=10_000, description="Passed as -w (Racon's default 500)")
+    quality_threshold: float = Field(default=10.0, ge=0, le=60, description="Passed as -q (Racon's default 10.0)")
+    error_threshold: float = Field(default=0.3, gt=0, le=1, description="Passed as -e (Racon's default 0.3)")
+
+
+class PilonSettingsIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    rounds: int = Field(default=1, ge=1, le=5, description="Rounds of BWA-MEM + Pilon, each on the previous result")
+    fix: list[PilonFix] = Field(default_factory=lambda: ["snps", "indels", "gaps", "local"], min_length=1,
+                                max_length=4, description="Passed as --fix (Pilon's default: all four)")
+    mindepth: float = Field(default=0.1, gt=0, le=1000, description="Passed as --mindepth (Pilon's default 0.1)")
+    minmq: int = Field(default=0, ge=0, le=60, description="Passed as --minmq (Pilon's default 0)")
+    minqual: int = Field(default=0, ge=0, le=60, description="Passed as --minqual (Pilon's default 0)")
+    heap_gb: int | None = Field(default=None, ge=1, description="Java -Xmx; unset: min(16 GB, ARVA's memory cap)")
+    stop_when_unchanged: bool = Field(default=True, description="Stop after a round in which Pilon changes nothing")
+
+
+class PolishingPreviewRequest(BaseModel):
+    inputs: PolishingInputsIn
+    read_type: LongReadPreset | None = None
+
+
+class PolishingRequest(BaseModel):
+    strategy: PolishingStrategy
+    inputs: PolishingInputsIn
+    racon: RaconSettingsIn = Field(default_factory=RaconSettingsIn)
+    pilon: PilonSettingsIn = Field(default_factory=PilonSettingsIn)
+    threads: int | None = Field(default=None, ge=1, le=128, description="Capped at the server's thread limit")
+    quast: bool = Field(default=False, description="Compare the draft and the polished assemblies with QUAST when done")
+    quast_reference_file_id: FileId | None = Field(default=None, description="A FASTA reference of the sample for QUAST")
+    reads_confirmed: bool = Field(default=False, description="The files hold the reads their roles say (needed when "
+                                  "the sample's sequencing technology is unknown)")
+
+
+class PolishingToolRead(BaseModel):
+    status: str
+    version: str | None
+    version_validated: bool
+    message: str
+    reason: str | None
+    path: str | None
+
+
+class PolishingDraftRead(BaseModel):
+    assembly_id: str
+    kind: AssemblyKindName
+    assembler: str
+    assembler_version: str
+    mode: AssemblyMode
+    read_type: str
+    parent_assembly_id: str | None
+    contig_count: int
+    total_length: int
+    n50: int
+    circular_contigs: int
+    created_at: dt.datetime
+
+
+class PolishingPresetSuggestion(BaseModel):
+    heuristic: Literal[True]
+    value: LongReadPreset | None
+    basis: str
+    flye_read_type: str | None = Field(description="ARVA's Flye read-type suggestion for the same reads")
+    platform: Literal["nanopore", "pacbio"] | None = None
+
+
+class PolishingPlanRead(BaseModel):
+    draft: PolishingDraftRead
+    tools: dict[str, PolishingToolRead] = Field(description="racon, minimap2, pilon, java, bwa, samtools, dnadiff")
+    strategies_available: list[PolishingStrategy] = Field(description="Strategies whose tools are all installed")
+    files: list[AssemblyFileEvidence]
+    strategy: PolishingStrategy | None = Field(description="The strategy the chosen reads imply")
+    suggested_strategy: PolishingStrategy | None = Field(description="The strategy the sample's technology calls for")
+    preset_suggestion: PolishingPresetSuggestion
+    problem: str | None
+    sample_technology: SequencingTechnology
+    confirmation_required: bool
+    max_threads: int
+    max_memory_gb: int
+    default_heap_gb: int

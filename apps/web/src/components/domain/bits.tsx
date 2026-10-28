@@ -1,25 +1,29 @@
-import { CheckCircle2, Circle, Clock, Loader2, XCircle, type LucideIcon } from "lucide-react";
+import { Ban, CheckCircle2, Circle, Clock, Loader2, XCircle, type LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
 import { Explain } from "@/components/guide/Explain";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import type { GuideId } from "@/guide/metrics";
+import { useT } from "@/i18n";
 import type { JobStatus } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-const STATUS: Record<JobStatus, { tone: "neutral" | "blue" | "success" | "danger"; icon: LucideIcon; label: string }> = {
-  pending: { tone: "neutral", icon: Clock, label: "Queued" },
-  running: { tone: "blue", icon: Loader2, label: "Running" },
-  completed: { tone: "success", icon: CheckCircle2, label: "Completed" },
-  failed: { tone: "danger", icon: XCircle, label: "Failed" },
+const STATUS: Record<JobStatus, { tone: "neutral" | "blue" | "success" | "warning" | "danger"; icon: LucideIcon }> = {
+  pending: { tone: "neutral", icon: Clock },
+  running: { tone: "blue", icon: Loader2 },
+  completed: { tone: "success", icon: CheckCircle2 },
+  failed: { tone: "danger", icon: XCircle },
+  cancelled: { tone: "warning", icon: Ban },
 };
 
-export function JobStatusBadge({ status }: { status: JobStatus }) {
+/** `cancelling`: a running job whose cancellation was asked and is being carried out. */
+export function JobStatusBadge({ status, cancelling = false }: { status: JobStatus; cancelling?: boolean }) {
+  const t = useT();
   const s = STATUS[status];
   return (
-    <Badge tone={s.tone}>
+    <Badge tone={cancelling ? "warning" : s.tone}>
       <s.icon className={cn("h-3 w-3", status === "running" && "animate-spin")} />
-      {s.label}
+      {cancelling && status === "running" ? t("jobStatus.cancelling") : t(`jobStatus.${status}` as const)}
     </Badge>
   );
 }

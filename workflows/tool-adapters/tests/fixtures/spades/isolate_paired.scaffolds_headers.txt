@@ -1,0 +1,4 @@
+>NODE_1_length_98152_cov_13.419342
+>NODE_2_length_8077_cov_26.792000
+>NODE_3_length_304_cov_0.810573
+>NODE_4_length_257_cov_1.022222

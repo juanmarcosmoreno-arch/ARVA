@@ -36,7 +36,11 @@ export function jobLabel(type: string, t: (key: TranslationKey) => string) {
   if (type === "multiqc") return t("multiqc.jobLabel");
   if (type === "nanoplot") return t("nanoplot.jobLabel");
   if (type === "flye_assembly") return t("flye.jobLabel");
+  if (type === "spades_assembly") return t("spades.jobLabel");
+  if (type === "unicycler_assembly") return t("unicycler.jobLabel");
   if (type === "quast_evaluation") return t("quast.jobLabel");
+  if (type === "racon_polish") return t("polishing.jobLabel.racon");
+  if (type === "pilon_polish") return t("polishing.jobLabel.pilon");
   return RAW_SIGNAL_JOBS.has(type) ? t("pod5.jobLabel") : JOB_LABEL[type] ?? type;
 }
 

@@ -2,6 +2,8 @@ import type {
   AnalysisJob,
   AnalysisJobDetail,
   Assembly,
+  BatchQcPlan,
+  BatchQcRequest,
   AssemblyDetail,
   AssemblyGraph,
   CrossCheck,
@@ -12,7 +14,16 @@ import type {
   FiltlongRequest,
   FlyePlan,
   FlyeRequest,
+  ShortReadInputs,
+  ShortReadPlan,
+  SpadesRequest,
+  UnicyclerInputs,
+  UnicyclerPlan,
+  UnicyclerRequest,
   HeaderSummary,
+  LongReadPreset,
+  PolishingPlan,
+  PolishingRequest,
   ImportListing,
   ImportRoot,
   Library,
@@ -48,6 +59,7 @@ async function errorMessage(res: Response): Promise<string> {
   try {
     const body = await res.json();
     if (typeof body.detail === "string") return body.detail;
+    if (typeof body.detail?.message === "string") return body.detail.message;
     if (Array.isArray(body.detail)) {
       return body.detail.map((d: { loc?: string[]; msg: string }) => `${d.loc?.slice(-1)[0] ?? ""}: ${d.msg}`).join("; ");
     }
@@ -185,16 +197,34 @@ export const api = {
     request<MultiqcPlan>(`/projects/${projectId}/analyses/multiqc/preview`, json("POST", body)),
   runMultiqc: (projectId: string, body: { sample_ids?: string[]; include_derived: boolean }) =>
     request<AnalysisJob>(`/projects/${projectId}/analyses/multiqc`, json("POST", body)),
+  /** Queued: cancelled at once. Running: the worker stops the tool within seconds (the job stays "running" until then). */
+  cancelJob: (jobId: string) => request<AnalysisJob>(`/jobs/${jobId}/cancel`, { method: "POST" }),
+  /** A new Flye job continuing a stopped run from its kept work folder (Flye's --resume). */
+  resumeJob: (jobId: string) => request<AnalysisJob>(`/jobs/${jobId}/resume`, { method: "POST" }),
+  discardCheckpoint: (jobId: string) => request<AnalysisJob>(`/jobs/${jobId}/checkpoint`, { method: "DELETE" }),
+  /** With dry_run the plan only; otherwise the plan's jobs are created (needs the preview's plan_id). */
+  batchQc: (projectId: string, body: BatchQcRequest) => request<BatchQcPlan>(`/projects/${projectId}/analyses/batch`, json("POST", body)),
   /** The last lines of a job's live tool log while it exists, else of the ARVA job log (`source` says which). */
   jobLog: (jobId: string, tail = 200) => requestText(`/jobs/${jobId}/log?tail=${tail}`),
   flyePreview: (sampleId: string, body: { raw_file_ids: string[]; assumed_depth_x?: number | null }) =>
     request<FlyePlan>(`/samples/${sampleId}/assembly/flye/preview`, json("POST", body)),
   runFlye: (sampleId: string, body: FlyeRequest) =>
     request<AnalysisJob>(`/samples/${sampleId}/assembly/flye`, json("POST", body)),
+  spadesPreview: (sampleId: string, inputs: ShortReadInputs) =>
+    request<ShortReadPlan>(`/samples/${sampleId}/assembly/spades/preview`, json("POST", { inputs })),
+  runSpades: (sampleId: string, body: SpadesRequest) =>
+    request<AnalysisJob>(`/samples/${sampleId}/assembly/spades`, json("POST", body)),
+  unicyclerPreview: (sampleId: string, inputs: UnicyclerInputs) =>
+    request<UnicyclerPlan>(`/samples/${sampleId}/assembly/unicycler/preview`, json("POST", { inputs })),
+  runUnicycler: (sampleId: string, body: UnicyclerRequest) =>
+    request<AnalysisJob>(`/samples/${sampleId}/assembly/unicycler`, json("POST", body)),
   quastPreview: (sampleId: string, body: Omit<QuastRequest, "threads">) =>
     request<QuastPlan>(`/samples/${sampleId}/assembly/quast/preview`, json("POST", body)),
   runQuast: (sampleId: string, body: QuastRequest) =>
     request<AnalysisJob>(`/samples/${sampleId}/assembly/quast`, json("POST", body)),
+  polishingPreview: (assemblyId: string, body: { inputs: UnicyclerInputs; read_type: LongReadPreset | null }) =>
+    request<PolishingPlan>(`/assemblies/${assemblyId}/polishing/preview`, json("POST", body)),
+  polish: (assemblyId: string, body: PolishingRequest) => request<AnalysisJob>(`/assemblies/${assemblyId}/polishing`, json("POST", body)),
   assemblies: (sampleId: string) => request<Assembly[]>(`/samples/${sampleId}/assemblies`),
   assembly: (id: string) => request<AssemblyDetail>(`/assemblies/${id}`),
   assemblyContigsUrl: (id: string) => `${BASE}/assemblies/${id}/contigs.fasta`,

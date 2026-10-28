@@ -56,7 +56,7 @@ export function segmentCoverage(graph: Pick<AssemblyGraph, "coverage_tag">, node
 
 /** Live elapsed time of a run: from the tool's start (or the job's) to now, or the recorded duration once it ended. */
 export function elapsedSeconds(job: Pick<AnalysisJobDetail, "status" | "started_at" | "duration_seconds" | "progress">, now: number): number | null {
-  if (job.status === "completed" || job.status === "failed") return job.duration_seconds ?? job.progress?.elapsed_seconds ?? null;
+  if (job.status === "completed" || job.status === "failed" || job.status === "cancelled") return job.duration_seconds ?? job.progress?.elapsed_seconds ?? null;
   const start = job.progress?.started_at ?? job.started_at;
   if (!start) return job.progress?.elapsed_seconds ?? null;
   return Math.max(0, (now - Date.parse(start)) / 1000);

@@ -55,6 +55,14 @@ def sync_queue(monkeypatch):
 
 
 @pytest.fixture
+def held_queue(monkeypatch):
+    """A task queue whose jobs wait, as when no worker is free: tests run them by calling the worker task."""
+    queue = Queue("arva-held", connection=FakeRedis(), is_async=True)
+    monkeypatch.setattr(jobs_service, "get_queue", lambda: queue)
+    return queue
+
+
+@pytest.fixture
 def client():
     with TestClient(app) as c:
         yield c

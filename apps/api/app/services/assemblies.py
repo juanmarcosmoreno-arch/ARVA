@@ -20,7 +20,7 @@ from arva_core.seqstats import SequenceFormatError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import AnalysisJob, Assembly, AssemblyMode, JobStatus
+from app.models import AnalysisJob, Assembly, AssemblyKind, AssemblyMode, JobStatus
 from app.services.jobs import FASTQ_STATS_JOB
 from app.storage import get_storage
 from app.tasks.common import JobContext, JobFailure
@@ -30,7 +30,15 @@ GRAPH_MAX_NODES = 2000
 GRAPH_MAX_EDGES = 5000
 # The GFA segment tag that holds each assembler's coverage, and what it measures (arva_core.gfa leaves
 # tags uninterpreted because assemblers define them differently).
-GRAPH_COVERAGE_TAGS = {"Flye": ("dp", "mean read depth")}
+GRAPH_COVERAGE_TAGS = {
+    "Flye": ("dp", "mean read depth"),
+    "SPAdes": ("DP", "k-mer coverage (SPAdes; not read depth)"),
+    "Unicycler": ("dp", "depth relative to the assembly's median depth (Unicycler; 1 = typical chromosome depth)"),
+}
+# How the coverage warnings name each assembler's coverage, and its unit.
+WARNING_COVERAGE = {"SPAdes": ("k-mer coverage", ""), "Unicycler": ("relative depth", "×"),
+                    "Racon": ("mean depth of the mapped polishing reads", "×"),
+                    "Pilon": ("mean depth of the mapped polishing reads", "×")}
 
 
 def expected_genome_size(db: Session, sample_id: str, job_parameters: Mapping[str, Any] | None) -> dict[str, Any]:
@@ -82,8 +90,10 @@ def register_assembly(
     graph: Path | None = None,
     info: Path | None = None,
     annotations: Mapping[str, ContigAnnotation] | None = None,
+    parent: Assembly | None = None,
 ) -> Assembly:
-    """Summarise the contigs, evaluate the heuristic warnings and add the Assembly to the job's session."""
+    """Summarise the contigs, evaluate the heuristic warnings and add the Assembly to the job's session. With
+    `parent` (the draft) the assembly is recorded as a polished version of it."""
     job = ctx.job
     if job.sample_id is None or not job.input_raw_file_ids:
         raise JobFailure("an assembly needs a sample and the read files it was built from")
@@ -96,7 +106,7 @@ def register_assembly(
     except (AssemblyFormatError, SequenceFormatError) as exc:
         raise JobFailure(f"{assembler} wrote contigs that cannot be read: {exc}") from exc
     genome = expected_genome_size(ctx.db, job.sample_id, job.parameters)
-    warnings, checks = assembly_warnings(stats, mode.value, genome["bp"])
+    warnings, checks = assembly_warnings(stats, mode.value, genome["bp"], *WARNING_COVERAGE.get(assembler, ()))
     rows = stats.pop("contigs")
     stats.update({
         "contig_rows": {"stored": min(len(rows), MAX_CONTIG_ROWS), "total": len(rows),
@@ -108,6 +118,8 @@ def register_assembly(
     assembly = Assembly(
         sample_id=job.sample_id,
         job_id=job.id,
+        kind=AssemblyKind.polished if parent is not None else AssemblyKind.assembly,
+        parent_assembly_id=parent.id if parent is not None else None,
         assembler=assembler,
         assembler_version=job.tool_version,
         mode=mode,

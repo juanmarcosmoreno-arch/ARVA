@@ -11,9 +11,11 @@ import {
   ReadQualityChart,
 } from "@/components/charts/QcCharts";
 import { AssemblyTab } from "@/components/assembly/AssemblyTab";
-import { FlyeDialog } from "@/components/assembly/FlyeDialog";
+import { AssemblyDialog } from "@/components/assembly/AssemblyDialog";
+import { PolishingDialog } from "@/components/assembly/PolishingDialog";
 import { QuastDialog } from "@/components/assembly/QuastDialog";
 import { AnalysisTimeline, JobStatusBadge, MetricTile, type Stage } from "@/components/domain/bits";
+import { CancelJobButton, isActiveJob, isCancelling } from "@/components/domain/JobControls";
 import { FileDropzone } from "@/components/domain/FileDropzone";
 import { CustomMetadataList } from "@/components/domain/MetadataImport";
 import { RawSignalSection } from "@/components/domain/RawSignal";
@@ -76,11 +78,13 @@ export function SampleDetailPage() {
   const completed = qcJobs.filter((j) => j.status === "completed");
   const latestFailed = qcJobs[0]?.status === "failed";
   const [filterOpen, setFilterOpen] = useState(false);
-  const [flyeOpen, setFlyeOpen] = useState(false);
+  const [assemblyOpen, setAssemblyOpen] = useState(false);
   const [quastOpen, setQuastOpen] = useState(false);
-  const assemblies = useQuery({ queryKey: ["assemblies", sampleId], queryFn: () => api.assemblies(sampleId), enabled: quastOpen });
+  const [polishDraft, setPolishDraft] = useState<string | null | undefined>(undefined);
+  const polishOpen = polishDraft !== undefined;
+  const assemblies = useQuery({ queryKey: ["assemblies", sampleId], queryFn: () => api.assemblies(sampleId), enabled: quastOpen || polishOpen });
   const queryClient = useQueryClient();
-  const finishedCount = allJobs.filter((j) => j.status === "completed" || j.status === "failed").length;
+  const finishedCount = allJobs.filter((j) => j.status === "completed" || j.status === "failed" || j.status === "cancelled").length;
   useEffect(() => {
     // Jobs can create derived files and cross-check data; refresh them whenever a job finishes.
     queryClient.invalidateQueries({ queryKey: ["files", sampleId] });
@@ -202,7 +206,14 @@ export function SampleDetailPage() {
         <FilteringTab jobs={allJobs} files={files.data ?? []} onNew={() => setFilterOpen(true)} technology={s.sequencing_technology} />
       )}
       {tab === "assembly" && (
-        <AssemblyTab sampleId={s.id} jobs={allJobs} files={files.data ?? []} onNew={() => setFlyeOpen(true)} onEvaluate={() => setQuastOpen(true)} />
+        <AssemblyTab
+          sampleId={s.id}
+          jobs={allJobs}
+          files={files.data ?? []}
+          onNew={() => setAssemblyOpen(true)}
+          onEvaluate={() => setQuastOpen(true)}
+          onPolish={(draftId) => setPolishDraft(draftId ?? null)}
+        />
       )}
       {tab === "history" && <HistoryTab jobs={jobs.data ?? []} files={files.data ?? []} openJob={params.get("job")} />}
       {tab === "metadata" && (
@@ -222,15 +233,27 @@ export function SampleDetailPage() {
         technology={s.sequencing_technology}
         onStarted={() => setTab("filtering")}
       />
-      <FlyeDialog
-        open={flyeOpen}
-        onOpenChange={setFlyeOpen}
+      <AssemblyDialog
+        open={assemblyOpen}
+        onOpenChange={setAssemblyOpen}
         sampleId={s.id}
         files={files.data ?? []}
         jobs={allJobs}
         technology={s.sequencing_technology}
         onStarted={() => setTab("assembly")}
       />
+      {polishOpen && assemblies.data && (
+        <PolishingDialog
+          open={polishOpen}
+          onOpenChange={(o) => !o && setPolishDraft(undefined)}
+          sampleId={s.id}
+          technology={s.sequencing_technology}
+          assemblies={assemblies.data}
+          files={files.data ?? []}
+          jobs={allJobs}
+          draftId={polishDraft}
+        />
+      )}
       {quastOpen && assemblies.data && (
         <QuastDialog open={quastOpen} onOpenChange={setQuastOpen} sampleId={s.id} assemblies={assemblies.data} files={files.data ?? []} />
       )}
@@ -676,22 +699,29 @@ function HistoryTab({ jobs, files, openJob }: { jobs: AnalysisJobDetail[]; files
           const inputs = (j.input_raw_file_ids ?? []).map((id) => byId.get(id));
           return (
             <li key={j.id}>
-              <button className="flex w-full items-center gap-3 px-5 py-3 text-left hover:bg-muted/40" onClick={() => setOpen(expanded ? null : j.id)} aria-expanded={expanded}>
-                <ChevronDown className={cn("h-4 w-4 shrink-0 text-muted-foreground transition", expanded && "rotate-180")} />
-                <div className="min-w-0 flex-1">
-                  <div className="truncate text-sm font-medium">
-                    {jobLabel(j.job_type, t)} ·{" "}
-                    {IMPORT_JOBS.has(j.job_type)
-                      ? `${((j.parameters?.paths as string[] | undefined) ?? []).length} file(s) from ${String(j.parameters?.root ?? "")}`
-                      : inputs.map((f) => f?.original_filename ?? "deleted file").join(", ")}
-                    {j.parent_job_id && <span className="ml-2 text-xs font-normal text-muted-foreground">(started automatically)</span>}
+              <div className="flex items-center gap-2 hover:bg-muted/40">
+                <button className="flex min-w-0 flex-1 items-center gap-3 px-5 py-3 text-left" onClick={() => setOpen(expanded ? null : j.id)} aria-expanded={expanded}>
+                  <ChevronDown className={cn("h-4 w-4 shrink-0 text-muted-foreground transition", expanded && "rotate-180")} />
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-sm font-medium">
+                      {jobLabel(j.job_type, t)} ·{" "}
+                      {IMPORT_JOBS.has(j.job_type)
+                        ? `${((j.parameters?.paths as string[] | undefined) ?? []).length} file(s) from ${String(j.parameters?.root ?? "")}`
+                        : inputs.map((f) => f?.original_filename ?? "deleted file").join(", ")}
+                      {j.parent_job_id && <span className="ml-2 text-xs font-normal text-muted-foreground">(started automatically)</span>}
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      {fmtDate(j.created_at)} · {j.tool_name} {j.tool_version} · {fmtDuration(j.duration_seconds)}
+                    </div>
                   </div>
-                  <div className="text-xs text-muted-foreground">
-                    {fmtDate(j.created_at)} · {j.tool_name} {j.tool_version} · {fmtDuration(j.duration_seconds)}
+                  <JobStatusBadge status={j.status} cancelling={isCancelling(j)} />
+                </button>
+                {isActiveJob(j) && (
+                  <div className="shrink-0 pr-5">
+                    <CancelJobButton job={j} />
                   </div>
-                </div>
-                <JobStatusBadge status={j.status} />
-              </button>
+                )}
+              </div>
               {expanded && (
                 <div className="space-y-4 px-5 pb-5 pl-12 text-sm">
                   <dl className="grid gap-x-6 gap-y-2 sm:grid-cols-2">
@@ -703,6 +733,7 @@ function HistoryTab({ jobs, files, openJob }: { jobs: AnalysisJobDetail[]; files
                       ["Queued", fmtDate(j.created_at)],
                       ["Started / finished", `${fmtDate(j.started_at)} → ${fmtDate(j.finished_at)}`],
                       ["Run time", fmtDuration(j.duration_seconds)],
+                      ...(j.cancel_requested_at ? [[t("history.cancelRequested"), fmtDate(j.cancel_requested_at)]] : []),
                     ].map(([k, v], i) => (
                       <div key={i}>
                         <dt className="text-xs text-muted-foreground">{k}</dt>

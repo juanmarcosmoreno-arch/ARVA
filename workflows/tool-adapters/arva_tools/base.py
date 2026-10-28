@@ -53,6 +53,27 @@ def parse_version(text: str) -> tuple[int, ...]:
     return tuple(int(p) for p in re.findall(r"\d+", text)[:3])
 
 
+_HELP_OPTION = re.compile(r"^\s+(--?[A-Za-z0-9][\w-]*)(?:,\s+(--[A-Za-z0-9][\w-]*))?(?=[\s,]|$)")
+
+
+def help_options(text: str) -> frozenset[str]:
+    """The options a --help text lists at the start of its lines ("  -t, --threads <int>", "  -1 <filename>")."""
+    found: set[str] = set()
+    for line in text.splitlines():
+        if m := _HELP_OPTION.match(line):
+            found.update(o for o in m.groups() if o)
+    return frozenset(found)
+
+
+def read_help(executable: str, args: tuple[str, ...] = ("--help",)) -> str:
+    with isolated_home() as home:
+        proc = subprocess.run([executable, *args], capture_output=True, text=True, errors="replace", timeout=60,
+                              env=tool_environment(home), cwd=home, stdin=subprocess.DEVNULL)
+    if proc.returncode != 0:
+        raise RuntimeError(f"{Path(executable).name} {' '.join(args)} exited with status {proc.returncode}")
+    return proc.stdout + proc.stderr
+
+
 def resolve_executable(tool_id: str, executable: str) -> str | None:
     """Find a tool: ARVA_TOOL_<ID> override, then ARVA_TOOLS_PATH, then PATH."""
     override = os.environ.get(f"ARVA_TOOL_{tool_id.upper().replace('-', '_')}")
@@ -82,6 +103,7 @@ class ToolAdapter:
                     [path, *self.version_args],
                     capture_output=True,
                     text=True,
+                    errors="replace",
                     timeout=60,
                     env=tool_environment(home),
                     cwd=home,

@@ -17,6 +17,7 @@ class JobStatus(str, enum.Enum):
     running = "running"
     completed = "completed"
     failed = "failed"
+    cancelled = "cancelled"
 
 
 class AnalysisJob(TimestampMixin, Base):
@@ -69,6 +70,10 @@ class AnalysisJob(TimestampMixin, Base):
     result_summary: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     # Live monitoring of a long tool run (stage, elapsed time, live log), updated while it runs.
     progress: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    # When someone asked to stop the job; the worker stops a running tool within a few seconds of it.
+    cancel_requested_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # A tool's own restart point kept after a stopped run (Flye's work folder for --resume); not a result.
+    checkpoint: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     # A job launched automatically by another job (e.g. statistics of filtered reads).
     parent_job_id: Mapped[str | None] = mapped_column(
         String(36), ForeignKey("analysis_jobs.id", ondelete="SET NULL"), nullable=True

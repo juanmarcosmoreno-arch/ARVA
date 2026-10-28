@@ -1,0 +1,2 @@
+>contig_1 LN:i:99974 RC:i:441 XC:f:1.000000
+>contig_2 LN:i:7977 RC:i:74 XC:f:1.000000

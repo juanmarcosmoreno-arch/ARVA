@@ -4,7 +4,7 @@ import type { ReactElement } from "react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AssemblyTab } from "@/components/assembly/AssemblyTab";
-import { FlyeDialog } from "@/components/assembly/FlyeDialog";
+import { AssemblyDialog } from "@/components/assembly/AssemblyDialog";
 import { api } from "@/lib/api";
 import type { AnalysisJobDetail, Assembly, AssemblyDetail, FlyePlan, RawFile, Tool } from "@/lib/types";
 import { useSettings } from "@/store/settings";
@@ -26,7 +26,7 @@ const progress = {
   started_at: null, stage_started_at: null, updated_at: null, elapsed_seconds: 75, finished: false,
 };
 const assembly: Assembly = {
-  id: "a1", sample_id: "s", job_id: "job-completed", assembler: "Flye", assembler_version: "2.9.3", mode: "long", read_type: "nano-hq",
+  id: "a1", sample_id: "s", job_id: "job-completed", kind: "assembly", parent_assembly_id: null, assembler: "Flye", assembler_version: "2.9.3", mode: "long", read_type: "nano-hq",
   input_file_ids: ["f1"], created_at: "2026-10-28T13:05:00Z",
   stats: {
     contig_count: 2, total_length: 315_000, largest_contig: 300_000, smallest_contig: 15_000, n50: 300_000, l50: 1, n90: 300_000, l90: 1, gc_percent: 49.6,
@@ -67,7 +67,7 @@ describe("Assembly tab", () => {
     const done = job("completed", {
       result_summary: { contigs: [{ name: "contig_2", length: 15_000, coverage: 53, circular: true, repeat: false, multiplicity: 2, alt_group: null, graph_path: "2" }] },
     });
-    renderWith(<AssemblyTab sampleId="s" jobs={[job("running", { progress }), done]} files={[reads]} onNew={() => undefined} onEvaluate={() => undefined} />);
+    renderWith(<AssemblyTab sampleId="s" jobs={[job("running", { progress }), done]} files={[reads]} onNew={() => undefined} onEvaluate={() => undefined} onPolish={() => undefined} />);
     expect(await screen.findByText("Etapa 4 de 7: repeat")).toBeInTheDocument();
     expect(screen.getByText("1 min 15 s transcurridos")).toBeInTheDocument();
     expect(await screen.findByText("INFO: >>>STAGE: repeat")).toBeInTheDocument();
@@ -82,7 +82,7 @@ describe("Assembly tab", () => {
 
   it("names the stage at which a run failed", async () => {
     vi.spyOn(api, "assemblies").mockResolvedValue([]);
-    renderWith(<AssemblyTab sampleId="s" jobs={[job("failed", { progress: { ...progress, stage: "configure", finished: true }, error_message: "Flye found no read longer than the minimum overlap" })]} files={[reads]} onNew={() => undefined} onEvaluate={() => undefined} />);
+    renderWith(<AssemblyTab sampleId="s" jobs={[job("failed", { progress: { ...progress, stage: "configure", finished: true }, error_message: "Flye found no read longer than the minimum overlap" })]} files={[reads]} onNew={() => undefined} onEvaluate={() => undefined} onPolish={() => undefined} />);
     expect(await screen.findByText("Flye se detuvo durante la etapa configure.")).toBeInTheDocument();
     expect(screen.getByText("Flye found no read longer than the minimum overlap")).toBeInTheDocument();
   });
@@ -99,7 +99,7 @@ describe("Flye dialog", () => {
       long_reads_confirmation_required: false,
     };
     const preview = vi.spyOn(api, "flyePreview").mockResolvedValue(plan);
-    renderWith(<FlyeDialog open onOpenChange={() => undefined} sampleId="s" files={[reads]} />);
+    renderWith(<AssemblyDialog open onOpenChange={() => undefined} sampleId="s" files={[reads]} />);
     expect(await screen.findByText("ARVA sugiere --nano-hq")).toBeInTheDocument();
     expect(screen.getByText(/error medio del 4\.08% \(Q13\.9\), dentro del < 5% de Flye/)).toBeInTheDocument();
     expect(preview).toHaveBeenCalledWith("s", { raw_file_ids: ["f1"], assumed_depth_x: null });

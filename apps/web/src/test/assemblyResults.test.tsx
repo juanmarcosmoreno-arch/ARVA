@@ -4,7 +4,7 @@ import { forwardRef, type ReactElement } from "react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AssemblyTab } from "@/components/assembly/AssemblyTab";
-import { FlyeDialog } from "@/components/assembly/FlyeDialog";
+import { AssemblyDialog } from "@/components/assembly/AssemblyDialog";
 import { ProjectAssemblies } from "@/components/domain/ProjectAssemblies";
 import { api } from "@/lib/api";
 import { compared, cumulativePoints, elapsedSeconds, lineageNames, nodeKind, nodeSize, nxSteps, segmentCoverage, selfLinks, sortContigs } from "@/lib/assembly";
@@ -47,7 +47,7 @@ const stats = (n50: number): Assembly["stats"] => ({
   files: { contigs: { path: "c", sha256: "x", size_bytes: 1 }, graph: { path: "g", sha256: "y", size_bytes: 1 }, info: null },
 });
 const assembly = (id: string, created: string, n50 = 300_000): Assembly => ({
-  id, sample_id: "s", job_id: `job-${id}`, assembler: "Flye", assembler_version: "2.9.3", mode: "long", read_type: "nano-hq",
+  id, sample_id: "s", job_id: `job-${id}`, kind: "assembly", parent_assembly_id: null, assembler: "Flye", assembler_version: "2.9.3", mode: "long", read_type: "nano-hq",
   input_file_ids: ["f2"], created_at: created, stats: stats(n50), warnings: [],
 });
 const original = { id: "f1", original_filename: "ont.fastq.gz", file_format: "fastq_gz", is_valid: true, read_mate: null, origin: "imported", parent_file_id: null, produced_by_job_id: null } as RawFile;
@@ -124,7 +124,7 @@ describe("Assembly results", () => {
   it("shows every summary tile, sorts the contig table and draws the five charts", async () => {
     vi.spyOn(api, "assemblies").mockResolvedValue([assembly("a1", "2026-10-28T13:05:00Z")]);
     vi.spyOn(api, "assembly").mockResolvedValue({ ...assembly("a1", "2026-10-28T13:05:00Z"), contigs: CONTIGS } as AssemblyDetail);
-    renderWith(<AssemblyTab sampleId="s" jobs={[job({ id: "job-a1" })]} files={[original, filtered]} onNew={() => undefined} onEvaluate={() => undefined} />);
+    renderWith(<AssemblyTab sampleId="s" jobs={[job({ id: "job-a1" })]} files={[original, filtered]} onNew={() => undefined} onEvaluate={() => undefined} onPolish={() => undefined} />);
     expect(await screen.findByText("Reads: ont.filtlong.fastq.gz ← ont.fastq.gz", { exact: false })).toBeInTheDocument();
     for (const label of ["Contigs", "Total length", "Largest contig", "Contig N50", "L50", "Contig N90", "L90", "GC content", "Circular contigs", "Median coverage"]) {
       expect(screen.getAllByText(label).length).toBeGreaterThan(0);
@@ -134,9 +134,10 @@ describe("Assembly results", () => {
     const table = await screen.findByRole("table");
     const names = () => within(table).getAllByRole("row").slice(1).map((r) => within(r).getAllByRole("cell")[1].textContent);
     expect(names()).toEqual(["contig_1", "contig_2", "contig_3"]);
-    fireEvent.click(within(table).getByRole("button", { name: "Coverage" }));
+    // Flye's coverage is a read depth, and the column says so.
+    fireEvent.click(within(table).getByRole("button", { name: "Read depth" }));
     expect(names()).toEqual(["contig_2", "contig_1", "contig_3"]);
-    expect(within(table).getByRole("columnheader", { name: /Coverage/ })).toHaveAttribute("aria-sort", "descending");
+    expect(within(table).getByRole("columnheader", { name: /Read depth/ })).toHaveAttribute("aria-sort", "descending");
     expect(within(table).getAllByText("circular")).toHaveLength(2);
     expect(within(table).getByText("repeat")).toBeInTheDocument();
 
@@ -173,7 +174,7 @@ describe("Assembly results", () => {
       ],
     };
     const fetchGraph = vi.spyOn(api, "assemblyGraph").mockResolvedValue(graph);
-    renderWith(<AssemblyTab sampleId="s" jobs={[]} files={[original, filtered]} onNew={() => undefined} onEvaluate={() => undefined} />);
+    renderWith(<AssemblyTab sampleId="s" jobs={[]} files={[original, filtered]} onNew={() => undefined} onEvaluate={() => undefined} onPolish={() => undefined} />);
     fireEvent.click(await screen.findByRole("radio", { name: "Assembly graph" }));
     const chart = await screen.findByTestId("chart");
     expect(fetchGraph).toHaveBeenCalledWith("a1", 500, 2000);
@@ -192,7 +193,7 @@ describe("Assembly results", () => {
   it("compares two or more assemblies in a table and overlaid cumulative curves", async () => {
     vi.spyOn(api, "assemblies").mockResolvedValue([assembly("bbbbbbbb2", "2026-10-28T14:00:00Z", 150_000), assembly("aaaaaaaa1", "2026-10-28T13:00:00Z")]);
     vi.spyOn(api, "assembly").mockImplementation(async (id) => ({ ...assembly(id, "2026-10-28T13:00:00Z"), contigs: CONTIGS }) as AssemblyDetail);
-    renderWith(<AssemblyTab sampleId="s" jobs={[]} files={[original, filtered]} onNew={() => undefined} onEvaluate={() => undefined} />);
+    renderWith(<AssemblyTab sampleId="s" jobs={[]} files={[original, filtered]} onNew={() => undefined} onEvaluate={() => undefined} onPolish={() => undefined} />);
     expect(await screen.findByText("Comparison of 2 assemblies")).toBeInTheDocument();
     const row = screen.getByRole("rowheader", { name: "Contig N50" }).closest("tr")!;
     expect(within(row).getAllByRole("cell").map((c) => c.textContent)).toEqual(["150,000 bp", "300,000 bp"]);
@@ -202,19 +203,18 @@ describe("Assembly results", () => {
     expect(option.series[0].lineStyle.color).not.toBe(option.series[1].lineStyle.color);
   });
 
-  it("follows a running job's log and can pause it, with no cancel button", async () => {
+  it("follows a running job's log and can pause it", async () => {
     vi.spyOn(api, "assemblies").mockResolvedValue([]);
     const log = vi.spyOn(api, "jobLog").mockResolvedValue({ text: "INFO: >>>STAGE: assembly", source: "tool" });
     const running = job({ id: "jr", status: "running", started_at: new Date(Date.now() - 65_000).toISOString() });
-    renderWith(<AssemblyTab sampleId="s" jobs={[running]} files={[original, filtered]} onNew={() => undefined} onEvaluate={() => undefined} />);
+    renderWith(<AssemblyTab sampleId="s" jobs={[running]} files={[original, filtered]} onNew={() => undefined} onEvaluate={() => undefined} onPolish={() => undefined} />);
     expect(await screen.findByText("INFO: >>>STAGE: assembly")).toBeInTheDocument();
     expect(log).toHaveBeenCalledWith("jr", 200);
     expect(screen.getByText(/1 min \d+ s elapsed/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Pause" }));
     expect(screen.getByRole("button", { name: "Resume" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByText(/Paused: the log is neither refreshed nor scrolled/)).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /cancel/i })).not.toBeInTheDocument();
-    expect(screen.getByText(/ARVA cannot stop a running job yet/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Cancel job" })).toBeInTheDocument();
   });
 });
 
@@ -235,14 +235,15 @@ describe("New assembly dialog", () => {
   it("explains the assembler, shows the reads by lineage, summarises the run and starts it only after confirmation", async () => {
     vi.spyOn(api, "flyePreview").mockResolvedValue(plan);
     const run = vi.spyOn(api, "runFlye").mockResolvedValue(job({}));
-    renderWith(<FlyeDialog open onOpenChange={() => undefined} sampleId="s" files={[original, filtered]} jobs={[filtlongJob]} technology="nanopore" />);
+    renderWith(<AssemblyDialog open onOpenChange={() => undefined} sampleId="s" files={[original, filtered]} jobs={[filtlongJob]} technology="nanopore" />);
     expect(await screen.findByText("New assembly")).toBeInTheDocument();
-    // Short-read and hybrid assemblers are named, not offered: no button runs them.
-    expect(screen.getByText("SPAdes · short reads")).toBeInTheDocument();
-    expect(screen.getByText("Unicycler · hybrid")).toBeInTheDocument();
-    expect(screen.getAllByText("coming next")).toHaveLength(2);
-    expect(screen.queryByRole("button", { name: /SPAdes|Unicycler/ })).not.toBeInTheDocument();
-    expect(screen.getByText("The sample's technology is Oxford Nanopore: long reads, which Flye assembles.")).toBeInTheDocument();
+    // Every assembler is offered; the one that fits these long reads is chosen and marked.
+    const assemblers = screen.getByRole("radiogroup", { name: "Assembler" });
+    expect(within(assemblers).getByRole("radio", { name: /Flye · long reads/ })).toBeChecked();
+    expect(within(assemblers).getByRole("radio", { name: /SPAdes · short reads/ })).not.toBeChecked();
+    expect(within(assemblers).getByRole("radio", { name: /Unicycler · short, long or hybrid/ })).not.toBeChecked();
+    expect(within(assemblers).getAllByText("fits these reads")).toHaveLength(1);
+    expect(screen.getByText(/This sample has long reads \(technology: Oxford Nanopore\): Flye assembles them/)).toBeInTheDocument();
 
     const files = screen.getByRole("list", { name: "Reads to assemble" });
     expect(within(files).getByText("filtered with Filtlong 0.2.1")).toBeInTheDocument();
@@ -273,9 +274,9 @@ describe("New assembly dialog", () => {
     expect(run.mock.calls[0][1]).toMatchObject({ raw_file_ids: ["f1"], params: { read_type: "nano-hq", meta: true, iterations: 1 }, long_reads_confirmed: false });
   });
 
-  it("says what fits an Illumina sample", async () => {
-    renderWith(<FlyeDialog open onOpenChange={() => undefined} sampleId="s" files={[]} technology="illumina" />);
-    expect(await screen.findByText(/Flye needs long reads; short-read assembly \(SPAdes\) comes next/)).toBeInTheDocument();
+  it("says when the files do not show which reads they hold", async () => {
+    renderWith(<AssemblyDialog open onOpenChange={() => undefined} sampleId="s" files={[]} technology="illumina" />);
+    expect(await screen.findByText(/ARVA cannot tell short from long reads among this sample's files \(technology: Illumina\)/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Start assembly/ })).toBeDisabled();
   });
 });
@@ -283,7 +284,7 @@ describe("New assembly dialog", () => {
 describe("Project assemblies", () => {
   it("lists every assembly with a link to its sample", async () => {
     const row: ProjectAssembly = {
-      id: "a1", sample_id: "s1", sample_code: "ISO-1", job_id: "j", assembler: "Flye", assembler_version: "2.9.3", mode: "long", read_type: "nano-hq",
+      id: "a1", sample_id: "s1", sample_code: "ISO-1", job_id: "j", kind: "assembly", parent_assembly_id: null, assembler: "Flye", assembler_version: "2.9.3", mode: "long", read_type: "nano-hq",
       contig_count: 2, total_length: 315_000, largest_contig: 300_000, n50: 300_000, l50: 1, gc_percent: 49.6, circular_contigs: 2, contigs_with_circularity: 2,
       median_coverage: 31, warning_codes: ["high_coverage_contigs"], created_at: "2026-10-28T13:05:00Z",
     };

@@ -29,6 +29,7 @@ export interface FileOverviewRow {
 function stateOf(job: AnalysisJobDetail | undefined): FileState {
   if (!job) return "not_run";
   if (job.status === "pending" || job.status === "running") return "running";
+  if (job.status === "cancelled") return "not_run";
   return job.status === "failed" ? "failed" : "done";
 }
 

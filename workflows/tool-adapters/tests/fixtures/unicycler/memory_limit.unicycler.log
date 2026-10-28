@@ -1,0 +1,38 @@
+
+Starting Unicycler (2026-10-28 15:50:33)
+----------------------------------------
+    Welcome to Unicycler, an assembly pipeline for bacterial genomes. Since you provided only short reads, Unicycler will essentially function as a SPAdes-optimiser. It will try many k-mer sizes, choose the best based on contig length and graph connectivity, and scaffold the graph using SPAdes repeat resolution.
+    For more information, please see https://github.com/rrwick/Unicycler
+
+Command: /usr/bin/unicycler -1 genome/illumina_R1.fastq.gz -2 genome/illumina_R2.fastq.gz -o uni_mem -t 4 --mode normal --keep 0 --spades_path /usr/bin/spades.py "--spades_options=-m 1"
+
+Unicycler version: v0.5.0
+Using 4 threads
+
+Making output directory:
+  uni_mem
+
+Dependencies:
+  Program       Version   Status  
+  spades        3.15.5    good    
+  racon                   not used
+  makeblastdb   2.12.0+   good    
+  tblastn       2.12.0+   good    
+
+
+Choosing k-mer range for assembly (2026-10-28 15:50:40)
+-------------------------------------------------------
+    Unicycler chooses a k-mer range for SPAdes based on the length of the input reads. It uses a wide range of many k-mer sizes to maximise the chance of finding an ideal assembly.
+
+SPAdes maximum k-mer: 127
+Median read length: 150
+K-mer range: 27, 53, 71, 87, 99, 111, 119, 127
+
+
+SPAdes assemblies (2026-10-28 15:50:47)
+---------------------------------------
+    Unicycler now uses SPAdes to assemble the short reads. It scores the assembly graph for each k-mer using the number of contigs (fewer is better) and the number of dead ends (fewer is better). The score function is 1/(c*(d+2)), where c is the contig count and d is the dead end count.
+
+/usr/bin/spades.py -o uni_mem/spades_assembly -k 27 --threads 4 --isolate -1 /job/input/illumina_R1.fastq.gz -2 /job/input/illumina_R2.fastq.gz -m 1
+Error: SPAdes encountered an error:
+

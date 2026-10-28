@@ -7,6 +7,7 @@ the before/after comparison uses identical methods on both sides.
 """
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import os
@@ -31,9 +32,11 @@ from arva_tools.filtlong import FiltlongAdapter, FiltlongParams, plain_counts
 from arva_tools.flye import OUTPUTS as FLYE_OUTPUTS
 from arva_tools.flye import (
     SAMTOOLS_HELPER,
+    STAGE_DIRS,
     FlyeAdapter,
     FlyeParams,
     helper_version,
+    read_checkpoint,
     read_link_name,
     samtools_helper,
 )
@@ -73,6 +76,11 @@ from arva_tools.quast import input_name as quast_input_name
 from arva_tools.quast import stages as quast_stages
 from arva_tools.registry import detect
 from arva_tools.seqkit import SeqkitAdapter
+from arva_tools.spades import OUTPUTS as SPADES_OUTPUTS
+from arva_tools.spades import PLAN_FILE as SPADES_PLAN
+from arva_tools.spades import SpadesAdapter, SpadesParams, parse_node_name
+from arva_tools.unicycler import OUTPUTS as UNICYCLER_OUTPUTS
+from arva_tools.unicycler import SPADES_DIR, UnicyclerAdapter, UnicyclerParams, helper_paths
 
 from app.core.config import get_settings
 from app.db.base import new_uuid
@@ -89,7 +97,8 @@ from app.models import (
 from app.services.assemblies import MAX_CONTIG_ROWS, register_assembly
 from app.services.imports import header_metadata
 from app.services.quast import crosscheck
-from app.tasks.common import JobContext, JobFailure, now, run_job
+from app.services.short_hybrid import ROLES, library_layout
+from app.tasks.common import JobCancelled, JobContext, JobFailure, now, run_job
 
 # How often a running tool's log is read and the job's progress saved.
 MONITOR_SECONDS = 5.0
@@ -117,10 +126,17 @@ def _run(ctx: JobContext, argv: list[str], workdir: Path, log_name: str, stdout:
     env_note = "".join(f"{k}={v.replace(inherited, '$PATH') if k == 'PATH' and inherited else v} "
                        for k, v in (extra_env or {}).items())
     ctx.log("Command: " + env_note + shlex.join(argv) + (f" > {stdout.name}" if stdout else ""), flush=True)
+    ctx.check_cancelled()
     log_path = (log_dir or workdir) / log_name
+
+    def watch() -> None:
+        ctx.check_cancelled()
+        if monitor is not None:
+            monitor()
+
     result = run_command(argv, cwd=workdir, stderr_path=log_path, stdout_path=stdout,
                          timeout_seconds=get_settings().tool_timeout_seconds, extra_env=extra_env, home=home,
-                         monitor=monitor, monitor_seconds=MONITOR_SECONDS)
+                         monitor=watch, monitor_seconds=MONITOR_SECONDS)
     ctx.log(f"{Path(argv[0]).name} finished in {result.duration_seconds:.1f}s")
     return log_path
 
@@ -511,12 +527,24 @@ def run_multiqc_job(job_id: str) -> str:
 
 class _StageMonitor:
     """Follows a tool's log while it runs: each new stage goes to the job log, and job.progress (stage, elapsed
-    time, live log path) is committed on every call so clients polling the job see it."""
+    time, live log path) is committed on every call so clients polling the job see it. `plan`, when given, returns
+    the stages the tool itself announces it will run (None until it has written them); they replace `stages`."""
 
-    def __init__(self, ctx: JobContext, tool: str, log_path: Path, stages: tuple[str, ...], stage_of):
+    def __init__(self, ctx: JobContext, tool: str, log_path: Path, stages: tuple[str, ...], stage_of,
+                 plan: Callable[[], tuple[str, ...] | None] | None = None, done: tuple[str, ...] = ()):
         self.ctx, self.tool, self.log_path, self.expected, self.stage_of = ctx, tool, log_path, list(stages), stage_of
-        self.offset, self.partial, self.seen = 0, b"", []
+        self.plan = plan
+        # `done`: stages completed by an earlier run this one resumes.
+        self.offset, self.partial, self.seen = 0, b"", list(done)
         self.started, self.started_at, self.stage_started_at = time.monotonic(), now(), None
+
+    def _read_plan(self) -> None:
+        if self.plan is None:
+            return
+        planned = self.plan()
+        if planned:
+            self.expected, self.plan = list(planned), None
+            self.ctx.log(f"{self.tool} planned {len(planned)} stages: {', '.join(planned)}")
 
     def _read(self) -> None:
         try:
@@ -534,10 +562,11 @@ class _StageMonitor:
             self.seen.append(stage)
             self.stage_started_at = now()
             total = max(len(self.expected), len(self.seen))
-            note = "" if stage in self.expected else " (a stage ARVA does not expect for this run)"
+            note = "" if stage in self.expected or not self.expected else " (a stage ARVA does not expect for this run)"
             self.ctx.log(f"{self.tool} stage {len(self.seen)}/{total}: {stage}{note}")
 
     def __call__(self, finished: bool = False) -> None:
+        self._read_plan()
         self._read()
         self.ctx.job.progress = {
             "tool": self.tool,
@@ -578,11 +607,87 @@ def _flye_samtools(ctx: JobContext, exe: str, results: Path) -> tuple[dict[str, 
     return env, record
 
 
+def _kept_bytes(path: Path) -> int:
+    return sum(f.stat().st_size for f in path.rglob("*") if f.is_file() and not f.is_symlink())
+
+
+def _take_flye_checkpoint(ctx: JobContext, resume: dict, out_dir: Path, stages: tuple[str, ...]) -> dict:
+    """Move the work folder kept by the job this one resumes into this job's results (committed at once, so the
+    folder belongs to one job only), and delete the folder of the stage Flye reruns."""
+    original = ctx.db.get(AnalysisJob, resume.get("of_job_id"))
+    kept = original.checkpoint if original is not None else None
+    if not kept or kept.get("path") != resume.get("checkpoint_path"):
+        raise JobFailure(f"the Flye work folder kept by job {resume.get('of_job_id')} is no longer available "
+                         "(discarded, or taken by another resumed run); start a new assembly")
+    src = ctx.path(kept["path"])
+    found = read_checkpoint(src, stages) if src.is_dir() else None
+    if found is None or found["resume_stage"] != kept["resume_stage"]:
+        raise JobFailure(f"the Flye work folder kept by job {original.id} is missing or no longer matches what ARVA "
+                         "recorded; start a new assembly")
+    src.rename(out_dir)
+    with contextlib.suppress(OSError):
+        src.parent.rmdir()
+    original.checkpoint = None
+    ctx.log(f"Resuming job {original.id}: its Flye work folder moved here. Flye {kept['tool_version']} completed "
+            f"{', '.join(found['completed_stages'])} there; this run continues with --resume from "
+            f"{found['resume_stage']}, with the same reads and options", flush=True)
+    stage_dir = STAGE_DIRS.get(found["resume_stage"])
+    if stage_dir and (out_dir / stage_dir).exists():
+        shutil.rmtree(out_dir / stage_dir)
+        ctx.log(f"Removed {stage_dir}, written by the interrupted {found['resume_stage']} stage, so Flye reruns it "
+                "from the start")
+    return found
+
+
+def _keep_flye_checkpoint(ctx: JobContext, out_dir: Path, stages: tuple[str, ...], exc: BaseException,
+                          stopped: dict) -> None:
+    """Keep Flye's work folder for --resume when the run was stopped from outside (cancelled, time limit, killed by
+    a signal or by the system running out of memory) after a stage beyond configure had completed."""
+    if not out_dir.is_dir():
+        return
+    if isinstance(exc, JobCancelled):
+        reason = "cancelled"
+    elif isinstance(exc, ToolTimeoutError):
+        reason = "time_limit"
+    elif stopped.get("returncode") is not None and FlyeAdapter.resumable_failure(stopped.get("log", ""),
+                                                                               stopped["returncode"]):
+        reason = "stopped"
+    else:
+        ctx.log("Flye's work folder was not kept for resuming: Flye stopped with an error of its own (or after it "
+                "had finished), which resuming with the same reads and options would repeat")
+        return
+    found = read_checkpoint(out_dir, stages)
+    if found is None:
+        ctx.log("Flye's work folder was not kept for resuming: no stage after configure had completed")
+        return
+    target = ctx.path(ctx.checkpoint_rel) / "flye"
+    stage_dir = STAGE_DIRS.get(found["resume_stage"])
+    try:
+        if stage_dir and (out_dir / stage_dir).exists():
+            # Flye 2.9.3 appends to files of an interrupted polishing stage when resumed (see arva_tools.flye).
+            shutil.rmtree(out_dir / stage_dir)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        out_dir.rename(target)
+    except OSError as err:
+        ctx.log(f"Flye's work folder could not be kept for resuming: {err}")
+        return
+    size = _kept_bytes(target)
+    ctx.job.checkpoint = {
+        "tool": "Flye", "tool_version": ctx.job.tool_version, "path": _rel(ctx, target), "reason": reason,
+        "resume_stage": found["resume_stage"], "completed_stages": found["completed_stages"],
+        "stages": list(stages), "size_bytes": size, "kept_at": now().isoformat(timespec="seconds"),
+    }
+    ctx.log(f"Kept Flye's work folder ({size:,} bytes, completed stages: {', '.join(found['completed_stages'])}) "
+            f"so the run can resume from {found['resume_stage']}" +
+            (f" (removed {stage_dir}, written by the interrupted stage)" if stage_dir else ""))
+
+
 def _flye_body(ctx: JobContext) -> None:
     exe = _resolve_tool(ctx, "flye")
     files = ctx.input_files()
     _log_inputs(ctx, files)
     params = FlyeParams.from_dict(ctx.job.parameters or {})
+    resume = (ctx.job.parameters or {}).get("resume")
     results = ctx.path(ctx.results_rel)
     links, out_dir = results / "input", results / "flye"
     links.mkdir(parents=True)
@@ -597,7 +702,7 @@ def _flye_body(ctx: JobContext) -> None:
     env, helper = _flye_samtools(ctx, exe, results)
     try:
         supported = FlyeAdapter.help_options(exe)
-        argv = FlyeAdapter.argv(exe, params, reads, out_dir, supported)
+        argv = FlyeAdapter.argv(exe, params, reads, out_dir, supported, resume=resume is not None)
     except (OSError, RuntimeError, subprocess.TimeoutExpired) as exc:
         raise JobFailure(f"Flye's --help could not be read to check its options: {exc}") from exc
     except ValueError as exc:
@@ -609,16 +714,21 @@ def _flye_body(ctx: JobContext) -> None:
     if params.threads > 1:
         ctx.log(f"Flye runs with {params.threads} threads; its output can differ between runs and thread counts")
 
+    stages = params.stages()
+    stopped: dict = {}
+    ctx.before_cleanup.append(lambda exc: _keep_flye_checkpoint(ctx, out_dir, stages, exc, stopped))
+    done = tuple(_take_flye_checkpoint(ctx, resume, out_dir, stages)["completed_stages"]) if resume else ()
     stderr_log = results / "flye.stderr.log"
-    monitor = _StageMonitor(ctx, "Flye", stderr_log, params.stages(), FlyeAdapter.stage)
+    monitor = _StageMonitor(ctx, "Flye", stderr_log, stages, FlyeAdapter.stage, done=done)
     monitor()
     try:
         _run(ctx, argv, results, stderr_log.name, extra_env=env, monitor=monitor)
     except ToolExecutionError as exc:
         monitor(finished=True)
+        text = stderr_log.read_text(errors="replace") if stderr_log.is_file() else exc.stderr_tail
+        stopped.update(returncode=exc.returncode, log=text)
         if isinstance(exc, ToolTimeoutError):
             raise
-        text = stderr_log.read_text(errors="replace") if stderr_log.is_file() else exc.stderr_tail
         reason = FlyeAdapter.failure_reason(text, exc.returncode)
         if reason is None:
             raise
@@ -666,12 +776,244 @@ def _flye_body(ctx: JobContext) -> None:
         "contig_rows": {"stored": min(len(rows), MAX_CONTIG_ROWS), "total": len(rows),
                         "truncated": len(rows) > MAX_CONTIG_ROWS},
         "helpers": [helper],
+        **({"resumed": {"from_job_id": resume["of_job_id"], "stage": resume["stage"],
+                        "completed_stages": list(done)}} if resume else {}),
     }
     ctx.job.output_paths = [_rel(ctx, results / n) for n in (*FLYE_OUTPUTS, stderr_log.name)]
 
 
 def run_flye_job(job_id: str) -> str:
     return run_job(job_id, _flye_body)
+
+
+# --- SPAdes and Unicycler (short-read and hybrid assembly) ---------------------------------------------------
+
+def _link_roles(ctx: JobContext, links: Path) -> dict[str, Path]:
+    """Link each input, by role (r1, r2, unpaired, long), under a space-free name ending in .fastq(.gz): SPAdes
+    recognises reads by their name, and Debian's SPAdes launcher splits paths with spaces."""
+    roles = (ctx.job.parameters or {}).get("inputs") or {}
+    files = {f.id: f for f in ctx.input_files()}
+    _log_inputs(ctx, list(files.values()))
+    links.mkdir(parents=True)
+    out = {}
+    for n, role in enumerate(ROLES, 1):
+        if not (file_id := roles.get(role)):
+            continue
+        f = files.get(file_id)
+        if f is None:
+            raise JobFailure(f"the {role} file {file_id} is not one of this job's inputs")
+        if f.file_format not in (FileFormat.fastq, FileFormat.fastq_gz):
+            raise JobFailure(f"{f.original_filename} is not a FASTQ file")
+        link = links / read_link_name(n, f.original_filename, f.file_format is FileFormat.fastq_gz)
+        link.symlink_to(ctx.path(f.stored_path))
+        out[role] = link
+        ctx.log(f"Reads as {role}: {f.original_filename}")
+    return out
+
+
+def _fasta_headers(path: Path) -> list[str]:
+    with open(path, errors="replace") as fh:
+        return [line[1:].strip() for line in fh if line.startswith(">")]
+
+
+def _spades_body(ctx: JobContext) -> None:
+    exe = _resolve_tool(ctx, "spades")
+    params = SpadesParams.from_dict(ctx.job.parameters or {})
+    roles = (ctx.job.parameters or {}).get("inputs") or {}
+    results = ctx.path(ctx.results_rel)
+    links, out_dir = results / "input", results / "spades"
+    reads = _link_roles(ctx, links)
+    try:
+        argv = SpadesAdapter.argv(exe, params, out_dir, SpadesAdapter.help_options(exe), r1=reads.get("r1"),
+                                  r2=reads.get("r2"), unpaired=reads.get("unpaired"))
+    except (OSError, RuntimeError, subprocess.TimeoutExpired) as exc:
+        raise JobFailure(f"SPAdes' --help could not be read to check its options: {exc}") from exc
+    except ValueError as exc:
+        raise JobFailure(f"SPAdes cannot run with these settings: {exc}") from exc
+    ctx.log("k-mer sizes: " + (", ".join(map(str, params.k)) + " (set by the user)" if params.k else
+                                "chosen by SPAdes from the read length (read from its log after the run)"))
+    ctx.log(f"Memory limit {params.memory_gb} GB (-m), {params.threads} threads; registered as the assembly: "
+            f"{params.output}.fasta")
+
+    console = results / "spades.console.log"
+    plan = out_dir / SPADES_PLAN
+    monitor = _StageMonitor(ctx, "SPAdes", console, (), SpadesAdapter.stage,
+                            plan=lambda: SpadesAdapter.planned_stages(plan.read_text(errors="replace"))
+                            if plan.is_file() else None)
+    monitor()
+    try:
+        _run(ctx, argv, results, console.name, monitor=monitor)
+    except ToolExecutionError as exc:
+        monitor(finished=True)
+        if isinstance(exc, ToolTimeoutError):
+            raise
+        log = out_dir / "spades.log" if (out_dir / "spades.log").is_file() else console
+        text = log.read_text(errors="replace") if log.is_file() else exc.stderr_tail
+        reason = SpadesAdapter.failure_reason(text, exc.returncode, params.memory_gb)
+        if reason is None:
+            raise
+        ctx.log("SPAdes output (last lines):\n" + exc.stderr_tail.strip())
+        raise JobFailure(reason) from None
+    finally:
+        shutil.rmtree(links, ignore_errors=True)
+    monitor(finished=True)
+
+    if missing := [n for n in SPADES_OUTPUTS if not (out_dir / n).is_file()]:
+        raise JobFailure("SPAdes exited without an error but did not write " + ", ".join(missing))
+    for name in SPADES_OUTPUTS:
+        (out_dir / name).rename(results / name)
+    shutil.rmtree(out_dir)
+    ctx.log("Removed SPAdes' working folders (per-k assemblies, temporary files); kept " + ", ".join(SPADES_OUTPUTS))
+    summary = SpadesAdapter.parse_log((results / "spades.log").read_text(errors="replace"))
+    if not summary["k_values"]:
+        raise JobFailure("SPAdes' log names no k-mer size that it ran; the run cannot be recorded")
+    source = "user" if params.k else "spades"
+    ctx.log(f"SPAdes ran k = {', '.join(map(str, summary['k_values']))} "
+            f"({'set by the user' if params.k else 'chosen by SPAdes'})")
+    if params.k and summary["k_values"] != params.k:
+        ctx.log(f"Note: SPAdes ran k = {', '.join(map(str, summary['k_values']))}, not the k given "
+                f"({', '.join(map(str, params.k))}); its messages follow")
+    for message in summary["k_messages"]:
+        ctx.log(f"SPAdes: {message}")
+    for warning in summary["warnings"]:
+        ctx.log(f"SPAdes warning: {warning}")
+
+    contigs = results / f"{params.output}.fasta"
+    nodes = {}
+    for name in _fasta_headers(contigs):
+        node = parse_node_name(name)
+        if node is None:
+            raise JobFailure(f"SPAdes wrote a sequence name without its length and k-mer coverage: {name[:80]!r}")
+        nodes[name] = node
+    annotations = {n: ContigAnnotation(coverage=node["kmer_coverage"]) for n, node in nodes.items()}
+    assembly = register_assembly(
+        ctx, assembler="SPAdes", mode=AssemblyMode.short, read_type=library_layout(roles), contigs=contigs,
+        graph=results / "assembly_graph_with_scaffolds.gfa", annotations=annotations,
+    )
+    if any(nodes[c["name"]]["length"] != c["length"] for c in assembly.contigs):
+        raise JobFailure(f"The lengths in SPAdes' sequence names differ from the sequences in {contigs.name}; nothing "
+                         "was registered")
+    ctx.log(f"Per-contig coverage is SPAdes' k-mer coverage (k = {summary['k_values'][-1]}), not read depth; SPAdes "
+            "reports no circularity")
+    ctx.db.flush()
+    ctx.job.result_summary = {
+        "spades_version": ctx.job.tool_version,
+        "assembly_id": assembly.id,
+        "output": params.output,
+        "k_values": summary["k_values"],
+        "k_source": source,
+        "coverage_kind": "kmer_coverage",
+        "log": summary,
+    }
+    ctx.job.output_paths = [_rel(ctx, results / n) for n in (*SPADES_OUTPUTS, console.name)]
+
+
+def run_spades_job(job_id: str) -> str:
+    return run_job(job_id, _spades_body)
+
+
+def _unicycler_body(ctx: JobContext) -> None:
+    exe = _resolve_tool(ctx, "unicycler")
+    params = UnicyclerParams.from_dict(ctx.job.parameters or {})
+    roles = (ctx.job.parameters or {}).get("inputs") or {}
+    results = ctx.path(ctx.results_rel)
+    links, out_dir = results / "input", results / "unicycler"
+    reads = _link_roles(ctx, links)
+    helpers = helper_paths()
+    for name, path in helpers.items():
+        ctx.log(f"Unicycler helper {name}: {path or 'not found'}")
+    try:
+        argv = UnicyclerAdapter.argv(exe, params, out_dir, UnicyclerAdapter.help_options(exe), helpers,
+                                     r1=reads.get("r1"), r2=reads.get("r2"), unpaired=reads.get("unpaired"),
+                                     long=reads.get("long"))
+    except (OSError, RuntimeError, subprocess.TimeoutExpired) as exc:
+        raise JobFailure(f"Unicycler's --help_all could not be read to check its options: {exc}") from exc
+    except ValueError as exc:
+        raise JobFailure(f"Unicycler cannot run with these settings: {exc}") from exc
+    if params.short:
+        ctx.log(f"SPAdes inside Unicycler: memory limit {params.spades_memory_gb} GB, passed with --spades_options "
+                "(Unicycler's own default, -m 1024, sets no practical limit); k-mer sizes "
+                + (", ".join(map(str, params.kmers)) + " (set by the user)" if params.kmers else "chosen by Unicycler"))
+
+    console = results / "unicycler.console.log"
+    monitor = _StageMonitor(ctx, "Unicycler", out_dir / "unicycler.log", params.stages(), UnicyclerAdapter.stage)
+    monitor()
+    try:
+        _run(ctx, argv, results, console.name, monitor=monitor)
+    except ToolExecutionError as exc:
+        monitor(finished=True)
+        if isinstance(exc, ToolTimeoutError):
+            raise
+        text = console.read_text(errors="replace") if console.is_file() else exc.stderr_tail
+        spades_log = out_dir / SPADES_DIR / "spades.log"
+        reason = UnicyclerAdapter.failure_reason(
+            text, exc.returncode, spades_log.read_text(errors="replace") if spades_log.is_file() else None,
+            params.spades_memory_gb if params.short else None)
+        if reason is None:
+            raise
+        ctx.log("Unicycler output (last lines):\n" + exc.stderr_tail.strip())
+        raise JobFailure(reason) from None
+    finally:
+        shutil.rmtree(links, ignore_errors=True)
+
+    if missing := [n for n in UNICYCLER_OUTPUTS if not (out_dir / n).is_file()]:
+        monitor(finished=True)
+        raise JobFailure("Unicycler exited without an error but did not write " + ", ".join(missing))
+    for name in UNICYCLER_OUTPUTS:
+        (out_dir / name).rename(results / name)
+    monitor.log_path = results / "unicycler.log"
+    monitor(finished=True)
+    kept = sorted(p for p in out_dir.rglob("*") if p.is_file())
+    if kept:
+        ctx.log(f"Kept {len(kept)} file(s) Unicycler saved at its checkpoints (--keep {params.keep}) in unicycler/")
+    else:
+        shutil.rmtree(out_dir)
+    summary = UnicyclerAdapter.parse_log((results / "unicycler.log").read_text(errors="replace"))
+    for d in summary["dependencies"]:
+        ctx.log(f"Unicycler's dependency check: {d['program']} {d['version'] or ''} ({d['status']})")
+
+    headers = _fasta_headers(results / "assembly.fasta")
+    try:
+        if params.assembly_mode == "long":
+            graph = UnicyclerAdapter.parse_gfa_annotations((results / "assembly.gfa").read_text(errors="replace"))
+            names = [h.split()[0] if h.split() else "" for h in headers]
+            if absent := [n for n in names if n not in graph]:
+                raise ValueError(f"assembly.fasta names {', '.join(absent[:5])}, which assembly.gfa does not define")
+            rows, source = {n: graph[n] for n in names}, "assembly_graph"
+            ctx.log("Unicycler 0.5.0 writes no length, depth or circularity in long-read-only FASTA headers; ARVA "
+                    "read each contig's depth (dp tag) and circularity (only links joining its end to its start, "
+                    "Unicycler's definition of a completed replicon) from assembly.gfa")
+        else:
+            rows, source = UnicyclerAdapter.parse_headers(headers), "fasta_headers"
+    except ValueError as exc:
+        raise JobFailure(f"Unicycler's output cannot be read: {exc}") from exc
+    annotations = {n: ContigAnnotation(coverage=r["depth"], circular=r["circular"]) for n, r in rows.items()}
+    assembly = register_assembly(
+        ctx, assembler="Unicycler", mode=AssemblyMode(params.assembly_mode), read_type=library_layout(roles),
+        contigs=results / "assembly.fasta", graph=results / "assembly.gfa", annotations=annotations,
+    )
+    if any(rows[c["name"]]["length"] != c["length"] for c in assembly.contigs):
+        raise JobFailure("The lengths Unicycler reports differ from the sequences in assembly.fasta; nothing was "
+                         "registered")
+    ctx.log("Per-contig depth is Unicycler's relative depth (1 = the typical depth of the main replicons), not read "
+            "depth")
+    versions = {d["program"]: d for d in summary["dependencies"]}
+    ctx.db.flush()
+    ctx.job.result_summary = {
+        "unicycler_version": ctx.job.tool_version,
+        "assembly_id": assembly.id,
+        "assembly_mode": params.assembly_mode,
+        "annotation_source": source,
+        "coverage_kind": "relative_depth",
+        "helpers": [{"name": n, "path": p, "version": (versions.get(n) or {}).get("version"),
+                     "status": (versions.get(n) or {}).get("status")} for n, p in helpers.items()],
+        "log": summary,
+    }
+    ctx.job.output_paths = [_rel(ctx, p) for p in (*(results / n for n in UNICYCLER_OUTPUTS), console, *kept)]
+
+
+def run_unicycler_job(job_id: str) -> str:
+    return run_job(job_id, _unicycler_body)
 
 
 # --- QUAST (assembly evaluation) ----------------------------------------------------------

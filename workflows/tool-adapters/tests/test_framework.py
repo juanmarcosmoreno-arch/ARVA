@@ -72,9 +72,41 @@ def test_monitor_runs_while_the_tool_runs_and_can_stop_it(tmp_path):
 
     time.sleep(1.2)
     assert not marker.exists()
-    with pytest.raises(ValueError, match="gzip"):
-        run_command([str(exe)], cwd=tmp_path, stderr_path=tmp_path / "e.log", stdout_path=tmp_path / "o.gz",
-                    monitor=lambda: None)
+
+
+def test_monitor_with_gzip_stdout_and_stopping_the_whole_group(tmp_path):
+    """Filtlong-like: stdout is gzip-streamed and nothing is written for a while (it scores the reads first). The
+    monitor still runs, and when it raises, the tool and the child it started are killed."""
+    emit = make_exe(tmp_path, "emit", "import sys, time\ntime.sleep(0.4)\nfor i in range(20000): print(f'r{i}')")
+    calls = []
+    out = tmp_path / "o.txt.gz"
+    run_command([str(emit)], cwd=tmp_path, stderr_path=tmp_path / "e.log", stdout_path=out,
+                monitor=lambda: calls.append(1), monitor_seconds=0.1)
+    assert calls and gzip.decompress(out.read_bytes()).decode().splitlines()[-1] == "r19999"
+
+    pids = tmp_path / "pids"
+    quiet = make_exe(tmp_path, "quiet", "import os, subprocess, sys, time, pathlib\n"
+                     "child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'])\n"
+                     f"pathlib.Path({str(pids)!r}).write_text(f'{{os.getpid()}} {{child.pid}}')\ntime.sleep(60)")
+
+    def stop():
+        if pids.exists():
+            raise KeyboardInterrupt
+
+    with pytest.raises(KeyboardInterrupt):
+        run_command([str(quiet)], cwd=tmp_path, stderr_path=tmp_path / "q.log", stdout_path=tmp_path / "q.gz",
+                    monitor=stop, monitor_seconds=0.05)
+    import time
+
+    for pid in map(int, pids.read_text().split()):
+        for _ in range(50):
+            try:
+                os.kill(pid, 0)
+            except ProcessLookupError:
+                break
+            time.sleep(0.05)
+        else:
+            pytest.fail(f"process {pid} survived")
 
 
 def test_secrets_are_not_passed_to_tools(tmp_path, monkeypatch):

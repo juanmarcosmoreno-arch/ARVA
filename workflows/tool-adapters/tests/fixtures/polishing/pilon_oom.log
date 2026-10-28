@@ -1,0 +1,18 @@
+Pilon version [COMMIT] [DATE]
+Genome: round0.fasta
+Fixing snps, indels, gaps, local
+Input genome size: 107998
+Scanning BAMs
+pe.bam: 31005 reads, 0 filtered, 31005 mapped, 30831 proper, 146 stray, FR 100% 350+/-50, max 500
+Processing contig_1:1-99999
+Exception in thread "main" java.lang.OutOfMemoryError: Java heap space
+	at org.broadinstitute.pilon.PileUpRegion$$anonfun$1.apply$mcVI$sp(PileUpRegion.scala:30)
+	at scala.collection.immutable.Range.foreach$mVc$sp(Range.scala:160)
+	at org.broadinstitute.pilon.PileUpRegion.<init>(PileUpRegion.scala:30)
+	at org.broadinstitute.pilon.GenomeRegion.initializePileUps(GenomeRegion.scala:150)
+	at org.broadinstitute.pilon.GenomeFile$$anonfun$processRegions$4.apply(GenomeFile.scala:104)
+	at org.broadinstitute.pilon.GenomeFile$$anonfun$processRegions$4.apply(GenomeFile.scala:102)
+	at scala.collection.immutable.List.foreach(List.scala:392)
+	at org.broadinstitute.pilon.GenomeFile.processRegions(GenomeFile.scala:102)
+	at org.broadinstitute.pilon.Pilon$.main(Pilon.scala:111)
+	at org.broadinstitute.pilon.Pilon.main(Pilon.scala)

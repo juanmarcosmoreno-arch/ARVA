@@ -9,9 +9,11 @@ import pytest
 
 from arva_tools.base import ToolStatus
 from arva_tools.flye import (
+    STAGES,
     FlyeAdapter,
     FlyeParams,
     pooled_error_rate,
+    read_checkpoint,
     read_link_name,
     samtools_helper,
     suggest_read_type,
@@ -246,3 +248,52 @@ def test_a_samtools_override_that_does_not_exist_counts_as_missing(tmp_path, mon
     monkeypatch.setenv("PATH", os.defpath)
     monkeypatch.setenv("ARVA_TOOL_SAMTOOLS", str(tmp_path / "missing"))
     assert FlyeAdapter().detect().reason == "samtools_missing"
+
+
+def test_resume_reuses_the_command_and_needs_the_flag_in_help():
+    params = FlyeParams(read_type="nano-hq", threads=2)
+    fresh = FlyeAdapter.argv("flye", params, [P / "01_r.fastq.gz"], P / "out", SUPPORTED_293 | {"--resume"})
+    resumed = FlyeAdapter.argv("flye", params, [P / "01_r.fastq.gz"], P / "out", SUPPORTED_293 | {"--resume"},
+                               resume=True)
+    assert resumed == [*fresh, "--resume"]
+    assert "--resume  " in HELP  # Flye 2.9.3's own --help lists it
+    with pytest.raises(ValueError, match="does not offer --resume"):
+        FlyeAdapter.argv("flye", params, [P / "01_r.fastq.gz"], P / "out", SUPPORTED_293, resume=True)
+
+
+def test_a_resumed_log_counts_each_stage_once():
+    """Recorded with Flye 2.9.3: a run killed during repeat (synthetic genome, 2 threads), moved and resumed; Flye
+    appends the resumed run to the same flye.log."""
+    log = FlyeAdapter.parse_log((FIXTURES / "resumed_from_repeat_flye.log").read_text())
+    assert log["stages_seen"] == list(STAGES) and log["resumed_at"] == ["repeat"]
+    assert log["min_overlap"] == 4000 and log["fragments"] == 2
+    assert "resumed_at" not in FlyeAdapter.parse_log((FIXTURES / "synthetic150_flye.log").read_text())
+
+
+def test_checkpoints_need_a_completed_stage_after_configure(tmp_path):
+    stages = FlyeParams(read_type="nano-hq").stages()
+
+    def kept(stage_name, dirs=(), text=None):
+        out = tmp_path / stage_name / "flye"
+        out.mkdir(parents=True)
+        for d in dirs:
+            (out / d).mkdir()
+        (out / "params.json").write_text(text or f'{{"pipeline_version": 3, "stage_name": "{stage_name}"}}')
+        return out
+
+    assert read_checkpoint(kept("assembly", ["00-assembly"]), stages) is None
+    assert read_checkpoint(kept("repeat", ["00-assembly", "10-consensus", "20-repeat"]), stages) == {
+        "resume_stage": "repeat", "completed_stages": ["configure", "assembly", "consensus"]}
+    assert read_checkpoint(kept("contigger", ["00-assembly", "20-repeat"]), stages) is None
+    assert read_checkpoint(kept("polishing", ["00-assembly"], text="{not json"), stages) is None
+    no_polishing = FlyeParams(read_type="nano-hq", iterations=0).stages()
+    done = ["00-assembly", "10-consensus", "20-repeat", "30-contigger"]
+    assert read_checkpoint(kept("finalize", done), no_polishing)["completed_stages"] == list(no_polishing[:-1])
+    assert read_checkpoint(tmp_path / "missing", stages) is None
+
+
+def test_only_runs_stopped_from_outside_are_resumable():
+    assert FlyeAdapter.resumable_failure("", -9) and FlyeAdapter.resumable_failure("", 137)
+    assert FlyeAdapter.resumable_failure("ERROR: Looks like the system ran out of memory", 1)
+    no_contigs = (FIXTURES / "no_contigs.stderr.log").read_text()
+    assert not FlyeAdapter.resumable_failure(no_contigs, 1) and not FlyeAdapter.resumable_failure("", None)
