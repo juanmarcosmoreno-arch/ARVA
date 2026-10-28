@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createBrowserRouter, RouterProvider } from "react-router-dom";
 import { AppShell } from "@/components/layout/AppShell";
+import { SplashScreen } from "@/components/layout/SplashScreen";
 import { DashboardPage } from "@/pages/DashboardPage";
 import { GuidePage } from "@/pages/GuidePage";
 import { ImportPage } from "@/pages/ImportPage";
@@ -44,6 +45,7 @@ export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <RouterProvider router={router} />
+      <SplashScreen />
     </QueryClientProvider>
   );
 }

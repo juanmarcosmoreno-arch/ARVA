@@ -41,6 +41,18 @@ export function SettingsPage() {
                 <option value="advanced">Advanced — adds formulas and methodological detail</option>
               </Select>
             </Field>
+            <label className="flex items-start gap-2.5">
+              <input
+                type="checkbox"
+                className="mt-0.5 h-4 w-4 accent-[#00B4A6]"
+                checked={s.showIntro}
+                onChange={(e) => s.setShowIntro(e.target.checked)}
+              />
+              <span className="space-y-0.5">
+                <span className="block text-sm">{t("settings.showIntro")}</span>
+                <span className="block text-[11px] text-muted-foreground">{t("settings.showIntroHint")}</span>
+              </span>
+            </label>
           </CardBody>
         </Card>
         <Card>

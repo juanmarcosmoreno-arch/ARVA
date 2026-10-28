@@ -25,6 +25,11 @@ const DATA = path.resolve(__dirname, "../../examples/synthetic");
   const stamp = Date.now();
 
   await page.goto(BASE);
+  // Start-up intro: shown once per browser session, closed with Skip.
+  const splash = page.getByRole("dialog", { name: "ARVA is starting" });
+  await splash.waitFor();
+  await splash.getByRole("button", { name: "Skip" }).click();
+  await splash.waitFor({ state: "detached" });
   await page.getByRole("heading", { name: "Welcome to ARVA" }).waitFor();
 
   await page.getByRole("button", { name: "New project" }).first().click();

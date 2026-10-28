@@ -9,9 +9,11 @@ interface SettingsState {
   theme: Theme;
   language: Language;
   guideLevel: GuideLevel;
+  showIntro: boolean;
   setTheme: (t: Theme) => void;
   setLanguage: (l: Language) => void;
   setGuideLevel: (g: GuideLevel) => void;
+  setShowIntro: (v: boolean) => void;
 }
 
 export const useSettings = create<SettingsState>()(
@@ -20,9 +22,11 @@ export const useSettings = create<SettingsState>()(
       theme: "system",
       language: "en",
       guideLevel: "beginner",
+      showIntro: true,
       setTheme: (theme) => set({ theme }),
       setLanguage: (language) => set({ language }),
       setGuideLevel: (guideLevel) => set({ guideLevel }),
+      setShowIntro: (showIntro) => set({ showIntro }),
     }),
     { name: "arva-settings" },
   ),
