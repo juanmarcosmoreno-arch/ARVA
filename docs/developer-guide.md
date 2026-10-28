@@ -57,6 +57,7 @@ cd apps/web && npm run dev | npm run typecheck | npm test | npm run build
 cd workflows/tool-adapters && ../../apps/api/.venv/bin/pytest -q
 # Example data
 python3 scripts/make_synthetic_reads.py examples/synthetic
+python3 scripts/make_synthetic_genome.py examples/synthetic-genome   # genome + reads for assembly (gitignored)
 ```
 
 ## Integrating an external tool

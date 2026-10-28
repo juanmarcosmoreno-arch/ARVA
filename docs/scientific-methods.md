@@ -502,6 +502,79 @@ is recomputed from the files.
     metadata export); column names state the source and the rule (e.g.
     `n50_bp_largest_file_arva`, `fastqc_heuristics_fail_modules`).
 
+## Assembly statistics (Phase 3)
+
+Implementation: `scientific-core/arva_core/assembly_stats.py` (tool name `arva-core.assembly_stats`,
+version recorded with every assembly). Statistics are computed by ARVA from the assembler's contigs
+FASTA, so the same definitions apply whatever the assembler.
+
+- **Ranking**: contigs are sorted by length, longest first. Contigs of equal length keep their order
+  in the FASTA file (stable sort); Nx and Lx do not depend on that order, because tied contigs have the
+  same length.
+- **Nx / Lx** (N50, N90): Nx is the length of the ranked contig at which the cumulative length first
+  reaches *at least* x % of the total length; Lx is that contig's rank, i.e. the smallest number of
+  contigs whose lengths add up to at least x % (the definitions used by QUAST; Gurevich et al., 2013).
+  The comparison is made in integers (100 × cumulative ≥ x × total), so there is no rounding at the
+  boundary. Example: lengths 5, 3, 2 give N50 = 5 and L50 = 1 (5 is exactly half of 10).
+- **GC %** = (G + C) ÷ (A + C + G + T) × 100 over unambiguous bases only, for the assembly and for each
+  contig (soft-masked lower-case bases count). N and the other IUPAC codes are counted separately
+  (`n_count`, `N per 100 kb`, `other_iupac_count`) and never enter the denominator. QUAST divides by all
+  bases except N, so the two differ only when a contig holds IUPAC codes other than N.
+- **Also reported**: number of contigs, total length, largest and smallest contig; contigs and total
+  length at or above 1 kb and 10 kb (configurable); a length histogram with fixed 1-2-5 bins (0, 100,
+  200, 500 bp, 1 kb, 2 kb, … — lower edge inclusive, upper edge exclusive — from the bin of the
+  shortest contig to that of the longest), so assemblies can be compared bin by bin; the sorted lengths
+  with their cumulative length (all contigs up to 1,000; above that the 500 longest, then evenly spaced
+  ranks up to the last contig, marked as down-sampled).
+- **Assembler annotations**: per-contig coverage, circularity and repeat flags are what the assembler
+  reports (e.g. Flye's `assembly_info.txt`); ARVA does not recompute them. The coverage summary is the
+  **length-weighted median**: the coverage of the contig holding the middle base when the contigs with
+  a coverage are ordered by coverage.
+- **Storage**: one row per contig is kept for the 2,000 longest contigs (the statistics always use every
+  contig; the record says how many rows were left out). The contigs FASTA, graph (GFA) and assembler
+  information file are checksummed (SHA-256), made read-only and kept in the job's `results/` folder;
+  they are never registered as read files. The record lists the exact read files (imported or derived)
+  the assembler used.
+
+### Assembly warnings (heuristics)
+
+Each warning is labelled as a heuristic and states its threshold; it marks a result worth checking, not
+a verdict. Every check is listed with the assembly, including those that could not be evaluated and
+why, so a missing warning is never mistaken for a passed check.
+
+| Code | Rule (fixed thresholds) | Possible meanings |
+|---|---|---|
+| `many_contigs` | more than 10 contigs per Mb (long-read and hybrid assemblies) or 100 per Mb (short-read); assemblies under 1 Mb count as 1 Mb | fragmented assembly |
+| `genome_size_mismatch` | total length more than 20 % above or below the expected genome size; only when a size is known | incomplete genome, contamination, duplicated sequence |
+| `low_coverage_contigs` | coverage below 0.25 × the length-weighted median; needs coverage for at least two contigs | contamination, sequence present in only part of the cells |
+| `high_coverage_contigs` | coverage above 4 × the length-weighted median; same condition | plasmids or other multi-copy elements, collapsed repeats |
+| `chromosome_not_circular` | a contig of at least 50 % of the expected genome size (else of the total assembly length) that the assembler reported as not circular; skipped when it reports no circularity | incomplete chromosome or misassembly |
+| `gc_outlier_contigs` | a contig of at least 1 kb whose GC differs from the assembly's by more than 10 percentage points; needs two such contigs | contamination; plasmids and other mobile elements often differ in GC |
+
+**Expected genome size**: the size the user gives for the assembly itself; otherwise the size entered
+for the sample's read statistics, taking the newest completed statistics of each read file and only
+when all those that have a size agree (different sizes make it "inconsistent", i.e. unknown). ARVA
+never assumes a genome size; which source was used is stored with the assembly.
+
+### Assembly graph
+
+`GET /assemblies/{id}/graph` reads the assembler's GFA 1 file (`arva_core/gfa.py`): segments with their
+length and numeric tags, links with orientations and overlap. Tags are returned as written, because
+assemblers define them differently (Flye's `dp` is a mean read depth; Unicycler's `dp` is relative to
+the chromosome; SPAdes' `KC` is a k-mer count). Above `max_nodes` (default 2,000) the longest segments
+are kept and only links between them are returned, at most `max_edges` (default 5,000), with
+`truncated: true`. GFA 2 files and malformed records are rejected with the line number.
+
+### Synthetic genome for assembly
+
+`scripts/make_synthetic_genome.py` writes a SYNTHETIC genome with known structure (circular 300 kb
+chromosome with two identical 5 kb repeat copies, circular 15 kb plasmid at two copies) and simulated
+Nanopore-like and Illumina-like reads; `examples/synthetic-genome/README.md` documents the model,
+parameters and realised statistics. Qualities are calibrated by construction: every base is in error
+with the probability its own Phred value states. With Flye 2.9.3 (`--nano-hq`) the default data
+assemble into the two replicons at their exact lengths, both circular, the plasmid at about twice the
+chromosome's coverage.
+
 ## What ARVA does not do yet
 
 - No pass/fail thresholds: suitability depends on technology, chemistry and purpose.
@@ -514,6 +587,10 @@ is recomputed from the files.
 `scientific-core/tests/test_seqstats.py` checks every metric against values computed by hand
 (lengths, Nx/Lx, GC, Phred error averaging, Q20/Q30, per-position means, histograms conserving
 counts, reproducible sampling) and checks that malformed inputs fail with the correct line numbers.
+`scientific-core/tests/test_assembly_stats.py` and `test_gfa.py` check the assembly statistics, the
+warnings and the graph reader against hand-computed values and malformed inputs;
+`test_synthetic_genome.py` checks the synthetic genome's layout, read geometry (positions, strands,
+inserts, reads across the origin) and that its error rates match its qualities.
 `workflows/tool-adapters/tests/` checks command construction for every option, output parsing,
 safe execution (no shell, no secrets in the tool environment, timeouts) and runs each real tool on
 the synthetic data; `apps/api/tests/test_tools_api.py` runs complete jobs, lineage and reports.

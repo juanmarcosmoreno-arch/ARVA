@@ -5,6 +5,7 @@ from typing import Annotated, Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_serializer
 
 from app.models import (
+    AssemblyMode,
     FileFormat,
     FileOrigin,
     JobStatus,
@@ -736,6 +737,177 @@ class MetadataSkippedRow(BaseModel):
 class MetadataApplyRead(BaseModel):
     record: MetadataImportRead
     skipped: list[MetadataSkippedRow]
+
+
+# --- Assemblies -------------------------------------------------------------------------
+
+AssemblyWarningCode = Literal["many_contigs", "genome_size_mismatch", "low_coverage_contigs", "high_coverage_contigs",
+                              "chromosome_not_circular", "gc_outlier_contigs"]
+
+
+class AssemblyContigRead(BaseModel):
+    rank: int = Field(description="1 = longest; equal lengths keep the FASTA file's order")
+    name: str
+    length: int
+    gc_percent: float | None = Field(description="(G+C)/(A+C+G+T) × 100; null when the contig has no A, C, G or T")
+    n_count: int
+    other_iupac_count: int = Field(description="Bases other than A, C, G, T and N")
+    coverage: float | None = Field(description="As reported by the assembler (Flye: mean read depth)")
+    circular: bool | None = Field(description="As reported by the assembler; null when it reports no circularity")
+    repeat: bool | None = Field(description="As reported by the assembler")
+
+
+class AssemblyWarningRead(BaseModel):
+    code: AssemblyWarningCode
+    heuristic: Literal[True] = Field(description="Every assembly warning is a heuristic with a stated threshold")
+    message: str = Field(description="The warning in English, with its threshold")
+    params: dict[str, Any] = Field(description="Values for a translated message")
+    contigs: list[str] = Field(description="Names of the contigs concerned (at most 50)")
+    contigs_total: int
+
+
+class AssemblyCheckRead(BaseModel):
+    code: AssemblyWarningCode
+    rule: str
+    evaluated: bool
+    skipped_reason: str | None
+
+
+class AssemblyLengthBin(BaseModel):
+    min_length: int = Field(description="Inclusive")
+    max_length: int = Field(description="Exclusive")
+    contigs: int
+    total_length: int
+
+
+class AssemblyCurve(BaseModel):
+    rank: list[int]
+    length: list[int] = Field(description="Contig lengths, longest first")
+    cumulative_length: list[int]
+    downsampled: bool = Field(description="Over 1,000 contigs: the 500 longest, then evenly spaced ranks to the last")
+
+
+class AssemblyThreshold(BaseModel):
+    min_length: int
+    contigs: int
+    total_length: int
+    total_length_percent: float
+
+
+class AssemblyCoverageSummary(BaseModel):
+    contigs_with_coverage: int
+    length_weighted_median: float | None = Field(
+        description="Coverage of the contig holding the middle base when contigs are ordered by coverage"
+    )
+
+
+class AssemblyCircularitySummary(BaseModel):
+    contigs_with_circularity: int
+    circular_contigs: int
+
+
+class AssemblyContigRows(BaseModel):
+    stored: int
+    total: int
+    truncated: bool = Field(description="True when only the longest contigs' rows are stored")
+
+
+class AssemblyGenomeSize(BaseModel):
+    bp: int | None
+    status: Literal["given", "not_given", "inconsistent"]
+    source: Literal["assembly_parameters", "read_statistics"] | None
+
+
+class AssemblyOutputFile(BaseModel):
+    path: str
+    sha256: str
+    size_bytes: int
+
+
+class AssemblyFiles(BaseModel):
+    contigs: AssemblyOutputFile
+    graph: AssemblyOutputFile | None
+    info: AssemblyOutputFile | None
+
+
+class AssemblyStatsRead(BaseModel):
+    tool: dict[str, str]
+    parameters: dict[str, Any]
+    contig_count: int
+    total_length: int
+    largest_contig: int
+    smallest_contig: int
+    n50: int
+    l50: int
+    n90: int
+    l90: int
+    gc_percent: float | None = Field(description="(G+C)/(A+C+G+T) × 100 over unambiguous bases")
+    n_count: int
+    n_per_100kb: float
+    other_iupac_count: int
+    length_histogram: list[AssemblyLengthBin]
+    cumulative: AssemblyCurve
+    thresholds: list[AssemblyThreshold]
+    coverage: AssemblyCoverageSummary
+    circularity: AssemblyCircularitySummary
+    contig_rows: AssemblyContigRows
+    expected_genome_size: AssemblyGenomeSize
+    warning_checks: list[AssemblyCheckRead] = Field(description="Every heuristic, including those not evaluated")
+    files: AssemblyFiles
+
+
+class AssemblyRead(ORMModel):
+    id: str
+    sample_id: str
+    job_id: str
+    assembler: str
+    assembler_version: str
+    mode: AssemblyMode
+    read_type: str
+    input_file_ids: list[str] = Field(description="The imported or derived read files the assembler used")
+    contigs_path: str
+    graph_path: str | None
+    info_path: str | None
+    stats: AssemblyStatsRead
+    warnings: list[AssemblyWarningRead]
+    created_at: dt.datetime
+
+
+class AssemblyDetail(AssemblyRead):
+    contigs: list[AssemblyContigRead] = Field(description="Longest first; see stats.contig_rows for truncation")
+
+
+class AssemblyGraphNode(BaseModel):
+    id: str
+    length: int
+    tags: dict[str, int | float] = Field(description="Numeric GFA tags as the assembler wrote them (e.g. Flye dp)")
+
+
+class AssemblyGraphEdge(BaseModel):
+    source: str
+    source_orientation: Literal["+", "-"]
+    target: str
+    target_orientation: Literal["+", "-"]
+    overlap: str
+    tags: dict[str, int | float]
+
+
+class AssemblyGraphRead(BaseModel):
+    assembly_id: str
+    assembler: str
+    format: Literal["GFA1"]
+    version: str | None
+    segment_count: int
+    link_count: int
+    path_count: int
+    dangling_links: int = Field(description="Links naming a segment the file does not define (not shown)")
+    total_segment_length: int
+    numeric_tags: list[str]
+    max_nodes: int
+    max_edges: int
+    truncated: bool = Field(description="True when segments or links were left out to respect max_nodes/max_edges")
+    nodes: list[AssemblyGraphNode] = Field(description="Longest segments first")
+    edges: list[AssemblyGraphEdge]
 
 
 # --- Dashboard ----------------------------------------------------------------

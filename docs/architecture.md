@@ -48,6 +48,14 @@
 - **MetadataImport**: provenance of one sample-metadata table applied to a project (file name, SHA-256,
   kind, sheet, encoding, delimiter, header row, column mapping, date order, mode, and the created /
   updated / unchanged / skipped counts). The table file itself is not stored.
+- **Assembly**: a genome assembly written by one job (`job_id`, unique) for one sample: assembler and
+  version, mode (`long`, `short`, `hybrid`), the assembler's read-type setting, `input_file_ids` (the exact
+  imported or derived read files used), the contigs/graph/info paths in the job's `results/` folder
+  (checksummed and read-only, never registered as read files), `stats` (arva-core assembly statistics,
+  output checksums, expected genome size and its source, the heuristic checks run), `contigs` (rows for
+  the 2,000 longest contigs) and `warnings` (labelled heuristics). Read through
+  `GET /samples/{id}/assemblies`, `GET /assemblies/{id}`, `GET /assemblies/{id}/contigs.fasta` and
+  `GET /assemblies/{id}/graph` (bounded GFA view).
 - **QCResult**: structured output of a sequence-statistics job for one raw file. Headline metrics are
   indexed columns; the full payload is JSON (also written to `results/…/sequence_stats.json`).
 

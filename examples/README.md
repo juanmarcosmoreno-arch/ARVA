@@ -30,6 +30,21 @@ POD5 bytes are **not reproducible**: every write gets a random file identifier a
 so a regenerated file has a different SHA-256 even though its signal and metadata are identical.
 Tests must not assert its checksum; they check its content instead.
 
+## `synthetic-genome/` — SYNTHETIC genome and simulated reads for assembly
+
+A circular 300 kb chromosome with two identical 5 kb repeat copies and a circular 15 kb plasmid at two
+copies, with Nanopore-like reads (about 50×, median 6 kb, about 4 % errors with calibrated qualities)
+and Illumina-like 2 × 150 bp pairs (about 60×, inserts 350 ± 50 bp, 0.5 % substitutions). The true
+genome is `reference.fasta`, so assembly results can be checked against it. Only its README (model,
+parameters, realised statistics and checksums) is in git; generate the files (about 40 MB, a few
+seconds) with:
+
+```bash
+python3 scripts/make_synthetic_genome.py examples/synthetic-genome
+```
+
+Options set the sizes, depths, error rates and seed (`--help`); tests use a 60 kb chromosome.
+
 For real bacterial data, public runs from the ENA/SRA (for example Nanopore or
 Illumina runs of *Staphylococcus aureus* isolates) can be downloaded and
 imported directly.
