@@ -119,6 +119,11 @@ function ToolCard({ tool }: { tool: Tool }) {
           </div>
         )}
         {tool.status !== "available" && tool.message && <p className="text-xs text-muted-foreground">{toolMessage(t, tool)}</p>}
+        {tool.status === "available" && tool.version_validated && tool.reason && (
+          <div className="flex gap-2 rounded-lg border border-warning/40 bg-warning/5 p-2.5 text-xs">
+            <AlertTriangle className="h-4 w-4 shrink-0 text-warning" aria-hidden /> {toolMessage(t, tool)}
+          </div>
+        )}
         <dl className="grid grid-cols-[110px_1fr] gap-x-3 gap-y-1 text-xs">
           <dt className="text-muted-foreground">Executable</dt>
           <dd className="break-all font-mono">{tool.path ?? "—"}</dd>

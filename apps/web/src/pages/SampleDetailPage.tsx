@@ -10,6 +10,8 @@ import {
   QualityVsLengthChart,
   ReadQualityChart,
 } from "@/components/charts/QcCharts";
+import { AnnotationDialog } from "@/components/annotation/AnnotationDialog";
+import { AnnotationTab } from "@/components/annotation/AnnotationTab";
 import { AssemblyTab } from "@/components/assembly/AssemblyTab";
 import { AssemblyDialog } from "@/components/assembly/AssemblyDialog";
 import { PolishingDialog } from "@/components/assembly/PolishingDialog";
@@ -39,6 +41,7 @@ import { useT } from "@/i18n";
 import { api } from "@/lib/api";
 import { fmtBases, fmtBytes, fmtDate, fmtDuration, fmtInt, fmtNum, formatLabel, technologyLabel } from "@/lib/format";
 import { lineageOrder } from "@/lib/filters";
+import { ANNOTATION_JOBS } from "@/lib/annotation";
 import { ASSEMBLY_JOBS } from "@/lib/flye";
 import { QUAST_JOB, jobRelativePath } from "@/lib/quast";
 import { NANOPLOT_JOB } from "@/lib/nanoplot";
@@ -47,7 +50,7 @@ import { FILTER_JOBS, IMPORT_JOBS, RAW_SIGNAL_JOBS, hasReads, inProcessTool, job
 import type { AnalysisJobDetail, HeaderSummary, RawFile, SequencingTechnology } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-type Tab = "files" | "qc" | "filtering" | "assembly" | "history" | "metadata";
+type Tab = "files" | "qc" | "filtering" | "assembly" | "annotation" | "history" | "metadata";
 
 export function SampleDetailPage() {
   const { sampleId = "" } = useParams();
@@ -68,8 +71,10 @@ export function SampleDetailPage() {
   const isActive = (j: AnalysisJobDetail) => j.status === "pending" || j.status === "running";
   const allJobs = jobs.data ?? [];
   const qcJobs = allJobs.filter(
-    (j) => !FILTER_JOBS.has(j.job_type) && !IMPORT_JOBS.has(j.job_type) && !RAW_SIGNAL_JOBS.has(j.job_type) && !ASSEMBLY_JOBS.has(j.job_type),
+    (j) =>
+      !FILTER_JOBS.has(j.job_type) && !IMPORT_JOBS.has(j.job_type) && !RAW_SIGNAL_JOBS.has(j.job_type) && !ASSEMBLY_JOBS.has(j.job_type) && !ANNOTATION_JOBS.has(j.job_type),
   );
+  const annotationJobs = allJobs.filter((j) => ANNOTATION_JOBS.has(j.job_type));
   const filterJobs = allJobs.filter((j) => FILTER_JOBS.has(j.job_type));
   const assemblyJobs = allJobs.filter((j) => ASSEMBLY_JOBS.has(j.job_type));
   const signalJobs = allJobs.filter((j) => RAW_SIGNAL_JOBS.has(j.job_type));
@@ -82,7 +87,8 @@ export function SampleDetailPage() {
   const [quastOpen, setQuastOpen] = useState(false);
   const [polishDraft, setPolishDraft] = useState<string | null | undefined>(undefined);
   const polishOpen = polishDraft !== undefined;
-  const assemblies = useQuery({ queryKey: ["assemblies", sampleId], queryFn: () => api.assemblies(sampleId), enabled: quastOpen || polishOpen });
+  const [annotateOpen, setAnnotateOpen] = useState(false);
+  const assemblies = useQuery({ queryKey: ["assemblies", sampleId], queryFn: () => api.assemblies(sampleId), enabled: quastOpen || polishOpen || annotateOpen });
   const queryClient = useQueryClient();
   const finishedCount = allJobs.filter((j) => j.status === "completed" || j.status === "failed" || j.status === "cancelled").length;
   useEffect(() => {
@@ -90,6 +96,7 @@ export function SampleDetailPage() {
     queryClient.invalidateQueries({ queryKey: ["files", sampleId] });
     queryClient.invalidateQueries({ queryKey: ["crosscheck"] });
     queryClient.invalidateQueries({ queryKey: ["assemblies", sampleId] });
+    queryClient.invalidateQueries({ queryKey: ["annotations", sampleId] });
   }, [finishedCount, sampleId, queryClient]);
 
   const stages: Stage[] = [
@@ -125,7 +132,16 @@ export function SampleDetailPage() {
           : t("assembly.timelineNotRun"),
     },
     { key: "polishing", label: "Polishing", state: "planned", phase: 3 },
-    { key: "annotation", label: "Annotation", state: "planned", phase: 4 },
+    {
+      key: "annotation",
+      label: t("sample.annotation"),
+      state: annotationJobs.some(isActive) ? "running" : annotationJobs[0]?.status === "failed" ? "failed" : annotationJobs.some((j) => j.status === "completed") ? "done" : "ready",
+      detail: annotationJobs.some(isActive)
+        ? t("annotation.timelineRunning")
+        : annotationJobs.some((j) => j.status === "completed")
+          ? t("annotation.timelineRuns", { count: annotationJobs.filter((j) => j.status === "completed").length })
+          : t("annotation.timelineNotRun"),
+    },
     { key: "biology", label: "Biological analysis", state: "planned", phase: 5 },
   ];
 
@@ -155,7 +171,12 @@ export function SampleDetailPage() {
         actions={
           <ReportMenu
             sampleId={s.id}
-            disabled={!completed.length && !signalJobs.some((j) => j.status === "completed") && !assemblyJobs.some((j) => j.status === "completed")}
+            disabled={
+              !completed.length &&
+              !signalJobs.some((j) => j.status === "completed") &&
+              !assemblyJobs.some((j) => j.status === "completed") &&
+              !annotationJobs.some((j) => j.status === "completed")
+            }
           />
         }
       />
@@ -163,8 +184,8 @@ export function SampleDetailPage() {
       <Card className="px-4 pb-2 pt-5">
         <AnalysisTimeline
           stages={stages}
-          selected={tab === "files" ? "raw" : tab === "qc" ? "qc" : tab === "filtering" ? "filtering" : tab === "assembly" ? "assembly" : undefined}
-          onSelect={(k) => setTab(k === "raw" ? "files" : k === "filtering" ? "filtering" : k === "assembly" ? "assembly" : "qc")}
+          selected={tab === "files" ? "raw" : tab === "qc" ? "qc" : tab === "filtering" ? "filtering" : tab === "assembly" ? "assembly" : tab === "annotation" ? "annotation" : undefined}
+          onSelect={(k) => setTab(k === "raw" ? "files" : k === "filtering" ? "filtering" : k === "assembly" ? "assembly" : k === "annotation" ? "annotation" : "qc")}
         />
       </Card>
 
@@ -176,6 +197,7 @@ export function SampleDetailPage() {
           { value: "qc", label: t("sample.qc") },
           { value: "filtering", label: `${t("sample.filtering")}${filterJobs.length ? ` (${filterJobs.length})` : ""}` },
           { value: "assembly", label: `${t("sample.assembly")}${assemblyJobs.length ? ` (${assemblyJobs.length})` : ""}` },
+          { value: "annotation", label: `${t("sample.annotation")}${annotationJobs.length ? ` (${annotationJobs.length})` : ""}` },
           { value: "history", label: `${t("sample.history")}${jobs.data?.length ? ` (${jobs.data.length})` : ""}` },
           { value: "metadata", label: t("sample.metadata") },
         ]}
@@ -215,6 +237,7 @@ export function SampleDetailPage() {
           onPolish={(draftId) => setPolishDraft(draftId ?? null)}
         />
       )}
+      {tab === "annotation" && <AnnotationTab sampleId={s.id} jobs={allJobs} onNew={() => setAnnotateOpen(true)} />}
       {tab === "history" && <HistoryTab jobs={jobs.data ?? []} files={files.data ?? []} openJob={params.get("job")} />}
       {tab === "metadata" && (
         <Card>
@@ -256,6 +279,9 @@ export function SampleDetailPage() {
       )}
       {quastOpen && assemblies.data && (
         <QuastDialog open={quastOpen} onOpenChange={setQuastOpen} sampleId={s.id} assemblies={assemblies.data} files={files.data ?? []} />
+      )}
+      {annotateOpen && assemblies.data && (
+        <AnnotationDialog open={annotateOpen} onOpenChange={setAnnotateOpen} sampleId={s.id} assemblies={assemblies.data} />
       )}
     </div>
   );

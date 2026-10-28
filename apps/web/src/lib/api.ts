@@ -1,4 +1,12 @@
 import type {
+  Annotation,
+  AnnotationExportFormat,
+  AnnotationFeatureDetail,
+  AnnotationFeaturePage,
+  AnnotationPlan,
+  BaktaRequest,
+  FeatureQuery,
+  ProkkaRequest,
   AnalysisJob,
   AnalysisJobDetail,
   Assembly,
@@ -247,6 +255,34 @@ export const api = {
   assemblyGraph: (id: string, maxNodes: number, maxEdges: number) =>
     request<AssemblyGraph>(`/assemblies/${id}/graph?${new URLSearchParams({ max_nodes: String(maxNodes), max_edges: String(maxEdges) })}`),
   projectAssemblies: (projectId: string) => request<ProjectAssembly[]>(`/projects/${projectId}/assemblies`),
+  baktaPreview: (assemblyId: string, body: { database_id: string | null; skip_plot: boolean }) =>
+    request<AnnotationPlan>(`/assemblies/${assemblyId}/annotate/bakta/preview`, json("POST", body)),
+  runBakta: (assemblyId: string, body: BaktaRequest) => request<AnalysisJob>(`/assemblies/${assemblyId}/annotate/bakta`, json("POST", body)),
+  prokkaPreview: (assemblyId: string, body: { rfam: boolean; use_genus: boolean; genus: string | null; rename_contigs: boolean }) =>
+    request<AnnotationPlan>(`/assemblies/${assemblyId}/annotate/prokka/preview`, json("POST", body)),
+  runProkka: (assemblyId: string, body: ProkkaRequest) => request<AnalysisJob>(`/assemblies/${assemblyId}/annotate/prokka`, json("POST", body)),
+  annotations: (sampleId: string) => request<Annotation[]>(`/samples/${sampleId}/annotations`),
+  annotation: (id: string) => request<Annotation>(`/annotations/${id}`),
+  annotationFeatures: (id: string, q: FeatureQuery) => {
+    const params = new URLSearchParams({ sort: q.sort, descending: String(q.descending), limit: String(q.limit), offset: String(q.offset) });
+    q.types.forEach((t) => params.append("type", t));
+    if (q.q.trim()) params.set("q", q.q.trim());
+    if (q.hypothetical) params.set("hypothetical", q.hypothetical);
+    if (q.contig) params.set("contig", q.contig);
+    if (q.contig && q.start) params.set("start", q.start);
+    if (q.contig && q.end) params.set("end", q.end);
+    return request<AnnotationFeaturePage>(`/annotations/${id}/features?${params}`);
+  },
+  annotationFeature: (id: string, featureId: number) => request<AnnotationFeatureDetail>(`/annotations/${id}/features/${featureId}`),
+  annotationFileUrl: (id: string, kind: string) => `${BASE}/annotations/${id}/files/${encodeURIComponent(kind)}`,
+  annotationExportUrl: (id: string, format: AnnotationExportFormat) => `${BASE}/annotations/${id}/export/${format}`,
+  /** Selected features as a file the browser saves (POST, so the ids do not go into a URL). */
+  exportAnnotationFeatures: async (id: string, format: AnnotationExportFormat, featureIds: number[]) => {
+    const res = await fetch(`${BASE}/annotations/${id}/export`, json("POST", { format, feature_ids: featureIds }));
+    if (!res.ok) throw new ApiError(res.status, await errorMessage(res));
+    const name = /filename="([^"]+)"/.exec(res.headers.get("Content-Disposition") ?? "")?.[1] ?? `annotation_${format}.txt`;
+    return { blob: await res.blob(), name };
+  },
   /** `name` is a file name, or a path below the job's folder (kept with its slashes so the page's relative links work). */
   jobOutputUrl: (jobId: string, name: string, download = false) =>
     `${BASE}/jobs/${jobId}/outputs/${name.split("/").map(encodeURIComponent).join("/")}${download ? "?download=true" : ""}`,

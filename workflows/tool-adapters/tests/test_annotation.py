@@ -40,7 +40,7 @@ BAKTA_HELP = help_options((BAKTA / "help_1.12.2.txt").read_text())
 PROKKA_HELP = help_options((PROKKA / "help_1.14.6.txt").read_text())
 J = Path("/job")
 BAKTA_EXE = os.environ.get("ARVA_TOOL_BAKTA") or shutil.which("bakta") or str(Path.home() / ".arva-tools/bakta/bin/bakta")
-BAKTA_DB = Path(os.environ.get("ARVA_TEST_BAKTA_DB", "/root/.arva-db/bakta-light/6.0"))
+BAKTA_DB = Path(os.environ.get("ARVA_TEST_BAKTA_DB") or Path.home() / ".arva-db/bakta-light/6.0")
 
 
 def dep(name: str, status: str, found: str | None = None) -> dict:

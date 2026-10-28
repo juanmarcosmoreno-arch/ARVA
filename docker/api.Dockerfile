@@ -19,9 +19,19 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 # `java -Xmx<heap> -jar /usr/share/java/pilon.jar` (Debian's launcher fixes a 16 GB heap), hence the explicit Java
 # runtime; MUMmer 3.23 (nucmer, dnadiff) compares draft and polished sequence. Debian's Pilon prints no version
 # number, so ARVA reads it from dpkg.
-RUN apt-get update \
+# Annotation: the programs Bakta's steps call, and Prokka. Validated with ARVA on Ubuntu 24.04 only (tRNAscan-SE
+# 2.0.12, Aragorn 1.2.41, Infernal 1.1.5, DIAMOND 2.1.9, HMMER 3.4, PILER-CR 1.06, Prokka 1.14.6+dfsg-6). Bookworm
+# ships older ones, and ARVA's start-up checks (Bakta's own minimums) then skip the steps that need them, saying so
+# in each run: tRNAscan-SE 2.0.10 (< 2.0.12: tRNA), Aragorn 1.2.38 (< 1.2.41: tmRNA), Infernal 1.1.4 (< 1.1.5: rRNA
+# and ncRNA), DIAMOND 2.1.3 and no AMRFinderPlus package (CDS, sORF), BLAST+ 2.12.0 (< 2.17.0: oriC/oriV/oriT).
+# Bookworm's prokka 1.14.6+dfsg-4 lacks the kingdom protein sets, so ARVA reports Prokka as unable to annotate.
+# trnascan-se, infernal, hmmer (so barrnap) and prokka are amd64-only in bookworm.
+RUN set -eu; extra=""; \
+    if [ "$(dpkg --print-architecture)" = "amd64" ]; then extra="trnascan-se infernal hmmer barrnap prokka"; fi; \
+    apt-get update \
     && apt-get install -y --no-install-recommends seqkit fastp filtlong fastqc flye samtools minimap2 \
        spades unicycler racon ncbi-blast+ pilon bwa mummer default-jre-headless \
+       aragorn pilercr diamond-aligner prodigal $extra \
     && rm -rf /var/lib/apt/lists/*
 
 # Python report tools, each in its own virtual environment with the versions validated with ARVA.
@@ -29,7 +39,9 @@ RUN apt-get update \
 # 1.7 GB; QUAST about 0.15 GB, measured as an installed venv outside Docker).
 # QUAST 5.2.0 is a source package: it imports distutils (setuptools provides it on Python 3.12) and is built with
 # that pinned setuptools; its optional parts (gene finding, BUSCO, read analysis) are neither built nor downloaded.
-ARG ARVA_PYTHON_TOOLS="multiqc nanoplot quast"
+# Bakta 1.12.2 with its direct requirements at the versions validated with ARVA (about 0.32 GB as a venv); its
+# database is not part of the image: install it from the Database Manager into ARVA_DB_DIR (/databases).
+ARG ARVA_PYTHON_TOOLS="multiqc nanoplot quast bakta"
 RUN set -eu; for tool in $ARVA_PYTHON_TOOLS; do \
       case "$tool" in \
         multiqc) python -m venv /opt/arva-tools/multiqc \
@@ -40,12 +52,17 @@ RUN set -eu; for tool in $ARVA_PYTHON_TOOLS; do \
                && /opt/arva-tools/quast/bin/pip install "setuptools==80.9.0" \
                && /opt/arva-tools/quast/bin/pip install --no-build-isolation "quast==5.2.0" "joblib==1.5.2" \
                   "simplejson==3.20.2" ;; \
+        bakta) python -m venv /opt/arva-tools/bakta \
+               && /opt/arva-tools/bakta/bin/pip install "bakta==1.12.2" "biopython==1.88" "xopen==2.1.0" \
+                  "requests==2.34.2" "alive-progress==3.3.0" "PyYAML==6.0.3" "pyrodigal==3.7.1" "pyhmmer==0.12.3" \
+                  "pyCirclize==1.10.1" ;; \
         *) echo "Unknown ARVA_PYTHON_TOOLS entry: $tool" >&2; exit 1 ;; \
       esac; \
     done
 ENV ARVA_TOOL_MULTIQC=/opt/arva-tools/multiqc/bin/multiqc \
     ARVA_TOOL_NANOPLOT=/opt/arva-tools/nanoplot/bin/NanoPlot \
-    ARVA_TOOL_QUAST=/opt/arva-tools/quast/bin/quast.py
+    ARVA_TOOL_QUAST=/opt/arva-tools/quast/bin/quast.py \
+    ARVA_TOOL_BAKTA=/opt/arva-tools/bakta/bin/bakta
 
 # /databases: reference databases (ARVA_DB_DIR); a new named volume takes this folder's owner.
 RUN groupadd --system arva && useradd --system --gid arva --home /opt/arva arva \

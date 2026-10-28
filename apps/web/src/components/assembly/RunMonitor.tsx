@@ -7,6 +7,7 @@ import { Card, CardBody, CardHeader } from "@/components/ui/card";
 import { ErrorNote } from "@/components/ui/misc";
 import { dictionaries, type TranslationKey, useT } from "@/i18n";
 import { api } from "@/lib/api";
+import { ANNOTATION_JOBS, BAKTA_JOB } from "@/lib/annotation";
 import { elapsedSeconds } from "@/lib/assembly";
 import { FLYE_JOB, stageStates } from "@/lib/flye";
 import { POLISHING_JOBS, RACON_JOB } from "@/lib/polishing";
@@ -20,18 +21,27 @@ const LOG_LINES = 200;
 const TEXT = {
   [FLYE_JOB]: { running: "assembly.running", starting: "assembly.startingTool", liveLog: "assembly.liveLog", failed: "assembly.failed", cancelled: "assembly.cancelled", failedAt: "assembly.failedAt", failedNote: "assembly.failedNote", stages: "assembly.stages" },
   [QUAST_JOB]: { running: "quast.running", starting: "quast.startingTool", liveLog: "quast.liveLog", failed: "quast.failed", cancelled: "quast.cancelled", failedAt: "quast.failedAt", failedNote: "quast.failedNote", stages: "quast.stages" },
+  [BAKTA_JOB]: { running: "annotation.running", starting: "annotation.startingTool", liveLog: "annotation.liveLog", failed: "annotation.failed", cancelled: "annotation.cancelled", failedAt: "annotation.failedAt", failedNote: "annotation.failedNote", stages: "annotation.stages" },
   [RACON_JOB]: { running: "polishing.running", starting: "polishing.startingTool", liveLog: "polishing.liveLog", failed: "polishing.failed", cancelled: "polishing.cancelled", failedAt: "polishing.failedAt", failedNote: "polishing.failedNote", stages: "polishing.stages" },
 } as const satisfies Record<string, Record<string, TranslationKey>>;
 
 const texts = (job: AnalysisJobDetail) =>
-  job.job_type === QUAST_JOB ? TEXT[QUAST_JOB] : POLISHING_JOBS.has(job.job_type) ? TEXT[RACON_JOB] : TEXT[FLYE_JOB];
+  job.job_type === QUAST_JOB
+    ? TEXT[QUAST_JOB]
+    : POLISHING_JOBS.has(job.job_type)
+      ? TEXT[RACON_JOB]
+      : ANNOTATION_JOBS.has(job.job_type)
+        ? TEXT[BAKTA_JOB]
+        : TEXT[FLYE_JOB];
 
 /** A polishing step's name in the interface language: "Racon round 2", "Reads aligned to both", ... */
 function stageName(t: ReturnType<typeof useT>, stage: string) {
   const round = /^(racon|pilon)_round_(\d+)$/.exec(stage);
   if (round) return t("polishing.stage.round", { tool: round[1] === "racon" ? "Racon" : "Pilon", n: round[2] });
   const key = `polishing.stage.${stage}`;
-  return key in dictionaries.en ? t(key as TranslationKey) : stage;
+  if (key in dictionaries.en) return t(key as TranslationKey);
+  const annotation = `annotation.stageName.${stage}`;
+  return annotation in dictionaries.en ? t(annotation as TranslationKey) : stage;
 }
 
 /** The current time, ticking every second while `active`. */
@@ -88,6 +98,8 @@ export function StageList({ job }: { job: AnalysisJobDetail }) {
 }
 
 function stageDescription(t: ReturnType<typeof useT>, stage: string) {
+  const annotation = `annotation.stageHint.${stage}`;
+  if (annotation in dictionaries.en) return t(annotation as TranslationKey);
   const key = `assembly.stage.${stage}`;
   if (/^(racon|pilon)_round_\d+$/.test(stage)) return t(stage.startsWith("racon") ? "polishing.stage.raconRoundHint" : "polishing.stage.pilonRoundHint");
   return key in dictionaries.en ? t(key as TranslationKey) : "";
@@ -101,6 +113,10 @@ function runInputs(t: ReturnType<typeof useT>, job: AnalysisJobDetail, names: Ma
       draft: `${draft.assembler ?? "?"} ${draft.assembler_version ?? ""} · ${(draft.assembly_id ?? "").slice(0, 8)}`,
       files: (job.input_raw_file_ids ?? []).map((id) => names.get(id) ?? id).join(", "),
     });
+  }
+  if (ANNOTATION_JOBS.has(job.job_type)) {
+    const a = (job.parameters?.assembly ?? {}) as { assembler?: string; assembler_version?: string; assembly_id?: string };
+    return t("annotation.runInputs", { assembly: `${a.assembler ?? "?"} ${a.assembler_version ?? ""} · ${(a.assembly_id ?? "").slice(0, 8)}` });
   }
   if (job.job_type === QUAST_JOB) {
     const planned = (job.parameters?.assemblies ?? []) as { label: string }[];

@@ -3,7 +3,7 @@
 # (ARVA_TEST_DATABASE_URL, default: local arva_test database).
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-# MultiQC, NanoPlot and QUAST live in their own virtual environments (docs/installation.md); use them when installed there.
+# MultiQC, NanoPlot, QUAST and Bakta live in their own virtual environments (docs/installation.md); use them when installed there.
 if [ -z "${ARVA_TOOL_MULTIQC:-}" ] && [ -x "$HOME/.arva-tools/multiqc/bin/multiqc" ]; then
   export ARVA_TOOL_MULTIQC="$HOME/.arva-tools/multiqc/bin/multiqc"
 fi
@@ -13,11 +13,15 @@ fi
 if [ -z "${ARVA_TOOL_QUAST:-}" ] && [ -x "$HOME/.arva-tools/quast/bin/quast.py" ]; then
   export ARVA_TOOL_QUAST="$HOME/.arva-tools/quast/bin/quast.py"
 fi
+if [ -z "${ARVA_TOOL_BAKTA:-}" ] && [ -x "$HOME/.arva-tools/bakta/bin/bakta" ]; then
+  export ARVA_TOOL_BAKTA="$HOME/.arva-tools/bakta/bin/bakta"
+fi
 
 echo "==> scientific-core"
 (cd "$ROOT/scientific-core" && "$ROOT/apps/api/.venv/bin/pytest" -q)
 
-echo "==> tool adapters (real-tool tests are skipped for tools that are not installed)"
+echo "==> tool adapters (real-tool tests are skipped for tools or databases that are not installed;"
+echo "    Bakta's real runs use the light database at ARVA_TEST_BAKTA_DB, default ~/.arva-db/bakta-light/6.0)"
 (cd "$ROOT/workflows/tool-adapters" && "$ROOT/apps/api/.venv/bin/pytest" -q)
 
 echo "==> api"

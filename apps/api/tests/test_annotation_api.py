@@ -32,7 +32,7 @@ REPO = Path(__file__).resolve().parents[3]
 FIXTURES = REPO / "workflows" / "tool-adapters" / "tests" / "fixtures"
 GENOME = FIXTURES / "annotation_genome" / "genome.fna"
 ONT = REPO / "examples" / "synthetic" / "SYNTHETIC_nanopore_reads.fastq.gz"
-BAKTA_DB = Path(os.environ.get("ARVA_TEST_BAKTA_DB", "/root/.arva-db/bakta-light/6.0"))
+BAKTA_DB = Path(os.environ.get("ARVA_TEST_BAKTA_DB") or Path.home() / ".arva-db/bakta-light/6.0")
 # The content checksum ARVA computed for the light database 6.0 when it installed it (Part 4A).
 BAKTA_DB_CHECKSUM = "sha256:93a75bf1a4b9e65b0e03b9136c4fd434925ae2c075f9fdc9c8a99f930e0c7d9c"
 

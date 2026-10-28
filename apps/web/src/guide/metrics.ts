@@ -80,7 +80,14 @@ export type GuideId =
   | "pilon"
   | "polishing_evidence"
   | "job_control"
-  | "batch_qc";
+  | "batch_qc"
+  | "annotation"
+  | "bakta"
+  | "prokka"
+  | "hypothetical_proteins"
+  | "cds"
+  | "trna_rrna"
+  | "cog";
 
 const REF = {
   racon: { label: "Vaser, Sović, Nagarajan & Šikić (2017) Genome Research 27:737–746 — Racon (window consensus)", url: "https://doi.org/10.1101/gr.214270.116" },
@@ -199,6 +206,26 @@ const REF = {
   bandage: { label: "Wick, Schultz, Zobel & Holt (2015) Bioinformatics 31:3350–3352 — Bandage: interactive visualization of assembly graphs", url: "https://doi.org/10.1093/bioinformatics/btv383" },
   gfaSpec: { label: "GFA Format Specification, version 1 (S segment, L link and P path lines)", url: "https://github.com/GFA-spec/GFA-spec/blob/master/GFA1.md" },
   flyeNews: { label: "Flye release notes (NEWS.md): contig paths in GFA since 2.9; --nano-hq added in 2.9", url: "https://github.com/mikolmogorov/Flye/blob/flye/docs/NEWS.md" },
+  bakta: { label: "Schwengers et al. (2021) Microbial Genomics 7(11) — Bakta: rapid and standardized annotation of bacterial genomes", url: "https://doi.org/10.1099/mgen.0.000685" },
+  baktaReadme: { label: "Bakta README: annotation workflow, UPS/IPS/PSC/PSCC, hypothetical CDS, databases", url: "https://github.com/oschwengers/bakta#readme" },
+  baktaDb: { label: "Schwengers O (2025) Bakta database 6.0, Zenodo", url: "https://doi.org/10.5281/zenodo.14916843" },
+  prokka: { label: "Seemann (2014) Bioinformatics 30(14):2068–2069 — Prokka: rapid prokaryotic genome annotation", url: "https://doi.org/10.1093/bioinformatics/btu153" },
+  prokkaReadme: { label: "Prokka README (T. Seemann): workflow, databases and maintenance status", url: "https://github.com/tseemann/prokka#readme" },
+  prodigal: { label: "Hyatt et al. (2010) BMC Bioinformatics 11:119 — Prodigal: prokaryotic gene recognition", url: "https://doi.org/10.1186/1471-2105-11-119" },
+  pyrodigal: { label: "Larralde (2022) Journal of Open Source Software 7(72):4296 — Pyrodigal", url: "https://doi.org/10.21105/joss.04296" },
+  trnascan: { label: "Chan et al. (2021) Nucleic Acids Research 49(16):9077–9096 — tRNAscan-SE 2.0", url: "https://doi.org/10.1093/nar/gkab688" },
+  aragorn: { label: "Laslett & Canback (2004) Nucleic Acids Research 32(1):11–16 — ARAGORN (tRNA and tmRNA genes)", url: "https://doi.org/10.1093/nar/gkh152" },
+  infernal: { label: "Nawrocki & Eddy (2013) Bioinformatics 29(22):2933–2935 — Infernal 1.1", url: "https://doi.org/10.1093/bioinformatics/btt509" },
+  rfam: { label: "Kalvari et al. (2021) Nucleic Acids Research 49(D1):D192–D200 — Rfam 14", url: "https://doi.org/10.1093/nar/gkaa1047" },
+  barrnap: { label: "barrnap README (T. Seemann): rRNA prediction with nhmmer", url: "https://github.com/tseemann/barrnap#readme" },
+  pilercr: { label: "Edgar (2007) BMC Bioinformatics 8:18 — PILER-CR: identification of CRISPR repeats", url: "https://doi.org/10.1186/1471-2105-8-18" },
+  cog: { label: "Galperin et al. (2021) Nucleic Acids Research 49(D1):D274–D281 — COG database update", url: "https://doi.org/10.1093/nar/gkaa1018" },
+  cogSite: { label: "NCBI COG database: COGs and functional categories", url: "https://www.ncbi.nlm.nih.gov/research/cog/" },
+  uniprot: { label: "The UniProt Consortium (2023) Nucleic Acids Research 51(D1):D523–D531 — UniProt in 2023", url: "https://doi.org/10.1093/nar/gkac1052" },
+  hypothetical: { label: "Galperin & Koonin (2004) Nucleic Acids Research 32(18):5452–5463 — 'Conserved hypothetical' proteins", url: "https://doi.org/10.1093/nar/gkh885" },
+  geneticCodes: { label: "NCBI — The genetic codes (translation tables)", url: "https://www.ncbi.nlm.nih.gov/Taxonomy/Utils/wprintgc.cgi" },
+  gff3: { label: "Sequence Ontology — GFF3 specification", url: "https://github.com/The-Sequence-Ontology/Specifications/blob/master/gff3.md" },
+  watsonWarr: { label: "Watson & Warr (2019) Nature Biotechnology 37(2):124–126 — Errors in long-read assemblies can critically affect protein prediction", url: "https://doi.org/10.1038/s41587-018-0004-z" },
 } satisfies Record<string, Reference>;
 
 export const GUIDE: GuideEntry[] = [
@@ -1657,6 +1684,224 @@ export const GUIDE: GuideEntry[] = [
         "Incluir archivos derivados sin indicarlo en el análisis: las lecturas filtradas describen la salida del filtro, no la carrera de secuenciación.",
       ],
       limitations: "Este primer paso del análisis por lotes solo cubre el QC de lecturas (no hay filtrado, ensamblaje ni pulido por lotes). Los trabajos se ejecutan uno tras otro en el worker; un proyecto grande tarda lo que suman todos sus trabajos.",
+    },
+  },
+  {
+    id: "annotation",
+    references: [REF.bakta, REF.prokka, REF.watsonWarr, REF.gff3, REF.geneticCodes],
+    en: {
+      title: "Genome annotation",
+      what: "Annotation locates features on an assembly — protein-coding genes (CDS), tRNA, tmRNA, rRNA and other non-coding RNAs, CRISPR arrays, gaps — and gives them names, products and database identifiers. Every one of them is a prediction: coordinates come from gene-finding models, and names from similarity to proteins and RNA families whose functions were themselves mostly inferred, not measured.",
+      why: "Most questions asked of a genome (which genes it carries, how it compares with another, what to submit to a public archive) start from an annotation. Knowing which steps ran, with which tool and database versions, is what makes two annotations comparable.",
+      how: "ARVA annotates one assembly at a time with Bakta (recommended) or Prokka; any assembly of the sample's lineage can be chosen, a draft or one polished from it. ARVA copies the contigs into the job without their FASTA descriptions, checks every program the chosen steps need and passes each option that changes the result explicitly: locus-tag prefix, translation table, genus, species and strain when given, minimum contig length, completeness (Bakta) and thread count. A step that cannot run is left out on purpose — with Bakta's own --skip options, or because Prokka lacks the program — and is recorded in the job and shown as \"not searched\". The job records the tool and database versions, the database checksum, the SHA-256 of the input and of every output. ARVA then reads the annotator's JSON (Bakta) or GFF3 (Prokka) into one feature list and keeps the annotator's own files, unchanged, for download.",
+      interpret: "Counts are the features the annotator reported, by type. A type whose step did not run is \"not searched\", never 0. Coding density is computed by ARVA: the bases inside at least one CDS (overlaps counted once) divided by the bases of the annotated sequences that are not N; it is not shown when CDS were not searched. The hypothetical share is hypothetical CDS divided by all CDS. Identifiers are shown as links only for identifier types whose URL pattern ARVA checked.",
+      next: "Look at genes at contig edges (reported as partial) and at the hypothetical CDS before drawing conclusions; follow the identifiers to their databases; download GFF3, GenBank or FASTA for downstream tools.",
+      mistakes: [
+        "Reading a product name as an experimentally established function: it was transferred from similar sequences.",
+        "Comparing feature counts from different annotators or database versions as if they only measured the genome: they also measure the tools.",
+        "Annotating an unpolished long-read draft: small insertions and deletions break reading frames, which gives more, shorter and more often hypothetical CDS (Watson & Warr 2019).",
+        "Taking a type that was not searched for one with no features.",
+      ],
+      limitations: "Results on ARVA's synthetic test genomes are not biology: they only show that the tools ran. ARVA does not re-check the annotators' predictions. Which steps an installation can run depends on the programs it has; the Tools page and each run's plan show them.",
+    },
+    es: {
+      title: "Anotación del genoma",
+      what: "La anotación localiza elementos en un ensamblaje — genes codificantes de proteínas (CDS), tRNA, tmRNA, rRNA y otros RNA no codificantes, matrices CRISPR, huecos — y les asigna nombres, productos e identificadores de bases de datos. Todos son predicciones: las coordenadas proceden de modelos de búsqueda de genes, y los nombres, de la similitud con proteínas y familias de RNA cuyas funciones, en su mayoría, también se infirieron y no se midieron.",
+      why: "La mayoría de las preguntas sobre un genoma (qué genes tiene, cómo se compara con otro, qué enviar a un archivo público) parten de una anotación. Saber qué pasos se ejecutaron, con qué versiones de herramienta y base de datos, es lo que hace comparables dos anotaciones.",
+      how: "ARVA anota un ensamblaje cada vez con Bakta (recomendado) o Prokka; puede elegirse cualquier ensamblaje del linaje de la muestra, un borrador o uno pulido a partir de él. ARVA copia los contigs al trabajo sin sus descripciones FASTA, comprueba todos los programas que necesitan los pasos elegidos y pasa de forma explícita cada opción que cambia el resultado: prefijo de locus tag, tabla de traducción, género, especie y cepa si se indican, longitud mínima de contig, completitud (Bakta) y número de hilos. Un paso que no puede ejecutarse se omite a propósito — con las propias opciones --skip de Bakta, o porque a Prokka le falta el programa — y queda registrado en el trabajo y se muestra como «no buscado». El trabajo registra las versiones de la herramienta y de la base de datos, la suma de comprobación de la base de datos y el SHA-256 de la entrada y de cada salida. Después ARVA lee el JSON (Bakta) o el GFF3 (Prokka) del anotador en una única lista de elementos y conserva sin cambios los archivos del propio anotador para su descarga.",
+      interpret: "Los recuentos son los elementos que informó el anotador, por tipo. Un tipo cuyo paso no se ejecutó aparece como «no buscado», nunca como 0. La densidad codificante la calcula ARVA: las bases dentro de al menos una CDS (los solapamientos se cuentan una vez) divididas entre las bases de las secuencias anotadas que no son N; no se muestra si no se buscaron CDS. La fracción hipotética es el número de CDS hipotéticas dividido entre todas las CDS. Los identificadores solo se muestran como enlaces para los tipos de identificador cuyo patrón de URL comprobó ARVA.",
+      next: "Revisa los genes en los extremos de los contigs (marcados como parciales) y las CDS hipotéticas antes de sacar conclusiones; sigue los identificadores hasta sus bases de datos; descarga GFF3, GenBank o FASTA para otras herramientas.",
+      mistakes: [
+        "Leer el nombre de un producto como una función establecida experimentalmente: se transfirió desde secuencias similares.",
+        "Comparar recuentos de elementos de anotadores o versiones de base de datos distintos como si solo midieran el genoma: también miden las herramientas.",
+        "Anotar un borrador de lecturas largas sin pulir: las pequeñas inserciones y deleciones rompen los marcos de lectura, lo que da más CDS, más cortas y con más frecuencia hipotéticas (Watson y Warr 2019).",
+        "Tomar un tipo no buscado por uno sin elementos.",
+      ],
+      limitations: "Los resultados sobre los genomas sintéticos de prueba de ARVA no son biología: solo muestran que las herramientas se ejecutaron. ARVA no vuelve a comprobar las predicciones de los anotadores. Los pasos que puede ejecutar una instalación dependen de los programas que tenga; la página de Herramientas y el plan de cada ejecución los muestran.",
+    },
+  },
+  {
+    id: "bakta",
+    references: [REF.bakta, REF.baktaReadme, REF.baktaDb, REF.pyrodigal, REF.trnascan, REF.aragorn, REF.infernal, REF.rfam, REF.pilercr],
+    en: {
+      title: "Bakta",
+      what: "Bakta (Schwengers et al. 2021) annotates bacterial genomes, plasmids and MAGs with a versioned database built from UniProt's UniParc and UniRef protein sets, annotated from NCBI and other specialised databases. Its README names the tool of each step: tRNAscan-SE 2.0 (tRNA), Aragorn (tmRNA), Infernal against Rfam covariance models (rRNA, ncRNA genes and cis-regulatory regions), PILER-CR (CRISPR arrays), Pyrodigal (CDS) plus its own detection of short ORFs (sORF, < 30 aa), and BLAST+ for oriC/oriV/oriT. Proteins are first identified by exact sequence (MD5 digest and length), the rest by DIAMOND alignment to protein clusters.",
+      why: "Prokka's author recommends Bakta in Prokka's README. Bakta's database is versioned (major.minor) with a log of every imported sequence and annotation, and each feature carries its database cross-references, which makes annotations reproducible and comparable.",
+      how: "ARVA uses Bakta 1.12.2 from PyPI, in its own environment, with a database registered in the Database Manager (ARVA re-checks the database before each run). Before each run ARVA repeats Bakta's start-up checks of the programs each step needs; a step whose program is missing, too old or failing is skipped with Bakta's own --skip option, and the reason is recorded. ARVA also runs PILER-CR on a short test sequence, because Bakta carries on without CRISPR arrays when PILER-CR crashes during the run. ARVA always passes --db, --output, --prefix, --tmp-dir, --threads, --min-contig-length, --translation-table, --locus-tag and --locus-tag-increment 1; --genus, --species and --strain when given; --complete only after you confirm that every sequence is a complete replicon; and --keep-contig-headers when you keep the contig names (otherwise Bakta renames them contig_1, contig_2, … and keeps the original names in its JSON).",
+      interpret: "Bakta's own statistics (for example its coding ratio, which counts the bases of every feature, gaps included) are shown as Bakta's; ARVA's coding density counts CDS only. With the light database Bakta skips the exact-sequence lookup (UPS/IPS) and pseudogene detection, and CDS only get the annotations of UniRef50 clusters (PSCC): expect fewer specific names and more hypothetical CDS than with the full database.",
+      next: "If CDS were not searched in this installation, Prokka can predict them; follow RefSeq, UniRef and UniParc identifiers to their records.",
+      mistakes: [
+        "Using --complete for a draft with several contigs per replicon: Bakta then treats every sequence as a circular, complete replicon and types it by length.",
+        "Comparing a light-database annotation with a full-database one as if they were equivalent.",
+        "Reading a run whose CRISPR step was skipped or crashed as a genome without CRISPR arrays.",
+      ],
+      limitations: "Bakta's CDS and sORF steps need DIAMOND ≥ 2.2.0 and PyHMMER, and CDS also needs Pyrodigal and AMRFinderPlus ≥ 4.2.7 with its database; the ori step needs BLAST+ ≥ 2.17.0. Ubuntu 24.04 and Debian 12 package older DIAMOND and BLAST+ and no AMRFinderPlus, so with those packages ARVA skips these steps and says so. Ubuntu 24.04's PILER-CR 1.06 passes Bakta's version check but crashes on any non-empty input, so the CRISPR step is skipped there. In 1.12.2 --gram only sets metadata, so ARVA does not pass it.",
+      advanced: "UPS: unique protein sequences identified by length and MD5 digest; IPS: identical protein sequences (UniRef100 seeds); PSC: protein sequence clusters (UniRef90); PSCC: clusters of clusters (UniRef50). Each CDS in Bakta's JSON says which of them annotated it; ARVA shows this as the evidence of the feature.",
+    },
+    es: {
+      title: "Bakta",
+      what: "Bakta (Schwengers et al. 2021) anota genomas bacterianos, plásmidos y MAG con una base de datos versionada construida a partir de los conjuntos de proteínas UniParc y UniRef de UniProt, anotados con datos del NCBI y de otras bases de datos especializadas. Su README indica la herramienta de cada paso: tRNAscan-SE 2.0 (tRNA), Aragorn (tmRNA), Infernal frente a modelos de covarianza de Rfam (rRNA, genes de ncRNA y regiones reguladoras en cis), PILER-CR (matrices CRISPR), Pyrodigal (CDS) más su propia detección de ORF cortos (sORF, < 30 aa) y BLAST+ para oriC/oriV/oriT. Las proteínas se identifican primero por secuencia exacta (resumen MD5 y longitud) y el resto mediante alineamiento con DIAMOND frente a grupos de proteínas.",
+      why: "El autor de Prokka recomienda Bakta en el README de Prokka. La base de datos de Bakta está versionada (mayor.menor) con un registro de cada secuencia y anotación importadas, y cada elemento lleva sus referencias cruzadas a bases de datos, lo que hace reproducibles y comparables las anotaciones.",
+      how: "ARVA usa Bakta 1.12.2 de PyPI, en su propio entorno, con una base de datos registrada en el Gestor de bases de datos (ARVA vuelve a comprobarla antes de cada ejecución). Antes de cada ejecución ARVA repite las comprobaciones de inicio de Bakta sobre los programas que necesita cada paso; un paso cuyo programa falta, es demasiado antiguo o falla se omite con la propia opción --skip de Bakta y se registra el motivo. ARVA también ejecuta PILER-CR sobre una secuencia de prueba corta, porque Bakta continúa sin matrices CRISPR cuando PILER-CR falla durante la ejecución. ARVA siempre pasa --db, --output, --prefix, --tmp-dir, --threads, --min-contig-length, --translation-table, --locus-tag y --locus-tag-increment 1; --genus, --species y --strain si se indican; --complete solo después de que confirmes que cada secuencia es un replicón completo; y --keep-contig-headers si conservas los nombres de los contigs (si no, Bakta los renombra contig_1, contig_2, … y guarda los nombres originales en su JSON).",
+      interpret: "Las estadísticas propias de Bakta (por ejemplo su coding ratio, que cuenta las bases de todos los elementos, huecos incluidos) se muestran como de Bakta; la densidad codificante de ARVA cuenta solo CDS. Con la base de datos light, Bakta omite la búsqueda por secuencia exacta (UPS/IPS) y la detección de pseudogenes, y las CDS solo reciben las anotaciones de los grupos UniRef50 (PSCC): cabe esperar menos nombres específicos y más CDS hipotéticas que con la base de datos completa.",
+      next: "Si en esta instalación no se buscaron CDS, Prokka puede predecirlas; sigue los identificadores de RefSeq, UniRef y UniParc hasta sus registros.",
+      mistakes: [
+        "Usar --complete en un borrador con varios contigs por replicón: Bakta trata entonces cada secuencia como un replicón circular y completo y le asigna tipo según su longitud.",
+        "Comparar una anotación con la base de datos light y otra con la completa como si fueran equivalentes.",
+        "Leer una ejecución cuyo paso CRISPR se omitió o falló como un genoma sin matrices CRISPR.",
+      ],
+      limitations: "Los pasos CDS y sORF de Bakta necesitan DIAMOND ≥ 2.2.0 y PyHMMER, y CDS necesita además Pyrodigal y AMRFinderPlus ≥ 4.2.7 con su base de datos; el paso ori necesita BLAST+ ≥ 2.17.0. Ubuntu 24.04 y Debian 12 empaquetan DIAMOND y BLAST+ más antiguos y no empaquetan AMRFinderPlus, así que con esos paquetes ARVA omite estos pasos y lo indica. PILER-CR 1.06 de Ubuntu 24.04 supera la comprobación de versión de Bakta pero falla con cualquier entrada no vacía, así que allí se omite el paso CRISPR. En 1.12.2, --gram solo fija metadatos, así que ARVA no lo pasa.",
+      advanced: "UPS: secuencias de proteína únicas identificadas por longitud y resumen MD5; IPS: secuencias de proteína idénticas (semillas de UniRef100); PSC: grupos de secuencias de proteína (UniRef90); PSCC: grupos de grupos (UniRef50). Cada CDS del JSON de Bakta indica cuál de ellos la anotó; ARVA lo muestra como la evidencia del elemento.",
+    },
+  },
+  {
+    id: "prokka",
+    references: [REF.prokka, REF.prokkaReadme, REF.prodigal, REF.aragorn, REF.barrnap, REF.uniprot],
+    en: {
+      title: "Prokka",
+      what: "Prokka (Seemann 2014) annotates prokaryotic genomes: Prodigal predicts CDS, Aragorn tRNA and tmRNA, barrnap rRNA (with Infernal for other ncRNA only when --rfam is chosen, and MinCED for CRISPR arrays when installed), and the predicted proteins are compared with BLAST+ against curated protein sets in a fixed order of priority. Its README states that its author can no longer maintain it and recommends replacing it with Bakta.",
+      why: "Prokka is widely used and cited, so its annotations are useful for comparison with earlier work; in an installation where Bakta cannot search CDS, it is the annotator that predicts them.",
+      how: "ARVA runs Prokka 1.14.6 from the Debian/Ubuntu package with the databases of that package: a bacterial protein set built from UniProtKB/Swiss-Prot, Rfam models and three genus sets (Enterococcus, Escherichia, Staphylococcus); Debian's package has no HMM databases. Prokka refuses unindexed databases, so ARVA links the package's files into the job and indexes them there with prokka --setupdb, then removes them after the run. ARVA always passes --outdir, --prefix, --dbdir, --kingdom Bacteria, --gcode, --locustag, --increment 1, --cpus, --evalue, --coverage and --mincontiglen; --genus, --species and --strain when given; --usegenus and --rfam when chosen. Contig names longer than 37 characters (a GenBank limit Prokka enforces) can be replaced with contig_1, contig_2, …; ARVA keeps the mapping.",
+      interpret: "A product comes from the first database in Prokka's order where the protein has a hit (the genus set first when --usegenus is used, then Swiss-Prot); the inference of each feature names the database and accession. Proteins without a hit are labelled 'hypothetical protein'. For genomes shorter than 100 kb Prokka runs Prodigal in metagenome mode; ARVA records the mode from Prokka's log.",
+      next: "Compare with Bakta where both can run; check the hypothetical proteins and partial genes at contig edges.",
+      mistakes: [
+        "Expecting CRISPR arrays without MinCED installed: Prokka then says nothing and writes none; ARVA shows the step as not searched.",
+        "Using --usegenus for a genus without a set in the package: Prokka skips it.",
+      ],
+      limitations: "Not maintained by its author (README). The Debian package's databases differ from upstream's (no HMM step; no IS or AMR sets), so results differ from upstream Prokka installations. Debian 12's package (1.14.6+dfsg-4) lacks the kingdom protein sets, so it cannot annotate proteins without other databases; Debian's changelog says Prokka is effectively amd64-only because of its dependencies.",
+    },
+    es: {
+      title: "Prokka",
+      what: "Prokka (Seemann 2014) anota genomas procariotas: Prodigal predice las CDS, Aragorn los tRNA y tmRNA, barrnap los rRNA (con Infernal para otros ncRNA solo si se elige --rfam, y MinCED para las matrices CRISPR si está instalado), y las proteínas predichas se comparan con BLAST+ frente a conjuntos de proteínas curados en un orden de prioridad fijo. Su README indica que su autor ya no puede mantenerlo y recomienda sustituirlo por Bakta.",
+      why: "Prokka está muy usado y citado, así que sus anotaciones sirven para comparar con trabajos anteriores; en una instalación en la que Bakta no puede buscar CDS, es el anotador que las predice.",
+      how: "ARVA ejecuta Prokka 1.14.6 del paquete de Debian/Ubuntu con las bases de datos de ese paquete: un conjunto de proteínas bacterianas construido a partir de UniProtKB/Swiss-Prot, modelos de Rfam y tres conjuntos de género (Enterococcus, Escherichia, Staphylococcus); el paquete de Debian no tiene bases de datos HMM. Prokka rechaza bases de datos sin indexar, así que ARVA enlaza los archivos del paquete en el trabajo, los indexa allí con prokka --setupdb y los elimina tras la ejecución. ARVA siempre pasa --outdir, --prefix, --dbdir, --kingdom Bacteria, --gcode, --locustag, --increment 1, --cpus, --evalue, --coverage y --mincontiglen; --genus, --species y --strain si se indican; --usegenus y --rfam si se eligen. Los nombres de contig de más de 37 caracteres (un límite de GenBank que Prokka exige) pueden sustituirse por contig_1, contig_2, …; ARVA conserva la correspondencia.",
+      interpret: "Un producto procede de la primera base de datos, en el orden de Prokka, en la que la proteína tiene un acierto (primero el conjunto del género si se usa --usegenus, después Swiss-Prot); la inferencia de cada elemento indica la base de datos y el número de acceso. Las proteínas sin acierto se etiquetan como 'hypothetical protein'. En genomas de menos de 100 kb, Prokka ejecuta Prodigal en modo metagenoma; ARVA registra el modo a partir del log de Prokka.",
+      next: "Compara con Bakta donde puedan ejecutarse ambos; revisa las proteínas hipotéticas y los genes parciales en los extremos de los contigs.",
+      mistakes: [
+        "Esperar matrices CRISPR sin tener MinCED instalado: Prokka no dice nada y no escribe ninguna; ARVA muestra el paso como no buscado.",
+        "Usar --usegenus con un género que no tiene conjunto en el paquete: Prokka lo omite.",
+      ],
+      limitations: "Su autor ya no lo mantiene (README). Las bases de datos del paquete de Debian difieren de las originales (sin paso HMM; sin conjuntos IS ni AMR), así que los resultados difieren de los de las instalaciones originales de Prokka. El paquete de Debian 12 (1.14.6+dfsg-4) no incluye los conjuntos de proteínas por reino, así que no puede anotar proteínas sin otras bases de datos; el changelog de Debian indica que Prokka solo funciona en la práctica en amd64 por sus dependencias.",
+    },
+  },
+  {
+    id: "hypothetical_proteins",
+    references: [REF.hypothetical, REF.baktaReadme, REF.prokkaReadme, REF.uniprot],
+    en: {
+      title: "Hypothetical proteins",
+      what: "A CDS whose predicted protein could not be given a function. Bakta marks as hypothetical the CDS without IPS or PSC hits, and those whose hits have no gene symbol or product other than 'hypothetical' (Bakta README). Prokka labels the proteins without a hit in its databases 'hypothetical protein'.",
+      why: "They are often a large share of a bacterial genome. Their number depends on the database as much as on the genome: a smaller database (Bakta's light one, Prokka's curated sets) leaves more proteins without a function.",
+      how: "ARVA takes the annotator's own flag: Bakta's 'hypothetical' field in its JSON; for Prokka, the product 'hypothetical protein'. The share is hypothetical CDS divided by all CDS. ARVA never replaces 'hypothetical protein' with a guess.",
+      interpret: "A hypothetical protein is not evidence of a new gene, nor of a spurious one: it only says that no annotated relative was found in the database used. Many such proteins are conserved across genomes but still uncharacterised (Galperin & Koonin 2004).",
+      next: "Look at length and position: very short hypothetical CDS, or ones overlapping RNA genes, deserve more doubt. Bakta's hypotheticals.tsv adds Pfam domains and protein statistics for them.",
+      mistakes: [
+        "Comparing hypothetical shares between annotators or database types.",
+        "Taking a high share as a sign of a novel organism: an unpolished draft (broken reading frames) or a small database also raise it.",
+      ],
+      limitations: "The share describes the annotation, not the organism. On ARVA's synthetic genomes most proteins are random sequences, so they are hypothetical by construction.",
+    },
+    es: {
+      title: "Proteínas hipotéticas",
+      what: "Una CDS cuya proteína predicha no pudo recibir una función. Bakta marca como hipotéticas las CDS sin aciertos IPS ni PSC y aquellas cuyos aciertos no tienen un símbolo de gen ni un producto distinto de 'hypothetical' (README de Bakta). Prokka etiqueta como 'hypothetical protein' las proteínas sin acierto en sus bases de datos.",
+      why: "Suelen ser una parte importante de un genoma bacteriano. Su número depende tanto de la base de datos como del genoma: una base de datos más pequeña (la light de Bakta, los conjuntos curados de Prokka) deja más proteínas sin función.",
+      how: "ARVA toma la marca del propio anotador: el campo 'hypothetical' del JSON de Bakta; en Prokka, el producto 'hypothetical protein'. La fracción es el número de CDS hipotéticas dividido entre todas las CDS. ARVA nunca sustituye 'hypothetical protein' por una suposición.",
+      interpret: "Una proteína hipotética no es prueba de un gen nuevo ni de uno espurio: solo indica que no se encontró ningún pariente anotado en la base de datos usada. Muchas de estas proteínas se conservan entre genomas pero siguen sin caracterizar (Galperin y Koonin 2004).",
+      next: "Fíjate en la longitud y la posición: las CDS hipotéticas muy cortas, o las que se solapan con genes de RNA, merecen más dudas. El archivo hypotheticals.tsv de Bakta añade para ellas dominios Pfam y estadísticas de la proteína.",
+      mistakes: [
+        "Comparar fracciones hipotéticas entre anotadores o tipos de base de datos.",
+        "Tomar una fracción alta como señal de un organismo nuevo: un borrador sin pulir (marcos de lectura rotos) o una base de datos pequeña también la elevan.",
+      ],
+      limitations: "La fracción describe la anotación, no el organismo. En los genomas sintéticos de ARVA la mayoría de las proteínas son secuencias aleatorias, así que son hipotéticas por construcción.",
+    },
+  },
+  {
+    id: "cds",
+    references: [REF.prodigal, REF.pyrodigal, REF.geneticCodes, REF.watsonWarr],
+    en: {
+      title: "Coding sequences (CDS)",
+      what: "A CDS is the stretch of DNA predicted to be translated into a protein, from a start codon to a stop codon in the chosen translation table. Bakta (via Pyrodigal) and Prokka (via Prodigal) predict them ab initio from the genome itself, with the same gene model: Pyrodigal is a Python interface to Prodigal's code.",
+      why: "CDS are most of a bacterial genome and carry most of the functional annotation; their number, lengths and density are basic checks of an assembly and its annotation.",
+      how: "Prodigal learns the codon statistics of the genome and scores possible start codons and ribosome binding sites; on short inputs Prokka switches it to metagenome mode (pre-trained models). The translation table changes which codons are stops: 11 is the bacterial, archaeal and plant plastid code; 4 (Mycoplasma/Spiroplasma) reads TGA as tryptophan; 25 is used by candidate division SR1 and Gracilibacteria. ARVA passes the table you choose to both annotators. A CDS running off the end of a contig is reported as partial (5', 3' or both).",
+      interpret: "Coding density (CDS bases over non-N bases, computed by ARVA) is typically high in bacteria, but no value proves a correct assembly: frameshifts from assembly errors shorten genes and move density only a little. Many short CDS in a row of hypothetical proteins may point to frameshifted genes.",
+      next: "Check partial CDS at contig edges; compare the number of CDS with a related genome annotated the same way.",
+      mistakes: [
+        "Choosing table 11 for a Mycoplasma: TGA is then read as stop, splitting genes.",
+        "Reading small differences in CDS count between annotators as biology: start-codon choice and filters differ.",
+      ],
+      limitations: "Ab initio prediction misses or invents some short genes; Bakta adds sORFs (< 30 aa) only when they match known proteins. In ARVA's synthetic genomes the CDS are planted ORFs with random codons: their count says the tools ran, nothing about real genomes.",
+    },
+    es: {
+      title: "Secuencias codificantes (CDS)",
+      what: "Una CDS es el tramo de DNA que se predice que se traduce a una proteína, desde un codón de inicio hasta un codón de parada en la tabla de traducción elegida. Bakta (con Pyrodigal) y Prokka (con Prodigal) las predicen ab initio a partir del propio genoma, con el mismo modelo de genes: Pyrodigal es una interfaz de Python al código de Prodigal.",
+      why: "Las CDS ocupan la mayor parte de un genoma bacteriano y llevan la mayor parte de la anotación funcional; su número, longitudes y densidad son comprobaciones básicas de un ensamblaje y de su anotación.",
+      how: "Prodigal aprende las estadísticas de codones del genoma y puntúa los posibles codones de inicio y sitios de unión al ribosoma; con entradas cortas, Prokka lo cambia al modo metagenoma (modelos preentrenados). La tabla de traducción cambia qué codones son de parada: la 11 es el código bacteriano, arqueano y de plastos vegetales; la 4 (Mycoplasma/Spiroplasma) lee TGA como triptófano; la 25 la usan la división candidata SR1 y Gracilibacteria. ARVA pasa a ambos anotadores la tabla que elijas. Una CDS que se sale del extremo de un contig se informa como parcial (5', 3' o ambos).",
+      interpret: "La densidad codificante (bases de CDS entre bases que no son N, calculada por ARVA) suele ser alta en bacterias, pero ningún valor demuestra que el ensamblaje sea correcto: los desplazamientos del marco por errores de ensamblaje acortan los genes y apenas mueven la densidad. Muchas CDS cortas seguidas de proteínas hipotéticas pueden indicar genes con el marco desplazado.",
+      next: "Revisa las CDS parciales en los extremos de los contigs; compara el número de CDS con un genoma emparentado anotado del mismo modo.",
+      mistakes: [
+        "Elegir la tabla 11 para un Mycoplasma: TGA se lee entonces como parada y los genes se parten.",
+        "Leer como biología pequeñas diferencias en el número de CDS entre anotadores: la elección del codón de inicio y los filtros difieren.",
+      ],
+      limitations: "La predicción ab initio pierde o inventa algunos genes cortos; Bakta solo añade sORF (< 30 aa) cuando coinciden con proteínas conocidas. En los genomas sintéticos de ARVA las CDS son ORF insertados con codones aleatorios: su número indica que las herramientas se ejecutaron, nada sobre genomas reales.",
+    },
+  },
+  {
+    id: "trna_rrna",
+    references: [REF.trnascan, REF.aragorn, REF.infernal, REF.rfam, REF.barrnap],
+    en: {
+      title: "tRNA and rRNA genes",
+      what: "tRNA genes encode the adaptors that read codons; rRNA genes (5S, 16S, 23S in bacteria) encode the RNA of the ribosome. Both are found by searching for conserved sequence and structure, not by translation.",
+      why: "Every bacterium needs tRNAs for its codons and at least one rRNA operon; finding them is a basic check of an assembly. 16S rRNA is also the usual marker for identification.",
+      how: "Bakta finds tRNA with tRNAscan-SE 2.0, tmRNA with Aragorn, and rRNA and other ncRNA with Infernal against Rfam covariance models. Prokka finds tRNA and tmRNA with Aragorn and rRNA with barrnap (HMMER's nhmmer with rRNA models). Bakta names a tRNA from the amino acid and anticodon that tRNAscan-SE reports, for example tRNA-Leu(cag), and writes tRNA-Xxx when tRNAscan-SE leaves the type undetermined or calls it a suppressor; Prokka uses Aragorn's names, for example tRNA-SeC(tca).",
+      interpret: "A missing rRNA type in a draft is common: identical rRNA copies are repeats that assemblers often collapse or leave at contig ends. Wobble pairing lets one tRNA read several codons, so fewer tRNA genes than sense codons is normal; an amino acid without any tRNA may point to a missing part of the genome or to a tRNA the search did not recognise.",
+      next: "If 16S is found, it can be used for identification against a reference database outside ARVA.",
+      mistakes: [
+        "Counting rRNA copies from a short-read assembly: collapsed repeats hide copies.",
+        "Taking 0 tRNA for a step that was not searched.",
+      ],
+      limitations: "On ARVA's synthetic genomes the RNA genes are sequences sampled from Rfam models with Infernal, not real genes; they only show that the searches ran.",
+    },
+    es: {
+      title: "Genes de tRNA y rRNA",
+      what: "Los genes de tRNA codifican los adaptadores que leen los codones; los genes de rRNA (5S, 16S y 23S en bacterias) codifican el RNA del ribosoma. Ambos se encuentran buscando secuencia y estructura conservadas, no por traducción.",
+      why: "Toda bacteria necesita tRNA para sus codones y al menos un operón de rRNA; encontrarlos es una comprobación básica de un ensamblaje. El rRNA 16S es además el marcador habitual de identificación.",
+      how: "Bakta encuentra los tRNA con tRNAscan-SE 2.0, los tmRNA con Aragorn, y los rRNA y otros ncRNA con Infernal frente a modelos de covarianza de Rfam. Prokka encuentra los tRNA y tmRNA con Aragorn y los rRNA con barrnap (nhmmer de HMMER con modelos de rRNA). Bakta nombra un tRNA a partir del aminoácido y el anticodón que indica tRNAscan-SE, por ejemplo tRNA-Leu(cag), y escribe tRNA-Xxx cuando tRNAscan-SE deja el tipo sin determinar o lo clasifica como supresor; Prokka usa los nombres de Aragorn, por ejemplo tRNA-SeC(tca).",
+      interpret: "Que falte un tipo de rRNA en un borrador es frecuente: las copias idénticas de rRNA son repeticiones que los ensambladores a menudo colapsan o dejan en extremos de contigs. El apareamiento por balanceo permite que un tRNA lea varios codones, así que es normal que haya menos genes de tRNA que codones con sentido; un aminoácido sin ningún tRNA puede indicar que falta una parte del genoma o un tRNA que la búsqueda no reconoció.",
+      next: "Si se encuentra el 16S, puede usarse para la identificación frente a una base de datos de referencia fuera de ARVA.",
+      mistakes: [
+        "Contar copias de rRNA a partir de un ensamblaje de lecturas cortas: las repeticiones colapsadas ocultan copias.",
+        "Tomar 0 tRNA en un paso que no se buscó.",
+      ],
+      limitations: "En los genomas sintéticos de ARVA los genes de RNA son secuencias muestreadas de modelos de Rfam con Infernal, no genes reales; solo muestran que las búsquedas se ejecutaron.",
+    },
+  },
+  {
+    id: "cog",
+    references: [REF.cog, REF.cogSite, REF.bakta],
+    en: {
+      title: "COG functional categories",
+      what: "Clusters of Orthologous Genes (COGs) group proteins from many prokaryotic genomes that descend from one ancestral gene; each COG has an identifier (COG0001…) and one or more functional categories, each a capital letter (for example J: translation, ribosomal structure and biogenesis).",
+      why: "Categories give a coarse functional profile of a genome that can be compared between genomes annotated the same way.",
+      how: "ARVA shows the COG identifiers and categories that the annotator reported as cross-references: Bakta from the COG records of its database (COG:COGnnnn for the identifier, COG: followed by the category letters), Prokka from its curated protein sets (identifiers only, no categories). ARVA does not assign COGs itself. The chart counts, per category, the CDS that carry it; a CDS can count in more than one category.",
+      interpret: "Only CDS with a COG are counted, so the chart describes the annotated part of the genome. With Bakta's light database fewer CDS receive COGs.",
+      next: "Follow a COG identifier to NCBI's COG pages for its description and members.",
+      mistakes: [
+        "Comparing category profiles between annotators or database types.",
+        "Reading categories as measured activities: they are transferred from orthologues.",
+      ],
+      limitations: "Category letters are links to NCBI's COG category pages; definitions are those of the COG database release the annotator's database was built from.",
+    },
+    es: {
+      title: "Categorías funcionales COG",
+      what: "Los grupos de genes ortólogos (COG) agrupan proteínas de muchos genomas procariotas que descienden de un mismo gen ancestral; cada COG tiene un identificador (COG0001…) y una o más categorías funcionales, cada una una letra mayúscula (por ejemplo J: traducción, estructura y biogénesis ribosómica).",
+      why: "Las categorías dan un perfil funcional aproximado de un genoma que puede compararse entre genomas anotados del mismo modo.",
+      how: "ARVA muestra los identificadores y categorías COG que el anotador informó como referencias cruzadas: Bakta a partir de los registros COG de su base de datos (COG:COGnnnn para el identificador, COG: seguido de las letras de categoría), Prokka a partir de sus conjuntos de proteínas curados (solo identificadores, sin categorías). ARVA no asigna COG por su cuenta. El gráfico cuenta, para cada categoría, las CDS que la tienen; una CDS puede contar en más de una categoría.",
+      interpret: "Solo se cuentan las CDS con COG, así que el gráfico describe la parte anotada del genoma. Con la base de datos light de Bakta, menos CDS reciben COG.",
+      next: "Sigue un identificador COG hasta las páginas COG del NCBI para ver su descripción y sus miembros.",
+      mistakes: [
+        "Comparar perfiles de categorías entre anotadores o tipos de base de datos.",
+        "Leer las categorías como actividades medidas: se transfieren desde ortólogos.",
+      ],
+      limitations: "Las letras de categoría enlazan con las páginas de categorías COG del NCBI; las definiciones son las de la versión de la base de datos COG a partir de la que se construyó la base de datos del anotador.",
     },
   },
 ];

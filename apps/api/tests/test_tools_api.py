@@ -43,7 +43,7 @@ def job(client, job_id):
 def test_tools_listing(client):
     tools = {t["id"]: t for t in client.get(f"{API}/tools").json()}
     assert set(tools) == {"seqkit", "fastqc", "fastp", "filtlong", "multiqc", "nanoplot", "flye", "spades", "unicycler",
-                          "quast", "racon", "pilon", "minimap2", "bwa", "samtools", "dnadiff"}
+                          "quast", "racon", "pilon", "minimap2", "bwa", "samtools", "dnadiff", "bakta", "prokka"}
     for t in tools.values():
         assert t["status"] in ("available", "not_installed", "incompatible", "failed")
         assert t["license"] and t["citation_url"].startswith("https://")

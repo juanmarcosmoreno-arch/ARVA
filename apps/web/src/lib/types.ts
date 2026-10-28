@@ -1585,3 +1585,247 @@ export interface DatabaseUsage {
   partial_bytes: number;
   staging_bytes: number;
 }
+
+// --- Annotation (Bakta, Prokka) ---------------------------------------------------------------------------------
+
+export type Annotator = "bakta" | "prokka";
+export type TranslationTable = 11 | 4 | 25;
+
+export interface AnnotationDependency {
+  name: string;
+  /** ok, missing, failed, unreadable, too_old, crashed (PILER-CR's test run), database_missing (AMRFinderPlus). */
+  status: string;
+  found?: string | null;
+  minimum?: string | null;
+  returncode?: number | null;
+  steps?: string[];
+  command?: string[];
+}
+
+export interface AnnotationStep {
+  run: boolean;
+  /** dependency, user, needs_cds, light_database, option_off, database_lacks, not_offered, not_supported, tool_skipped, crashed */
+  reason: string | null;
+  dependencies: AnnotationDependency[];
+  status?: "searched" | "skipped" | "failed" | null;
+  found?: number | null;
+  returncode?: number | null;
+}
+
+export interface AnnotationAssemblyFacts {
+  assembly_id: string;
+  kind: string;
+  assembler: string;
+  assembler_version: string;
+  parent_assembly_id: string | null;
+  job_id: string;
+  contigs_sha256: string;
+  created_at: string;
+  contigs: number;
+  total_length: number | null;
+  circular_contigs: number | null;
+  contigs_with_circularity: number | null;
+  all_circular: boolean;
+  longest_contig_name: number;
+  prokka_name_problem: string | null;
+  descriptions: number;
+  synthetic_evidence: string[];
+}
+
+export interface BaktaDatabaseOption {
+  id: string;
+  key: string;
+  name: string;
+  version: string | null;
+  type: string | null;
+  status: DatabaseStatus;
+  usable: boolean;
+  checksum: string | null;
+  verified_at: string | null;
+  path: string | null;
+}
+
+export interface ProkkaDatabase {
+  path: string;
+  ready: boolean;
+  files: string[];
+  package: string[] | null;
+  kingdoms: string[];
+  genera: string[];
+  hmm: string[];
+  checksum?: string | null;
+  key?: string | null;
+  name?: string | null;
+  version?: string | null;
+}
+
+export interface AnnotationPlan {
+  annotator: Annotator;
+  tool: {
+    status: string;
+    version: string | null;
+    version_validated: boolean;
+    message: string;
+    reason: string | null;
+    path: string | null;
+    license: string;
+    citation: string;
+    citation_url: string;
+    max_threads: number;
+  };
+  steps: Record<string, AnnotationStep>;
+  assembly: AnnotationAssemblyFacts;
+  suggestions: { locus_tag: string; complete?: boolean; rename_contigs?: boolean; translation_table: TranslationTable };
+  translation_tables: TranslationTable[];
+  problems: { code: string; message: string }[];
+  dependencies: AnnotationDependency[];
+  skip_options: string[];
+  databases: BaktaDatabaseOption[];
+  database_id: string | null;
+  database: ProkkaDatabase | null;
+  programs: Record<string, string | null>;
+}
+
+export interface AnnotationOrganism {
+  locus_tag: string;
+  translation_table: TranslationTable;
+  genus: string | null;
+  species: string | null;
+  strain: string | null;
+  min_contig_length: number;
+}
+
+export interface BaktaSettings extends AnnotationOrganism {
+  complete: boolean;
+  keep_contig_headers: boolean;
+  skip_plot: boolean;
+}
+
+export interface ProkkaSettings extends AnnotationOrganism {
+  use_genus: boolean;
+  rfam: boolean;
+  evalue: number;
+  coverage: number;
+  rename_contigs: boolean;
+}
+
+export interface BaktaRequest {
+  database_id: string | null;
+  settings: BaktaSettings;
+  threads: number | null;
+  skip_options: string[];
+  complete_confirmed: boolean;
+  confirmed: boolean;
+}
+
+export interface ProkkaRequest {
+  settings: ProkkaSettings;
+  threads: number | null;
+  confirmed: boolean;
+}
+
+export interface AnnotationSummary {
+  counts: Record<string, number>;
+  features: number;
+  cds: number | null;
+  hypothetical: number | null;
+  characterised: number | null;
+  hypothetical_fraction: number | null;
+  pseudogenes: number;
+  partial: number;
+  with_ec: number;
+  with_cog: number;
+  with_go: number;
+  with_gene: number;
+  cog_categories: Record<string, number>;
+  coding_density: { value: number | null; cds_bases: number | null; non_n_bases: number; definition: string };
+  sequences: number;
+  total_length: number;
+  tool_reported: Record<string, unknown>;
+  input: { sha256: string; non_n_bases: number; total_length: number; renamed: boolean };
+  synthetic_evidence: string[];
+}
+
+export interface AnnotationSequence {
+  id: string;
+  original_id: string;
+  length: number;
+  topology?: string | null;
+  replicon_type?: string | null;
+  complete?: boolean | null;
+}
+
+export interface Annotation {
+  id: string;
+  sample_id: string;
+  assembly_id: string;
+  job_id: string;
+  tool: string;
+  tool_version: string;
+  database_key: string | null;
+  database_name: string | null;
+  database_version: string | null;
+  database_checksum: string | null;
+  parameters: Record<string, unknown>;
+  steps: Record<string, AnnotationStep>;
+  summary: AnnotationSummary;
+  sequences: AnnotationSequence[];
+  files: Record<string, { path: string; sha256: string; size_bytes: number }>;
+  created_at: string;
+}
+
+export interface AnnotationFeature {
+  id: number;
+  tool_id: string | null;
+  locus_tag: string | null;
+  type: string;
+  tool_type: string | null;
+  contig: string;
+  contig_in_assembly: string;
+  start: number;
+  end: number;
+  strand: string;
+  length: number;
+  edge: boolean;
+  gene: string | null;
+  product: string | null;
+  ec: string[];
+  cog: string[];
+  cog_categories: string[];
+  go: string[];
+  db_xrefs: string[];
+  pseudo: boolean;
+  partial: string | null;
+  hypothetical: boolean | null;
+  inference: string[];
+  accessions: string[];
+}
+
+export interface AnnotationFeaturePage {
+  total: number;
+  limit: number;
+  offset: number;
+  max_limit: number;
+  items: AnnotationFeature[];
+}
+
+export interface AnnotationFeatureDetail extends AnnotationFeature {
+  links: { xref: string; url: string }[];
+  nucleotide: { source: string; header: string; length: number; sequence: string; truncated: boolean } | null;
+  protein: { source: string; header: string; length: number; sequence: string; truncated: boolean } | null;
+}
+
+export type AnnotationExportFormat = "gff3" | "genbank" | "fasta_nt" | "fasta_aa" | "tsv";
+
+export interface FeatureQuery {
+  types: string[];
+  q: string;
+  hypothetical: "" | "true" | "false";
+  contig: string;
+  start: string;
+  end: string;
+  sort: "position" | "locus_tag" | "type" | "gene" | "product" | "length";
+  descending: boolean;
+  limit: number;
+  offset: number;
+}

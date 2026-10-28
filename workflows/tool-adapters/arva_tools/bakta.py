@@ -40,7 +40,7 @@ from typing import Any
 
 from arva_core.annotation import new_feature, sort_xrefs, span_length
 
-from arva_tools.base import ToolAdapter, ToolInfo, help_options, read_help
+from arva_tools.base import DetectedTool, ToolAdapter, ToolInfo, ToolStatus, help_options, read_help
 from arva_tools.nanoplot import python_of
 from arva_tools.runner import isolated_home, tool_environment
 
@@ -304,6 +304,25 @@ class BaktaAdapter(ToolAdapter):
         },
     )
     version_pattern = re.compile(r"bakta (\d+\.\d+\.\d+)")
+
+    def detect(self) -> DetectedTool:
+        d = super().detect()
+        if d.status is not ToolStatus.available or d.path is None:
+            return d
+        try:
+            deps = check_dependencies(d.path, None)
+        except RuntimeError as exc:
+            d.message = f"{d.message}. {exc}" if d.message else str(exc)
+            return d
+        steps = plan_steps(deps, None, skip_plot=False)
+        off = [s for s in STEPS if not steps[s]["run"] and steps[s]["reason"] == "dependency"]
+        if off:
+            d.reason = "bakta_steps_skipped"
+            names = sorted({x["name"] for s in off for x in steps[s]["dependencies"]})
+            note = (f"Steps that cannot run on this computer: {', '.join(off)} (programs missing, too old or crashing: "
+                    f"{', '.join(names)}); ARVA skips them with Bakta's own options and records why")
+            d.message = f"{d.message}. {note}" if d.message else note
+        return d
 
     @staticmethod
     def help_options(executable: str) -> frozenset[str]:
