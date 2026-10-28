@@ -19,6 +19,10 @@ dist/
 data/
 apps/api/data/
 
+# Generated SYNTHETIC genome and reads (scripts/make_synthetic_genome.py); only the README is kept
+examples/synthetic-genome/*
+!examples/synthetic-genome/README.md
+
 # Server-side import folder (docker-compose mounts it read-only at /import)
 import/*
 !import/README.md
