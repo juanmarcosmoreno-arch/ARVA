@@ -15,14 +15,17 @@ from app.schemas.schemas import (
     AnnotationExportRequest,
     AnnotationFeatureDetail,
     AnnotationFeaturePage,
+    AnnotationListRow,
     AnnotationPlanRead,
     AnnotationRead,
+    AnnotationRegion,
     BaktaPreviewRequest,
     BaktaRequest,
     ProkkaPreviewRequest,
     ProkkaRequest,
 )
 from app.services import annotation as svc
+from app.services import genome_explorer as explorer
 from app.services.jobs import create_bakta_job, create_prokka_job
 from app.storage import get_storage
 
@@ -151,6 +154,12 @@ def list_sample_annotations(sample_id: str, db: Session = Depends(get_db)):
                       .order_by(Annotation.created_at.desc())).all()
 
 
+@router.get("/annotations", response_model=list[AnnotationListRow])
+def list_annotations(limit: int = Query(default=200, ge=1, le=1000), db: Session = Depends(get_db)):
+    """Every annotation, newest first, with its sample, project and assembly (the Genome Explorer's list)."""
+    return explorer.list_annotations(db, limit)
+
+
 @router.get("/annotations/{annotation_id}", response_model=AnnotationRead)
 def get_annotation(annotation_id: str, db: Session = Depends(get_db)):
     return _annotation(db, annotation_id)
@@ -191,11 +200,12 @@ def get_feature(annotation_id: str, feature_id: int, db: Session = Depends(get_d
     the identifiers it reported."""
     annotation = _annotation(db, annotation_id)
     try:
-        return svc.feature_detail(annotation, feature_id)
+        detail = svc.feature_detail(annotation, feature_id)
     except LookupError:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Feature not found") from None
     except FileNotFoundError as exc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+    return {**detail, "checks": explorer.feature_checks(annotation, detail, detail["nucleotide"], detail["protein"])}
 
 
 @router.get("/annotations/{annotation_id}/files/{kind}")
@@ -214,16 +224,24 @@ def download_file(annotation_id: str, kind: str, db: Session = Depends(get_db)):
                         content_disposition_type="inline" if kind == "plot_png" else "attachment")
 
 
-def _export(db: Session, annotation_id: str, fmt: str, ids: list[int] | None) -> Response:
+def _export(db: Session, annotation_id: str, fmt: str, ids: list[int] | None,
+            region: AnnotationRegion | None = None) -> Response:
     annotation = _annotation(db, annotation_id)
     try:
+        if region is not None:
+            ids = explorer.region_ids(annotation, region.contig, region.start, region.end)
         text, suffix = svc.export(annotation, fmt, ids)
     except svc.InputError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+    except LookupError:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "This annotation has no such sequence") from None
     except FileNotFoundError as exc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc)) from exc
     sample = db.get(Sample, annotation.sample_id)
-    name = svc.download_name(sample, annotation, ("selected_" if ids is not None else "") + suffix)
+    prefix = "region_" if region is not None else "selected_" if ids is not None else ""
+    name = svc.download_name(sample, annotation, prefix + suffix)
     return Response(text, media_type="text/plain; charset=utf-8",
                     headers={"Content-Disposition": f'attachment; filename="{name}"', **_SAFE_HEADERS})
 
@@ -236,5 +254,6 @@ def export_all(annotation_id: str, fmt: str, db: Session = Depends(get_db)):
 
 @router.post("/annotations/{annotation_id}/export")
 def export_selected(annotation_id: str, payload: AnnotationExportRequest, db: Session = Depends(get_db)):
-    """Selected features (at most 10,000): their lines or records of the annotator's files, or ARVA's table."""
-    return _export(db, annotation_id, payload.format, payload.feature_ids)
+    """Selected features, or those overlapping a region (at most 10,000): their lines or records of the annotator's
+    files, or ARVA's table."""
+    return _export(db, annotation_id, payload.format, payload.feature_ids, payload.region)

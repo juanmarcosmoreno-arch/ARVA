@@ -24,6 +24,7 @@ from typing import Any
 
 from arva_core.assembly_stats import ContigAnnotation
 from arva_core.formats import is_gzip
+from arva_core.genome_view import depth_bins, parse_depth_lines, write_depth_profile
 from arva_tools import ToolExecutionError, ToolStatus, ToolTimeoutError
 from arva_tools.dnadiff import DnadiffAdapter, nucmer_version
 from arva_tools.flye import read_link_name
@@ -44,6 +45,7 @@ STATS_KEYS = ("reads", "reads_mapped", "mapped_percent", "reads_properly_paired"
               "deletion_events", "indel_events_per_100kb", "average_length", "supplementary_alignments")
 ASSEMBLY_KEYS = ("contig_count", "total_length", "largest_contig", "n50", "l50", "gc_percent", "n_count")
 _PILON_SUFFIX = re.compile(r"(?:_pilon)+$")
+DEPTH_RESOLUTION = 25
 
 
 class _Steps:
@@ -192,7 +194,32 @@ def _alignment_stats(ctx: JobContext, samtools: str, bam: Path, name: str, keep:
         rows = SamtoolsAdapter.parse_coverage(coverage.read_text(errors="replace"))
     except ValueError as exc:
         raise JobFailure(f"samtools' alignment statistics cannot be read: {exc}") from exc
-    return {"stats": {k: parsed.get(k) for k in STATS_KEYS}, "coverage": rows}
+    return {"stats": {k: parsed.get(k) for k in STATS_KEYS}, "coverage": rows,
+            "depth_profile": _depth_profile(ctx, samtools, bam, name, {r["contig"]: r["length"] for r in rows}, keep,
+                                            logs)}
+
+
+def _depth_profile(ctx: JobContext, samtools: str, bam: Path, name: str, lengths: dict[str, int], keep: Path,
+                   logs: Path) -> dict[str, Any]:
+    """The alignment's per-base depth summed in bins of DEPTH_RESOLUTION bases (keep/<name>.depth_profile.json), so
+    the Genome Explorer can draw coverage after the alignment itself is deleted."""
+    argv = SamtoolsAdapter.depth_argv(samtools, bam)
+    depth = bam.parent / f"{name}.depth.tsv.gz"
+    _run(ctx, argv, bam.parent, f"{name}.samtools_depth.log", stdout=depth, log_dir=logs)
+    try:
+        with gzip.open(depth, "rt") as fh:
+            sums = depth_bins(parse_depth_lines(fh), lengths, DEPTH_RESOLUTION)
+    except ValueError as exc:
+        raise JobFailure(f"samtools depth output cannot be read: {exc}") from exc
+    finally:
+        depth.unlink(missing_ok=True)
+    out = keep / f"{name}.depth_profile.json"
+    write_depth_profile(out, sums, lengths, DEPTH_RESOLUTION,
+                        {"alignment": name, "command": [Path(argv[0]).name, *argv[1:-1], bam.name],
+                         "deletions_counted": False, "overlapping_mates_counted_twice": True})
+    ctx.log(f"Depth profile of the {name} alignment: per-base depth (samtools depth) summed in {DEPTH_RESOLUTION} bp "
+            f"bins for {len(sums)} contig(s) → {out.name}")
+    return {"path": _rel(ctx, out), "sha256": _sha256(out), "resolution": DEPTH_RESOLUTION}
 
 
 def _sorted_bam(ctx: JobContext, samtools: str, sam: Path, name: str, threads: int, logs: Path,

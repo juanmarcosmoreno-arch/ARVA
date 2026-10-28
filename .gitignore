@@ -22,6 +22,8 @@ apps/api/data/
 # Generated SYNTHETIC genome and reads (scripts/make_synthetic_genome.py); only the README is kept
 examples/synthetic-genome/*
 !examples/synthetic-genome/README.md
+# Generated SYNTHETIC annotation genome (scripts/make_synthetic_annotation_genome.py)
+examples/synthetic-annotation/
 
 # Server-side import folder (docker-compose mounts it read-only at /import)
 import/*

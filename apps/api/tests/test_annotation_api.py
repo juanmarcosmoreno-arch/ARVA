@@ -20,7 +20,14 @@ from arva_tools.prokka import ProkkaAdapter, database_info, database_source
 from arva_tools.registry import detect
 
 from app.db.session import SessionLocal
-from app.models import AnalysisJob, Annotation, AssemblyMode, DatabaseOrigin, DatabaseStatus, JobStatus
+from app.models import (
+    AnalysisJob,
+    Annotation,
+    AssemblyMode,
+    DatabaseOrigin,
+    DatabaseStatus,
+    JobStatus,
+)
 from app.models import ReferenceDatabase as RefDb
 from app.services import annotation as svc
 from app.services.assemblies import register_assembly
@@ -269,6 +276,20 @@ def test_bakta_end_to_end(client, setup, bakta_db, storage_root):
         assert "https://rfam.org/family/RF00177" in [link["url"] for link in detail["links"]]
     gap = client.get(f"{API}/annotations/{ann['id']}/features", params={"type": "gap"}).json()
     assert gap["total"] == 1 and gap["items"][0]["length"] == 100
+    # Genome Explorer: Bakta names the sequences contig_1, contig_2; either name opens the same sequence, which is
+    # the input unchanged, and every feature's gene sequence is the genome at its coordinates.
+    genome = dict(zip([">" + s["original_id"] for s in ann["sequences"]],
+                      GENOME.read_text().split(">")[1:], strict=True))
+    for s in ann["sequences"]:
+        expected = "".join(genome[">" + s["original_id"]].splitlines()[1:])
+        for name in (s["id"], s["original_id"]):
+            got = client.get(f"{API}/annotations/{ann['id']}/sequence",
+                             params={"contig": name, "start": 1, "end": s["length"]}).json()
+            assert got["contig"] == s["id"] and got["sequence"] == expected
+    for s in ann["sequences"]:
+        for f in client.get(f"{API}/annotations/{ann['id']}/layout", params={"contig": s["id"]}).json()["items"]:
+            checks = client.get(f"{API}/annotations/{ann['id']}/features/{f['id']}").json()["checks"]
+            assert checks["nucleotide"]["status"] in (("match",) if f["type"] != "gap" else ("match", "not_checked"))
     assert client.get(f"{API}/annotations/{ann['id']}/files/json").json()["version"]["bakta"] == "1.12.2"
     if ann["steps"]["plot"]["status"] == "searched":
         png = client.get(f"{API}/annotations/{ann['id']}/files/plot_png")
@@ -278,7 +299,7 @@ def test_bakta_end_to_end(client, setup, bakta_db, storage_root):
     assert entry["tool"] == "Bakta" and entry["database"]["checksum"] == BAKTA_DB_CHECKSUM
     html = client.get(f"{API}/samples/{sample['id']}/report").text
     assert "<h2>Annotation</h2>" in html and "SYNTHETIC input" in html
-    for step, s in ann["steps"].items():
+    for s in ann["steps"].values():
         if s["status"] == "skipped" and s["reason"] == "dependency":
             assert "not searched — " in html and any(d["name"] in html for d in s["dependencies"])
     csv_text = client.get(f"{API}/samples/{sample['id']}/report", params={"format": "csv"}).text

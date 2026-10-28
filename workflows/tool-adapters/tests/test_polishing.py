@@ -27,6 +27,9 @@ def test_every_flag_arva_passes_is_in_the_recorded_help():
     assert {"-a", "-x", "-t", "-o"} <= opts("minimap2_help_2.26.txt")
     assert "-p" in opts("bwa_index_usage_0.7.17.txt") and {"-t", "-K"} <= opts("bwa_mem_usage_0.7.17.txt")
     assert {"-T", "-o"} <= opts("samtools_sort_usage_1.19.2.txt")
+    assert {"-a", "-Q", "-q", "-l", "-G"} <= opts("samtools_depth_usage_1.19.2.txt")
+    assert "-a -a, -aa   Output absolutely all positions" in (F / "samtools_depth_usage_1.19.2.txt").read_text()
+    assert "[UNMAP,SECONDARY,QCFAIL,DUP]" in (F / "samtools_depth_usage_1.19.2.txt").read_text()
     assert "-@, --threads INT" in (F / "samtools_sort_usage_1.19.2.txt").read_text()
     assert "-p|prefix" in (F / "dnadiff_help_1.3.txt").read_text()
     for preset in ("map-ont", "map-pb", "map-hifi"):
@@ -165,6 +168,8 @@ def test_mapper_argv():
         "bwa", "mem", "-t", "4", "-K", "100000000", "/j/r0", "/j/1.fq", "/j/2.fq"]
     assert SamtoolsAdapter.sort_argv("samtools", Path("a.sam.gz"), Path("a.bam"), 1, Path("tmp/a")) == [
         "samtools", "sort", "-@", "0", "-T", "tmp/a", "-o", "a.bam", "a.sam.gz"]
+    assert SamtoolsAdapter.depth_argv("samtools", Path("a.bam")) == [
+        "samtools", "depth", "-aa", "-Q", "0", "-q", "0", "-l", "0", "-G", "UNMAP,SECONDARY,QCFAIL,DUP", "a.bam"]
 
 
 def test_samtools_stats_and_coverage():

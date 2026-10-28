@@ -5,6 +5,7 @@ import json
 import os
 import shutil
 import subprocess
+from itertools import pairwise
 from pathlib import Path
 
 import pytest
@@ -57,7 +58,7 @@ def test_bakta_argv_passes_every_result_changing_option():
     argv = BaktaAdapter.argv("bakta", p, J / "in.fna", Path("/db"), J / "bakta", J / "tmp", ["--skip-cds", "--skip-ori"],
                              BAKTA_HELP)
     assert argv[:2] == ["bakta", "/job/in.fna"]
-    pairs = dict(zip(argv[2::1], argv[3::1], strict=False))
+    pairs = dict(pairwise(argv[2:]))
     assert pairs["--db"] == "/db" and pairs["--output"] == "/job/bakta" and pairs["--tmp-dir"] == "/job/tmp"
     assert pairs["--threads"] == "3" and pairs["--min-contig-length"] == "200" and pairs["--translation-table"] == "4"
     assert pairs["--locus-tag"] == "SYNT" and pairs["--locus-tag-increment"] == "1" and pairs["--prefix"] == "annotation"
@@ -185,7 +186,7 @@ def test_prokka_argv_passes_every_result_changing_option():
     p = ProkkaParams(locus_tag="SYNT", genus="Escherichia", species="coli", use_genus=True, rfam=True, threads=2,
                      evalue=1e-6, coverage=70, min_contig_length=200)
     argv = ProkkaAdapter.argv("prokka", p, J / "in.fna", J / "db", J / "prokka", PROKKA_HELP)
-    pairs = dict(zip(argv[2::1], argv[3::1], strict=False))
+    pairs = dict(pairwise(argv[2:]))
     assert argv[:2] == ["prokka", "/job/in.fna"]
     assert pairs["--kingdom"] == "Bacteria" and pairs["--gcode"] == "11" and pairs["--locustag"] == "SYNT"
     assert pairs["--cpus"] == "2" and pairs["--evalue"] == "1e-06" and pairs["--coverage"] == "70"

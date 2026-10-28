@@ -1813,10 +1813,46 @@ class AnnotationSequenceRead(BaseModel):
     truncated: bool
 
 
+class SequenceCheckRead(BaseModel):
+    status: Literal["match", "differs", "not_checked"]
+    reason: str | None = Field(default=None, description="Why not checked: no_sequence, no_genome, not_coding, "
+                               "no_protein, pseudogene, length")
+
+
+class ProteinCheckRead(SequenceCheckRead):
+    table: int = Field(description="The translation table given to the annotator")
+    first_difference: int | None = None
+    translated_length: int | None = None
+    protein_length: int | None = None
+    internal_stops: int | None = None
+
+
+class FeatureChecksRead(BaseModel):
+    nucleotide: SequenceCheckRead = Field(description="The annotator's gene sequence equals the genome at the "
+                                          "feature's coordinates")
+    protein: ProteinCheckRead = Field(description="The annotator's protein equals ARVA's translation of the genome "
+                                      "there (a check only: the protein shown is always the annotator's)")
+
+
 class AnnotationFeatureDetail(AnnotationFeatureRead):
     links: list[AnnotationLink] = Field(description="Resolver links for identifiers the annotator reported")
     nucleotide: AnnotationSequenceRead | None
     protein: AnnotationSequenceRead | None
+    checks: FeatureChecksRead
+
+
+class AnnotationRegion(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    contig: str = Field(min_length=1, max_length=200, description="The annotator's or the assembly's name")
+    start: int = Field(ge=1)
+    end: int = Field(ge=1)
+
+    @model_validator(mode="after")
+    def _ordered(self):
+        if self.end < self.start:
+            raise ValueError("end must not be before start")
+        return self
 
 
 class AnnotationExportRequest(BaseModel):
@@ -1824,3 +1860,118 @@ class AnnotationExportRequest(BaseModel):
 
     format: Literal["gff3", "genbank", "fasta_nt", "fasta_aa", "tsv"]
     feature_ids: list[int] | None = Field(default=None, max_length=10_000, description="None: every feature")
+    region: AnnotationRegion | None = Field(default=None, description="The features overlapping a region (instead "
+                                            "of feature_ids)")
+
+    @model_validator(mode="after")
+    def _one_selection(self):
+        if self.feature_ids is not None and self.region is not None:
+            raise ValueError("give feature_ids or a region, not both")
+        return self
+
+
+class AnnotationListRow(BaseModel):
+    id: str
+    tool: str
+    tool_version: str
+    database_name: str | None
+    database_version: str | None
+    created_at: dt.datetime
+    sample_id: str
+    sample_code: str
+    project_id: str
+    project_name: str
+    is_demo: bool
+    assembly_id: str
+    assembler: str
+    assembler_version: str
+    assembly_kind: str
+    sequences: int
+    total_length: int
+    features: int | None
+    cds: int | None
+    synthetic_evidence: list[str]
+
+
+# --- Genome Explorer -----------------------------------------------------------------------------------------------
+
+class GcTrackRead(BaseModel):
+    window: int = Field(description="Window length, bp")
+    step: int = Field(description="Distance between window starts, bp")
+    auto: bool = Field(description="Window chosen by ARVA for the view (step = window)")
+    windows: int = Field(description="Windows computed")
+    group: int = Field(description="Windows per point (1: one window per point)")
+    contig_gc: float | None = Field(description="(G+C)/(A+C+G+T) of the whole sequence")
+    start: list[int]
+    end: list[int]
+    gc: list[float | None]
+    gc_min: list[float | None]
+    gc_max: list[float | None]
+    skew: list[float | None] = Field(description="(G-C)/(G+C)")
+    skew_min: list[float | None]
+    skew_max: list[float | None]
+
+
+class CoverageTrackRead(BaseModel):
+    available: bool
+    reason: str | None = Field(default=None, description="Why not: no_alignment, profile_missing, contig_mismatch, "
+                               "assembly_missing")
+    job_id: str | None = None
+    source: dict[str, Any] | None = Field(default=None, description="The polishing job, alignment, aligner, reads "
+                                          "and samtools depth command")
+    contig_mean_depth: float | None = None
+    resolution: int | None = Field(default=None, description="Bin size of the stored depth profile, bp")
+    group: int | None = None
+    start: list[int] = []
+    end: list[int] = []
+    mean: list[float | None] = []
+    min: list[float | None] = []
+    max: list[float | None] = []
+
+
+class GenomeTracksRead(BaseModel):
+    contig: str
+    contig_in_assembly: str
+    length: int
+    start: int
+    end: int
+    points: int
+    sequence_source: dict[str, Any]
+    gc: GcTrackRead
+    coverage: CoverageTrackRead
+
+
+class GenomeSequenceRead(BaseModel):
+    contig: str
+    contig_in_assembly: str
+    start: int
+    end: int
+    strand: Literal["+", "-"]
+    length: int
+    sequence: str
+    source: dict[str, Any]
+
+
+class FeatureLayoutItem(BaseModel):
+    id: int
+    locus_tag: str | None
+    tool_id: str | None
+    type: str
+    start: int
+    end: int
+    strand: str
+    length: int
+    edge: bool
+    gene: str | None
+    product: str | None
+    hypothetical: bool | None
+    pseudo: bool
+    partial: str | None
+
+
+class FeatureLayoutRead(BaseModel):
+    contig: str
+    contig_in_assembly: str
+    length: int
+    total: int
+    items: list[FeatureLayoutItem]

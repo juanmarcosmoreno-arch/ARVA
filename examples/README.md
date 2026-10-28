@@ -56,6 +56,25 @@ under 100 % for a rotated circular contig is explained in the QUAST card). Run a
 example with other settings or a Filtlong-filtered copy of the reads) to see the comparison table and
 overlaid cumulative curves.
 
+## SYNTHETIC genome for annotation
+
+`scripts/make_synthetic_annotation_genome.py` writes a small SYNTHETIC genome for trying the Annotation tab: random
+ORFs (ATG, random sense codons, a stop, a Shine-Dalgarno-like motif upstream) on both strands of a chromosome and a
+plasmid, a CRISPR-like array and a run of N, with every planted feature listed in `planted_features.tsv`. With
+`--insert` and `--back-translate` it can also plant given RNA or protein sequences (the test fixture in
+`workflows/tool-adapters/tests/fixtures/annotation_genome` does, with RNA sampled from Rfam models and three
+Swiss-Prot proteins). Every header says SYNTHETIC, and ARVA labels results on it as test data: random ORFs are
+hypothetical proteins by construction, and nothing reported for them describes an organism.
+
+```bash
+python3 scripts/make_synthetic_annotation_genome.py examples/synthetic-annotation   # --help for sizes and seed
+```
+
+ARVA annotates assemblies it produced (an existing assembly cannot be imported yet), so to try the Annotation tab,
+assemble `synthetic-genome/` above and annotate that assembly (also SYNTHETIC). The annotation genome is used by the
+automated tests, which register it as an assembly. Only this README section is in git: the generated folder is
+ignored.
+
 For real bacterial data, public runs from the ENA/SRA (for example Nanopore or
 Illumina runs of *Staphylococcus aureus* isolates) can be downloaded and
 imported directly.

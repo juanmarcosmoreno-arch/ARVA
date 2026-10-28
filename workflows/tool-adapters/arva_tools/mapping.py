@@ -109,6 +109,9 @@ class BwaAdapter(ToolAdapter):
         return [executable, "mem", "-t", str(threads), "-K", str(BWA_BATCH_BASES), str(prefix), *map(str, reads)]
 
 
+DEPTH_OPTIONS = ("-aa", "-Q", "0", "-q", "0", "-l", "0", "-G", "UNMAP,SECONDARY,QCFAIL,DUP")
+
+
 class SamtoolsAdapter(ToolAdapter):
     info = ToolInfo(
         id="samtools",
@@ -147,6 +150,13 @@ class SamtoolsAdapter(ToolAdapter):
     @staticmethod
     def coverage_argv(executable: str, bam: Path) -> list[str]:
         return [executable, "coverage", str(bam)]
+
+    @staticmethod
+    def depth_argv(executable: str, bam: Path) -> list[str]:
+        """Per-base depth at every position of every sequence (-aa), with samtools' defaults written out: no minimum
+        mapping or base quality or read length, and the default excluded flags. Deletions are not counted (no -J), so
+        the mean equals samtools coverage's mean depth; overlapping mates both count (no -s)."""
+        return [executable, "depth", *DEPTH_OPTIONS, str(bam)]
 
     @staticmethod
     def parse_stats(text: str) -> dict[str, Any]:

@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 from arva_core.assembly_stats import ContigAnnotation
+from arva_core.genome_view import read_depth_profile
 from arva_tools import ToolStatus
 from arva_tools.registry import detect
 
@@ -239,6 +240,17 @@ def test_racon_polishes_the_draft_and_reports_direct_and_indirect_evidence(clien
     assert {"polished.fasta", "round1.fasta", "dnadiff_round1.report", "dnadiff_overall.snps", "draft.samtools_stats.txt",
             "polished.samtools_coverage.tsv", "round2.racon.log"} <= names
     assert not any("/work/" in o for o in d["output_paths"])
+    assert not any(o.endswith(".depth.tsv.gz") for o in d["output_paths"])
+    for side in ("before", "after"):
+        # The depth profile's mean equals samtools coverage's mean depth (deletions are not counted by either).
+        entry = s["indirect"][side]["depth_profile"]
+        profile = read_depth_profile(storage_root / entry["path"])
+        assert entry["resolution"] == profile["resolution"] == 25
+        assert [c["length"] for c in profile["contigs"]] == [r["length"] for r in s["indirect"][side]["coverage"]]
+        for c, row in zip(profile["contigs"], s["indirect"][side]["coverage"], strict=True):
+            assert c["mean_depth"] == pytest.approx(row["mean_depth"], abs=1e-3)
+    assert Path(s["indirect"]["after"]["depth_profile"]["path"]).name == "polished.depth_profile.json"
+    assert any(Path(c[0]).name == "samtools" and c[1] == "depth" and "-aa" in c for c in d["commands"])
 
     polished = client.get(f"{API}/assemblies/{s['polished_assembly_id']}").json()
     assert (polished["kind"], polished["parent_assembly_id"], polished["assembler"]) == ("polished", draft["id"], "Racon")
@@ -259,7 +271,7 @@ def test_racon_polishes_the_draft_and_reports_direct_and_indirect_evidence(clien
 
 
 @pytest.mark.skipif(not ready("pilon", "bwa", "samtools", "dnadiff"), reason="needs Pilon, BWA, samtools, MUMmer")
-def test_pilon_corrects_the_draft_lists_changes_and_stops_when_nothing_changes(client, setup, monkeypatch):
+def test_pilon_corrects_the_draft_lists_changes_and_stops_when_nothing_changes(client, setup, monkeypatch, storage_root):
     monkeypatch.setattr(get_settings(), "tool_memory_gb", 4)
     _, ids, draft = setup
     r = polish(client, draft["id"], "pilon", {"r1_file_id": ids["r1"], "r2_file_id": ids["r2"]},
@@ -282,6 +294,8 @@ def test_pilon_corrects_the_draft_lists_changes_and_stops_when_nothing_changes(c
     before, after = s["indirect"]["before"]["stats"], s["indirect"]["after"]["stats"]
     assert after["edit_distance_per_100_bases"] < before["edit_distance_per_100_bases"]
     assert s["indirect"]["reads"] == "paired-end"
+    profile = read_depth_profile(storage_root / s["indirect"]["after"]["depth_profile"]["path"])
+    assert [c["name"] for c in profile["contigs"]] == ["contig_1_pilon_pilon", "contig_2_pilon_pilon"]
     assert [st for st in d["progress"]["stages"]] == ["pilon_round_1", "pilon_round_2", "alignment_stats", "comparison"]
 
     polished = client.get(f"{API}/assemblies/{s['polished_assembly_id']}").json()

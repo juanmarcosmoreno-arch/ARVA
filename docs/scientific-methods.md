@@ -942,6 +942,8 @@ defaults, and real runs on the synthetic genome with a draft carrying 16 known e
   that changes nothing" (default), the run stops after a round with an empty `.changes` file. One round
   corrected all 16 known errors; its `.changes` file (7 SNPs, 5 insertions of 7 bases, 4 deletions of 5
   bases) and dnadiff agreed exactly, and the result equalled the reference.
+- **Depth profiles (4C).** The draft and polished alignments are also summarised with `samtools depth` in 25 bp
+  bins for the Genome Explorer's coverage track before the alignments are deleted (see *Genome Explorer*).
 - **Direct evidence.** MUMmer dnadiff (`dnadiff -p <prefix> <before> <after>`, run in the work folder on
   file names ARVA chooses, because dnadiff passes its arguments to a shell) between the input and output of
   every round and between the draft and the final result. From `.snps` (show-snps -rlTHC on the one-to-one
@@ -1094,11 +1096,213 @@ version: identified exactly, checked, and recorded on every job that reads it.
   release (`amrfinder_update --force_update`); ARVA does not, so results stay tied to the release the
   database was built with. Updating it would be a separate, recorded step.
 
+## Genome annotation (Phase 4B)
+
+Annotation is **prediction**: gene calls come from models, and names from similarity to sequences whose functions
+were themselves mostly inferred. ARVA runs the annotator, records exactly what it ran and what it did not, and
+shows the annotator's own calls; it never adds, renames or "improves" a function. A CDS the annotator calls
+*hypothetical protein* stays hypothetical.
+
+**Input.** One assembly of the sample, chosen from its lineage (a draft or an assembly polished from it). ARVA
+copies its contigs into the job as `input/genome.fna` without FASTA descriptions (Bakta reads completeness,
+topology and replicon type from words in descriptions, which ARVA does not want to depend on), records the copy's
+SHA-256 and the contigs file's checksum, and for Prokka can rename the contigs `contig_1`, `contig_2`, … (kept as a
+mapping) when names exceed the 37 characters Prokka accepts. The worker refuses to run when the contigs file no
+longer has the checksum recorded when the job was created. When the contig names or descriptions say SYNTHETIC (ARVA's test data), the dialog, the result and the
+reports say that the results describe the tools on test data, not an organism.
+
+### Bakta
+
+Bakta 1.12.2 (PyPI wheel, in its own virtual environment) with a database from the Database Manager, whose status
+and content checksum ARVA re-checks, together with Bakta's folder check, when the job starts.
+
+- **Dependencies and skipped steps.** At start-up Bakta checks a program for each step that will run
+  (`bakta/utils.py`, `test_dependencies`) and exits when one is missing, fails or is older than it requires. ARVA
+  runs the same checks first, reading each version the way Bakta does (its regular expression on the program's
+  combined standard output and error), and passes Bakta's own `--skip-*` option for each step that cannot run:
+
+  | Step | Program (minimum, from Bakta 1.12.2's source) |
+  |---|---|
+  | tRNA | tRNAscan-SE 2.0.12 |
+  | tmRNA | Aragorn 1.2.41 |
+  | rRNA, ncRNA genes, ncRNA regions | Infernal (cmscan) 1.1.5 |
+  | CRISPR arrays | PILER-CR 1.6 (Debian's 1.06 reads as 1.6) |
+  | CDS | Pyrodigal 3.7.0, AMRFinderPlus 4.2.7 (and its database in `<db>/amrfinderplus-db/latest`), PyHMMER 0.12.0, DIAMOND 2.2.0 |
+  | sORF | PyHMMER 0.12.0, DIAMOND 2.2.0 |
+  | oriC/oriV/oriT | BLAST+ (blastn) 2.17.0 |
+  | circular plot | pyCirclize 1.7.0 |
+
+  Pseudogene detection needs the CDS step and the full database (Bakta skips it with the light one). The job
+  records, per step, whether it ran and why not (program missing, too old, failing, needs CDS, light database, or
+  switched off), and the interface and reports show a step that did not run as *not searched*, never as 0. The
+  skip options are part of the confirmed request: if the programs change between the preview and the start, the
+  request is refused (409) and the plan is shown again; the worker repeats the check and fails the job rather than
+  running with other skips than the ones confirmed.
+- **PILER-CR.** When PILER-CR fails during the run, Bakta prints `WARNING: PILER-CR crashed (error code=N). No
+  CRISPR arrays will be reported!` and continues (`features/crispr.py`). ARVA therefore runs PILER-CR on a short
+  random test sequence before each run, skips the CRISPR step when it fails, and marks the step *failed* (not 0
+  arrays) when the warning appears in a run. Ubuntu 24.04's `pilercr 1.06+dfsg-5` passes Bakta's version check but
+  crashes (SIGSEGV) on every non-empty input, so the CRISPR step is skipped on that system.
+- **Options.** Always passed: `--db`, `--output`, `--prefix annotation`, `--tmp-dir` (inside the job folder),
+  `--threads`, `--min-contig-length`, `--translation-table` (11, 4 or 25, the tables Bakta offers),
+  `--locus-tag` (suggested from the sample code, editable; 3–12 capital letters and digits, starting with a
+  letter) and `--locus-tag-increment 1`. When given: `--genus`, `--species`, `--strain` (letters, digits and a few
+  punctuation marks). `--complete` only after the user confirms that every sequence is a complete replicon; ARVA
+  suggests it only when the assembler reported every contig circular, and explains that Bakta then treats every
+  sequence as circular and types it by length (≥ 2.8 Mb chromosome, < 112 kb plasmid). `--keep-contig-headers`
+  when the user keeps the contig names; otherwise Bakta names them `contig_1`, … and keeps the originals in its
+  JSON, which ARVA shows next to them. The circular plot (pyCirclize) is drawn offline; `--skip-plot` is used when
+  pyCirclize is missing or the user does not want it. `--gram` only sets metadata in 1.12.2, so ARVA does not pass
+  it. Each option is checked against the installed Bakta's `--help` before the command is built.
+- **Outputs read.** Bakta's JSON (`annotation.json`) is the source of the features; its GFF3, GenBank, EMBL,
+  FASTA, TSV, inference and hypotheticals files are kept unchanged for download. Bakta's own statistics (for
+  example its *coding ratio*, which counts the bases of every feature including gaps) are shown as Bakta's. For
+  CDS Bakta's GFF3 writes `ab initio prediction:Pyrodigal:3.5` whatever Pyrodigal version ran; ARVA records the
+  version its check found.
+- **Light database.** With the light database Bakta skips the exact-sequence lookup (UPS/IPS) and pseudogene
+  detection, and CDS get only the annotations of UniRef50 clusters (PSCC) (Bakta README, "Database"); expect fewer
+  specific names and more hypothetical CDS than with the full database.
+
+### Prokka
+
+Prokka 1.14.6 from the Debian/Ubuntu package (`1.14.6+dfsg-6` validated), offered as the alternative. Its README
+states that its author can no longer maintain it and recommends Bakta; ARVA says so in the dialog and the Guide.
+
+- **Database.** Debian keeps Prokka's databases unindexed under `/usr/share/prokka/db` (a Swiss-Prot protein set per
+  kingdom built from UniProt release 2023_04, Rfam models, genus sets for *Enterococcus*, *Escherichia* and
+  *Staphylococcus*; no HMM, IS or AMR sets). Prokka refuses unindexed databases, so for each run ARVA links the
+  package's files into the job's `prokka-db` folder, runs `prokka --dbdir <folder> --setupdb` there and removes the
+  folder after the run (about 150 MB while the job runs). The job records the package version and a SHA-256
+  manifest checksum of the package's database folder.
+- **Options.** Always passed: `--outdir`, `--prefix annotation`, `--dbdir`, `--kingdom Bacteria`, `--gcode`,
+  `--locustag`, `--increment 1`, `--cpus`, `--evalue` (default 1e-09, Prokka's), `--coverage` (default 80,
+  Prokka's), `--mincontiglen`. When given or chosen: `--genus`, `--species`, `--strain`, `--usegenus`, `--rfam`.
+- **Steps.** Prodigal (CDS; metagenome mode for genomes shorter than 100 kb, which ARVA reads from the log), Aragorn
+  (tRNA and tmRNA), barrnap (rRNA, when installed), Infernal (`--rfam` only), MinCED (CRISPR, when installed;
+  Prokka says nothing when it is absent, so ARVA shows the step as not searched), and BLAST+ against the protein
+  sets in Prokka's order (genus set first with `--usegenus`, then Swiss-Prot). Proteins without a hit are labelled
+  *hypothetical protein* by Prokka.
+- **Outputs read.** Prokka's GFF3 (percent-encoded values decoded; EC numbers from `eC_number`, COG identifiers
+  from `db_xref`, evidence from `inference`); its GenBank, FASTA, TSV, TXT and log are kept unchanged.
+
+### Feature index, summary and links
+
+- **Features file, not database rows.** ARVA writes the annotator's features, normalised to one shape (type,
+  coordinates, strand, locus tag, gene, product, EC, COG, GO, other cross-references, evidence, pseudo, partial,
+  hypothetical), to `features.jsonl` in the job's results. A bacterial genome has a few thousand features; they are
+  written once and never edited, are always read per annotation, and belong with the annotator's files they come
+  from. Storing them as rows would grow the database by every annotation without any query that needs SQL; the
+  API reads the file into memory once (cached by path, modification time and size) for filtering, sorting and
+  paging. Queries are bounded (at most 1,000 features per page; detail sequences up to 500,000 characters;
+  exports of at most 10,000 selected features).
+- **Summary.** Counts per feature type as reported; *hypothetical share* = hypothetical CDS / CDS; *coding
+  density* = bases inside at least one CDS (overlaps counted once, features across the origin of a circular
+  sequence counted on both sides) / bases of the annotated sequences that are not N. Neither is computed when the
+  CDS step did not run. The numbers of CDS with an EC number or a COG, and of features with a GO term or a gene
+  symbol, come from the annotator's cross-references.
+- **Links.** Cross-references become links only for identifier types whose resolver URL pattern ARVA checked
+  (EC → ENZYME, GO → QuickGO, SO → identifiers.org, COG and COG categories → NCBI COG, KEGG orthology → KEGG, Rfam,
+  Pfam → InterPro, UniRef, UniParc, UniProtKB, RefSeq proteins → NCBI Protein), and only when the identifier
+  matches that database's format. Every other cross-reference is shown as text. The interface renders only
+  `https:` links and opens them with `rel="noreferrer noopener"`.
+- **Exports.** Downloads of the annotator's files are byte-for-byte. Exports of selected features (or all) are
+  cut from the annotator's own files: GFF3 lines with the `##sequence-region` lines they need (no `##FASTA`
+  section), GenBank records with only the chosen features (plus each record's source feature), nucleotide or protein FASTA records; the TSV is ARVA's table, with cells that a spreadsheet
+  would read as formulas prefixed so they stay text.
+- **Escaping.** Product names and every other string from the databases are shown as text in the interface and
+  HTML-escaped in reports.
+
+### Validation on this system
+
+Ubuntu 24.04, Bakta 1.12.2 with the light database 6.0 and Prokka 1.14.6+dfsg-6, on the SYNTHETIC annotation genome
+(`scripts/make_synthetic_annotation_genome.py`; 18,960 bp with planted random ORFs, three back-translated Swiss-Prot
+proteins, RNA sequences sampled from covariance models with Infernal's `cmemit`, a CRISPR-like array and 100 N):
+
+- Bakta ran tRNA, tmRNA, rRNA, ncRNA, ncRNA-region and gap detection and the plot; it skipped CDS and sORF
+  (AMRFinderPlus not installed; Ubuntu's DIAMOND 2.1.9 older than 2.2.0), oriC/oriT (BLAST+ 2.12.0 older than
+  2.17.0) and CRISPR (PILER-CR crash). It found the two sampled tRNAs (as `tRNA-Xxx`), the 5S and 16S rRNA, the
+  RNase P RNA and the gap. ARVA's dependency versions were checked to equal Bakta's own `read_tool_output` for
+  every installed program.
+- Prokka found 18 CDS: the three back-translated proteins named after their Swiss-Prot entries (alkA, tag, quiB)
+  and 15 hypothetical proteins, a tRNA (`tRNA-SeC(tca)`) and the 16S rRNA.
+
+These results show that the tools ran and that ARVA reads them correctly; they say nothing about any organism.
+Bakta's CDS annotation could not be validated here.
+
+## Genome Explorer (Phase 4C)
+
+A linear browser of one annotation (`/explorer/<annotation>`; `arva_core.genome_view`, `app/services/genome_explorer.py`).
+Coordinates are 1-based and inclusive, as in GFF3.
+
+- **Sequence.** Every track reads the annotator's own copy of the annotated sequences (its `.fna` file), the sequence
+  the features' coordinates refer to; the response names the file and its SHA-256. Prokka's `.fna` equalled the input
+  contigs and Bakta's equalled them under Bakta's names (`contig_1`, …), which ARVA maps back to the assembly's
+  (both checked by the API tests on the synthetic annotation genome). Sequence slices are bounded to 1,000,000 bp
+  and are reverse complemented with the IUPAC codes (M↔K, R↔Y, B↔V, D↔H; W, S, N unchanged) on the minus strand.
+- **GC and GC skew.** GC = (G + C) / (A + C + G + T) over unambiguous bases (as in the assembly statistics), GC skew =
+  (G − C) / (G + C); a window without unambiguous bases (or without G or C) has no value rather than 0. Windows lie on
+  a grid fixed to the start of the sequence: window k covers bases k·step + 1 to k·step + window, so values do not
+  change when the view moves; a window running past the end of a sequence is cut there; windows do not wrap around
+  the origin of circular sequences. By default the window fits the view (the smallest 1-2-5 size, at least 20 bp,
+  giving at most two points per pixel, step = window); the user can choose 100 bp–50 kb windows and a step of the
+  window, half, a fifth or a tenth of it (step ≤ window, so no base is skipped). When more windows overlap the view
+  than points are asked for, g consecutive windows form one point with the mean, minimum and maximum of their values
+  (drawn as a line with a min–max band). At most 2,000,000 windows are computed per request (numpy prefix sums at
+  the window boundaries; a 5 Mb sequence with 1 kb windows and a 100 bp step takes about 0.06 s). The sequence's own
+  GC is drawn as a reference line. Values were checked against counts made by hand and by the test itself.
+- **Read coverage.** Drawn only from an alignment of reads to exactly the annotated contigs. ARVA makes such
+  alignments when it polishes: the polishing reads aligned to the draft (`before`) and to the polished result
+  (`after`). For every polishing run after 4C, ARVA runs `samtools depth -aa -Q 0 -q 0 -l 0 -G
+  UNMAP,SECONDARY,QCFAIL,DUP` on those alignments (every position of every sequence; samtools' defaults written out —
+  checked in samtools 1.19.2's usage and by identical output with and without them; deletions are not counted, no
+  `-J`, and both reads of a pair count where they overlap, no `-s`), sums the depths in 25 bp bins and keeps them as
+  `comparison/{draft,polished}.depth_profile.json` (SHA-256 in the job's summary); the per-base output is deleted.
+  The profile's mean per contig equalled `samtools coverage`'s mean depth on the synthetic data (Racon test). The
+  explorer uses the polished assembly's own profile, or the draft profile of a run that polished the annotated
+  assembly (newest first), checks the file's checksum and the contig's name and length, and states the polishing
+  job, aligner, reads and command. Otherwise it says why there is none (no alignment to these contigs; a polishing run
+  older than the profiles; a name or length mismatch). Assemblers' per-contig depths are not drawn as a track.
+- **Features.** Arrows point 5′→3′: forward strand above the axis, reverse below, features without a strand on the
+  axis; overlapping features are packed into up to three lanes per strand. A feature across the origin of a
+  circular sequence is drawn as two pieces. Colours group types: protein-coding (CDS, sORF), RNA genes (tRNA, tmRNA,
+  rRNA, ncRNA), other elements (ncRNA regions, CRISPR arrays, origins, other) — the first three slots of ARVA's chart
+  palette, which pass the dataviz validator's all-pairs checks in both modes (worst colour-vision-deficiency ΔE 10.1
+  light / 12.5 dark, normal vision 21.0 / 19.4, all ≥ 3:1 against the chart surface) — and assembly gaps in the
+  neutral grey with a hatch. Hypothetical proteins are drawn as outlines and pseudogenes dashed, so these properties
+  never rely on colour. The GC-skew track uses the validated blue/red diverging pair. *Intergenic* regions are bases
+  outside every CDS, sORF, tRNA, tmRNA, rRNA and ncRNA gene (regulatory regions, CRISPR arrays and origins lie in
+  intergenic space).
+- **Rendering.** SVG, so glyphs have native hit-testing, focus and accessible titles, text stays crisp and the view
+  can be saved as an SVG figure. Only the view is drawn: up to 600 feature pieces one by one; above that, per strand,
+  each 2 px column shows the feature group that covers most of its bases (a few hundred rectangles regardless of
+  genome size). Intergenic regions are merged per pixel; each line track is one path with at most two points per
+  pixel. Track data are requested in power-of-two tiles at least twice the view, aligned to half a tile, so panning
+  within a tile and small zooms reuse cached data.
+- **Feature detail.** Identifier (locus tag, the annotator's ID, ARVA's number), coordinates in the assembly's and
+  the annotator's names, orientation, the predicted function as reported (product, gene, EC, COG, GO; a hypothetical
+  protein stays hypothetical), the evidence the annotator reported, cross-reference links as in 4B, the annotator's
+  nucleotide and protein sequences (with copy), and the tool, version, database (name, version, checksum) and
+  translation table of the run. ARVA also *checks* — never replaces — the sequences: the annotator's gene sequence
+  against the genome at the feature's coordinates, and for CDS the annotator's protein against ARVA's translation of
+  that genome slice with the translation table given to the annotator (NCBI genetic codes 11, 4 and 25 as
+  distributed with Biopython 1.88; a start codon of the table at the first position reads M unless the CDS is
+  truncated at its 5′ end; one terminal stop ignored on both sides; pseudogenes and lengths that are not a multiple
+  of 3 are not checked). On the synthetic genome every gene sequence of Prokka and Bakta matched the genome, and all
+  18 Prokka proteins matched the table-11 translation.
+- **Search and exports.** The search box takes a gene name, locus tag, product text or identifier (the feature query
+  of 4B over every sequence), a sequence name, or coordinates `contig:start-end` / `contig:position` (either name of
+  the sequence; thousands separators `,` `.` or spaces) and `start-end` on the current sequence. A region selected
+  on the ruler can be saved as FASTA of either strand (from the annotator's sequence file, header with the
+  coordinates, strand, sample and annotation) or as the features that overlap it — whole features, cut from the
+  annotator's files (GFF3, FASTA of genes or proteins) or ARVA's TSV; genes marked one by one export the same way.
+- **Limits.** Linear view only (circular view planned); one sequence at a time; at most 50,000 features per sequence
+  in the layout. On ARVA's synthetic genomes nothing the explorer shows is biology.
+
 ## What ARVA does not do yet
 
 - No pass/fail thresholds: suitability depends on technology, chemistry and purpose.
 - No duplicate-read detection or k-mer analysis by ARVA itself (fastp reports a duplication estimate).
-- No taxonomic or biological interpretation.
+- No taxonomic or biological interpretation, and no functional annotation of its own: names and products are the annotators'.
 - No basecalling: POD5 raw signal must be basecalled outside ARVA (Dorado or MinKNOW).
 
 ## Validation
@@ -1154,6 +1358,21 @@ Read-header grammars: Illumina BaseSpace Help "FASTQ files"; bcl2fastq2 v2.20 So
 files; ONT output specifications (FASTQ v0.1) and Dorado SAM specification; PacBio BAM format
 specification 13.1 (QNAME convention); NCBI sra-tools wiki "HowTo: fasterq-dump" and "Read-Names".
 
+- Schwengers O, Jelonek L, Dieckmann MA, Beyvers S, Blom J, Goesmann A. Bakta: rapid and standardized annotation of bacterial genomes via alignment-free sequence identification. *Microb Genom* 2021;7(11). doi:10.1099/mgen.0.000685
+- Seemann T. Prokka: rapid prokaryotic genome annotation. *Bioinformatics* 2014;30(14):2068–2069. doi:10.1093/bioinformatics/btu153
+- Hyatt D et al. Prodigal: prokaryotic gene recognition and translation initiation site identification. *BMC Bioinformatics* 2010;11:119. doi:10.1186/1471-2105-11-119
+- Larralde M. Pyrodigal: Python bindings and interface to Prodigal, an efficient method for gene prediction in prokaryotes. *J Open Source Softw* 2022;7(72):4296. doi:10.21105/joss.04296
+- Chan PP, Lin BY, Mak AJ, Lowe TM. tRNAscan-SE 2.0: improved detection and functional classification of transfer RNA genes. *Nucleic Acids Res* 2021;49(16):9077–9096. doi:10.1093/nar/gkab688
+- Laslett D, Canback B. ARAGORN, a program to detect tRNA genes and tmRNA genes in nucleotide sequences. *Nucleic Acids Res* 2004;32(1):11–16. doi:10.1093/nar/gkh152
+- Nawrocki EP, Eddy SR. Infernal 1.1: 100-fold faster RNA homology searches. *Bioinformatics* 2013;29(22):2933–2935. doi:10.1093/bioinformatics/btt509
+- Kalvari I et al. Rfam 14: expanded coverage of metagenomic, viral and microRNA families. *Nucleic Acids Res* 2021;49(D1):D192–D200. doi:10.1093/nar/gkaa1047
+- Edgar RC. PILER-CR: fast and accurate identification of CRISPR repeats. *BMC Bioinformatics* 2007;8:18. doi:10.1186/1471-2105-8-18
+- Galperin MY et al. COG database update: focus on microbial diversity, model organisms, and widespread pathogens. *Nucleic Acids Res* 2021;49(D1):D274–D281. doi:10.1093/nar/gkaa1018
+- Lobry JR. Asymmetric substitution patterns in the two DNA strands of bacteria. *Mol Biol Evol* 1996;13(5):660–665. doi:10.1093/oxfordjournals.molbev.a025626
+- Grigoriev A. Analyzing genomes with cumulative skew diagrams. *Nucleic Acids Res* 1998;26(10):2286–2290. doi:10.1093/nar/26.10.2286
+- Robinson JT et al. Integrative genomics viewer. *Nat Biotechnol* 2011;29(1):24–26. doi:10.1038/nbt.1754
+- Buels R et al. JBrowse: a dynamic web platform for genome visualization and analysis. *Genome Biol* 2016;17:66. doi:10.1186/s13059-016-0924-1
+- Watson M, Warr A. Errors in long-read assemblies can critically affect protein prediction. *Nat Biotechnol* 2019;37(2):124–126. doi:10.1038/s41587-018-0004-z
 - Ewels P, Magnusson M, Lundin S, Käller M. MultiQC: summarize analysis results for multiple tools and samples in a single report. *Bioinformatics* 2016;32(19):3047–3048. doi:10.1093/bioinformatics/btw354
 - Ewing B, Green P. Base-calling of automated sequencer traces using phred. II. Error probabilities. *Genome Res* 1998;8:186–194. doi:10.1101/gr.8.3.186
 - Cock PJA et al. The Sanger FASTQ file format for sequences with quality scores, and the Solexa/Illumina FASTQ variants. *Nucleic Acids Res* 2010;38:1767–1771. doi:10.1093/nar/gkp1137

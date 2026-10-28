@@ -87,7 +87,9 @@ export type GuideId =
   | "hypothetical_proteins"
   | "cds"
   | "trna_rrna"
-  | "cog";
+  | "cog"
+  | "genome_explorer"
+  | "gc_skew";
 
 const REF = {
   racon: { label: "Vaser, Sović, Nagarajan & Šikić (2017) Genome Research 27:737–746 — Racon (window consensus)", url: "https://doi.org/10.1101/gr.214270.116" },
@@ -225,6 +227,11 @@ const REF = {
   hypothetical: { label: "Galperin & Koonin (2004) Nucleic Acids Research 32(18):5452–5463 — 'Conserved hypothetical' proteins", url: "https://doi.org/10.1093/nar/gkh885" },
   geneticCodes: { label: "NCBI — The genetic codes (translation tables)", url: "https://www.ncbi.nlm.nih.gov/Taxonomy/Utils/wprintgc.cgi" },
   gff3: { label: "Sequence Ontology — GFF3 specification", url: "https://github.com/The-Sequence-Ontology/Specifications/blob/master/gff3.md" },
+  lobry: { label: "Lobry JR (1996) Molecular Biology and Evolution 13:660–665 — Asymmetric substitution patterns in the two DNA strands of bacteria", url: "https://doi.org/10.1093/oxfordjournals.molbev.a025626" },
+  grigoriev: { label: "Grigoriev A (1998) Nucleic Acids Research 26:2286–2290 — Analyzing genomes with cumulative skew diagrams", url: "https://doi.org/10.1093/nar/26.10.2286" },
+  igv: { label: "Robinson et al. (2011) Nature Biotechnology 29:24–26 — Integrative Genomics Viewer", url: "https://doi.org/10.1038/nbt.1754" },
+  jbrowse: { label: "Buels et al. (2016) Genome Biology 17:66 — JBrowse: a dynamic web platform for genome visualization and analysis", url: "https://doi.org/10.1186/s13059-016-0924-1" },
+  samtoolsDepth: { label: "samtools-depth manual page (htslib.org)", url: "https://www.htslib.org/doc/samtools-depth.html" },
   watsonWarr: { label: "Watson & Warr (2019) Nature Biotechnology 37(2):124–126 — Errors in long-read assemblies can critically affect protein prediction", url: "https://doi.org/10.1038/s41587-018-0004-z" },
 } satisfies Record<string, Reference>;
 
@@ -1902,6 +1909,70 @@ export const GUIDE: GuideEntry[] = [
         "Leer las categorías como actividades medidas: se transfieren desde ortólogos.",
       ],
       limitations: "Las letras de categoría enlazan con las páginas de categorías COG del NCBI; las definiciones son las de la versión de la base de datos COG a partir de la que se construyó la base de datos del anotador.",
+    },
+  },
+  {
+    id: "genome_explorer",
+    references: [REF.igv, REF.jbrowse, REF.gff3, REF.geneticCodes, REF.samtoolsDepth],
+    en: {
+      title: "Genome Explorer",
+      what: "A linear browser of one annotation: the annotated sequences one at a time, with the annotator's features as arrows on their strands, the intergenic regions, GC content and GC skew in windows, read coverage when reads were aligned to exactly this assembly, and the bases themselves when zoomed in. Selecting a feature shows its identifier, coordinates, orientation, predicted function, the annotator's nucleotide and protein sequences, the tool, version and database that produced it, the evidence it reported and links for its identifiers.",
+      why: "Counts and tables say how many genes there are; the browser shows where they are and what surrounds them: operon-like runs of genes on one strand, RNA genes, gaps in the assembly, regions of unusual GC, and how coverage behaves along a contig.",
+      how: "Coordinates are 1-based and inclusive, as in GFF3. The sequence is the annotator's own copy of the contigs (its .fna file), to which the features' coordinates refer. GC = (G + C) / (A + C + G + T) and GC skew = (G − C) / (G + C) over windows on a grid fixed to the start of the sequence (window k covers bases k·step + 1 to k·step + window), so values do not change when the view moves; the window fits the view unless one is chosen. When a view has more windows than points, each point gives the mean of several windows with their minimum–maximum band. Coverage is drawn only from an alignment to these exact contigs: the polishing reads aligned to the draft or to the polished result, kept as samtools depth summed in 25 bp bins. Up to 600 features in view are drawn one by one; more are shown per pixel as the kind of feature covering most of it. Intergenic regions are bases outside every CDS, sORF, tRNA, tmRNA, rRNA and ncRNA gene. For each feature ARVA also checks that the annotator's gene sequence equals the genome at its coordinates and, for CDS, that its protein equals the translation of the genome with the translation table given to the annotator; the protein shown is always the annotator's.",
+      interpret: "Every feature is a prediction of the annotator, with the evidence it reported; a hypothetical protein stays hypothetical. A window's GC near the end of a sequence may cover fewer bases than the others (it is cut at the end). Coverage dips can mark repeats, low-complexity or collapsed regions, or simply chance; peaks often mark repeats whose copies were merged.",
+      next: "Select a region to download its sequence (either strand) or the features in it (GFF3, FASTA of genes or proteins, table); mark genes one by one to export them together; open GC skew in the Guide to read the skew track.",
+      mistakes: [
+        "Reading GC or coverage values of single windows as properties of a gene: windows ignore gene boundaries.",
+        "Comparing coverage from different alignments (draft vs polished, long vs short reads) as one track.",
+        "Taking a feature's colour as its function: colours only group feature types.",
+      ],
+      limitations: "Linear view only (a circular view is planned); one sequence at a time, without wrapping across the origin of circular sequences (a feature across the origin is drawn as two pieces). Coverage exists only for assemblies ARVA polished, and only for polishing runs made after depth profiles were introduced. On ARVA's synthetic test genomes nothing shown is biology.",
+    },
+    es: {
+      title: "Genome Explorer",
+      what: "Un navegador lineal de una anotación: las secuencias anotadas de una en una, con los elementos del anotador como flechas en sus hebras, las regiones intergénicas, el contenido GC y el sesgo GC por ventanas, la cobertura de lecturas cuando se alinearon lecturas a exactamente este ensamblaje, y las propias bases al acercarse. Al seleccionar un elemento se muestran su identificador, coordenadas, orientación, función predicha, las secuencias de nucleótidos y de proteína del anotador, la herramienta, versión y base de datos que lo produjeron, la evidencia que indicó y enlaces para sus identificadores.",
+      why: "Los recuentos y las tablas dicen cuántos genes hay; el navegador muestra dónde están y qué los rodea: series de genes en una misma hebra, genes de RNA, huecos del ensamblaje, regiones con GC inusual y cómo se comporta la cobertura a lo largo de un contig.",
+      how: "Las coordenadas empiezan en 1 y son inclusivas, como en GFF3. La secuencia es la copia de los contigs del propio anotador (su archivo .fna), a la que se refieren las coordenadas de los elementos. GC = (G + C) / (A + C + G + T) y sesgo GC = (G − C) / (G + C) en ventanas sobre una rejilla fija desde el inicio de la secuencia (la ventana k cubre las bases k·paso + 1 a k·paso + ventana), así que los valores no cambian al mover la vista; la ventana se ajusta a la vista salvo que se elija una. Si una vista tiene más ventanas que puntos, cada punto da la media de varias ventanas con su banda de mínimo a máximo. La cobertura solo se dibuja a partir de un alineamiento a estos mismos contigs: las lecturas de pulido alineadas al borrador o al resultado pulido, guardadas como samtools depth sumado en intervalos de 25 pb. Hasta 600 elementos en la vista se dibujan uno a uno; si hay más, se muestra por píxel el tipo de elemento que cubre la mayor parte. Las regiones intergénicas son las bases fuera de todo gen CDS, sORF, tRNA, tmRNA, rRNA y ncRNA. Para cada elemento ARVA comprueba además que la secuencia del gen del anotador es igual al genoma en sus coordenadas y, en las CDS, que su proteína es igual a la traducción del genoma con la tabla de traducción indicada al anotador; la proteína mostrada es siempre la del anotador.",
+      interpret: "Cada elemento es una predicción del anotador, con la evidencia que indicó; una proteína hipotética sigue siendo hipotética. El GC de una ventana cerca del final de una secuencia puede cubrir menos bases que las demás (se corta al final). Las caídas de cobertura pueden señalar repeticiones, regiones de baja complejidad o colapsadas, o simple azar; los picos suelen señalar repeticiones cuyas copias se fusionaron.",
+      next: "Selecciona una región para descargar su secuencia (en cualquier hebra) o los elementos que contiene (GFF3, FASTA de genes o proteínas, tabla); marca genes uno a uno para exportarlos juntos; abre Sesgo GC en la Guía para leer esa pista.",
+      mistakes: [
+        "Leer los valores de GC o cobertura de una ventana como propiedades de un gen: las ventanas ignoran los límites de los genes.",
+        "Comparar coberturas de alineamientos distintos (borrador frente a pulido, lecturas largas frente a cortas) como una sola pista.",
+        "Tomar el color de un elemento por su función: los colores solo agrupan tipos de elementos.",
+      ],
+      limitations: "Solo vista lineal (la vista circular está prevista); una secuencia cada vez, sin dar la vuelta por el origen de las secuencias circulares (un elemento que cruza el origen se dibuja en dos partes). Solo hay cobertura para ensamblajes que ARVA pulió, y solo para pulidos hechos después de introducir los perfiles de profundidad. En los genomas sintéticos de prueba de ARVA nada de lo mostrado es biología.",
+    },
+  },
+  {
+    id: "gc_skew",
+    references: [REF.lobry, REF.grigoriev],
+    en: {
+      title: "GC skew",
+      what: "GC skew = (G − C) / (G + C), computed on the strand as written (the + strand) over windows. It is positive where G outnumbers C, negative where C outnumbers G, and lies between −1 and 1.",
+      why: "In many bacterial chromosomes the two replication arms differ in composition: the leading strand tends to carry more G than C, so the skew changes sign near the origin and the terminus of replication (Lobry 1996). Summed along the sequence (cumulative skew), it reaches its minimum near the origin and its maximum near the terminus (Grigoriev 1998).",
+      how: "ARVA counts G and C in each window of the annotator's sequence (A, C, G and T only; N and other IUPAC codes are left out) and draws the skew above zero in blue and below zero in red. A window without G or C has no value. Windows lie on a grid fixed to the start of the sequence; when a view has more windows than points, each point is the mean of several windows.",
+      interpret: "A sign change that holds over hundreds of kilobases on a complete circular chromosome is consistent with an origin or terminus nearby; short fluctuations are noise or local composition (genes, insertions). Plasmids, short contigs and incomplete assemblies rarely show a clear pattern.",
+      next: "Use larger windows (10–50 kb) on a whole chromosome to see the replication pattern; compare with the position of dnaA and oriC when the annotator reported them.",
+      mistakes: [
+        "Calling an origin from the skew alone: ARVA does not, and the pattern is weak or absent in some bacteria.",
+        "Reading skew on contigs of a fragmented assembly as if they were in order and orientation.",
+        "Comparing skew values computed with different window sizes.",
+      ],
+      limitations: "ARVA shows windowed skew, not cumulative skew, and predicts no origin or terminus. On ARVA's synthetic genomes the sequence is random, so no replication signal is expected.",
+    },
+    es: {
+      title: "Sesgo GC",
+      what: "Sesgo GC = (G − C) / (G + C), calculado sobre la hebra tal como está escrita (la hebra +) en ventanas. Es positivo donde hay más G que C, negativo donde hay más C que G, y está entre −1 y 1.",
+      why: "En muchos cromosomas bacterianos los dos brazos de replicación difieren en composición: la hebra adelantada tiende a llevar más G que C, así que el sesgo cambia de signo cerca del origen y del término de replicación (Lobry 1996). Sumado a lo largo de la secuencia (sesgo acumulado), alcanza su mínimo cerca del origen y su máximo cerca del término (Grigoriev 1998).",
+      how: "ARVA cuenta G y C en cada ventana de la secuencia del anotador (solo A, C, G y T; las N y los demás códigos IUPAC quedan fuera) y dibuja el sesgo por encima de cero en azul y por debajo en rojo. Una ventana sin G ni C no tiene valor. Las ventanas están en una rejilla fija desde el inicio de la secuencia; si una vista tiene más ventanas que puntos, cada punto es la media de varias ventanas.",
+      interpret: "Un cambio de signo que se mantiene a lo largo de cientos de kilobases en un cromosoma circular completo es compatible con un origen o un término cercano; las fluctuaciones cortas son ruido o composición local (genes, inserciones). Los plásmidos, los contigs cortos y los ensamblajes incompletos rara vez muestran un patrón claro.",
+      next: "Usa ventanas grandes (10–50 kb) sobre un cromosoma completo para ver el patrón de replicación; compáralo con la posición de dnaA y oriC cuando el anotador los haya indicado.",
+      mistakes: [
+        "Determinar un origen solo a partir del sesgo: ARVA no lo hace, y el patrón es débil o falta en algunas bacterias.",
+        "Leer el sesgo de los contigs de un ensamblaje fragmentado como si estuvieran en orden y orientación.",
+        "Comparar sesgos calculados con tamaños de ventana distintos.",
+      ],
+      limitations: "ARVA muestra el sesgo por ventanas, no el acumulado, y no predice origen ni término. En los genomas sintéticos de ARVA la secuencia es aleatoria, así que no se espera ninguna señal de replicación.",
     },
   },
 ];

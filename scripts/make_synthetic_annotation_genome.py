@@ -115,7 +115,7 @@ class Builder:
     def back_translated(self, name: str, protein: str) -> None:
         """An ORF encoding `protein` (a leading M becomes the ATG start), with a random synonymous codon per
         residue, preceded by the same Shine-Dalgarno-like motif, on the + strand."""
-        residues = protein[1:] if protein.startswith("M") else protein
+        residues = protein.removeprefix("M")
         cds = "ATG" + "".join(self.rng.choice(CODONS_OF[aa]) for aa in residues) + self.rng.choice(STOPS)
         upstream = RBS + self.random_dna(self.rng.randint(6, 9))
         start = self.add(upstream + cds) + len(upstream)

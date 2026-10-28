@@ -3,7 +3,12 @@ import type {
   AnnotationExportFormat,
   AnnotationFeatureDetail,
   AnnotationFeaturePage,
+  AnnotationListRow,
   AnnotationPlan,
+  AnnotationRegion,
+  FeatureLayout,
+  GenomeSequence,
+  GenomeTracks,
   BaktaRequest,
   FeatureQuery,
   ProkkaRequest,
@@ -274,11 +279,24 @@ export const api = {
     return request<AnnotationFeaturePage>(`/annotations/${id}/features?${params}`);
   },
   annotationFeature: (id: string, featureId: number) => request<AnnotationFeatureDetail>(`/annotations/${id}/features/${featureId}`),
+  allAnnotations: () => request<AnnotationListRow[]>("/annotations"),
+  annotationLayout: (id: string, contig: string) => request<FeatureLayout>(`/annotations/${id}/layout?${new URLSearchParams({ contig })}`),
+  annotationTracks: (id: string, q: { contig: string; start: number; end: number; bins: number; window: number | null; step: number | null }) => {
+    const params = new URLSearchParams({ contig: q.contig, start: String(q.start), end: String(q.end), bins: String(q.bins) });
+    if (q.window) params.set("window", String(q.window));
+    if (q.step) params.set("step", String(q.step));
+    return request<GenomeTracks>(`/annotations/${id}/tracks?${params}`);
+  },
+  annotationSequence: (id: string, contig: string, start: number, end: number, strand: "+" | "-" = "+") =>
+    request<GenomeSequence>(`/annotations/${id}/sequence?${new URLSearchParams({ contig, start: String(start), end: String(end), strand })}`),
+  annotationSequenceUrl: (id: string, contig: string, start: number, end: number, strand: "+" | "-") =>
+    `${BASE}/annotations/${id}/sequence?${new URLSearchParams({ contig, start: String(start), end: String(end), strand, format: "fasta" })}`,
   annotationFileUrl: (id: string, kind: string) => `${BASE}/annotations/${id}/files/${encodeURIComponent(kind)}`,
   annotationExportUrl: (id: string, format: AnnotationExportFormat) => `${BASE}/annotations/${id}/export/${format}`,
-  /** Selected features as a file the browser saves (POST, so the ids do not go into a URL). */
-  exportAnnotationFeatures: async (id: string, format: AnnotationExportFormat, featureIds: number[]) => {
-    const res = await fetch(`${BASE}/annotations/${id}/export`, json("POST", { format, feature_ids: featureIds }));
+  /** Selected features, or those overlapping a region, as a file the browser saves (POST, so the ids do not go into a URL). */
+  exportAnnotationFeatures: async (id: string, format: AnnotationExportFormat, selection: number[] | AnnotationRegion) => {
+    const body = Array.isArray(selection) ? { format, feature_ids: selection } : { format, region: selection };
+    const res = await fetch(`${BASE}/annotations/${id}/export`, json("POST", body));
     if (!res.ok) throw new ApiError(res.status, await errorMessage(res));
     const name = /filename="([^"]+)"/.exec(res.headers.get("Content-Disposition") ?? "")?.[1] ?? `annotation_${format}.txt`;
     return { blob: await res.blob(), name };

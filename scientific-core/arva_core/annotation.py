@@ -202,6 +202,22 @@ def summarize(features: Sequence[dict[str, Any]], sequences: Sequence[dict[str, 
 
 # --- Query --------------------------------------------------------------------------------------------------
 
+def tool_contig(sequences: Sequence[dict[str, Any]], contig: str) -> str | None:
+    """The annotator's name of a sequence given by that name or by its name in the assembly."""
+    names = {s["id"]: s["id"] for s in sequences} | {s.get("original_id") or s["id"]: s["id"] for s in sequences}
+    return names.get(contig)
+
+
+def region_features(features: Iterable[dict[str, Any]], sequences: Sequence[dict[str, Any]], contig: str, start: int,
+                    end: int) -> list[dict[str, Any]]:
+    """Features of a sequence (either name) that overlap start..end (1-based, inclusive), in the annotator's order;
+    a feature across the origin overlaps through either of its two parts."""
+    name = tool_contig(sequences, contig)
+    length = next((s["length"] for s in sequences if s["id"] == name), None)
+    return [f for f in features if f["contig"] == name
+            and any(s <= end and e >= start for s, e in _intervals(f, length))]
+
+
 def _position_key(order: dict[str, int]):
     return lambda f: (order.get(f["contig"], len(order)), min(f["start"], f["end"]), f["id"])
 
@@ -220,11 +236,10 @@ def query(features: Sequence[dict[str, Any]], sequences: Sequence[dict[str, Any]
         raise ValueError(f"limit must be 1-{MAX_QUERY_LIMIT} and offset >= 0")
     if (start is not None or end is not None) and contig is None:
         raise ValueError("a region (start, end) needs a contig")
-    names = {s["id"]: s["id"] for s in sequences} | {s.get("original_id") or s["id"]: s["id"] for s in sequences}
-    tool_contig = None
+    in_contig = None
     if contig is not None:
-        tool_contig = names.get(contig)
-        if tool_contig is None:
+        in_contig = tool_contig(sequences, contig)
+        if in_contig is None:
             return {"total": 0, "items": []}
     lengths = {s["id"]: s["length"] for s in sequences}
     needle = q.strip().lower() if q and q.strip() else None
@@ -235,7 +250,7 @@ def query(features: Sequence[dict[str, Any]], sequences: Sequence[dict[str, Any]
             continue
         if hypothetical is not None and f["hypothetical"] is not hypothetical:
             continue
-        if tool_contig is not None and f["contig"] != tool_contig:
+        if in_contig is not None and f["contig"] != in_contig:
             continue
         if start is not None or end is not None:
             lo, hi = start or 1, end or lengths.get(f["contig"], 0)

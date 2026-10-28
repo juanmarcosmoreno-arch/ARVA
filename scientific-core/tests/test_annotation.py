@@ -12,9 +12,11 @@ from arva_core.annotation import (
     new_feature,
     query,
     read_jsonl,
+    region_features,
     sort_xrefs,
     span_length,
     summarize,
+    tool_contig,
     write_jsonl,
     xref_url,
 )
@@ -118,6 +120,17 @@ def test_query_filters_region_text_sort_and_bounds():
         query(fs, SEQS, start=5)
     with pytest.raises(ValueError):
         query(fs, SEQS, sort="colour")
+
+
+def test_region_features_by_either_name_and_across_the_origin():
+    fs = [cds(1, "contig_1", 1, 300), cds(2, "contig_1", 9_901, 50, edge=True), cds(3, "contig_1", 800, 875),
+          cds(4, "contig_2", 10, 400)]
+    assert tool_contig(SEQS, "chr") == tool_contig(SEQS, "contig_1") == "contig_1" and tool_contig(SEQS, "x") is None
+    assert [f["id"] for f in region_features(fs, SEQS, "chr", 250, 800)] == [1, 3]
+    assert [f["id"] for f in region_features(fs, SEQS, "contig_1", 9_950, 10_000)] == [2]  # the part before the origin
+    assert [f["id"] for f in region_features(fs, SEQS, "contig_1", 40, 45)] == [1, 2]  # and the part after it
+    assert [f["id"] for f in region_features(fs, SEQS, "p1", 400, 400)] == [4]
+    assert region_features(fs, SEQS, "contig_1", 301, 799) == [] and region_features(fs, SEQS, "x", 1, 9) == []
 
 
 def test_jsonl_round_trip(tmp_path):

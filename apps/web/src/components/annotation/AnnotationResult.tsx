@@ -1,6 +1,7 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { ArrowDown, ArrowUp, ChevronLeft, ChevronRight, Download, ExternalLink, Loader2, Search, X } from "lucide-react";
+import { ArrowDown, ArrowUp, ChevronLeft, ChevronRight, Download, Loader2, Map as MapIcon, Search } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { ChartCard } from "@/components/charts/ChartCard";
 import { MetricTile } from "@/components/domain/bits";
 import { Explain } from "@/components/guide/Explain";
@@ -10,16 +11,14 @@ import { Card, CardBody, CardHeader } from "@/components/ui/card";
 import { Input, Select } from "@/components/ui/form";
 import { ErrorNote } from "@/components/ui/misc";
 import { type TranslationKey, useT } from "@/i18n";
-import { FEATURE_TYPES, MAX_EXPORT, PAGE_SIZE, safeExternalUrl, searched, stepLabel, stepReason, stepState } from "@/lib/annotation";
+import { FEATURE_TYPES, MAX_EXPORT, PAGE_SIZE, searched, stepLabel, stepReason, stepState } from "@/lib/annotation";
 import { api } from "@/lib/api";
 import { fmtBases, fmtBytes, fmtDate, fmtInt, fmtNum } from "@/lib/format";
 import type { Annotation, AnnotationExportFormat, AnnotationFeature, AnalysisJobDetail, FeatureQuery } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { StepIcon, SyntheticNote } from "./AnnotationDialog";
+import { FeatureDetail, typeLabel } from "./FeatureDetail";
 
-type T = ReturnType<typeof useT>;
-
-const typeLabel = (t: T, type: string) => t(`annotation.type.${type}` as "annotation.type.cds");
 
 /** One annotation: what was searched (and what not, with why), ARVA's counts, the features and the files. */
 export function AnnotationCard({ annotation, job }: { annotation: Annotation; job?: AnalysisJobDetail }) {
@@ -45,7 +44,17 @@ export function AnnotationCard({ annotation, job }: { annotation: Annotation; jo
           date: fmtDate(a.created_at),
           tag: params.locus_tag ?? "?",
         })}
-        action={<Downloads annotation={a} />}
+        action={
+          <span className="flex flex-wrap items-center gap-2">
+            <Link
+              to={`/explorer/${a.id}`}
+              className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-arva-royal px-3 text-xs font-medium text-white hover:bg-arva-royal/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:bg-arva-cyan dark:text-arva-navy dark:hover:bg-arva-cyan/90"
+            >
+              <MapIcon className="h-3.5 w-3.5" aria-hidden /> {t("explorer.open")}
+            </Link>
+            <Downloads annotation={a} />
+          </span>
+        }
       />
       <CardBody className="space-y-5 pt-3">
         {s.synthetic_evidence?.length > 0 && <SyntheticNote evidence={s.synthetic_evidence} />}
@@ -298,120 +307,10 @@ function FeatureTable({ annotation }: { annotation: Annotation }) {
           </Button>
         </span>
       </div>
-      {open != null && <FeatureDetail annotationId={a.id} featureId={open} onClose={() => setOpen(null)} />}
+      {open != null && <FeatureDetail annotation={a} featureId={open} onClose={() => setOpen(null)} />}
     </section>
   );
 }
-
-function FeatureDetail({ annotationId, featureId, onClose }: { annotationId: string; featureId: number; onClose: () => void }) {
-  const t = useT();
-  const d = useQuery({ queryKey: ["annotationFeature", annotationId, featureId], queryFn: () => api.annotationFeature(annotationId, featureId) });
-  const f = d.data;
-  return (
-    <div className="rounded-xl border bg-surface p-4 text-xs" role="region" aria-label={t("annotation.detail")}>
-      <div className="mb-2 flex items-start justify-between gap-2">
-        <h5 className="text-sm font-semibold">
-          {f ? `${f.locus_tag ?? f.tool_id ?? f.id} · ${f.product ?? typeLabel(t, f.type)}` : t("common.loading")}
-        </h5>
-        <Button size="sm" variant="ghost" onClick={onClose} aria-label={t("annotation.close")}>
-          <X className="h-3.5 w-3.5" />
-        </Button>
-      </div>
-      <ErrorNote error={d.error} />
-      {f && (
-        <div className="space-y-3">
-          <dl className="grid grid-cols-[150px_1fr] gap-x-3 gap-y-1">
-            <dt className="text-muted-foreground">{t("annotation.col.type")}</dt>
-            <dd>
-              {typeLabel(t, f.type)} <span className="text-muted-foreground">({f.tool_type})</span>
-            </dd>
-            <dt className="text-muted-foreground">{t("annotation.col.position")}</dt>
-            <dd>
-              {f.contig_in_assembly}
-              {f.contig !== f.contig_in_assembly ? ` (${f.contig})` : ""}: {fmtInt(f.start)}–{fmtInt(f.end)}, {f.strand} · {fmtInt(f.length)} bp
-              {f.edge ? ` · ${t("annotation.edge")}` : ""}
-            </dd>
-            <dt className="text-muted-foreground">{t("annotation.col.gene")}</dt>
-            <dd className="italic">{f.gene ?? "—"}</dd>
-            <dt className="text-muted-foreground">{t("annotation.col.product")}</dt>
-            <dd>
-              {f.product ?? "—"}
-              {f.hypothetical && <span className="text-muted-foreground"> · {t("annotation.hypotheticalNote")}</span>}
-            </dd>
-            {f.ec.length > 0 && (
-              <>
-                <dt className="text-muted-foreground">EC</dt>
-                <dd>{f.ec.join(", ")}</dd>
-              </>
-            )}
-            {(f.cog.length > 0 || f.cog_categories.length > 0) && (
-              <>
-                <dt className="text-muted-foreground">COG</dt>
-                <dd>{[...f.cog, ...f.cog_categories.map((c) => t("annotation.cogCategory", { c }))].join(", ")}</dd>
-              </>
-            )}
-            {f.go.length > 0 && (
-              <>
-                <dt className="text-muted-foreground">GO</dt>
-                <dd>{f.go.join(", ")}</dd>
-              </>
-            )}
-            <dt className="text-muted-foreground">{t("annotation.evidence")}</dt>
-            <dd>
-              <ul className="list-disc pl-4">
-                {f.inference.map((x, i) => (
-                  <li key={i}>{x}</li>
-                ))}
-              </ul>
-            </dd>
-            {f.db_xrefs.length > 0 && (
-              <>
-                <dt className="text-muted-foreground">{t("annotation.xrefs")}</dt>
-                <dd className="break-all">{f.db_xrefs.join(", ")}</dd>
-              </>
-            )}
-          </dl>
-          {f.links.length > 0 && (
-            <div>
-              <div className="mb-1 text-muted-foreground">{t("annotation.links")}</div>
-              <ul className="flex flex-wrap gap-2">
-                {f.links.map((l) => {
-                  const url = safeExternalUrl(l.url);
-                  return url ? (
-                    <li key={url}>
-                      <a href={url} target="_blank" rel="noreferrer noopener" className="inline-flex items-center gap-0.5 rounded border px-1.5 py-0.5 text-arva-royal hover:underline dark:text-arva-cyan">
-                        {l.xref} <ExternalLink className="h-3 w-3" aria-hidden />
-                      </a>
-                    </li>
-                  ) : null;
-                })}
-              </ul>
-              <p className="mt-1 text-[11px] text-muted-foreground">{t("annotation.linksNote")}</p>
-            </div>
-          )}
-          {f.nucleotide && <SequenceBlock title={t("annotation.nucleotide")} seq={f.nucleotide} />}
-          {f.protein && <SequenceBlock title={t("annotation.protein")} seq={f.protein} />}
-          {!f.nucleotide && <p className="text-muted-foreground">{t("annotation.noSequence")}</p>}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function SequenceBlock({ title, seq }: { title: string; seq: NonNullable<AnnotationFeatureDetailSeq> }) {
-  const t = useT();
-  return (
-    <div>
-      <div className="mb-1 text-muted-foreground">
-        {title} · {fmtInt(seq.length)} · {t("annotation.from")} {seq.source}
-        {seq.truncated && ` · ${t("annotation.truncated")}`}
-      </div>
-      <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-all rounded bg-muted p-2 font-mono text-[11px]">{seq.sequence}</pre>
-    </div>
-  );
-}
-
-type AnnotationFeatureDetailSeq = { source: string; header: string; length: number; sequence: string; truncated: boolean };
 
 const TOOL_FILES: { kind: string; label: string; key?: TranslationKey }[] = [
   { kind: "gff3", label: "GFF3" },

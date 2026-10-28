@@ -1,3 +1,4 @@
+import atexit
 import json
 import os
 import shutil
@@ -6,6 +7,8 @@ import tempfile
 from pathlib import Path
 
 _STORAGE = tempfile.mkdtemp(prefix="arva-test-storage-")
+# Every run stores its uploads and tool outputs here (about 20 MB, more with the real annotators).
+atexit.register(shutil.rmtree, _STORAGE, ignore_errors=True)
 os.environ["ARVA_DATABASE_URL"] = os.environ.get(
     "ARVA_TEST_DATABASE_URL",
     "postgresql+psycopg://postgres:arva_dev_password@localhost:5432/arva_test",

@@ -15,6 +15,7 @@ from app.api.routes import (
     assemblies,
     dashboard,
     databases,
+    explorer,
     files,
     imports,
     metadata,
@@ -80,7 +81,7 @@ def create_app() -> FastAPI:
         return {"status": "ok", "version": __version__}
 
     for module in (dashboard, projects, samples, files, imports, metadata, analyses, tools, reports, overview,
-                   assemblies, annotations, databases, system):
+                   assemblies, annotations, explorer, databases, system):
         app.include_router(module.router, prefix=settings.api_v1_prefix)
     return app
 

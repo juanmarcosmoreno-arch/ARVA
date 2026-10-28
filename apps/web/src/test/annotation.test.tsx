@@ -142,7 +142,7 @@ describe("annotation helpers", () => {
   });
 
   it("has bilingual Guide entries for every annotation term the screens explain", () => {
-    for (const id of ["annotation", "bakta", "prokka", "hypothetical_proteins", "cds", "trna_rrna", "cog"] as const) {
+    for (const id of ["annotation", "bakta", "prokka", "hypothetical_proteins", "cds", "trna_rrna", "cog", "genome_explorer", "gc_skew"] as const) {
       expect(GUIDE_BY_ID[id].es.title.length).toBeGreaterThan(0);
     }
   });
@@ -169,9 +169,10 @@ describe("Annotation results", () => {
   it("shows product names from databases as text and links only https identifiers", async () => {
     const detail: AnnotationFeatureDetail = {
       ...feature,
-      links: [{ xref: "SO:0000253", url: "https://www.sequenceontology.org/browser/current_svn/term/SO:0000253" }, { xref: "BAD:1", url: "javascript:alert(1)" }],
+      links: [{ xref: "SO:0000253", url: "https://identifiers.org/SO:0000253" }, { xref: "BAD:1", url: "javascript:alert(1)" }],
       nucleotide: { source: "annotation.ffn", header: "ANN1_00005", length: 76, sequence: "GCGGAT", truncated: false },
       protein: null,
+      checks: { nucleotide: { status: "match", reason: null }, protein: { table: 11, status: "not_checked", reason: "not_coding", first_difference: null } },
     };
     vi.spyOn(api, "annotationFeature").mockResolvedValue(detail);
     const { container } = renderWith(<AnnotationCard annotation={annotation} />);

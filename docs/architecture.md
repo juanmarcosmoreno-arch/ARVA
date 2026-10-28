@@ -101,6 +101,30 @@
   verifications run as worker tasks (`app/tasks/databases.py`) with their own lifecycle, since they belong
   to no project. `analysis_jobs.reference_database_id` (SET NULL) plus `database_key`, `database_name`,
   `database_version` and `database_checksum` record the database a job read.
+- **Annotation** (`annotations`): one finished annotation of one assembly, written by the `bakta_annotation` or
+  `prokka_annotation` job that produced it (one per job, all three links CASCADE): tool and version, database key,
+  name, version and checksum, the parameters, the per-step plan and outcome (`steps`: run or not, why, searched,
+  skipped or failed, count found), ARVA's summary, the annotated sequences (names given to the annotator and in
+  the assembly, length, topology), the annotator's files (`files`: kind → path, SHA-256, size) and the path of the
+  feature index. The features themselves are not rows: they are a JSON-lines file in the job's results
+  (`features.jsonl`, `arva_core.annotation` shape), written once and read into memory per annotation, with a
+  small cache keyed by path, modification time and size. `POST /assemblies/{id}/annotate/{bakta|prokka}/preview`
+  explains a run (steps, dependencies, skip options, database, problems); the run endpoints require
+  `confirmed`, and Bakta's also the skip options of that preview. `GET /annotations/{id}/features` filters
+  (type, contig and range, text, hypothetical), sorts and pages (at most 1,000 per page);
+  `/features/{fid}` adds checked links and the nucleotide and protein sequence; `/files/{kind}` serves an
+  annotator file from a fixed list (attachment, `nosniff`, `default-src 'none'; sandbox`); `/export/{fmt}` and
+  `POST /export` (at most 10,000 selected features) cut GFF3, GenBank or FASTA from the annotator's files or
+  write ARVA's TSV; it also takes a `region` (contig, start, end) instead of ids: the features overlapping it.
+  The Genome Explorer (`app/services/genome_explorer.py`, `app/api/routes/explorer.py`) reads the annotator's `.fna`
+  (cached by path, modification time and size): `GET /annotations` lists every annotation with its sample, project
+  and assembly; `/annotations/{id}/tracks?contig=&start=&end=&bins=&window=&step=` returns GC and GC skew per window
+  (`arva_core.genome_view`; at most 5,000 points and 2,000,000 windows) and coverage from a polishing job's depth
+  profile when one exists for exactly these contigs, else the reason; `/sequence?contig=&start=&end=&strand=&format=`
+  returns at most 1,000,000 bases as JSON or a FASTA attachment; `/layout?contig=` returns every feature of one
+  sequence with the fields needed to draw it (at most 50,000); feature details add `checks` (the annotator's gene
+  and protein sequences against the genome). Polishing jobs keep `comparison/{draft,polished}.depth_profile.json`
+  (samtools depth summed in 25 bp bins; path and SHA-256 in `result_summary.indirect.{before,after}.depth_profile`).
 - **QCResult**: structured output of a sequence-statistics job for one raw file. Headline metrics are
   indexed columns; the full payload is JSON (also written to `results/…/sequence_stats.json`).
 
@@ -121,6 +145,8 @@ raw/<project>/<sample>/<file-id>__<name>        read-only originals
 processed/<project>/<sample>/<job-id>/…         read-only derived reads (e.g. filtered FASTQ)
 results/<project>/<sample>/<job-id>/…           analysis outputs and tool reports
 results/<project>/_project/<job-id>/…           project-level outputs (MultiQC report, its staged inputs)
+results/<project>/<sample>/<job-id>/input/…     an annotation job's staged contigs (genome.fna)
+results/<project>/<sample>/<job-id>/features.jsonl  an annotation's feature index (bakta/ or prokka/ beside it)
 reports/<project>/<sample>/…                    every generated report is archived
 logs/<job-id>.log
 ```

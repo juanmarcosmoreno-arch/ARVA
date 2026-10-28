@@ -10,7 +10,7 @@ and 1 bases (7 bases), with the replicons renamed contig_1 and contig_2. All dat
 
 | Fixture | Run |
 |---|---|
-| `*_help_*.txt`, `*_usage_*.txt` | `racon --help`, `java -jar pilon.jar --help`, `minimap2 --help`, `bwa index`, `bwa mem`, `samtools sort/stats/coverage/index` without arguments or with `--help`, `dnadiff -h` |
+| `*_help_*.txt`, `*_usage_*.txt` | `racon --help`, `java -jar pilon.jar --help`, `minimap2 --help`, `bwa index`, `bwa mem`, `samtools sort/stats/coverage/index/depth` without arguments or with `--help`, `dnadiff -h` |
 | `known_edits.{report,snps,1coords}` | `dnadiff -p known_edits reference.fasta round0.fasta` (reference → draft: the 16 known edits) |
 | `racon_round1.{report,snps,1coords}`, `racon_round1.headers.txt` | `minimap2 -x map-ont -t 2 -o round1.paf round0.fasta reads`, `racon -m 3 -x -5 -g -4 -w 500 -q 10 -e 0.3 -t 2 -u reads round1.paf round0.fasta > round1.fasta`, then `dnadiff -p racon_round1 round0.fasta round1.fasta`; the header lines of round1.fasta. Racon trimmed 8 + 17 bp at the ends of contig_1 and 12 + 10 bp at the ends of contig_2 |
 | `racon_empty_overlaps.stderr.log` | Racon with an empty PAF file (exit status 1); carriage returns replaced by line breaks |

@@ -234,14 +234,44 @@ resumable worker task after an explicit confirmation of size, licence and space,
 checksum, safe unpacking, Bakta's folder check and a SHA-256 manifest; registration of an existing folder;
 verification on demand; deletion refused while a job uses the database; disk usage; `ARVA_DB_DIR` (Docker:
 the `arva-databases` volume); jobs record the database key, version and checksum; Databases section on the
-Tools & Databases page (EN/ES). Next: Bakta, the Genome Explorer, annotation views and exports.
+Tools & Databases page (EN/ES).
+
+**4B Genome annotation** ✅: Bakta 1.12.2 (PyPI, own environment) and Prokka 1.14.6 (Debian package, offered as the
+alternative; its README says it is no longer maintained); ARVA repeats Bakta's start-up dependency checks and passes
+Bakta's own `--skip-*` options for steps that cannot run, recording why, plus a PILER-CR crash test; `annotations`
+table (tool, version, database name, version and checksum, parameters, per-step status, summary, sequences, files
+with SHA-256) and a `features.jsonl` index per annotation; API for preview, run, list, summary, bounded feature
+queries, feature detail with sequences, the annotator's files and exports of all or selected features (GFF3,
+GenBank, FASTA, TSV); Annotation tab with run dialog, tiles, steps, charts, feature table and downloads; Guide
+entries (annotation, Bakta, Prokka, hypothetical proteins, CDS, tRNA/rRNA, COG) EN/ES; Annotation section in the
+HTML/JSON/CSV reports; Docker image with Bakta and the bookworm packages. On Ubuntu 24.04 Bakta's CDS, sORF, ori and
+CRISPR steps cannot run (AMRFinderPlus not packaged, DIAMOND and BLAST+ too old, PILER-CR crashes), so Prokka is the
+validated CDS annotator here; Bakta's CDS annotation is not validated yet.
+
+**4C Genome Explorer (linear)** ✅: `/explorer` lists every annotation and `/explorer/<annotation>` opens it (also from
+the Annotation tab and the feature details): a sequence selector with lengths and topology (Bakta's, else the
+assembler's flag), ruler, overview bar, zoom (buttons, wheel, keyboard), pan (drag, buttons, keyboard), region
+selection on the ruler; genes as arrows on forward and reverse lanes coloured by feature group with a legend
+(validated palette; hypothetical proteins outlined, pseudogenes dashed), intergenic regions, GC and GC skew in
+windows (window fitted to the view or chosen, with min–max bands when windows are grouped), coverage from the
+polishing alignments when they exist for exactly these contigs (polishing now keeps a 25 bp `samtools depth` profile
+of the draft and polished alignments) and a stated reason otherwise, and the bases with their complement when zoomed
+in. SVG rendering of the view only, with level of detail above 600 features. Search by gene, locus tag, product,
+identifier, sequence name or `contig:start-end`. Feature panel with every §11 field (identifier, coordinates,
+orientation, predicted function, the annotator's nucleotide and protein sequences with copy, tool, version, database
+and checksum, translation table, evidence, links) and ARVA's checks of the annotator's sequences against the genome.
+Exports: region FASTA (either strand, up to 1 Mb), the features overlapping a region or marked one by one (GFF3, FASTA
+of genes or proteins, TSV), and the view as SVG. API: `GET /annotations`, `/annotations/{id}/tracks`, `/sequence`,
+`/layout`, and region exports. Guide entries `genome_explorer` and `gc_skew` (EN/ES). `samtools depth` was run with
+samtools 1.19.2 (Ubuntu 24.04); the Docker image's samtools 1.16.1 was not run. Coverage exists only for polishing
+runs made from 4C on. Next: the circular view.
 
 ## Later phases
 
 | Phase | Scope |
 |---|---|
 | 3 ✅ | Assembly (Flye, SPAdes, Unicycler), QUAST, contig plots, GFA view, polishing (Racon, Pilon), job cancellation and Flye resume, batch QC; Medaka, Polypolish, Raven, Canu, MEGAHIT, BUSCO and CheckM2 not yet integrated (above) |
-| 4 | Annotation (Bakta; Prokka), Genome Explorer (linear + circular), exports (GFF3, GenBank, FASTA) |
+| 4 | Annotation (Bakta; Prokka) ✅ 4A, 4B; Genome Explorer: linear ✅ 4C, circular next |
 | 5 | MLST, AMRFinderPlus, virulence (VFDB), BLAST, species identification (Mash/FastANI/Kraken2/GTDB-Tk) |
 | 6 | Comparative genomics: ANI, synteny, dot plots, Genome Region Explorer |
 | 7 | Pangenome (Panaroo), alignments (MAFFT), phylogeny (IQ-TREE), Tree Explorer |

@@ -250,6 +250,57 @@ QUAST warns that it cannot set the `en_US.UTF-8` locale when that locale is abse
 written in its HTML report depend on it. `scripts/test-all.sh` uses `~/.arva-tools/quast/bin/quast.py`
 when it exists; the Docker image installs QUAST and minimap2.
 
+### Bakta and Prokka (genome annotation)
+
+The Annotation tab annotates an assembly with Bakta (recommended) or Prokka. Install the programs Bakta's steps
+call, and Prokka, from the distribution, and Bakta from PyPI into its own virtual environment:
+
+```bash
+# Ubuntu 24.04 (validated): tRNAscan-SE 2.0.12, Aragorn 1.2.41, Infernal 1.1.5, PILER-CR 1.06, DIAMOND 2.1.9,
+# HMMER 3.4, Prodigal 2.6.3, barrnap 0.9, Prokka 1.14.6+dfsg-6 (about 225 MB with their dependencies)
+sudo apt install trnascan-se aragorn infernal pilercr diamond-aligner hmmer prodigal barrnap prokka
+python3 -m venv ~/.arva-tools/bakta
+~/.arva-tools/bakta/bin/pip install "bakta==1.12.2" "biopython==1.88" "xopen==2.1.0" "requests==2.34.2" \
+  "alive-progress==3.3.0" "PyYAML==6.0.3" "pyrodigal==3.7.1" "pyhmmer==0.12.3" "pyCirclize==1.10.1"
+export ARVA_TOOL_BAKTA=~/.arva-tools/bakta/bin/bakta     # about 320 MB; Python 3.12.3 here
+```
+
+Then install the Bakta database from **Tools & Databases → Databases** (light 6.0 is 3.7 GiB unpacked). Bakta's
+own `bakta_db` is not needed.
+
+What Bakta can do depends on the programs it finds: at start-up it checks one for each step and stops if one is
+missing or too old. ARVA runs the same checks before every run and passes Bakta's own `--skip-*` options for the
+steps that cannot run, recording why (the Tools page and the run dialog list them). With the Ubuntu 24.04
+packages above:
+
+- **CDS and sORF are skipped.** Bakta 1.12.2 needs AMRFinderPlus ≥ 4.2.7 (no Ubuntu or Debian package) and
+  DIAMOND ≥ 2.2.0 (Ubuntu has 2.1.9) for CDS, and DIAMOND for sORF. ARVA does not download other binaries; with
+  AMRFinderPlus and a recent DIAMOND on PATH (or `ARVA_TOOLS_PATH`) the steps run, but that setup is not
+  validated with ARVA yet. Prokka predicts CDS in the meantime.
+- **oriC/oriV/oriT are skipped**: BLAST+ 2.12.0 is older than the 2.17.0 Bakta requires.
+- **CRISPR is skipped**: Ubuntu's `pilercr 1.06+dfsg-5` passes Bakta's version check but crashes (SIGSEGV) on any
+  non-empty input, and Bakta would then only print a warning and report no arrays. ARVA runs PILER-CR on a short
+  test sequence before each run and skips the step when it crashes.
+- tRNA, tmRNA, rRNA, ncRNA, ncRNA regions, gaps and the circular plot (pyCirclize, drawn offline) run.
+
+Prokka (GPL-3.0-or-later; its README states that its author no longer maintains it and recommends Bakta) uses the
+databases of the Debian package in `/usr/share/prokka/db` (104 MB). They are not indexed, and Prokka refuses
+them until `prokka --setupdb` has run in a writable folder; ARVA does that inside each job (about 150 MB while the
+job runs, removed after it) and never writes to `/usr/share/prokka`. Debian's package has no HMM databases, and
+MinCED (CRISPR) and SignalP are not packaged, so those steps do not run. Prokka builds shell commands from its
+options internally, so ARVA restricts genus, species, strain and locus tags to letters, digits and a few
+punctuation marks; contig names longer than 37 characters can be replaced with `contig_1`, … for Prokka.
+
+**Docker** (Debian bookworm, not validated with ARVA): the image installs the same packages where bookworm has
+them (`trnascan-se`, `infernal`, `hmmer`, `barrnap` and `prokka` are amd64-only) and Bakta into
+`/opt/arva-tools/bakta`. Bookworm's versions are older: tRNAscan-SE 2.0.10, Aragorn 1.2.38, Infernal 1.1.4 and
+DIAMOND 2.1.3 are below Bakta's minimums, so ARVA's checks skip tRNA, tmRNA, rRNA and ncRNA as well, and say so.
+Bookworm's `prokka 1.14.6+dfsg-4` lacks the kingdom protein sets (restored in `1.14.6+dfsg-6`), so ARVA reports
+Prokka as unable to annotate there. The database volume is `ARVA_DB_DIR` (`/databases`).
+
+`scripts/test-all.sh` uses `~/.arva-tools/bakta/bin/bakta` when it exists; the real Bakta tests use the light
+database at `ARVA_TEST_BAKTA_DB` (default `~/.arva-db/bakta-light/6.0`) and are skipped without it.
+
 ### Optional: POD5 run metadata (pod5 library)
 
 ARVA recognises POD5 raw-signal files without any library. To read their run metadata (reads, signal

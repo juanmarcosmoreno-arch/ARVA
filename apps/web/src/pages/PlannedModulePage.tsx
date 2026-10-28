@@ -1,5 +1,5 @@
 import { Construction } from "lucide-react";
-import { Link, useParams } from "react-router-dom";
+import { Link, Navigate, useParams } from "react-router-dom";
 import { ALL_NAV_ITEMS } from "@/components/layout/nav";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
@@ -12,6 +12,7 @@ export function PlannedModulePage() {
   const t = useT();
   const item = ALL_NAV_ITEMS.find((i) => i.key === key);
   if (!item) return <NotFoundPage />;
+  if (item.plannedPhase === undefined) return <Navigate to={item.to} replace />;
   return (
     <div className="animate-fade-in">
       <PageHeader title={t(item.label)} />

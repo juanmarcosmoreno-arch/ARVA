@@ -1809,10 +1809,155 @@ export interface AnnotationFeaturePage {
   items: AnnotationFeature[];
 }
 
+export interface SequenceCheck {
+  status: "match" | "differs" | "not_checked";
+  reason: string | null;
+}
+
+export interface ProteinCheck extends SequenceCheck {
+  table: number;
+  first_difference: number | null;
+  translated_length?: number | null;
+  protein_length?: number | null;
+  internal_stops?: number | null;
+}
+
+export interface AnnotationSequenceRecord {
+  source: string;
+  header: string;
+  length: number;
+  sequence: string;
+  truncated: boolean;
+}
+
 export interface AnnotationFeatureDetail extends AnnotationFeature {
   links: { xref: string; url: string }[];
-  nucleotide: { source: string; header: string; length: number; sequence: string; truncated: boolean } | null;
-  protein: { source: string; header: string; length: number; sequence: string; truncated: boolean } | null;
+  nucleotide: AnnotationSequenceRecord | null;
+  protein: AnnotationSequenceRecord | null;
+  /** ARVA's checks against the genome; the sequences shown are always the annotator's. */
+  checks: { nucleotide: SequenceCheck; protein: ProteinCheck };
+}
+
+export interface AnnotationRegion {
+  contig: string;
+  start: number;
+  end: number;
+}
+
+export interface AnnotationListRow {
+  id: string;
+  tool: string;
+  tool_version: string;
+  database_name: string | null;
+  database_version: string | null;
+  created_at: string;
+  sample_id: string;
+  sample_code: string;
+  project_id: string;
+  project_name: string;
+  is_demo: boolean;
+  assembly_id: string;
+  assembler: string;
+  assembler_version: string;
+  assembly_kind: string;
+  sequences: number;
+  total_length: number;
+  features: number | null;
+  cds: number | null;
+  synthetic_evidence: string[];
+}
+
+export interface FeatureLayoutItem {
+  id: number;
+  locus_tag: string | null;
+  tool_id: string | null;
+  type: string;
+  start: number;
+  end: number;
+  strand: string;
+  length: number;
+  edge: boolean;
+  gene: string | null;
+  product: string | null;
+  hypothetical: boolean | null;
+  pseudo: boolean;
+  partial: string | null;
+}
+
+export interface FeatureLayout {
+  contig: string;
+  contig_in_assembly: string;
+  length: number;
+  total: number;
+  items: FeatureLayoutItem[];
+}
+
+export interface GcTrack {
+  window: number;
+  step: number;
+  auto: boolean;
+  windows: number;
+  group: number;
+  contig_gc: number | null;
+  start: number[];
+  end: number[];
+  gc: (number | null)[];
+  gc_min: (number | null)[];
+  gc_max: (number | null)[];
+  skew: (number | null)[];
+  skew_min: (number | null)[];
+  skew_max: (number | null)[];
+}
+
+export interface CoverageSource {
+  job_id: string;
+  polisher: string;
+  polisher_version: string;
+  alignment: "draft" | "polished";
+  aligner: string | null;
+  reads: string | null;
+  resolution: number;
+  command: string[] | null;
+  samtools_version: string | null;
+  deletions_counted: boolean | null;
+  overlapping_mates_counted_twice: boolean | null;
+}
+
+export interface CoverageTrack {
+  available: boolean;
+  reason?: string | null;
+  job_id?: string | null;
+  source?: CoverageSource | null;
+  contig_mean_depth?: number | null;
+  resolution?: number | null;
+  group?: number | null;
+  start: number[];
+  end: number[];
+  mean: (number | null)[];
+  min: (number | null)[];
+  max: (number | null)[];
+}
+
+export interface GenomeTracks {
+  contig: string;
+  contig_in_assembly: string;
+  length: number;
+  start: number;
+  end: number;
+  points: number;
+  sequence_source: { file: string; tool: string; sha256: string };
+  gc: GcTrack;
+  coverage: CoverageTrack;
+}
+
+export interface GenomeSequence {
+  contig: string;
+  contig_in_assembly: string;
+  start: number;
+  end: number;
+  strand: "+" | "-";
+  length: number;
+  sequence: string;
 }
 
 export type AnnotationExportFormat = "gff3" | "genbank" | "fasta_nt" | "fasta_aa" | "tsv";
