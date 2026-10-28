@@ -422,3 +422,42 @@ def export(annotation: Annotation, fmt: str, ids: list[int] | None) -> tuple[str
 def download_name(sample: Sample, annotation: Annotation, suffix: str) -> str:
     stem = re.sub(r"[^A-Za-z0-9._-]+", "_", f"{sample.sample_code}_{annotation.tool}_{annotation.id[:8]}").strip("._")
     return f"{stem or 'annotation'}.{suffix}"
+
+
+# --- Plain-language step descriptions (reports; the interface builds its own from the codes) --------------------
+
+STEP_LABELS = {"trna": "tRNA", "tmrna": "tmRNA", "rrna": "rRNA", "ncrna": "ncRNA", "ncrna_region": "ncRNA regions",
+               "crispr": "CRISPR arrays", "cds": "CDS", "pseudo": "pseudogenes", "sorf": "small ORFs (sORFs)",
+               "gap": "gaps", "ori": "origins of replication and transfer", "plot": "circular genome plot",
+               "similarity": "protein similarity search", "genus": "genus-specific protein search",
+               "hmm": "HMM search (HAMAP)", "signal_peptides": "signal peptides"}
+_REASONS = {"user": "switched off for this run", "needs_cds": "needs the CDS step",
+            "light_database": "Bakta detects pseudogenes only with the full database",
+            "option_off": "not requested for this run", "database_lacks": "the database has none",
+            "not_offered": "needs SignalP and a Gram-stain option, which ARVA does not offer",
+            "not_supported": "Prokka does not predict them", "tool_skipped": "the annotator did not run it"}
+
+
+def _dependency_text(d: dict[str, Any]) -> str:
+    status = d.get("status")
+    text = {"missing": "is not installed", "failed": "could not be run", "unreadable": "printed no version",
+            "database_missing": "found no database in the Bakta database folder"}.get(status)
+    if status == "too_old":
+        text = f"{d.get('found')} is older than the {d.get('minimum')} required"
+    elif status == "crashed":
+        text = f"is installed but crashed on a test sequence (exit status {d.get('returncode')})"
+    return f"{d['name']} {text or status}"
+
+
+def describe_step(tool: str, step: str, s: dict[str, Any]) -> str:
+    label = "tRNA and tmRNA" if tool == "Prokka" and step == "trna" else STEP_LABELS.get(step, step)
+    status = s.get("status") or ("planned" if s.get("run") else "skipped")
+    if status in ("searched", "planned"):
+        found = s.get("found")
+        return f"{label}: searched" + (f" ({found:,} found)" if isinstance(found, int) else "")
+    if status == "failed":
+        return (f"{label}: search failed — the program crashed during the run (exit status {s.get('returncode')}); "
+                "no result" if s.get("reason") == "crashed" else f"{label}: failed")
+    if s.get("reason") == "dependency":
+        return f"{label}: not searched — " + "; ".join(_dependency_text(d) for d in s.get("dependencies") or [])
+    return f"{label}: not searched — {_REASONS.get(s.get('reason'), s.get('reason') or 'skipped')}"

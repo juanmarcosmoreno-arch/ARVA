@@ -14,8 +14,9 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app import __version__ as ARVA_VERSION
-from app.models import AnalysisJob, Assembly, JobStatus, RawFile, Sample
+from app.models import AnalysisJob, Annotation, Assembly, JobStatus, RawFile, Sample
 from app.services import crosscheck, qc_data
+from app.services.annotation import describe_step
 from app.services.jobs import (
     FASTP_JOB,
     FASTQ_STATS_JOB,
@@ -63,6 +64,15 @@ POLISHING_LIMITATIONS = [
     "indirect indicators: they mix read errors with assembly errors, and the reads were also used to polish.",
     "A polished contig's coverage is the mean depth of the polishing reads mapped to it (samtools coverage); its "
     "circularity is the draft assembler's report for the draft contig. Racon and Pilon treat every contig as linear.",
+]
+ANNOTATION_LIMITATIONS = [
+    "Annotations are predictions: gene calls by Prodigal/Pyrodigal and functions transferred from database matches. "
+    "A 'hypothetical protein' has no function assigned and is reported as such.",
+    "A step that could not run on this computer (a program missing, too old or crashing) was skipped with the "
+    "annotator's own option and is listed as not searched: its count is not zero, it is unknown.",
+    "Coding density here is ARVA's: bases inside CDS (overlaps once) over non-N bases. Bakta's own 'coding ratio' "
+    "counts every feature, gaps included, and is shown separately.",
+    "Results on SYNTHETIC test data describe how the tools behave on that data, not any organism.",
 ]
 COVERAGE_LABELS = {"read_depth": "mean read depth", "kmer_coverage": "k-mer coverage",
                    "relative_depth": "relative depth", "mapped_read_depth": "mean depth of mapped polishing reads"}
@@ -170,6 +180,7 @@ def collect_report_data(db: Session, sample: Sample) -> dict[str, Any]:
         "raw_signal_files": _raw_signal_files(db, sample, files),
         "read_header_summary": build_header_summary(db, sample),
         "assemblies": _assemblies(db, sample, by_id),
+        "annotations": _annotations(db, sample),
         "limitations": LIMITATIONS,
     }
 
@@ -255,6 +266,34 @@ def _assemblies(db: Session, sample: Sample, by_id: dict[str, RawFile]) -> list[
             "warnings": a.warnings,
             "warning_checks": st.get("warning_checks", []),
             "quast": quast,
+        })
+    return out
+
+
+def _annotations(db: Session, sample: Sample) -> list[dict[str, Any]]:
+    """Each annotation with its annotator, database, settings, every step (searched, skipped and why, failed), ARVA's
+    counts and the annotator's own statistics, the exact commands and the files with checksums."""
+    out = []
+    for a in db.scalars(select(Annotation).where(Annotation.sample_id == sample.id).order_by(Annotation.created_at)):
+        job = db.get(AnalysisJob, a.job_id)
+        params = {k: v for k, v in (a.parameters or {}).items() if k not in ("assembly",)}
+        out.append({
+            "id": a.id, "assembly_id": a.assembly_id, "assembly": (a.parameters or {}).get("assembly"),
+            "tool": a.tool, "tool_version": a.tool_version, "created_at": a.created_at.isoformat(),
+            "database": {"key": a.database_key, "name": a.database_name, "version": a.database_version,
+                         "checksum": a.database_checksum},
+            "parameters": params,
+            "steps": a.steps,
+            "steps_described": [describe_step(a.tool, k, v) for k, v in a.steps.items()],
+            "summary": a.summary,
+            "files": a.files,
+            "job": None if job is None else {
+                "id": job.id, "tool_path": job.tool_path, "commands": [shlex.join(c) for c in job.commands or []],
+                "started_at": job.started_at.isoformat() if job.started_at else None,
+                "finished_at": job.finished_at.isoformat() if job.finished_at else None,
+                "duration_seconds": job.duration_seconds,
+                "programs": (job.result_summary or {}).get("programs"),
+            },
         })
     return out
 
@@ -561,7 +600,15 @@ CSV_COLUMNS = [
     "largest_contig", "contig_n50", "contig_l50", "contig_n90", "contig_l90", "assembly_gc_percent",
     "circular_contigs", "median_contig_coverage", "contig_coverage_kind", "heuristic_warnings", "assembly_kind",
     "parent_assembly_id",
+    # Annotation rows (record_type "annotation"): assembly_id is the annotated assembly; counts are of features.
+    "annotation_id", "annotation_database", "annotation_database_checksum", "cds", "hypothetical_cds", "trna",
+    "tmrna", "rrna", "ncrna", "crispr_arrays", "pseudogenes", "coding_density", "steps_not_searched",
 ]
+
+
+def _searched_count(counts: dict[str, int], searched: set[str], step: str, key: str) -> Any:
+    """The count of a feature type, or empty when its step did not run (unknown, not zero)."""
+    return counts.get(key, 0) if step in searched else ""
 
 
 def render_csv(data: dict[str, Any]) -> str:
@@ -636,6 +683,34 @@ def render_csv(data: dict[str, Any]) -> str:
             "heuristic_warnings": "; ".join(w["code"] for w in asm["warnings"]),
             "assembly_kind": asm["kind"],
             "parent_assembly_id": asm["parent_assembly_id"] or "",
+        })
+    for ann in data.get("annotations", []):
+        sm, counts = ann["summary"], ann["summary"].get("counts", {})
+        searched = {k for k, v in ann["steps"].items() if v.get("status") == "searched"}
+
+        density = (sm.get("coding_density") or {}).get("value")
+        writer.writerow({
+            "sample_code": sanitize_spreadsheet_cell(data["sample"]["sample_code"]),
+            "tool": sanitize_spreadsheet_cell(ann["tool"]),
+            "tool_version": sanitize_spreadsheet_cell(ann["tool_version"]),
+            "job_id": (ann["job"] or {}).get("id", ""),
+            "finished_at": (ann["job"] or {}).get("finished_at") or ann["created_at"],
+            "record_type": "annotation",
+            "assembly_id": ann["assembly_id"],
+            "annotation_id": ann["id"],
+            "annotation_database": sanitize_spreadsheet_cell(" ".join(x for x in (ann["database"]["name"],
+                                                                                 ann["database"]["version"]) if x)),
+            "annotation_database_checksum": ann["database"]["checksum"] or "",
+            "cds": "" if sm.get("cds") is None else sm["cds"],
+            "hypothetical_cds": "" if sm.get("hypothetical") is None else sm["hypothetical"],
+            "trna": _searched_count(counts, searched, "trna", "trna"),
+            "tmrna": _searched_count(counts, searched, "tmrna" if ann["tool"] == "Bakta" else "trna", "tmrna"),
+            "rrna": _searched_count(counts, searched, "rrna", "rrna"),
+            "ncrna": _searched_count(counts, searched, "ncrna", "ncrna"),
+            "crispr_arrays": _searched_count(counts, searched, "crispr", "crispr"),
+            "pseudogenes": sm.get("pseudogenes") if "pseudo" in searched else "",
+            "coding_density": "" if density is None else f"{density:.4f}",
+            "steps_not_searched": "; ".join(k for k, v in ann["steps"].items() if v.get("status") != "searched"),
         })
     return out.getvalue()
 
@@ -781,6 +856,15 @@ _ASSEMBLY_METHODS = (
     "Unicycler's relative depth: the three are not comparable. Heuristic warnings use fixed thresholds stated with each "
     "warning; every check, including those that could not run, is stored with the assembly. QUAST values, when "
     "present, are QUAST's own and describe only contigs of at least its minimum length.</p>"
+)
+
+_ANNOTATION_METHODS = (
+    "<p>Annotations were made by Bakta or Prokka on the assembly's contigs, written without their FASTA descriptions "
+    "(Bakta reads completeness and replicon type from words in them; only its --complete option was used for that). "
+    "Before each run ARVA checked every program the annotator needs, as the annotator checks them, and passed the "
+    "annotator's own skip options for steps that could not run. The annotators' files are kept unchanged; ARVA's "
+    "feature index, counts and coding density (CDS bases over non-N bases) are computed from them, and links are "
+    "made only for identifiers the annotator reported.</p>"
 )
 
 _HEADER_FIELDS = (
@@ -1026,6 +1110,52 @@ def _assembly_html(data: dict[str, Any]) -> str:
             + "".join(sections))
 
 
+_ANNOTATION_COUNTS = (("cds", "CDS"), ("sorf", "Small ORFs"), ("trna", "tRNA"), ("tmrna", "tmRNA"), ("rrna", "rRNA"),
+                      ("ncrna", "ncRNA"), ("ncrna_region", "ncRNA regions"), ("crispr", "CRISPR arrays"),
+                      ("gap", "Gaps"), ("oric", "oriC"), ("oriv", "oriV"), ("orit", "oriT"), ("other", "Other"))
+
+
+def _annotation_html(data: dict[str, Any]) -> str:
+    sections = []
+    for a in data.get("annotations", []):
+        sm, job = a["summary"], a["job"] or {}
+        counts = sm.get("counts", {})
+        rows = [(label, f"{counts.get(key, 0):,}") for key, label in _ANNOTATION_COUNTS if counts.get(key)]
+        if sm.get("cds") is not None:
+            frac = sm.get("hypothetical_fraction")
+            rows.append(("Hypothetical CDS", f"{sm['hypothetical']:,}" + (f" ({100 * frac:.1f} %)" if frac is not None
+                                                                          else "")))
+            density = (sm.get("coding_density") or {}).get("value")
+            rows.append(("Coding density (ARVA)", "n/a" if density is None else f"{100 * density:.2f} %"))
+        rows.append(("Pseudogenes", f"{sm.get('pseudogenes', 0):,}" if (a["steps"].get("pseudo") or {}).get("status")
+                     == "searched" else "not searched"))
+        table = "".join(f"<tr><th>{escape(k)}</th><td>{escape(v)}</td></tr>" for k, v in rows)
+        steps = "".join(f"<li>{escape(t)}</li>" for t in a["steps_described"])
+        db = a["database"]
+        files = "".join(f"<tr><th>{escape(k)}</th><td><code>{escape(v['path'])}</code><br>SHA-256 "
+                        f"<code>{escape(v['sha256'])}</code></td></tr>" for k, v in (a["files"] or {}).items())
+        synthetic = (f"<p class='warn'>SYNTHETIC input ({escape(', '.join(sm['synthetic_evidence']))}): these "
+                     "results describe the tools on test data, not biology.</p>" if sm.get("synthetic_evidence") else "")
+        sections.append(
+            f"<h3>{escape(a['tool'])} {escape(a['tool_version'])}</h3>"
+            f"<p class='muted'>Annotation <code>{escape(a['id'])}</code> of assembly <code>{escape(a['assembly_id'])}"
+            f"</code> · created {escape(a['created_at'])}</p>{synthetic}"
+            f"<table>{table}</table><h4>Steps</h4><ul>{steps}</ul>"
+            + "<table>"
+            + f"<tr><th>Database</th><td>{escape(db['name'] or 'none')} {escape(db['version'] or '')}"
+            + (f"<br>Content checksum <code>{escape(db['checksum'])}</code>" if db["checksum"] else "") + "</td></tr>"
+            + f"<tr><th>Settings</th><td><code>{escape(json.dumps(a['parameters'], sort_keys=True))}</code></td></tr>"
+            + f"<tr><th>Analysis job</th><td><code>{escape(job.get('id') or '')}</code></td></tr>"
+            + files + "</table>"
+            + "".join(f"<pre>{escape(c)}</pre>" for c in job.get("commands") or [])
+        )
+    if not sections:
+        return ""
+    return ("<h2>Annotation</h2><p>Features are the annotators' predictions; counts are ARVA's counts of the features "
+            "each annotator reported. Steps that were not searched are listed with the reason.</p>"
+            + "".join(sections))
+
+
 def _polishing_html(p: dict[str, Any] | None) -> str:
     if not p:
         return ""
@@ -1138,7 +1268,8 @@ def render_html(data: dict[str, Any]) -> str:
     limitations = "".join(f"<li>{escape(x)}</li>" for x in data["limitations"]
                           + (ASSEMBLY_LIMITATIONS if data.get("assemblies") else [])
                           + (POLISHING_LIMITATIONS if any(a["kind"] == "polished" for a in data.get("assemblies", []))
-                             else []))
+                             else [])
+                          + (ANNOTATION_LIMITATIONS if data.get("annotations") else []))
     steps = "".join(
         f"<h3>{escape(st['tool'])} {escape(st['tool_version'])}</h3>"
         f"<p class='muted'>Inputs: {escape(', '.join(st['inputs']))} · finished {escape(st['finished_at'] or '')}"
@@ -1185,6 +1316,7 @@ Generated {escape(data['generated_at'])} · ARVA {escape(data['arva_version'])}<
 {''.join(sections) or '<p>No read files registered.</p>'}
 {_raw_signal_html(data)}
 {_assembly_html(data)}
+{_annotation_html(data)}
 {('<h2>Processing and independent checks</h2>' + steps) if steps else ''}
 <h2>Methods</h2>
 <p>Each file was streamed in full by the ARVA scientific core (<code>arva-core.seqstats</code>), which
@@ -1199,6 +1331,7 @@ The resulting platform hint is a suggestion with a stated confidence; it never r
 technology recorded for the sample.</p>
 {_POD5_METHODS if data.get("raw_signal_files") else ""}
 {_ASSEMBLY_METHODS if data.get("assemblies") else ""}
+{_ANNOTATION_METHODS if data.get("annotations") else ""}
 <h2>Limitations</h2><ul>{limitations}</ul>
 <footer>This report is descriptive. It contains values computed from the input files and does not
 make clinical or biological claims.</footer>
