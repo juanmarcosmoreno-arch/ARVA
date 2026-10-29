@@ -10,7 +10,7 @@ import { ErrorNote } from "@/components/ui/misc";
 import { useT } from "@/i18n";
 import { api } from "@/lib/api";
 import { fmtBytes, fmtDate, fmtInt, fmtNum } from "@/lib/format";
-import { messageText } from "@/lib/messages";
+import { fileValidation, jobError, messageText } from "@/lib/messages";
 import { fileTime, runOverview, signalHours } from "@/lib/pod5";
 import { latestJobFor } from "@/lib/results";
 import type { AnalysisJobDetail, Library, Pod5Summary, RawFile } from "@/lib/types";
@@ -102,12 +102,12 @@ function RawSignalCard({
         {!file.is_valid ? (
           <p className="flex gap-2 rounded-lg border border-warning/40 bg-warning/5 px-3 py-2 text-sm">
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" aria-hidden />
-            <span className="min-w-0 break-words">{t("pod5.invalid", { message: file.validation_message ?? "" })}</span>
+            <span className="min-w-0 break-words">{t("pod5.invalid", { message: fileValidation(t, file) })}</span>
           </p>
         ) : (
           <>
             {summary && done && <RunMetadata t={t} summary={summary} job={done} />}
-            {latest?.status === "failed" && <ErrorNote error={latest.error_message} />}
+            {latest?.status === "failed" && <ErrorNote error={jobError(t, latest)} />}
             <div className="space-y-2">
               <p id={hintId} className="text-xs text-muted-foreground">
                 {checking

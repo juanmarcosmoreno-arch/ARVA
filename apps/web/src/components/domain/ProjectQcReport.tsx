@@ -13,7 +13,7 @@ import { ErrorNote } from "@/components/ui/misc";
 import { useT } from "@/i18n";
 import { api } from "@/lib/api";
 import { fmtDate, shellJoin } from "@/lib/format";
-import { toolMessage } from "@/lib/messages";
+import { jobError, toolMessage } from "@/lib/messages";
 import {
   DEFINITION_KEY,
   MODULE_NAME,
@@ -302,7 +302,7 @@ function ReportItem({ job, expanded = false }: { job: AnalysisJob; expanded?: bo
           )}
         </div>
       )}
-      {job.status === "failed" && job.error_message && <ErrorNote error={t("multiqc.failed", { error: job.error_message })} />}
+      {job.status === "failed" && job.error_message && <ErrorNote error={t("multiqc.failed", { error: jobError(t, job) })} />}
       {expanded && summary && (
         <>
           {versions && <p className="text-xs text-muted-foreground">{t("multiqc.versions", { versions })}</p>}

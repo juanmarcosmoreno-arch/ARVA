@@ -5,22 +5,24 @@ import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { Field, Input, Select, Textarea } from "@/components/ui/form";
 import { ErrorNote } from "@/components/ui/misc";
-import { useT } from "@/i18n";
+import { useT, type TranslationKey } from "@/i18n";
 import { api } from "@/lib/api";
 import { TECHNOLOGIES, technologyLabel } from "@/lib/format";
 import type { Sample, SampleInput, SequencingTechnology } from "@/lib/types";
 
-const FIELDS: { key: keyof SampleInput; label: string; placeholder?: string; type?: string }[] = [
-  { key: "organism", label: "Organism", placeholder: "e.g. Staphylococcus aureus" },
-  { key: "expected_species", label: "Expected species" },
-  { key: "sample_type", label: "Sample type", placeholder: "e.g. isolate, milk, swab" },
-  { key: "host", label: "Host", placeholder: "e.g. Bos taurus" },
-  { key: "geographic_origin", label: "Geographic origin" },
-  { key: "collection_date", label: "Collection date", type: "date" },
-  { key: "sequencing_run", label: "Sequencing run" },
-  { key: "researcher", label: "Researcher" },
-  { key: "institution", label: "Institution" },
+const FIELDS: { key: keyof SampleInput & `${string}`; placeholder?: TranslationKey; type?: string }[] = [
+  { key: "organism", placeholder: "sampleForm.organismExample" },
+  { key: "expected_species" },
+  { key: "sample_type", placeholder: "sampleForm.sampleTypeExample" },
+  { key: "host", placeholder: "sampleForm.hostExample" },
+  { key: "geographic_origin" },
+  { key: "collection_date", type: "date" },
+  { key: "sequencing_run" },
+  { key: "researcher" },
+  { key: "institution" },
 ];
+
+const fieldLabel = (key: string) => `metadata.field.${key}` as TranslationKey;
 
 function toForm(s?: Sample): SampleInput {
   return {
@@ -39,14 +41,15 @@ function clean(form: SampleInput): SampleInput {
 }
 
 export function SampleFields({ form, setForm }: { form: SampleInput; setForm: (f: SampleInput) => void }) {
+  const t = useT();
   const set = (k: keyof SampleInput) => (e: { target: { value: string } }) => setForm({ ...form, [k]: e.target.value });
   return (
     <div className="space-y-4">
       <div className="grid gap-4 sm:grid-cols-2">
-        <Field label="Sample ID *">
-          <Input required maxLength={255} value={form.sample_code} onChange={set("sample_code")} placeholder="e.g. SA-2024-001" />
+        <Field label={t("form.required", { label: t("metadata.field.sample_code") })}>
+          <Input required maxLength={255} value={form.sample_code} onChange={set("sample_code")} placeholder={t("sampleForm.idExample")} />
         </Field>
-        <Field label="Sequencing technology">
+        <Field label={t("metadata.field.sequencing_technology")}>
           <Select value={form.sequencing_technology} onChange={(e) => setForm({ ...form, sequencing_technology: e.target.value as SequencingTechnology })}>
             {TECHNOLOGIES.map((v) => (
               <option key={v} value={v}>
@@ -56,15 +59,15 @@ export function SampleFields({ form, setForm }: { form: SampleInput; setForm: (f
           </Select>
         </Field>
         {FIELDS.map((f) => (
-          <Field key={f.key} label={f.label}>
-            <Input type={f.type ?? "text"} value={(form[f.key] as string) ?? ""} onChange={set(f.key)} placeholder={f.placeholder} />
+          <Field key={f.key} label={t(fieldLabel(f.key))}>
+            <Input type={f.type ?? "text"} value={(form[f.key] as string) ?? ""} onChange={set(f.key)} placeholder={f.placeholder && t(f.placeholder)} />
           </Field>
         ))}
       </div>
-      <Field label="Description">
+      <Field label={t("metadata.field.description")}>
         <Textarea value={form.description ?? ""} onChange={set("description")} />
       </Field>
-      <Field label="Notes">
+      <Field label={t("metadata.field.notes")}>
         <Textarea value={form.notes ?? ""} onChange={set("notes")} />
       </Field>
     </div>
@@ -106,7 +109,7 @@ export function SampleFormDialog({
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange} title={t("samples.new")} description="Only the Sample ID is required; metadata can be completed later." className="max-w-2xl">
+    <Dialog open={open} onOpenChange={onOpenChange} title={t("samples.new")} description={t("sampleForm.description")} className="max-w-2xl">
       <form onSubmit={submit} className="space-y-4">
         <SampleFields form={form} setForm={setForm} />
         <ErrorNote error={mutation.error} />
@@ -149,7 +152,7 @@ export function SampleMetadataEditor({ sample }: { sample: Sample }) {
       <SampleFields form={form} setForm={setForm} />
       <ErrorNote error={mutation.error} />
       <div className="flex items-center justify-end gap-3">
-        {saved && <span className="text-xs text-success">Saved</span>}
+        {saved && <span className="text-xs text-success">{t("common.saved")}</span>}
         <Button type="submit" disabled={mutation.isPending || !form.sample_code.trim()}>
           {t("common.save")}
         </Button>

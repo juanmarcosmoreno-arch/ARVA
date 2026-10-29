@@ -13,6 +13,7 @@ import { api } from "@/lib/api";
 import { capacityCheck } from "@/lib/capacity";
 import { fmtBytes, fmtDate } from "@/lib/format";
 import type { AnalysisJob, ImportEntry, ImportRoot, ServerImportSummary } from "@/lib/types";
+import { jobError, rejectionText } from "@/lib/messages";
 
 const IMPORTABLE_KINDS = new Set(["fastq", "fasta", "pod5"]);
 const KIND_LABEL: Record<string, string> = { fastq: "FASTQ", fasta: "FASTA", pod5: "POD5" };
@@ -259,7 +260,7 @@ function ImportJobResult({ job, running }: { job: AnalysisJob; running: boolean 
         </Link>
       </div>
       {running && <p className="text-xs text-muted-foreground">{t("serverImport.running")}</p>}
-      {job.status === "failed" && !summary?.rejected.length && <ErrorNote error={job.error_message} />}
+      {job.status === "failed" && !summary?.rejected.length && <ErrorNote error={jobError(t, job)} />}
       {summary && summary.imported.length > 0 && (
         <div>
           <div className="mb-1 text-xs font-medium text-muted-foreground">{t("serverImport.imported", { count: summary.imported.length })}</div>
@@ -283,7 +284,7 @@ function ImportJobResult({ job, running }: { job: AnalysisJob; running: boolean 
                 <XCircle className="mt-0.5 h-4 w-4 shrink-0 text-danger" />
                 <div className="min-w-0">
                   <div className="break-all font-medium">{r.path}</div>
-                  <div className="break-words text-xs text-muted-foreground">{r.reason}</div>
+                  <div className="break-words text-xs text-muted-foreground">{rejectionText(t, r)}</div>
                 </div>
               </li>
             ))}

@@ -15,7 +15,7 @@ from app.services.import_roots import (
     resolve_file,
     root_by_path,
 )
-from app.services.imports import DuplicateFileError, register_raw_file
+from app.services.imports import DuplicateFileError, register_raw_file, rejection
 from app.storage.local import FileTooLargeError
 from app.tasks.common import JobCancelled, JobContext, JobFailure, run_job
 
@@ -73,7 +73,8 @@ class _ServerImport:
                 )
         except _PER_FILE_ERRORS as exc:
             reason = str(exc) if not isinstance(exc, OSError) else f"{exc.strerror or exc} while copying"
-            self.rejected.append({"path": rel, "reason": reason})
+            code, params = rejection(exc) or (None, {})
+            self.rejected.append({"path": rel, "reason": reason, "code": code, "params": params})
             if isinstance(exc, DuplicateFileError):
                 self.duplicates += 1
                 ctx.log(f"Rejected {rel}: {reason}; the registered file stays registered.", flush=True)

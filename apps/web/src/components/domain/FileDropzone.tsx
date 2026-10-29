@@ -6,13 +6,15 @@ import { useT } from "@/i18n";
 import { api, type UploadProgress } from "@/lib/api";
 import { totalBytes, uploadSpace } from "@/lib/capacity";
 import { filesFromDrop } from "@/lib/dropFiles";
-import { fmtBytes, formatLabel } from "@/lib/format";
+import { fmtBytes, fmtPct, formatLabel } from "@/lib/format";
 import type { StorageCapacity, UploadResult } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { fileValidation, rejectionText } from "@/lib/messages";
 
 const ACCEPT = ".fastq,.fq,.fasta,.fa,.fna,.fas,.gz,.pod5";
 
 export function UploadResultList({ result }: { result: UploadResult }) {
+  const t = useT();
   return (
     <ul className="space-y-1.5 text-sm" aria-live="polite">
       {result.files.map((f) => (
@@ -26,7 +28,7 @@ export function UploadResultList({ result }: { result: UploadResult }) {
             <div className="truncate font-medium">
               {f.original_filename} <span className="font-normal text-muted-foreground">· {formatLabel(f.file_format)} · {fmtBytes(f.size_bytes)}</span>
             </div>
-            <div className="break-words text-xs text-muted-foreground">{f.validation_message}</div>
+            <div className="break-words text-xs text-muted-foreground">{fileValidation(t, f)}</div>
           </div>
         </li>
       ))}
@@ -35,7 +37,7 @@ export function UploadResultList({ result }: { result: UploadResult }) {
           <XCircle className="mt-0.5 h-4 w-4 shrink-0 text-danger" />
           <div className="min-w-0">
             <div className="truncate font-medium">{r.filename}</div>
-            <div className="break-words text-xs text-muted-foreground">{r.reason}</div>
+            <div className="break-words text-xs text-muted-foreground">{rejectionText(t, r)}</div>
           </div>
         </li>
       ))}
@@ -140,10 +142,8 @@ export function FileDropzone({ sampleId, onUploaded }: { sampleId: string; onUpl
       {upload.isPending && (
         <div className="rounded-lg border bg-surface p-3" aria-live="polite">
           <div className="mb-2 flex justify-between gap-2 text-xs">
-            <span>
-              Uploading {pending.length} file{pending.length > 1 ? "s" : ""} ({fmtBytes(totalBytes(pending))})
-            </span>
-            <span className="tabular-nums">{pct < 100 ? `${pct}%` : "Checksumming & validating…"}</span>
+            <span>{t("import.uploading", { count: pending.length, size: fmtBytes(totalBytes(pending)) })}</span>
+            <span className="tabular-nums">{pct < 100 ? fmtPct(pct, 0) : t("import.checksumming")}</span>
           </div>
           <div className="h-1.5 overflow-hidden rounded-full bg-muted">
             <div className="h-full bg-arva-teal transition-all" style={{ width: `${pct}%` }} />

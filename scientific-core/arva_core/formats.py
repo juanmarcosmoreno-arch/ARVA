@@ -34,6 +34,7 @@ class FormatInfo:
 class Pod5Check:
     is_complete: bool
     message: str
+    code: str
 
 
 def is_gzip(path: Path) -> bool:
@@ -55,10 +56,12 @@ def check_pod5(path: Path) -> Pod5Check | None:
                     "POD5 raw-signal file: start and end signatures present, so the file is complete. "
                     "It holds nanopore signal, not reads: ARVA can read its run metadata; read "
                     "statistics need the basecalled FASTQ.",
+                    "pod5_complete",
                 )
     return Pod5Check(
         False,
         "Incomplete or truncated POD5 — the end signature is missing; copy the file again.",
+        "pod5_truncated",
     )
 
 

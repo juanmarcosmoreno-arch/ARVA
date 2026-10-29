@@ -15,6 +15,7 @@ import { fmtDate, fmtDuration } from "@/lib/format";
 import { QUAST_JOB } from "@/lib/quast";
 import type { AnalysisJob, AnalysisJobDetail } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { jobError } from "@/lib/messages";
 
 const LOG_LINES = 200;
 
@@ -206,7 +207,7 @@ export function FailedCard({ job, resumedBy }: { job: AnalysisJobDetail; resumed
     <Card className={cancelled ? "border-warning/40" : "border-danger/30"}>
       <CardHeader title={t(cancelled ? k.cancelled : k.failed, { tool: `${job.tool_name} ${job.tool_version}` })} description={fmtDate(job.finished_at ?? job.created_at)} />
       <CardBody className="space-y-2 pt-3">
-        {!cancelled && <ErrorNote error={job.error_message} />}
+        {!cancelled && <ErrorNote error={jobError(t, job)} />}
         {stage && <p className="text-xs text-muted-foreground">{t(cancelled ? "assembly.cancelledAt" : k.failedAt, { stage: stageName(t, stage) })}</p>}
         <StageList job={job} />
         <p className="text-xs text-muted-foreground">{t(cancelled ? "assembly.cancelledNote" : k.failedNote)}</p>

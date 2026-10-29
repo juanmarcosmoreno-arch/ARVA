@@ -7,7 +7,7 @@ import { Explain } from "@/components/guide/Explain";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardBody, CardHeader } from "@/components/ui/card";
 import { type TranslationKey, useT } from "@/i18n";
-import { escapeHtml, fmtBases, fmtCompact, fmtInt, fmtNum, formatLabel, fmtPct } from "@/lib/format";
+import { escapeHtml, fmtBases, fmtBp, fmtCompact, fmtInt, fmtNum, fmtPct, formatLabel } from "@/lib/format";
 import { type FileOverviewRow, type FileState, sequencingOverview } from "@/lib/overview";
 import { signalHours } from "@/lib/pod5";
 import type { AnalysisJobDetail, RawFile } from "@/lib/types";
@@ -138,11 +138,11 @@ function Values({ row, span }: { row: FileOverviewRow; span: number }) {
   return (
     <>
       <td className={cn(NUM, "align-top")}>{fmtInt(s.read_count)}</td>
-      <td className={cn(NUM, "align-top")} title={`${fmtInt(s.total_bases)} bp`}>
+      <td className={cn(NUM, "align-top")} title={fmtBp(s.total_bases)}>
         {fmtBases(s.total_bases)}
       </td>
-      <td className={cn(NUM, "align-top")}>{fmtInt(s.mean_length)} bp</td>
-      <td className={cn(NUM, "align-top")}>{fmtInt(s.n50)} bp</td>
+      <td className={cn(NUM, "align-top")}>{fmtBp(s.mean_length)}</td>
+      <td className={cn(NUM, "align-top")}>{fmtBp(s.n50)}</td>
       <td className={cn(NUM, "align-top")}>{q ? `Q${fmtNum(q.mean_read_quality)}` : "—"}</td>
       <td className={cn(NUM, "align-top")}>{q ? fmtPct(q.q30_bases_percent) : "—"}</td>
       <td className={cn(NUM, "align-top")}>{fmtPct(s.gc_percent, 2)}</td>
@@ -175,7 +175,7 @@ function BasesPerFileChart({ rows, prefix }: { rows: FileOverviewRow[]; prefix: 
         return [
           `<b>${escapeHtml(r.file.original_filename)}</b>`,
           escapeHtml(lineage(r, t)),
-          `${t("overview.colBases")}: <b>${fmtBases(s.total_bases)}</b> (${fmtInt(s.total_bases)} bp)`,
+          `${t("overview.colBases")}: <b>${fmtBases(s.total_bases)}</b> (${fmtBp(s.total_bases)})`,
           `${t("overview.colReads")}: <b>${fmtInt(s.read_count)}</b>`,
         ].join("<br/>");
       },

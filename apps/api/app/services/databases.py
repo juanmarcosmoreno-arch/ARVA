@@ -233,7 +233,7 @@ def start_download(db: Session, key: str, confirm_bytes: int, accept_licence: bo
     record.name, record.version, record.path = e.name, e.version, plan.target_path
     record.source_url, record.licence = e.source_url, e.licence
     record.status = DatabaseStatus.downloading
-    record.error_message = record.cancel_requested_at = None
+    record.error_message = record.error_detail = record.cancel_requested_at = None
     record.task_id = _task_id()
     record.details = {**(record.details or {}), "catalogue": catalogue_snapshot(e),
                       "confirmation": {"archive_bytes": confirm_bytes, "licence": e.licence, "at": now().isoformat()}}

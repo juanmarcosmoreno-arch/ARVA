@@ -1,6 +1,7 @@
 import { dictionaries, type TranslationKey, type TranslationVars } from "@/i18n";
+import { fmtBytes } from "./format";
 import { profileName } from "./performance";
-import type { AnalysisJob, RawFile, SequenceStats, Tool } from "./types";
+import type { AnalysisJob, ReferenceDatabase, RawFile, SequenceStats, Tool } from "./types";
 
 /** A message from the server: a stable code with parameters, and its English text. */
 export interface ServerMessage {
@@ -14,7 +15,14 @@ export interface ServerMessage {
 export function messageText(t: (key: TranslationKey, vars?: TranslationVars) => string, prefix: string, m: ServerMessage | string): string {
   if (typeof m === "string") return m;
   const key = m.code ? `${prefix}.${m.code}` : null;
-  return key && key in dictionaries.en ? t(key as TranslationKey, m.params) : m.text;
+  return key && key in dictionaries.en ? t(key as TranslationKey, withSizes(m.params)) : m.text;
+}
+
+/** A parameter `<name>_bytes` from the server is also given as `<name>`, a size written in the locale (12,3 GB). */
+function withSizes(params: Record<string, string | number>) {
+  const out: Record<string, string | number> = { ...params };
+  for (const [k, v] of Object.entries(params)) if (k.endsWith("_bytes") && typeof v === "number") out[k.slice(0, -6)] = fmtBytes(v);
+  return out;
 }
 
 /** A tool's detection message in the interface language when ARVA knows its reason code (`tool.reason.<code>`). */
@@ -59,7 +67,21 @@ export function jobError(t: T, job: Pick<AnalysisJob, "error_message" | "error_d
 /** The import check of a file (structure of its first records) in the interface language. */
 export function fileValidation(t: T, file: Pick<RawFile, "validation_message" | "validation_detail">): string {
   const d = file.validation_detail;
-  return d ? messageText(t, "file.validation", { code: d.code, params: d.params, text: file.validation_message ?? "" }) : (file.validation_message ?? "");
+  if (!d || !(`file.validation.${d.code}` in dictionaries.en)) return file.validation_message ?? "";
+  const text = messageText(t, "file.validation", { code: d.code, params: d.params, text: file.validation_message ?? "" });
+  const { twin_sample: sample, twin_file: twin } = d.params;
+  return sample != null && twin != null ? `${text} ${t("file.validation.twin", { sample, file: twin })}` : text;
+}
+
+/** Why the import refused a file (upload or server folder), in the interface language when the code is known. */
+export function rejectionText(t: T, r: { reason: string; code?: string | null; params?: Record<string, string | number> | null }) {
+  return messageText(t, "upload.rejected", { code: r.code ?? null, params: r.params ?? {}, text: r.reason });
+}
+
+/** Why a database download, registration or check failed, in the interface language when the code is known. */
+export function databaseError(t: T, record: Pick<ReferenceDatabase, "error_message" | "error_detail">): string {
+  const d = record.error_detail;
+  return d ? messageText(t, "database.error", { code: d.code, params: d.params, text: record.error_message ?? "" }) : (record.error_message ?? "");
 }
 
 const KEPT_BY = /^Reads kept by (fastp|Filtlong) (\S+)$/;

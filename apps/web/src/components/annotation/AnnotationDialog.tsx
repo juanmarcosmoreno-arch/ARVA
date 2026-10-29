@@ -272,7 +272,7 @@ function AnnotatorChoice({ id, checked, onChange }: { id: "bakta" | "prokka"; ch
 function ToolLine({ plan }: { plan: AnnotationPlan }) {
   const t = useT();
   const tool = plan.tool;
-  if (tool.status !== "available") return <ErrorNote error={t("annotation.unavailable", { message: tool.message || tool.status })} />;
+  if (tool.status !== "available") return <ErrorNote error={t("annotation.unavailable", { message: toolMessage(t, { ...tool, min_version: "" }) || tool.status })} />;
   return (
     <div className="space-y-1 text-xs text-muted-foreground">
       <div>
@@ -283,7 +283,7 @@ function ToolLine({ plan }: { plan: AnnotationPlan }) {
       </div>
       {!tool.version_validated && tool.message && (
         <p className="flex gap-1.5 text-amber-700 dark:text-warning">
-          <Info className="h-3.5 w-3.5 shrink-0" aria-hidden /> {tool.message}
+          <Info className="h-3.5 w-3.5 shrink-0" aria-hidden /> {toolMessage(t, { ...tool, min_version: "" })}
         </p>
       )}
     </div>

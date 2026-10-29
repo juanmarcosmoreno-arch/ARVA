@@ -21,7 +21,7 @@ def _body(ctx: JobContext) -> None:
     (raw,) = ctx.input_files()
     if is_raw_signal(raw):
         # Raised before parsing, so a valid POD5 is never marked invalid by the FASTQ/FASTA validator.
-        raise JobFailure(not_reads_message(raw, "read statistics"))
+        raise JobFailure(not_reads_message(raw, "read statistics"), "pod5_not_reads", file=raw.original_filename)
     ctx.log(f"numpy {np.__version__}")
     ctx.log(f"Input: {raw.original_filename} ({raw.size_bytes} bytes, sha256 {raw.checksum_sha256})",
             flush=True)
@@ -34,7 +34,7 @@ def _body(ctx: JobContext) -> None:
     try:
         stats = compute_sequence_stats(ctx.path(raw.stored_path), params, progress=progress)
     except SequenceFormatError as exc:
-        raise JobFailure(f"Invalid input: {exc}") from exc
+        raise JobFailure(f"Invalid input: {exc}", "invalid_input", detail=str(exc)) from exc
     ctx.log(f"Processed {stats['read_count']:,} records, {stats['total_bases']:,} bases")
     for warning in stats["warnings"]:
         ctx.log(f"WARNING: {warning}")
@@ -59,6 +59,7 @@ def _body(ctx: JobContext) -> None:
     )
     raw.is_valid = True
     raw.validation_message = f"Entire file validated: {stats['read_count']:,} well-formed records."
+    raw.validation_detail = {"code": "entire", "params": {"count": stats["read_count"]}}
     ctx.log(f"Result written to {out_rel}")
     if raw.header_metadata is None:
         # Files imported before read headers were summarised at import.
@@ -73,6 +74,7 @@ def _on_failure(ctx: JobContext, exc: BaseException) -> None:
         for raw in ctx.input_files():
             raw.is_valid = False
             raw.validation_message = f"Full validation failed: {cause}"
+            raw.validation_detail = {"code": "full_failed", "params": {"detail": str(cause)}}
 
 
 def run_sequence_stats_job(job_id: str) -> str:

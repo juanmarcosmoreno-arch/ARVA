@@ -18,14 +18,9 @@ export function latestJobFor(jobs: AnalysisJobDetail[], type: string, fileId: st
   );
 }
 
-export const JOB_LABEL: Record<string, string> = {
-  sequence_stats: "Read statistics",
-  seqkit_stats: "Independent check",
-  fastqc: "FastQC report",
-  fastp: "Filtering (fastp)",
-  filtlong: "Filtering (Filtlong)",
-  server_import: "Import from server folder",
-};
+const LABELLED_JOBS = new Set([
+  "sequence_stats", "seqkit_stats", "fastqc", "fastp", "filtlong", "server_import", "bakta_annotation", "prokka_annotation",
+]);
 
 export const FILTER_JOBS = new Set(["fastp", "filtlong"]);
 export const IMPORT_JOBS = new Set(["server_import"]);
@@ -41,7 +36,8 @@ export function jobLabel(type: string, t: (key: TranslationKey) => string) {
   if (type === "quast_evaluation") return t("quast.jobLabel");
   if (type === "racon_polish") return t("polishing.jobLabel.racon");
   if (type === "pilon_polish") return t("polishing.jobLabel.pilon");
-  return RAW_SIGNAL_JOBS.has(type) ? t("pod5.jobLabel") : JOB_LABEL[type] ?? type;
+  if (RAW_SIGNAL_JOBS.has(type)) return t("pod5.jobLabel");
+  return LABELLED_JOBS.has(type) ? t(`job.label.${type}` as TranslationKey) : type;
 }
 
 /** What ran a job that has no executable path: the separately installed pod5 library, or ARVA itself. */

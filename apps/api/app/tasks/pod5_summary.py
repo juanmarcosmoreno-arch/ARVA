@@ -36,14 +36,15 @@ def read_in_child(path: Path, timeout: int) -> tuple[dict[str, Any], str]:
                               timeout=timeout, check=False)
     except subprocess.TimeoutExpired as exc:
         raise JobFailure(f"Reading the POD5 file took longer than {timeout:,} s and was stopped "
-                         "(ARVA_TOOL_TIMEOUT_SECONDS).") from exc
+                         "(ARVA_TOOL_TIMEOUT_SECONDS).", "pod5_timeout", seconds=timeout) from exc
     if proc.returncode < 0:
         try:
             name = signal.Signals(-proc.returncode).name
         except ValueError:
             name = f"signal {-proc.returncode}"
         raise JobFailure(f"The pod5 library crashed while reading this file ({name}); the file is probably damaged. "
-                         "Compare it with the original copy. The file itself was not changed.")
+                         "Compare it with the original copy. The file itself was not changed.",
+                         "pod5_crashed", file=name)
     lines = proc.stdout.strip().splitlines()
     try:
         result = json.loads(lines[-1]) if proc.returncode == 0 and lines else None
@@ -60,10 +61,11 @@ def read_in_child(path: Path, timeout: int) -> tuple[dict[str, Any], str]:
 def _body(ctx: JobContext) -> None:
     (raw,) = ctx.input_files()
     if not is_raw_signal(raw):
-        raise JobFailure(f"{raw.original_filename} is not a POD5 file")
+        raise JobFailure(f"{raw.original_filename} is not a POD5 file", "not_pod5", file=raw.original_filename)
     versions = {**pod5_versions(), "pyarrow": installed_version("pyarrow"), "numpy": installed_version("numpy")}
     if versions["pod5"] is None:
-        raise JobFailure(f"The pod5 library is not installed on this worker. Install it with: {POD5_INSTALL}")
+        raise JobFailure(f"The pod5 library is not installed on this worker. Install it with: {POD5_INSTALL}",
+                         "pod5_missing", install=POD5_INSTALL)
     ctx.log("Libraries: " + ", ".join(f"{k} {v}" for k, v in versions.items()))
     if versions["pod5"] != ctx.job.tool_version:
         ctx.log(f"Note: pod5 {versions['pod5']} is installed now ({ctx.job.tool_version} when queued)")

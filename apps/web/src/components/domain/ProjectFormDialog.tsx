@@ -49,19 +49,19 @@ export function ProjectFormDialog({
   const set = (k: keyof ProjectInput) => (e: { target: { value: string } }) => setForm((f) => ({ ...f, [k]: e.target.value }));
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange} title={project ? "Edit project" : "New project"} description="A project groups samples, analyses and reports.">
+    <Dialog open={open} onOpenChange={onOpenChange} title={t(project ? "projectForm.edit" : "dashboard.newProject")} description={t("projectForm.description")}>
       <form onSubmit={submit} className="space-y-4">
-        <Field label="Project name *">
-          <Input required autoFocus maxLength={255} value={form.name} onChange={set("name")} placeholder="e.g. S. aureus bovine mastitis 2024" />
+        <Field label={t("form.required", { label: t("projectForm.name") })}>
+          <Input required autoFocus maxLength={255} value={form.name} onChange={set("name")} placeholder={t("projectForm.nameExample")} />
         </Field>
-        <Field label="Description">
-          <Textarea value={form.description ?? ""} onChange={set("description")} placeholder="Aims, sampling design, notes…" />
+        <Field label={t("metadata.field.description")}>
+          <Textarea value={form.description ?? ""} onChange={set("description")} placeholder={t("projectForm.descriptionExample")} />
         </Field>
         <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Researcher">
+          <Field label={t("metadata.field.researcher")}>
             <Input value={form.researcher ?? ""} onChange={set("researcher")} />
           </Field>
-          <Field label="Institution">
+          <Field label={t("metadata.field.institution")}>
             <Input value={form.institution ?? ""} onChange={set("institution")} />
           </Field>
         </div>

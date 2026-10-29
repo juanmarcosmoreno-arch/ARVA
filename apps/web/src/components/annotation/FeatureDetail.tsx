@@ -8,7 +8,7 @@ import { ErrorNote } from "@/components/ui/misc";
 import { dictionaries, type TranslationKey, useT } from "@/i18n";
 import { safeExternalUrl } from "@/lib/annotation";
 import { api } from "@/lib/api";
-import { fmtInt } from "@/lib/format";
+import { fmtBp, fmtInt } from "@/lib/format";
 import type { Annotation, AnnotationFeatureDetail, AnnotationSequenceRecord, ProteinCheck, SequenceCheck } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -71,7 +71,7 @@ function Body({ annotation, f, variant }: { annotation: Annotation; f: Annotatio
         <dt className="text-muted-foreground">{t("explorer.detail.coordinates")}</dt>
         <dd className="break-all">
           {f.contig_in_assembly}
-          {f.contig !== f.contig_in_assembly ? ` (${f.contig})` : ""}: {fmtInt(f.start)}–{fmtInt(f.end)} · {fmtInt(f.length)} bp
+          {f.contig !== f.contig_in_assembly ? ` (${f.contig})` : ""}: {fmtInt(f.start)}–{fmtInt(f.end)} · {fmtBp(f.length)}
           {f.edge ? ` · ${t("annotation.edge")}` : ""}
         </dd>
         <dt className="text-muted-foreground">{t("explorer.detail.orientation")}</dt>
@@ -214,7 +214,7 @@ function SequenceBlock({ title, seq, unit }: { title: string; seq: AnnotationSeq
     <div>
       <div className="mb-1 flex flex-wrap items-center gap-2 text-muted-foreground">
         <span>
-          {title} · {fmtInt(seq.length)} {unit} · {t("annotation.from")} {seq.source}
+          {title} · {unit === "bp" ? fmtBp(seq.length) : `${fmtInt(seq.length)} aa`} · {t("annotation.from")} {seq.source}
           {seq.truncated && ` · ${t("annotation.truncated")}`}
         </span>
         <span className="ml-auto flex gap-1">

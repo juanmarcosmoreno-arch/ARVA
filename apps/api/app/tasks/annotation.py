@@ -35,13 +35,15 @@ def _assembly(ctx: JobContext) -> Assembly:
     planned = (ctx.job.parameters or {})["assembly"]
     a = ctx.db.get(Assembly, planned["assembly_id"])
     if a is None or a.sample_id != ctx.job.sample_id:
-        raise JobFailure(f"Assembly {planned['assembly_id']} no longer exists")
+        raise JobFailure(f"Assembly {planned['assembly_id']} no longer exists",
+                         "assembly_missing", assembly=str(planned["assembly_id"]))
     src = ctx.path(a.contigs_path)
     if not src.is_file():
-        raise JobFailure("The contigs file of the assembly is missing on disk")
+        raise JobFailure("The contigs file of the assembly is missing on disk",
+                         "contigs_missing", assembly=str(planned["assembly_id"]))
     if (digest := _sha256(src)) != planned["contigs_sha256"]:
         raise JobFailure(f"The contigs file changed since it was registered (sha256 {digest}, recorded "
-                         f"{planned['contigs_sha256']})")
+                         f"{planned['contigs_sha256']})", "contigs_changed", assembly=str(planned["assembly_id"]))
     ctx.log(f"Assembly {a.id}: {a.assembler} {a.assembler_version} ({a.kind.value}), contigs sha256 {digest}")
     return a
 
@@ -96,10 +98,11 @@ def _bakta_database(ctx: JobContext) -> tuple[ReferenceDatabase, str]:
     job = ctx.job
     record = ctx.db.get(ReferenceDatabase, job.reference_database_id) if job.reference_database_id else None
     if record is None or record.status not in (DatabaseStatus.installed, DatabaseStatus.registered):
-        raise JobFailure(f"The database {job.database_name} {job.database_version} is no longer installed")
+        raise JobFailure(f"The database {job.database_name} {job.database_version} is no longer installed",
+                         "database_missing", name=str(job.database_name), version=str(job.database_version))
     if record.checksum != job.database_checksum:
         raise JobFailure("The database's content checksum changed since the run was confirmed (it was verified or "
-                         "replaced); start the annotation again")
+                         "replaced); start the annotation again", "database_changed", name=str(job.database_name))
     try:
         info = check_bakta_dir(Path(record.path))
     except DatabaseError as exc:
@@ -124,7 +127,7 @@ def _bakta_body(ctx: JobContext) -> None:
     if skips != p["skip_options"]:
         raise JobFailure(f"The programs Bakta needs changed since the run was confirmed: it would now skip "
                          f"{', '.join(skips) or 'nothing'} instead of {', '.join(p['skip_options']) or 'nothing'}. "
-                         "Open the annotation dialog again")
+                         "Open the annotation dialog again", "programs_changed", tool="Bakta")
     for d in dependencies:
         ctx.log(f"Dependency {d['name']}: {d['status']}" + (f", version {d['found']}" if d["found"] else "")
                 + f" (Bakta needs {d['minimum']} or later)")
@@ -136,9 +139,11 @@ def _bakta_body(ctx: JobContext) -> None:
         argv = BaktaAdapter.argv(exe, params, results / "input" / INPUT_NAME, Path(record.path), out, tmp, skips,
                                  BaktaAdapter.help_options(exe))
     except (OSError, RuntimeError, subprocess.TimeoutExpired) as exc:
-        raise JobFailure(f"Bakta's --help could not be read to check its options: {exc}") from exc
+        raise JobFailure(f"Bakta's --help could not be read to check its options: {exc}",
+                         "help_unreadable", tool="Bakta", detail=str(exc)) from exc
     except ValueError as exc:
-        raise JobFailure(f"Bakta cannot run with these settings: {exc}") from exc
+        raise JobFailure(f"Bakta cannot run with these settings: {exc}",
+                         "settings_rejected", tool="Bakta", detail=str(exc)) from exc
     console = results / bakta_tool.CONSOLE_LOG
     monitor = _StageMonitor(ctx, "Bakta", console, bakta_tool.STAGES, BaktaAdapter.stage)
     monitor()
@@ -160,13 +165,15 @@ def _bakta_body(ctx: JobContext) -> None:
     run = BaktaAdapter.parse_console(console.read_text(errors="replace"))
     outputs = {k: out / f"{bakta_tool.PREFIX}.{s}" for k, s in bakta_tool.OUTPUTS.items()}
     if missing := [k for k in bakta_tool.REQUIRED_OUTPUTS if not outputs[k].is_file()]:
-        raise JobFailure("Bakta exited without an error but did not write " + ", ".join(missing))
+        raise JobFailure("Bakta exited without an error but did not write " + ", ".join(missing),
+                         "outputs_missing", tool="Bakta", files=", ".join(missing))
     for warning in run["warnings"]:
         ctx.log(f"Bakta warning: {warning}")
     try:
         sequences, features, meta = BaktaAdapter.parse_json(json.loads(outputs["json"].read_text(errors="replace")))
     except (ValueError, KeyError, TypeError) as exc:
-        raise JobFailure(f"Bakta's JSON cannot be read: {exc}") from exc
+        raise JobFailure(f"Bakta's JSON cannot be read: {exc}",
+                         "output_unreadable", tool="Bakta", detail=str(exc)) from exc
     if (meta.get("version") or {}).get("bakta") not in (None, ctx.job.tool_version):
         ctx.log(f"WARNING: Bakta's JSON says version {meta['version']['bakta']}; detected {ctx.job.tool_version}")
     sequences = _mapped(sequences, staged)
@@ -193,7 +200,7 @@ def _prokka_body(ctx: JobContext) -> None:
         raise JobFailure(f"Prokka's databases were not found in {database['path']}")
     if database["checksum"] != ctx.job.database_checksum:
         raise JobFailure("Prokka's database files changed since the run was confirmed (was the package updated?); "
-                         "start the annotation again")
+                         "start the annotation again", "database_changed", name="Prokka")
     ctx.log(f"Database: {database['name']} {database['version'] or ''} at {database['path']}, checksum "
             f"{database['checksum']} ({len(database['files'])} files indexed for this run)")
     programs = prokka_tool.programs_found()
@@ -202,7 +209,7 @@ def _prokka_body(ctx: JobContext) -> None:
     steps = prokka_tool.plan_steps(programs, database, params.rfam, params.use_genus, params.genus)
     if {s: v["run"] for s, v in steps.items()} != {s: v["run"] for s, v in p["steps"].items()}:
         raise JobFailure("The programs Prokka uses changed since the run was confirmed; open the annotation "
-                         "dialog again")
+                         "dialog again", "programs_changed", tool="Prokka")
     a = _assembly(ctx)
     results = ctx.path(ctx.results_rel)
     staged = _stage(ctx, a, results, rename=params.rename_contigs)
@@ -215,9 +222,11 @@ def _prokka_body(ctx: JobContext) -> None:
         argv = ProkkaAdapter.argv(exe, params, results / "input" / INPUT_NAME, db_dir, results / prokka_tool.OUT_DIR,
                                   ProkkaAdapter.help_options(exe))
     except (OSError, RuntimeError, subprocess.TimeoutExpired) as exc:
-        raise JobFailure(f"Prokka's --help could not be read to check its options: {exc}") from exc
+        raise JobFailure(f"Prokka's --help could not be read to check its options: {exc}",
+                         "help_unreadable", tool="Prokka", detail=str(exc)) from exc
     except ValueError as exc:
-        raise JobFailure(f"Prokka cannot run with these settings: {exc}") from exc
+        raise JobFailure(f"Prokka cannot run with these settings: {exc}",
+                         "settings_rejected", tool="Prokka", detail=str(exc)) from exc
     console = results / prokka_tool.CONSOLE_LOG
     monitor = _StageMonitor(ctx, "Prokka", console, prokka_tool.STAGES, ProkkaAdapter.stage)
     monitor()
@@ -241,12 +250,14 @@ def _prokka_body(ctx: JobContext) -> None:
     out = results / prokka_tool.OUT_DIR
     outputs = {k: out / f"{prokka_tool.PREFIX}.{s}" for k, s in prokka_tool.OUTPUTS.items()}
     if missing := [k for k in prokka_tool.REQUIRED_OUTPUTS if not outputs[k].is_file()]:
-        raise JobFailure("Prokka exited without an error but did not write " + ", ".join(missing))
+        raise JobFailure("Prokka exited without an error but did not write " + ", ".join(missing),
+                         "outputs_missing", tool="Prokka", files=", ".join(missing))
     log = ProkkaAdapter.parse_log(outputs["log"].read_text(errors="replace"))
     try:
         sequences, features = ProkkaAdapter.parse_gff(outputs["gff3"].read_text(errors="replace"))
     except ValueError as exc:
-        raise JobFailure(f"Prokka's GFF3 cannot be read: {exc}") from exc
+        raise JobFailure(f"Prokka's GFF3 cannot be read: {exc}",
+                         "output_unreadable", tool="Prokka", detail=str(exc)) from exc
     ctx.log(f"Prokka ran Prodigal in {log['prodigal_mode']} mode (it uses 'meta' for genomes under 100,000 bp)")
     _finish(ctx, a, "Prokka", svc.prokka_outcome(steps, log), features, _mapped(sequences, staged), staged, out,
             prokka_tool.OUTPUTS, prokka_tool.PREFIX,

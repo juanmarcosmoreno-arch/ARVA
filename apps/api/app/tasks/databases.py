@@ -46,7 +46,13 @@ USER_AGENT = f"ARVA/{__version__} (Database Manager)"
 
 
 class TaskFailure(Exception):
-    """An expected failure with a user-facing reason."""
+    """An expected failure with a user-facing reason; `code` and `params` name it for the interface
+    (database.error.<code>, recorded in error_detail)."""
+
+    def __init__(self, message: str, code: str | None = None, **params: str | int):
+        super().__init__(message)
+        self.code = code
+        self.params = params
 
 
 class TaskCancelled(Exception):
@@ -92,7 +98,8 @@ class Task:
     def ensure_room(self, needed: int) -> None:
         root = svc.databases_dir()
         if needed > (available := svc.available_bytes(root)):
-            raise TaskFailure(str(svc.DatabaseSpaceError(needed, available, root)))
+            raise TaskFailure(str(svc.DatabaseSpaceError(needed, available, root)), "no_space", needed_bytes=needed,
+                              available_bytes=available)
 
 
 def _run(record_id: str, expected: DatabaseStatus, body: Callable[[Task], None],
@@ -119,12 +126,14 @@ def _run(record_id: str, expected: DatabaseStatus, body: Callable[[Task], None],
             cleanup(task, exc)
             if isinstance(exc, TaskCancelled):
                 record.status = svc.end_status(record)
-                record.error_message = None
+                record.error_message = record.error_detail = None
                 task.log("Cancelled at the user's request")
             else:
                 expected_failure = isinstance(exc, TaskFailure | svc.DatabaseError)
                 record.status = DatabaseStatus.failed
                 record.error_message = str(exc) if expected_failure else f"{type(exc).__name__}: {exc}"
+                code = getattr(exc, "code", None)
+                record.error_detail = {"code": code, "params": exc.params} if code else None
                 task.log(f"ERROR: {record.error_message}")
                 if not expected_failure:
                     task.log(traceback.format_exc())
@@ -178,9 +187,11 @@ def fetch(task: Task, e: CatalogueEntry, part: Path) -> None:
             task.log(f"The server refused to resume at byte {offset:,} (HTTP 416); downloading again from the start")
             part.unlink()
             return fetch(task, e, part)
-        raise TaskFailure(f"{host} answered HTTP {exc.code} {exc.reason} for {e.download_url}") from exc
+        raise TaskFailure(f"{host} answered HTTP {exc.code} {exc.reason} for {e.download_url}", "http_error",
+                          host=host, status=exc.code) from exc
     except OSError as exc:
-        raise TaskFailure(f"could not reach {host}: {getattr(exc, 'reason', exc)}") from exc
+        raise TaskFailure(f"could not reach {host}: {getattr(exc, 'reason', exc)}", "unreachable", host=host,
+                          detail=str(getattr(exc, "reason", exc))) from exc
     with resp:
         if resp.status == 206:
             got = resp.headers.get("Content-Range", "")
@@ -200,7 +211,8 @@ def fetch(task: Task, e: CatalogueEntry, part: Path) -> None:
             mode = "wb"
             task.log(f"Downloading {total:,} bytes from {e.download_url}")
         else:
-            raise TaskFailure(f"{host} answered HTTP {resp.status} for {e.download_url}")
+            raise TaskFailure(f"{host} answered HTTP {resp.status} for {e.download_url}", "http_error", host=host,
+                              status=resp.status)
         done, since_check = offset, 0
         task.tick(force=True, phase="download", bytes_done=done, bytes_total=total, resumed_from=offset)
         with open(part, mode) as out:
@@ -209,7 +221,8 @@ def fetch(task: Task, e: CatalogueEntry, part: Path) -> None:
                     chunk = resp.read(CHUNK)
                 except (OSError, http.client.HTTPException) as exc:
                     raise TaskFailure(f"the download was interrupted at {done:,} of {total:,} bytes ({exc}); start "
-                                      "it again to resume from there") from exc
+                                      "it again to resume from there", "interrupted", done_bytes=done,
+                                      total_bytes=total) from exc
                 if not chunk:
                     break
                 if done + len(chunk) > total:
@@ -225,7 +238,8 @@ def fetch(task: Task, e: CatalogueEntry, part: Path) -> None:
                     task.ensure_room(total - done + (e.extracted_bytes_estimate or 0))
                 task.tick(phase="download", bytes_done=done, bytes_total=total)
     if done != total:
-        raise TaskFailure(f"the transfer ended at {done:,} of {total:,} bytes; start the download again to resume")
+        raise TaskFailure(f"the transfer ended at {done:,} of {total:,} bytes; start the download again to resume",
+                          "interrupted", done_bytes=done, total_bytes=total)
     task.tick(force=True, phase="download", bytes_done=done, bytes_total=total)
     task.log(f"Downloaded {total:,} bytes", flush=True)
 
@@ -242,7 +256,8 @@ def verify_md5(task: Task, e: CatalogueEntry, part: Path) -> str:
     if got != e.checksum:
         part.unlink()
         raise TaskFailure(f"the MD5 of the downloaded archive is {got} but the published MD5 is {e.checksum} "
-                          f"({'; '.join(e.checksum_sources)}). The archive was deleted; download it again")
+                          f"({'; '.join(e.checksum_sources)}). The archive was deleted; download it again",
+                          "md5_mismatch", got=got, expected=e.checksum)
     task.log(f"MD5 {got} matches the published checksum ({'; '.join(e.checksum_sources)})", flush=True)
     return got
 
@@ -331,7 +346,7 @@ def extract(archive: Path, dest: Path, top_dir: str, on_progress: Callable[[int,
                     count += 1
                     on_progress(counter.pos, written)
             except (tarfile.TarError, EOFError) as exc:
-                raise TaskFailure(f"the archive is damaged: {exc}") from exc
+                raise TaskFailure(f"the archive is damaged: {exc}", "archive_damaged", detail=str(exc)) from exc
             except OSError as exc:
                 raise TaskFailure(f"the archive could not be unpacked: {exc}") from exc
     for rel, linkname in links:
@@ -496,7 +511,7 @@ def _verify(task: Task) -> None:
     r = task.record
     folder = Path(r.path or "")
     if not folder.is_dir():
-        raise TaskFailure(f"the database folder {folder} no longer exists")
+        raise TaskFailure(f"the database folder {folder} no longer exists", "folder_missing", folder=str(folder))
     info = svc.check_bakta_dir(folder)
     if r.version and svc.bakta_version(info) != r.version:
         raise TaskFailure(f"version.json now says {svc.bakta_version(info)}; this database was recorded as "
@@ -517,7 +532,8 @@ def _verify(task: Task) -> None:
         if diff["missing"] or diff["changed"]:
             names = ", ".join((diff["changed"] + diff["missing"])[:5])
             raise TaskFailure(f"integrity check failed: {len(diff['changed'])} file(s) changed and "
-                              f"{len(diff['missing'])} missing since installation ({names})")
+                              f"{len(diff['missing'])} missing since installation ({names})", "integrity_failed",
+                              changed=len(diff["changed"]), missing=len(diff["missing"]), names=names)
         if diff["extra"]:
             task.log(f"{len(diff['extra'])} file(s) added since installation (not part of the recorded database): "
                      f"{', '.join(diff['extra'][:5])}")
@@ -525,7 +541,7 @@ def _verify(task: Task) -> None:
     r.details = {**(r.details or {}), "amrfinderplus_db": amrfinder_info(folder),
                  "last_verification": {"at": stamp.isoformat(), "files": len(manifest)}}
     r.verified_at = stamp
-    r.error_message = None
+    r.error_message = r.error_detail = None
     r.status = DatabaseStatus.installed if r.origin is DatabaseOrigin.download else DatabaseStatus.registered
     task.set_progress(phase="done")
 

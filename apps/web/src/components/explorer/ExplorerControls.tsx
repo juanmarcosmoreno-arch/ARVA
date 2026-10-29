@@ -9,7 +9,7 @@ import { useT } from "@/i18n";
 import { MAX_EXPORT } from "@/lib/annotation";
 import { api } from "@/lib/api";
 import { type ContigOption, featureLabel, parseSearch, regionOf, type SearchTarget, type View } from "@/lib/explorer";
-import { fmtInt } from "@/lib/format";
+import { fmtBp, fmtInt } from "@/lib/format";
 import type { Annotation, AnnotationExportFormat, AnnotationFeature, AnnotationRegion, FeatureLayoutItem } from "@/lib/types";
 import { groupColour } from "./GenomeBrowser";
 
@@ -234,7 +234,7 @@ export function RegionBar({ annotation, contig, region, features, onClear, onZoo
           {contig.name}:{fmtInt(start)}–{fmtInt(end)}
         </span>
         <span className="text-muted-foreground">
-          {fmtInt(end - start + 1)} bp · {t("explorer.region.features", { n: fmtInt(n) })}
+          {fmtBp(end - start + 1)} · {t("explorer.region.features", { n: fmtInt(n) })}
         </span>
         <span className="ml-auto flex gap-1">
           <Button size="sm" variant="outline" onClick={onZoom}>

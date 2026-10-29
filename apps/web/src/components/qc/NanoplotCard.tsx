@@ -9,8 +9,8 @@ import { Card, CardBody, CardHeader } from "@/components/ui/card";
 import { ErrorNote } from "@/components/ui/misc";
 import { type TranslationKey, useT } from "@/i18n";
 import { api } from "@/lib/api";
-import { fmtDate, fmtInt, fmtNum, fmtPct } from "@/lib/format";
-import { toolMessage } from "@/lib/messages";
+import { fmtBp, fmtDate, fmtInt, fmtNum, fmtPct } from "@/lib/format";
+import { jobError, toolMessage } from "@/lib/messages";
 import {
   NANOPLOT_JOB,
   STAT_ROWS,
@@ -52,7 +52,7 @@ export function NanoplotCard({
     <Card className="min-w-0 lg:col-span-2">
       <CardHeader title={t("nanoplot.title")} description={t("nanoplot.subtitle")} action={<Explain id="nanoplot" />} />
       <CardBody className="space-y-5 pt-3">
-        {newest?.status === "failed" && <ErrorNote error={t("nanoplot.failed", { error: newest.error_message ?? "?" })} />}
+        {newest?.status === "failed" && <ErrorNote error={t("nanoplot.failed", { error: jobError(t, newest) || "?" })} />}
         {done && summary ? (
           <Result job={done} summary={summary} arva={arva} />
         ) : (
@@ -168,7 +168,7 @@ function Result({ job, summary, arva }: { job: AnalysisJobDetail; summary: Nanop
 
 function StatsTable({ stats, post }: { stats: NanoplotStats; post: NanoplotStats | null }) {
   const t = useT();
-  const longest = (s: NanoplotStats) => (s.longest_reads[0] ? `${fmtInt(s.longest_reads[0].length)} bp (Q${fmtNum(s.longest_reads[0].quality, 1)})` : "—");
+  const longest = (s: NanoplotStats) => (s.longest_reads[0] ? `${fmtBp(s.longest_reads[0].length)} (Q${fmtNum(s.longest_reads[0].quality, 1)})` : "—");
   return (
     <section aria-labelledby="np-stats" className="space-y-2">
       <h4 id="np-stats" className="text-sm font-semibold">
@@ -365,10 +365,10 @@ function SideBySide({ arva, stats }: { arva: SequenceStats; stats: NanoplotStats
                   </span>
                 </th>
                 <td className={`${TD} whitespace-nowrap text-right tabular-nums`}>
-                  {r.threshold === undefined ? `${fmtInt(r.arva)} bp` : `${fmtInt(r.arva)} (≥ Q${r.threshold})`}
+                  {r.threshold === undefined ? fmtBp(r.arva) : `${fmtInt(r.arva)} (≥ Q${r.threshold})`}
                 </td>
                 <td className={`${TD} whitespace-nowrap text-right tabular-nums`}>
-                  {r.threshold === undefined ? `${fmtInt(r.nanoplot)} bp` : `${fmtInt(r.nanoplot)} (> Q${r.threshold})`}
+                  {r.threshold === undefined ? fmtBp(r.nanoplot) : `${fmtInt(r.nanoplot)} (> Q${r.threshold})`}
                 </td>
               </tr>
             ))}

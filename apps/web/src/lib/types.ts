@@ -548,7 +548,7 @@ export type UploadRejectionCode ="duplicate" | "too_large" | "insufficient_stora
 
 export interface UploadResult {
   files: RawFile[];
-  rejected: { filename: string; reason: string; code: UploadRejectionCode }[];
+  rejected: { filename: string; reason: string; code: UploadRejectionCode; params?: Record<string, string | number> }[];
 }
 
 export interface Histogram {
@@ -878,7 +878,7 @@ export interface ImportListing {
 
 export interface ServerImportSummary {
   imported: { file_id: string; name: string; path: string; size_bytes: number }[];
-  rejected: { path: string; reason: string }[];
+  rejected: { path: string; reason: string; code?: UploadRejectionCode | null; params?: Record<string, string | number> }[];
 }
 
 // --- Sample metadata tables (CSV / .xlsx) -------------------------------------------------------
@@ -1650,6 +1650,7 @@ export interface ReferenceDatabase {
   verified_at: string | null;
   notes: string | null;
   error_message: string | null;
+  error_detail?: CodedMessage | null;
   progress: DatabaseProgress | null;
   cancel_requested_at: string | null;
   created_at: string;

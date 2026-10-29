@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.db.base import new_uuid
 from app.models import FileFormat, RawFile, Sample
-from app.services.capacity import ensure_space
+from app.services.capacity import InsufficientStorageError, ensure_space
 from app.storage import get_storage
 from app.storage.local import FileTooLargeError, sanitize_filename
 
@@ -66,15 +66,17 @@ def _to_file_format(fmt: SequenceFormat, compressed: bool) -> FileFormat:
     return FileFormat.unknown
 
 
-def _validate(path: Path, filename: str) -> tuple[FileFormat, str | None, bool, str, dict[str, Any] | None]:
-    """(format, read mate, is_valid, message, header metadata) from the file's content."""
+def _validate(
+    path: Path, filename: str
+) -> tuple[FileFormat, str | None, bool, str, dict[str, Any], dict[str, Any] | None]:
+    """(format, read mate, is_valid, message, {code, params} of the message, header metadata) from the content."""
     pod5 = check_pod5(path)
     if pod5 is not None:
-        return FileFormat.pod5, None, pod5.is_complete, pod5.message, None
+        return FileFormat.pod5, None, pod5.is_complete, pod5.message, {"code": pod5.code, "params": {}}, None
     check = quick_validate(path)
     return (
         _to_file_format(check.format, check.compressed), detect_read_mate(filename), check.is_valid,
-        check.message, header_metadata(check.headers),
+        check.message, {"code": check.code, "params": check.params}, header_metadata(check.headers),
     )
 
 
@@ -92,6 +94,18 @@ def _same_content_elsewhere(db: Session, sample: Sample, sha256: str) -> tuple[s
         .limit(1)
     ).first()
     return (row[0], row[1]) if row else None
+
+
+def rejection(exc: Exception) -> tuple[str, dict[str, str | int]] | None:
+    """The stable code and values of a file the import refused (the interface translates them), or None."""
+    if isinstance(exc, DuplicateFileError):
+        return "duplicate", {"file": exc.existing.original_filename}
+    if isinstance(exc, FileTooLargeError):
+        return "too_large", {"limit_bytes": exc.max_bytes}
+    if isinstance(exc, InsufficientStorageError):
+        return "insufficient_storage", {"needed_bytes": exc.needed_bytes,
+                                        "available_bytes": exc.capacity.available_for_data_bytes}
+    return None
 
 
 def _space_check(expected_size: int | None) -> Callable[[int], None]:
@@ -131,10 +145,11 @@ def register_raw_file(
         storage.resolve(rel).unlink()
         raise DuplicateFileError(duplicate)
 
-    file_format, read_mate, is_valid, message, headers = _validate(storage.resolve(rel), filename)
+    file_format, read_mate, is_valid, message, detail, headers = _validate(storage.resolve(rel), filename)
     twin = _same_content_elsewhere(db, sample, stored.sha256)
     if twin is not None:
         message += f" Note: identical content is already registered in sample {twin[0]} as {twin[1]}."
+        detail["params"] = {**detail["params"], "twin_sample": twin[0], "twin_file": twin[1]}
     raw = RawFile(
         id=file_id,
         sample_id=sample.id,
@@ -146,6 +161,7 @@ def register_raw_file(
         checksum_sha256=stored.sha256,
         is_valid=is_valid,
         validation_message=message,
+        validation_detail=detail,
         description=description,
         header_metadata=headers,
     )

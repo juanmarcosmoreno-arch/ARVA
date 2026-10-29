@@ -114,7 +114,8 @@ MONITOR_SECONDS = 5.0
 def _resolve_tool(ctx: JobContext, tool_id: str) -> str:
     d = detect(tool_id, refresh=True)
     if d.status is not ToolStatus.available or not d.path:
-        raise JobFailure(f"{d.info.name} is not available on this worker ({d.status.value}): {d.message}")
+        raise JobFailure(f"{d.info.name} is not available on this worker ({d.status.value}): {d.message}",
+                         "tool_unavailable", tool=d.info.name, status=d.status.value, message=d.message)
     if d.version != ctx.job.tool_version:
         ctx.log(f"Note: version detected at run time is {d.version} (was {ctx.job.tool_version} when queued)")
         ctx.job.tool_version = d.version or "unknown"
@@ -280,7 +281,8 @@ def _fastqc_body(ctx: JobContext) -> None:
         summary = FastqcAdapter.parse_zip(zipf)
         data = FastqcAdapter.read_data(zipf)
     except ValueError as exc:
-        raise JobFailure(f"FastQC exited without an error but its results could not be read: {exc}") from exc
+        raise JobFailure(f"FastQC exited without an error but its results could not be read: {exc}",
+                         "output_unreadable", tool="FastQC", detail=str(exc)) from exc
     if data["unrecognised"]:
         ctx.log("FastQC modules whose columns ARVA does not recognise (not charted): " + ", ".join(data["unrecognised"]))
     data_json = workdir / FASTQC_DATA_JSON
@@ -338,7 +340,8 @@ def _nanoplot_body(ctx: JobContext) -> None:
         pre = NanoplotAdapter.parse_stats(stats.read_text())
         post = NanoplotAdapter.parse_stats(post_path.read_text()) if post_path.is_file() else None
     except ValueError as exc:
-        raise JobFailure(f"NanoPlot's statistics could not be read: {exc}") from exc
+        raise JobFailure(f"NanoPlot's statistics could not be read: {exc}",
+                         "output_unreadable", tool="NanoPlot", detail=str(exc)) from exc
     removed = NanoplotAdapter.artefact_reads_removed(logs[0].read_text(errors="replace"))
     ctx.log(f"NanoPlot: {pre['number_of_reads']:,} reads, {pre['number_of_bases']:,} bases in NanoStats.txt "
             "(every read nanoget kept; it drops zero-length reads)")
@@ -393,10 +396,12 @@ def _fastp_body(ctx: JobContext) -> None:
         ctx.log(f"fastp removed: {removed}")
     # fastp exits with status 0 and writes 0-byte .fq.gz files when no read passes.
     if after["total_reads"] == 0:
-        raise JobFailure(f"fastp kept no reads with these thresholds; nothing was registered (removed: {removed})")
+        raise JobFailure(f"fastp kept no reads with these thresholds; nothing was registered (removed: {removed})",
+                         "fastp_no_reads", removed=str(removed))
     for out in (out1, out2):
         if out is not None and not (check := quick_validate(out)).is_valid:
-            raise JobFailure(f"fastp wrote {out.name}, which cannot be read ({check.message}); nothing was registered")
+            raise JobFailure(f"fastp wrote {out.name}, which cannot be read ({check.message}); nothing was registered",
+                             "output_unreadable", tool="fastp", detail=check.message)
 
     label = f"Reads kept by fastp {ctx.job.tool_version}"
     derived = [_register_derived(ctx, r1, _rel(ctx, out1), out1.name, label)]
@@ -433,7 +438,7 @@ def _filtlong_body(ctx: JobContext) -> None:
         ctx.log("Filtlong: the target is not below the bases available, so no reads were removed to meet it")
     check = quick_validate(out)
     if check.records_checked == 0:
-        raise JobFailure("Filtlong kept no reads with these thresholds; nothing was written")
+        raise JobFailure("Filtlong kept no reads with these thresholds; nothing was written", "filtlong_no_reads")
     derived = _register_derived(ctx, f, _rel(ctx, out), out.name,
                                 f"Reads kept by Filtlong {ctx.job.tool_version}")
     ctx.job.output_paths = [derived.stored_path, _rel(ctx, log)]
@@ -621,7 +626,7 @@ def _flye_samtools(ctx: JobContext, exe: str, results: Path) -> tuple[dict[str, 
     h = samtools_helper(exe)
     if h["provided_by"] == "missing":
         raise JobFailure("Flye calls flye-samtools, which neither this Flye installation nor PATH provides, and "
-                         "samtools was not found to stand in for it. Install samtools")
+                         "samtools was not found to stand in for it. Install samtools", "samtools_missing")
     record = {"name": SAMTOOLS_HELPER, "provided_by": h["provided_by"], "executable": h["samtools"],
               "samtools_version": helper_version(h["samtools"])}
     prepend = h["path_prepend"]
@@ -726,7 +731,7 @@ def _flye_body(ctx: JobContext) -> None:
     reads = []
     for n, f in enumerate(files, 1):
         if f.file_format not in (FileFormat.fastq, FileFormat.fastq_gz):
-            raise JobFailure(f"{f.original_filename} is not a FASTQ file")
+            raise JobFailure(f"{f.original_filename} is not a FASTQ file", "not_fastq", file=f.original_filename)
         # Flye reads the format from the file name and refuses paths with spaces.
         link = links / read_link_name(n, f.original_filename, f.file_format is FileFormat.fastq_gz)
         link.symlink_to(ctx.path(f.stored_path))
@@ -736,9 +741,11 @@ def _flye_body(ctx: JobContext) -> None:
         supported = FlyeAdapter.help_options(exe)
         argv = FlyeAdapter.argv(exe, params, reads, out_dir, supported, resume=resume is not None)
     except (OSError, RuntimeError, subprocess.TimeoutExpired) as exc:
-        raise JobFailure(f"Flye's --help could not be read to check its options: {exc}") from exc
+        raise JobFailure(f"Flye's --help could not be read to check its options: {exc}",
+                         "help_unreadable", tool="Flye", detail=str(exc)) from exc
     except ValueError as exc:
-        raise JobFailure(f"Flye cannot run with these settings: {exc}") from exc
+        raise JobFailure(f"Flye cannot run with these settings: {exc}",
+                         "settings_rejected", tool="Flye", detail=str(exc)) from exc
     if params.genome_size_bp is not None:
         basis = {"entered": "entered by the user", "expected_genome_size": "the sample's expected genome size",
                  "reads_over_depth": f"total read bases ÷ an assumed depth of {params.assumed_depth_x:g}×"}
@@ -771,7 +778,8 @@ def _flye_body(ctx: JobContext) -> None:
     monitor(finished=True)
 
     if missing := [n for n in FLYE_OUTPUTS if not (out_dir / n).is_file()]:
-        raise JobFailure("Flye exited without an error but did not write " + ", ".join(missing))
+        raise JobFailure("Flye exited without an error but did not write " + ", ".join(missing),
+                         "outputs_missing", tool="Flye", files=", ".join(missing))
     for name in FLYE_OUTPUTS:
         (out_dir / name).rename(results / name)
     shutil.rmtree(out_dir)
@@ -781,7 +789,8 @@ def _flye_body(ctx: JobContext) -> None:
     try:
         rows = FlyeAdapter.parse_assembly_info((results / "assembly_info.txt").read_text(errors="replace"))
     except ValueError as exc:
-        raise JobFailure(f"Flye's assembly_info.txt cannot be read: {exc}") from exc
+        raise JobFailure(f"Flye's assembly_info.txt cannot be read: {exc}",
+                         "output_unreadable", tool="Flye", detail=str(exc)) from exc
     log_summary = FlyeAdapter.parse_log((results / "flye.log").read_text(errors="replace"))
     if params.min_overlap is None and "min_overlap" in log_summary:
         ctx.log(f"Flye chose a minimum overlap of {log_summary['min_overlap']:,} bp (from the reads' N90, "
@@ -835,7 +844,7 @@ def _link_roles(ctx: JobContext, links: Path) -> dict[str, Path]:
         if f is None:
             raise JobFailure(f"the {role} file {file_id} is not one of this job's inputs")
         if f.file_format not in (FileFormat.fastq, FileFormat.fastq_gz):
-            raise JobFailure(f"{f.original_filename} is not a FASTQ file")
+            raise JobFailure(f"{f.original_filename} is not a FASTQ file", "not_fastq", file=f.original_filename)
         link = links / read_link_name(n, f.original_filename, f.file_format is FileFormat.fastq_gz)
         link.symlink_to(ctx.path(f.stored_path))
         out[role] = link
@@ -859,9 +868,11 @@ def _spades_body(ctx: JobContext) -> None:
         argv = SpadesAdapter.argv(exe, params, out_dir, SpadesAdapter.help_options(exe), r1=reads.get("r1"),
                                   r2=reads.get("r2"), unpaired=reads.get("unpaired"))
     except (OSError, RuntimeError, subprocess.TimeoutExpired) as exc:
-        raise JobFailure(f"SPAdes' --help could not be read to check its options: {exc}") from exc
+        raise JobFailure(f"SPAdes' --help could not be read to check its options: {exc}",
+                         "help_unreadable", tool="SPAdes", detail=str(exc)) from exc
     except ValueError as exc:
-        raise JobFailure(f"SPAdes cannot run with these settings: {exc}") from exc
+        raise JobFailure(f"SPAdes cannot run with these settings: {exc}",
+                         "settings_rejected", tool="SPAdes", detail=str(exc)) from exc
     ctx.log("k-mer sizes: " + (", ".join(map(str, params.k)) + " (set by the user)" if params.k else
                                 "chosen by SPAdes from the read length (read from its log after the run)"))
     ctx.log(f"Memory limit {params.memory_gb} GB (-m), {params.threads} threads; registered as the assembly: "
@@ -891,7 +902,8 @@ def _spades_body(ctx: JobContext) -> None:
     monitor(finished=True)
 
     if missing := [n for n in SPADES_OUTPUTS if not (out_dir / n).is_file()]:
-        raise JobFailure("SPAdes exited without an error but did not write " + ", ".join(missing))
+        raise JobFailure("SPAdes exited without an error but did not write " + ", ".join(missing),
+                         "outputs_missing", tool="SPAdes", files=", ".join(missing))
     for name in SPADES_OUTPUTS:
         (out_dir / name).rename(results / name)
     shutil.rmtree(out_dir)
@@ -959,9 +971,11 @@ def _unicycler_body(ctx: JobContext) -> None:
                                      r1=reads.get("r1"), r2=reads.get("r2"), unpaired=reads.get("unpaired"),
                                      long=reads.get("long"))
     except (OSError, RuntimeError, subprocess.TimeoutExpired) as exc:
-        raise JobFailure(f"Unicycler's --help_all could not be read to check its options: {exc}") from exc
+        raise JobFailure(f"Unicycler's --help_all could not be read to check its options: {exc}",
+                         "help_unreadable", tool="Unicycler", detail=str(exc)) from exc
     except ValueError as exc:
-        raise JobFailure(f"Unicycler cannot run with these settings: {exc}") from exc
+        raise JobFailure(f"Unicycler cannot run with these settings: {exc}",
+                         "settings_rejected", tool="Unicycler", detail=str(exc)) from exc
     if params.short:
         ctx.log(f"SPAdes inside Unicycler: memory limit {params.spades_memory_gb} GB, passed with --spades_options "
                 "(Unicycler's own default, -m 1024, sets no practical limit); k-mer sizes "
@@ -990,7 +1004,8 @@ def _unicycler_body(ctx: JobContext) -> None:
 
     if missing := [n for n in UNICYCLER_OUTPUTS if not (out_dir / n).is_file()]:
         monitor(finished=True)
-        raise JobFailure("Unicycler exited without an error but did not write " + ", ".join(missing))
+        raise JobFailure("Unicycler exited without an error but did not write " + ", ".join(missing),
+                         "outputs_missing", tool="Unicycler", files=", ".join(missing))
     for name in UNICYCLER_OUTPUTS:
         (out_dir / name).rename(results / name)
     monitor.log_path = results / "unicycler.log"
@@ -1018,7 +1033,8 @@ def _unicycler_body(ctx: JobContext) -> None:
         else:
             rows, source = UnicyclerAdapter.parse_headers(headers), "fasta_headers"
     except ValueError as exc:
-        raise JobFailure(f"Unicycler's output cannot be read: {exc}") from exc
+        raise JobFailure(f"Unicycler's output cannot be read: {exc}",
+                         "output_unreadable", tool="Unicycler", detail=str(exc)) from exc
     annotations = {n: ContigAnnotation(coverage=r["depth"], circular=r["circular"]) for n, r in rows.items()}
     assembly = register_assembly(
         ctx, assembler="Unicycler", mode=AssemblyMode(params.assembly_mode), read_type=library_layout(roles),
@@ -1057,13 +1073,15 @@ def _quast_inputs(ctx: JobContext, links: Path) -> tuple[list[tuple[Path, str]],
     for n, item in enumerate((ctx.job.parameters or {}).get("assemblies") or [], 1):
         a = ctx.db.get(Assembly, item["assembly_id"])
         if a is None or a.sample_id != ctx.job.sample_id:
-            raise JobFailure(f"Assembly {item['assembly_id']} ({item['label']}) no longer exists")
+            raise JobFailure(f"Assembly {item['assembly_id']} ({item['label']}) no longer exists",
+                             "assembly_missing", assembly=item["label"])
         src = ctx.path(a.contigs_path)
         if not src.is_file():
-            raise JobFailure(f"The contigs file of {item['label']} is missing on disk")
+            raise JobFailure(f"The contigs file of {item['label']} is missing on disk",
+                             "contigs_missing", assembly=item["label"])
         if (digest := _sha256(src)) != item["contigs_sha256"]:
             raise JobFailure(f"The contigs file of {item['label']} changed since it was registered (sha256 {digest}, "
-                             f"recorded {item['contigs_sha256']})")
+                             f"recorded {item['contigs_sha256']})", "contigs_changed", assembly=item["label"])
         link = links / quast_input_name("assembly", n, is_gzip(src))
         link.symlink_to(src)
         assemblies.append((link, item["label"]))
@@ -1090,7 +1108,7 @@ def _quast_body(ctx: JobContext) -> None:
     if reference_files:
         (f,) = reference_files
         if f.file_format not in (FileFormat.fasta, FileFormat.fasta_gz):
-            raise JobFailure(f"{f.original_filename} is not a FASTA file")
+            raise JobFailure(f"{f.original_filename} is not a FASTA file", "not_fasta", file=f.original_filename)
         reference = links / quast_input_name("reference", 1, f.file_format is FileFormat.fasta_gz)
         reference.symlink_to(ctx.path(f.stored_path))
         names[str(reference)] = f.original_filename
@@ -1103,9 +1121,11 @@ def _quast_body(ctx: JobContext) -> None:
     try:
         argv = QuastAdapter.argv(exe, qp, assemblies, out, QuastAdapter.help_options(exe), reference=reference)
     except (OSError, RuntimeError, subprocess.TimeoutExpired) as exc:
-        raise JobFailure(f"QUAST's --help could not be read to check its options: {exc}") from exc
+        raise JobFailure(f"QUAST's --help could not be read to check its options: {exc}",
+                         "help_unreadable", tool="QUAST", detail=str(exc)) from exc
     except ValueError as exc:
-        raise JobFailure(f"QUAST cannot run with these settings: {exc}") from exc
+        raise JobFailure(f"QUAST cannot run with these settings: {exc}",
+                         "settings_rejected", tool="QUAST", detail=str(exc)) from exc
     ctx.log(f"Minimum contig length {qp.min_contig:,} bp: QUAST leaves shorter contigs out of every metric except "
             "'# contigs (>= 0 bp)' and 'Total length (>= 0 bp)'")
 
@@ -1129,14 +1149,16 @@ def _quast_body(ctx: JobContext) -> None:
     monitor(finished=True)
 
     if missing := [n for n in REQUIRED_OUTPUTS if not (out / n).is_file()]:
-        raise JobFailure("QUAST exited without an error but did not write " + ", ".join(missing))
+        raise JobFailure("QUAST exited without an error but did not write " + ", ".join(missing),
+                         "outputs_missing", tool="QUAST", files=", ".join(missing))
     run = QuastAdapter.parse_console(console.read_text(errors="replace"))
     expected = [label for _, label in assemblies]
     try:
         report = QuastAdapter.parse_report((out / REPORT_TSV).read_text(errors="replace"))
         transposed = QuastAdapter.parse_transposed_report((out / TRANSPOSED_TSV).read_text(errors="replace"))
     except ValueError as exc:
-        raise JobFailure(f"QUAST's report cannot be read: {exc}") from exc
+        raise JobFailure(f"QUAST's report cannot be read: {exc}",
+                         "output_unreadable", tool="QUAST", detail=str(exc)) from exc
     if report["labels"] != expected:
         left_out = [s["label"] for s in run["skipped"]] or sorted(set(expected) - set(report["labels"]))
         raise JobFailure(f"QUAST left out {', '.join(left_out)} (no contig of at least {qp.min_contig:,} bp, or "

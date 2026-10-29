@@ -10,6 +10,7 @@ import { useT, type TranslationKey } from "@/i18n";
 import { api } from "@/lib/api";
 import { fmtBytes, fmtDate, fmtInt } from "@/lib/format";
 import type { CatalogueEntry, DatabaseStatus, DatabaseUsage, ReferenceDatabase } from "@/lib/types";
+import { databaseError } from "@/lib/messages";
 
 const BUSY: DatabaseStatus[] = ["downloading", "verifying"];
 const STATUS_TONE: Record<DatabaseStatus, "success" | "blue" | "warning" | "danger" | "neutral"> = {
@@ -412,7 +413,7 @@ function RecordRow({ record }: { record: ReferenceDatabase }) {
         </div>
       )}
       <ErrorNote error={verify.error ?? cancel.error} />
-      {record.error_message && <p className="mt-2 text-xs text-danger">{record.error_message}</p>}
+      {record.error_message && <p className="mt-2 text-xs text-danger">{databaseError(t, record)}</p>}
       {record.notes && <p className="mt-2 text-xs text-muted-foreground">{record.notes}</p>}
       <dl className="mt-2 grid grid-cols-2 gap-x-6 gap-y-1 text-xs lg:grid-cols-4">
         <Fact label={t("databases.size")}>{record.size_bytes != null ? `${fmtBytes(record.size_bytes)} · ${t("databases.filesCount", { n: record.files ?? 0 })}` : "—"}</Fact>

@@ -9,7 +9,7 @@ import { Field, Select } from "@/components/ui/form";
 import { ErrorNote, Skeleton } from "@/components/ui/misc";
 import { type TranslationKey, useT } from "@/i18n";
 import { api } from "@/lib/api";
-import { fmtBases, fmtInt, fmtNum, fmtPct } from "@/lib/format";
+import { fmtBases, fmtBp, fmtInt, fmtNum, fmtPct } from "@/lib/format";
 import { type QcSortKey, type SortDirection, filterQcRows, missingStatsReason, sortQcRows, technologiesIn } from "@/lib/overview";
 import type { QcOverviewRow, SequencingTechnology } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -196,11 +196,11 @@ function OverviewRow({ row }: { row: QcOverviewRow }) {
         {row.imported_files} / {row.derived_files}
       </td>
       <td className={NUM}>{row.total_reads == null ? <Missing>{reasonText}</Missing> : fmtInt(row.total_reads)}</td>
-      <td className={NUM} title={row.total_bases == null ? undefined : `${fmtInt(row.total_bases)} bp`}>
+      <td className={NUM} title={row.total_bases == null ? undefined : fmtBp(row.total_bases)}>
         {row.total_bases == null ? <Missing /> : fmtBases(row.total_bases)}
       </td>
       <td className={NUM} title={largest}>
-        {row.n50 == null ? <Missing /> : `${fmtInt(row.n50)} bp`}
+        {row.n50 == null ? <Missing /> : fmtBp(row.n50)}
       </td>
       <td className={NUM} title={largest}>
         {row.mean_read_quality == null ? <Missing>{noQuality}</Missing> : `Q${fmtNum(row.mean_read_quality)}`}

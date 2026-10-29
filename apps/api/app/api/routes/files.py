@@ -8,19 +8,12 @@ from app.db.session import get_db
 from app.models import RawFile
 from app.schemas.schemas import HeaderSummaryRead, RawFileRead, UploadRejection, UploadResult
 from app.services.capacity import InsufficientStorageError
-from app.services.imports import DuplicateFileError, register_raw_file
+from app.services.imports import DuplicateFileError, register_raw_file, rejection
 from app.services.read_headers import build_header_summary
 from app.storage import get_storage
 from app.storage.local import FileTooLargeError
 
 router = APIRouter(tags=["files"])
-
-_REJECTION_CODES = {
-    DuplicateFileError: "duplicate",
-    FileTooLargeError: "too_large",
-    InsufficientStorageError: "insufficient_storage",
-}
-
 
 @router.post(
     "/samples/{sample_id}/files", response_model=UploadResult, status_code=status.HTTP_201_CREATED
@@ -39,7 +32,8 @@ def upload_files(
             # Re-checked per file: the spooled request body may live on another filesystem.
             stored.append(register_raw_file(db, sample, name, upload.file, expected_size=upload.size))
         except (DuplicateFileError, FileTooLargeError, InsufficientStorageError) as exc:
-            rejected.append(UploadRejection(filename=name, reason=str(exc), code=_REJECTION_CODES[type(exc)]))
+            code, params = rejection(exc)
+            rejected.append(UploadRejection(filename=name, reason=str(exc), code=code, params=params))
         finally:
             upload.file.close()
     return UploadResult(

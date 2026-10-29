@@ -30,7 +30,13 @@ from app.storage import LocalStorage, get_storage
 
 
 class JobFailure(Exception):
-    """An expected failure with a clear, user-facing reason (no traceback)."""
+    """An expected failure with a clear, user-facing reason (no traceback). `code` and `params` name it for the
+    interface (job.error.<code>, recorded in error_detail); the message stays the English text."""
+
+    def __init__(self, message: str, code: str | None = None, **params: str | int):
+        super().__init__(message)
+        self.code = code
+        self.params = params
 
 
 class JobCancelled(Exception):
@@ -106,7 +112,7 @@ class JobContext:
         for file_id in self.job.input_raw_file_ids or []:
             f = self.db.get(RawFile, file_id)
             if f is None:
-                raise JobFailure(f"input file {file_id} no longer exists")
+                raise JobFailure(f"input file {file_id} no longer exists", "input_missing", file_id=file_id)
             files.append(f)
         return files
 
@@ -124,6 +130,11 @@ def _with_memory_advice(job: AnalysisJob, tool: str) -> tuple[str, str]:
     message = (job.error_message or "").rstrip(". ")
     note = memory_advice(job.resources) if "memory" in message.lower() else out_of_memory_reason(tool, job.resources)
     return (f"{message}. {note}" if message else note), note
+
+
+def _detail(exc: BaseException) -> dict | None:
+    code = getattr(exc, "code", None)
+    return {"code": code, "params": getattr(exc, "params", {})} if code else None
 
 
 def run_job(
@@ -160,6 +171,7 @@ def run_job(
             db.rollback()
             job = db.get(AnalysisJob, job_id)
             ctx.job = log.job = job
+            job.error_detail = _detail(exc) if isinstance(exc, JobFailure | ToolExecutionError) else None
             if isinstance(exc, JobCancelled):
                 job.error_message = None
                 log(f"{cancellation_note(job)}; any running tool was stopped and partial outputs were removed")
@@ -176,6 +188,7 @@ def run_job(
                 log("ERROR: unexpected failure\n" + traceback.format_exc())
             if ctx.killed_tool and not isinstance(exc, JobCancelled):
                 job.error_message, note = _with_memory_advice(job, ctx.killed_tool)
+                job.error_detail = {"code": "out_of_memory", "params": {"tool": ctx.killed_tool}}
                 log(note)
             for hook in ctx.before_cleanup:
                 hook(exc)

@@ -16,6 +16,8 @@ from typing import Any
 
 import numpy as np
 
+from app.core.messages import render
+
 SCHEMA = "arva.pod5_summary/1"
 MAX_RUN_INFOS = 50
 MAX_ACQUISITIONS = 10_000
@@ -37,10 +39,10 @@ IDENTIFYING_NOTE = (
 
 # English text of the summary's warnings; the interface translates them by code (pod5.msg.<code>).
 WARNINGS = {
-    "duplicate_acquisitions": "{count} acquisition ID(s) appear more than once in the run information; the first "
-                              "entry of each is used.",
-    "unknown_sample_rate": "{count} read(s) belong to acquisitions without run information or sample rate, so the "
-                           "signal duration is not reported.",
+    "duplicate_acquisitions": "{count, plural, one {# acquisition ID appears} other {# acquisition IDs appear}} more "
+                              "than once in the run information; the first entry of each is used.",
+    "unknown_sample_rate": "{count, plural, one {# read belongs} other {# reads belong}} to acquisitions without run "
+                           "information or sample rate, so the signal duration is not reported.",
     "no_reads": "The file contains no reads.",
     "read_count_differs": "pod5 reports {reported} reads (it assumes equally sized batches); ARVA counted {counted} "
                           "reads in the read table.",
@@ -51,7 +53,7 @@ WARNINGS = {
 
 
 def _warning(code: str, **params: str | int) -> dict[str, Any]:
-    return {"code": code, "params": params, "text": WARNINGS[code].format(**params)}
+    return {"code": code, "params": params, "text": render(WARNINGS[code], params)}
 
 
 class Pod5ReadError(Exception):

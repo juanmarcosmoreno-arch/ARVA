@@ -104,7 +104,8 @@ def register_assembly(
     try:
         stats = compute_assembly_stats(contigs, annotations)
     except (AssemblyFormatError, SequenceFormatError) as exc:
-        raise JobFailure(f"{assembler} wrote contigs that cannot be read: {exc}") from exc
+        raise JobFailure(f"{assembler} wrote contigs that cannot be read: {exc}",
+                         "output_unreadable", tool=assembler, detail=str(exc)) from exc
     genome = expected_genome_size(ctx.db, job.sample_id, job.parameters)
     warnings, checks = assembly_warnings(stats, mode.value, genome["bp"], *WARNING_COVERAGE.get(assembler, ()))
     rows = stats.pop("contigs")

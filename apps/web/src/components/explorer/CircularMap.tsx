@@ -32,7 +32,7 @@ import {
   windowAt,
 } from "@/lib/circular";
 import { type ContigOption, featureLabel, formatPosition } from "@/lib/explorer";
-import { fmtBases, fmtInt, fmtNum } from "@/lib/format";
+import { fmtBases, fmtBp, fmtInt, fmtNum } from "@/lib/format";
 import type { Annotation, GenomeMap, MapFeature } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { groupColour, SKEW } from "./GenomeBrowser";
@@ -543,7 +543,7 @@ const CircleArt = memo(function CircleArt({ c, theme, rings, showNames, contigs 
       {bb &&
         layout.segments.map((seg, i) => (
           <path key={seg.id} d={sectorPath(cx, cy, bb.r0, bb.r1, seg.a0, seg.a1)} fill={i % 2 ? theme.grid : theme.axis}>
-            <title>{`${seg.name} · ${fmtInt(seg.length)} bp`}</title>
+            <title>{`${seg.name} · ${fmtBp(seg.length)}`}</title>
           </path>
         ))}
       {bb && geneRing("backbone")}
@@ -741,7 +741,7 @@ function Tooltip({ hit, placed, width, t }: { hit: Hit; placed: Placed[]; width:
           <span className="text-muted-foreground"> · {t(`annotation.type.${f.type}` as TranslationKey)}</span>
           {f.product && <div className="break-words">{f.product}</div>}
           <div className="text-muted-foreground">
-            {fmtInt(f.start)}–{fmtInt(f.end)} ({f.strand}) · {fmtInt(f.length)} bp
+            {fmtInt(f.start)}–{fmtInt(f.end)} ({f.strand}) · {fmtBp(f.length)}
             {f.hypothetical ? ` · ${t("annotation.hypotheticalBadge")}` : ""}
             {f.pseudo ? ` · ${t("annotation.pseudoBadge")}` : ""}
           </div>

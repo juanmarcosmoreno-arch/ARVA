@@ -246,8 +246,10 @@ class _Accumulator:
         n50, l50 = _nx(desc, total, 0.5)
         n90, l90 = _nx(desc, total, 0.9)
         warnings: list[str] = []
+        messages: list[dict[str, Any]] = []
         if self.zero_length:
             warnings.append(f"{self.zero_length} record(s) have zero length.")
+            messages.append({"code": "zero_length", "params": {"count": self.zero_length}, "text": warnings[-1]})
 
         result: dict[str, Any] = {
             "schema_version": SCHEMA_VERSION,
@@ -275,7 +277,7 @@ class _Accumulator:
             ],
             "cumulative_yield": _cumulative_yield(desc),
             "length_thresholds": _length_thresholds(desc, total),
-            "quality": self._quality_section(asc[-1][0], warnings) if self.has_quality else None,
+            "quality": self._quality_section(asc[-1][0], warnings, messages) if self.has_quality else None,
             "sample_points": {
                 "description": "Uniform random sample of reads (reservoir sampling) for scatter plots.",
                 "fields": ["length", "mean_quality", "gc_percent"],
@@ -285,6 +287,8 @@ class _Accumulator:
             },
             "coverage_estimate": None,
             "warnings": warnings,
+            # The warnings with stable codes (zero_length, phred64_suspected) and their values.
+            "messages": messages,
         }
 
         genome = self.params.expected_genome_size_bp
@@ -300,7 +304,8 @@ class _Accumulator:
             }
         return result
 
-    def _quality_section(self, max_length: int, warnings: list[str]) -> dict[str, Any] | None:
+    def _quality_section(self, max_length: int, warnings: list[str],
+                         messages: list[dict[str, Any]]) -> dict[str, Any] | None:
         total_q_bases = int(self.base_q_hist.sum())
         if total_q_bases == 0:
             return None
@@ -312,6 +317,7 @@ class _Accumulator:
                 f"Quality values look shifted (minimum Q{q_min}, maximum Q{q_max}); the file may use "
                 "legacy Phred+64 encoding. ARVA interprets qualities as Phred+33."
             )
+            messages.append({"code": "phred64_suspected", "params": {"min": q_min, "max": q_max}, "text": warnings[-1]})
 
         read_q_bins: Counter[int] = Counter()
         for key, count in self.read_q_hist.items():
@@ -515,6 +521,9 @@ class QuickValidation:
     is_valid: bool
     message: str
     headers: list[bytes] = field(default_factory=list)
+    # Stable code of the message, with its values, so an interface can show it in its own language.
+    code: str = ""
+    params: dict[str, Any] = field(default_factory=dict)
 
 
 def quick_validate(path: Path, max_records: int = 1000) -> QuickValidation:
@@ -529,11 +538,12 @@ def quick_validate(path: Path, max_records: int = 1000) -> QuickValidation:
         return QuickValidation(
             info.format, info.compressed, 0, False,
             f"Compressed stream is corrupt or truncated ({info.decompression_error}).",
+            code="corrupt", params={"detail": info.decompression_error},
         )
     if info.format is SequenceFormat.unknown:
         return QuickValidation(
             info.format, info.compressed, 0, False,
-            "Unrecognised content: expected FASTQ (records starting with '@') or FASTA ('>').",
+            "Unrecognised content: expected FASTQ (records starting with '@') or FASTA ('>').", code="unrecognised",
         )
     checked = 0
     headers: list[bytes] = []
@@ -548,13 +558,15 @@ def quick_validate(path: Path, max_records: int = 1000) -> QuickValidation:
                 if checked >= max_records:
                     break
     except SequenceFormatError as exc:
-        return QuickValidation(info.format, info.compressed, checked, False, str(exc), headers)
+        return QuickValidation(info.format, info.compressed, checked, False, str(exc), headers, "format_error",
+                               {"detail": str(exc)})
     except _DECOMPRESSION_ERRORS as exc:
         return QuickValidation(
-            info.format, info.compressed, checked, False, f"Compressed stream is corrupt ({exc}).", headers
+            info.format, info.compressed, checked, False, f"Compressed stream is corrupt ({exc}).", headers,
+            "corrupt", {"detail": str(exc)},
         )
     if checked == 0:
-        return QuickValidation(info.format, info.compressed, 0, False, "File contains no records.")
+        return QuickValidation(info.format, info.compressed, 0, False, "File contains no records.", code="no_records")
     return QuickValidation(
         info.format,
         info.compressed,
@@ -563,4 +575,6 @@ def quick_validate(path: Path, max_records: int = 1000) -> QuickValidation:
         f"{info.format.value.upper()} structure verified on the first {checked} record(s); "
         "the whole file is validated when statistics are computed.",
         headers,
+        "verified",
+        {"format": info.format.value.upper(), "count": checked},
     )

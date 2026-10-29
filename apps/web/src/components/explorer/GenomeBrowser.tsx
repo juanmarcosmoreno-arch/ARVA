@@ -36,7 +36,7 @@ import {
   visiblePieces,
   zoomView,
 } from "@/lib/explorer";
-import { fmtInt, fmtNum } from "@/lib/format";
+import { fmtBp, fmtInt, fmtNum } from "@/lib/format";
 import type { CoverageTrack, FeatureLayout, FeatureLayoutItem, GcTrack } from "@/lib/types";
 
 const GUTTER = 96;
@@ -307,7 +307,7 @@ export function GenomeBrowser(p: Props) {
           {t("explorer.nextFeature")}
         </Button>
         <span className="ml-2 font-mono text-xs tabular-nums" aria-live="polite">
-          {p.contig.name}:{fmtInt(r.start)}–{fmtInt(r.end)} · {fmtInt(r.end - r.start + 1)} bp
+          {p.contig.name}:{fmtInt(r.start)}–{fmtInt(r.end)} · {fmtBp(r.end - r.start + 1)}
         </span>
         <span className="ml-auto flex items-center gap-2">
           {(tracks.isFetching || seq.isFetching) && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" aria-label={t("common.loading")} />}
@@ -763,7 +763,7 @@ function Readout({ t, hovered, hoverPos, gc, coverage, contig }: {
           <span className="font-medium">{featureLabel(hovered)}</span>
           <span className="text-muted-foreground">
             {" "}
-            · {t(`annotation.type.${hovered.type}` as "annotation.type.cds")} · {fmtInt(hovered.start)}–{fmtInt(hovered.end)} ({hovered.strand}) · {fmtInt(hovered.length)} bp
+            · {t(`annotation.type.${hovered.type}` as "annotation.type.cds")} · {fmtInt(hovered.start)}–{fmtInt(hovered.end)} ({hovered.strand}) · {fmtBp(hovered.length)}
           </span>
           {hovered.product && <span> · {hovered.product}</span>}
         </div>

@@ -21,7 +21,7 @@ import {
   strandRows,
 } from "@/lib/annotationCharts";
 import { api } from "@/lib/api";
-import { escapeHtml, fmtCompact, fmtInt, fmtNum } from "@/lib/format";
+import { bpUnit, escapeHtml, fmtBp, fmtCompact, fmtInt, fmtNum } from "@/lib/format";
 import type { Annotation, AnnotationCharts as Charts, LengthClass } from "@/lib/types";
 import { typeLabel } from "./FeatureDetail";
 
@@ -73,7 +73,7 @@ export function AnnotationChartsPanel({ annotation }: { annotation: Annotation }
               <Select value={lengthBin} onChange={(e) => setLengthBin(Number(e.target.value))} className="h-8 w-32">
                 {LENGTH_BINS.map((w) => (
                   <option key={w} value={w}>
-                    {w ? `${fmtInt(w)} bp` : t("annotation.charts.auto", { v: `${fmtInt(c.lengths.width ?? 0)} bp` })}
+                    {w ? fmtBp(w) : t("annotation.charts.auto", { v: fmtBp(c.lengths.width ?? 0) })}
                   </option>
                 ))}
               </Select>
@@ -90,7 +90,7 @@ export function AnnotationChartsPanel({ annotation }: { annotation: Annotation }
               <Select value={window} onChange={(e) => setWindow(Number(e.target.value))} className="h-8 w-36">
                 {WINDOWS.map((w) => (
                   <option key={w} value={w}>
-                    {w ? `${fmtInt(w)} bp` : t("annotation.charts.auto", { v: `${fmtInt(c.density.window)} bp` })}
+                    {w ? fmtBp(w) : t("annotation.charts.auto", { v: fmtBp(c.density.window) })}
                   </option>
                 ))}
               </Select>
@@ -214,7 +214,7 @@ function LengthChart({ c, prefix, controls }: { c: Charts; prefix: string; contr
       axisPointer: { type: "shadow", shadowStyle: { color: th.grid, opacity: 0.6 } },
       formatter: (p: unknown) => {
         const i = (p as { dataIndex: number }[])[0].dataIndex;
-        return `<b>${escapeHtml(`${binLabel(c.lengths.bins[i])} bp`)}</b>${classes.map(({ cls }) => row(name(cls), fmtInt(series[cls][i]))).join("")}`;
+        return `<b>${escapeHtml(`${binLabel(c.lengths.bins[i])} ${bpUnit()}`)}</b>${classes.map(({ cls }) => row(name(cls), fmtInt(series[cls][i]))).join("")}`;
       },
     },
     xAxis: { type: "category", data: labels, ...axisStyle(th, t("annotation.charts.lengthAxis"), { nameGap: 30, splitLine: { show: false } }), axisLabel: { color: th.muted, fontSize: 10, hideOverlap: true, formatter: (v: string) => v.split("–")[0] } },

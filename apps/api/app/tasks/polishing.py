@@ -86,7 +86,8 @@ def _helper(ctx: JobContext, tool_id: str, required: bool = True) -> dict[str, A
     d = detect(tool_id, refresh=True)
     if d.status is not ToolStatus.available or not d.path:
         if required:
-            raise JobFailure(f"{d.info.name} is not available on this worker ({d.status.value}): {d.message}")
+            raise JobFailure(f"{d.info.name} is not available on this worker ({d.status.value}): {d.message}",
+                             "tool_unavailable", tool=d.info.name, status=d.status.value, message=d.message)
         ctx.log(f"{d.info.name} is not available ({d.status.value}); its part of the comparison is left out")
         return None
     ctx.log(f"{d.info.name}: {d.path} (version {d.version}{'' if d.version_validated else ', not validated with ARVA'})")
@@ -99,13 +100,15 @@ def _draft(ctx: JobContext) -> Assembly:
     record = (ctx.job.parameters or {}).get("draft") or {}
     a = ctx.db.get(Assembly, record.get("assembly_id") or "")
     if a is None or a.sample_id != ctx.job.sample_id:
-        raise JobFailure(f"The draft assembly {record.get('assembly_id')} no longer exists")
+        raise JobFailure(f"The draft assembly {record.get('assembly_id')} no longer exists",
+                         "assembly_missing", assembly=str(record.get("assembly_id")))
     src = ctx.path(a.contigs_path)
     if not src.is_file():
-        raise JobFailure("The draft assembly's contigs file is missing on disk")
+        raise JobFailure("The draft assembly's contigs file is missing on disk",
+                         "contigs_missing", assembly=str(record.get("assembly_id")))
     if (digest := _sha256(src)) != record.get("contigs_sha256"):
         raise JobFailure(f"The draft's contigs changed since the job was queued (sha256 {digest}, recorded "
-                         f"{record.get('contigs_sha256')})")
+                         f"{record.get('contigs_sha256')})", "contigs_changed", assembly=str(record.get("assembly_id")))
     ctx.log(f"Draft: {a.assembler} {a.assembler_version} assembly {a.id} ({a.kind.value}; job {a.job_id}; "
             f"{a.stats['contig_count']:,} contigs, {a.stats['total_length']:,} bp; contigs sha256 {digest})")
     return a
@@ -130,7 +133,7 @@ def _link_reads(ctx: JobContext, links: Path) -> dict[str, Path]:
         if f is None:
             raise JobFailure(f"the {role} file {file_id} is not one of this job's inputs")
         if f.file_format not in (FileFormat.fastq, FileFormat.fastq_gz):
-            raise JobFailure(f"{f.original_filename} is not a FASTQ file")
+            raise JobFailure(f"{f.original_filename} is not a FASTQ file", "not_fastq", file=f.original_filename)
         link = links / read_link_name(n, f.original_filename, f.file_format is FileFormat.fastq_gz)
         link.symlink_to(ctx.path(f.stored_path))
         out[role] = link
@@ -161,7 +164,8 @@ def _dnadiff(ctx: JobContext, dnadiff: dict | None, work: Path, before: str, aft
         events = DnadiffAdapter.parse_snps((keep / f"{prefix}.snps").read_text(errors="replace"))
         ends = DnadiffAdapter.parse_coords((keep / f"{prefix}.1coords").read_text(errors="replace"))
     except ValueError as exc:
-        raise JobFailure(f"dnadiff's output cannot be read: {exc}") from exc
+        raise JobFailure(f"dnadiff's output cannot be read: {exc}",
+                         "output_unreadable", tool="dnadiff", detail=str(exc)) from exc
     by_contig = events.pop("by_contig")
     return {"before": report["reference"], "after": report["query"], "events": events, "events_by_contig": by_contig,
             "ends": ends}
@@ -193,7 +197,8 @@ def _alignment_stats(ctx: JobContext, samtools: str, bam: Path, name: str, keep:
         parsed = SamtoolsAdapter.parse_stats(stats.read_text(errors="replace"))
         rows = SamtoolsAdapter.parse_coverage(coverage.read_text(errors="replace"))
     except ValueError as exc:
-        raise JobFailure(f"samtools' alignment statistics cannot be read: {exc}") from exc
+        raise JobFailure(f"samtools' alignment statistics cannot be read: {exc}",
+                         "output_unreadable", tool="samtools", detail=str(exc)) from exc
     return {"stats": {k: parsed.get(k) for k in STATS_KEYS}, "coverage": rows,
             "depth_profile": _depth_profile(ctx, samtools, bam, name, {r["contig"]: r["length"] for r in rows}, keep,
                                             logs)}
@@ -210,7 +215,8 @@ def _depth_profile(ctx: JobContext, samtools: str, bam: Path, name: str, lengths
         with gzip.open(depth, "rt") as fh:
             sums = depth_bins(parse_depth_lines(fh), lengths, DEPTH_RESOLUTION)
     except ValueError as exc:
-        raise JobFailure(f"samtools depth output cannot be read: {exc}") from exc
+        raise JobFailure(f"samtools depth output cannot be read: {exc}",
+                         "output_unreadable", tool="samtools", detail=str(exc)) from exc
     finally:
         depth.unlink(missing_ok=True)
     out = keep / f"{name}.depth_profile.json"
@@ -456,7 +462,8 @@ def _racon_body(ctx: JobContext) -> None:
     try:
         supported = RaconAdapter.help_options(exe)
     except (OSError, RuntimeError, subprocess.TimeoutExpired) as exc:
-        raise JobFailure(f"Racon's --help could not be read to check its options: {exc}") from exc
+        raise JobFailure(f"Racon's --help could not be read to check its options: {exc}",
+                         "help_unreadable", tool="Racon", detail=str(exc)) from exc
     ctx.log(f"Racon: {params.rounds} round(s); minimap2 preset {params.read_type}; -m {params.match} -x "
             f"{params.mismatch} -g {params.gap} -w {params.window_length} -q {params.quality_threshold:g} -e "
             f"{params.error_threshold:g}; -u keeps contigs without overlaps; consensus trimming at window ends "
@@ -490,7 +497,8 @@ def _racon_body(ctx: JobContext) -> None:
             rows = RaconAdapter.parse_headers([line[1:].strip() for line in out.read_text(errors="replace").splitlines()
                                                if line.startswith(">")])
         except ValueError as exc:
-            raise JobFailure(f"Racon's output cannot be read: {exc}") from exc
+            raise JobFailure(f"Racon's output cannot be read: {exc}",
+                             "output_unreadable", tool="Racon", detail=str(exc)) from exc
         if sorted(rows) != sorted(draft_names):
             raise JobFailure(f"Racon wrote contigs {', '.join(list(rows)[:5])}, not the draft's "
                              f"{', '.join(draft_names[:5])}; nothing was registered")
@@ -532,7 +540,7 @@ def _pilon_body(ctx: JobContext) -> None:
         ctx.log(f"Note: {d.message}")
     java = java_executable()
     if java is None:
-        raise JobFailure("Java was not found; Pilon needs a Java runtime")
+        raise JobFailure("Java was not found; Pilon needs a Java runtime", "java_missing")
     java_record = {"name": "Java", "tool_id": "java", "path": java, "version": java_version(java),
                    "version_validated": False}
     ctx.log(f"Java: {java} (version {java_record['version']}); Pilon runs as java -Xmx<heap> -jar {jar}")
@@ -549,7 +557,8 @@ def _pilon_body(ctx: JobContext) -> None:
     try:
         supported = PilonAdapter.help_options(java, jar)
     except (OSError, RuntimeError, subprocess.TimeoutExpired) as exc:
-        raise JobFailure(f"Pilon's --help could not be read to check its options: {exc}") from exc
+        raise JobFailure(f"Pilon's --help could not be read to check its options: {exc}",
+                         "help_unreadable", tool="Pilon", detail=str(exc)) from exc
     ctx.log(f"Pilon: up to {params.rounds} round(s); --fix {params.fix_list()}; --mindepth {params.mindepth:g} "
             f"--minmq {params.minmq} --minqual {params.minqual}; Java heap -Xmx{params.heap_gb}g; BWA-MEM and samtools "
             f"with {params.threads} thread(s)" + ("; stops after a round that changes nothing"
@@ -582,14 +591,16 @@ def _pilon_body(ctx: JobContext) -> None:
             raise JobFailure(reason) from None
         out, changes_file = work / f"round{i}.fasta", work / f"round{i}.changes"
         if not out.is_file() or not changes_file.is_file():
-            raise JobFailure(f"Pilon exited without an error but did not write round{i}.fasta and round{i}.changes")
+            raise JobFailure(f"Pilon exited without an error but did not write round{i}.fasta and round{i}.changes",
+                             "outputs_missing", tool="Pilon", files=f"round{i}.fasta, round{i}.changes")
         for bam in bams.values():
             for f in (bam, bam.with_suffix(".bam.bai")):
                 f.unlink(missing_ok=True)
         try:
             changes = PilonAdapter.parse_changes(changes_file.read_text(errors="replace"))
         except ValueError as exc:
-            raise JobFailure(f"Pilon's list of changes cannot be read: {exc}") from exc
+            raise JobFailure(f"Pilon's list of changes cannot be read: {exc}",
+                             "output_unreadable", tool="Pilon", detail=str(exc)) from exc
         log_summary = PilonAdapter.parse_log(pilon_log.read_text(errors="replace"))
         keep.mkdir(exist_ok=True)
         changes_file.replace(keep / changes_file.name)

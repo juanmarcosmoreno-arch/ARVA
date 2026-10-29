@@ -31,6 +31,7 @@ class StoragePathError(ValueError):
 
 class FileTooLargeError(ValueError):
     def __init__(self, max_bytes: int):
+        self.max_bytes = max_bytes
         super().__init__(f"file exceeds the {max_bytes} byte limit (ARVA_MAX_UPLOAD_SIZE_BYTES)")
 
 

@@ -29,6 +29,8 @@ from openpyxl.utils.cell import coordinate_to_tuple
 from openpyxl.utils.exceptions import CellCoordinatesException
 from openpyxl.xml.constants import SHARED_STRINGS
 
+from app.core.messages import render
+
 XLSX_MAX_UNCOMPRESSED = 100 * 1024 * 1024
 XLSX_MAX_MEMBERS = 2_000
 # Only for parts above 1 MiB: small XML parts legitimately compress very well.
@@ -103,11 +105,13 @@ MESSAGES = {
     "xlsx_sheets": "The workbook has {count} sheets ({sheets}); the first one, '{sheet}', was read. Choose another "
                    "sheet if needed.",
     "xlsx_1904": "The workbook uses the 1904 date system; dates were converted accordingly.",
-    "xlsx_formulas": "{count} formula cell(s) ({cells}): the values stored by the program that last saved the file "
-                     "were imported; formulas are never calculated.",
-    "xlsx_formulas_uncached": "{count} formula cell(s) ({cells}) have no stored value (the file was saved by a program "
-                              "that does not calculate formulas) and were imported as empty. Open and re-save the "
-                              "file in Excel or LibreOffice, or replace the formulas with values.",
+    "xlsx_formulas": "{count, plural, one {# formula cell} other {# formula cells}} ({cells}): the values stored by "
+                     "the program that last saved the file were imported; formulas are never calculated.",
+    "xlsx_formulas_uncached": "{count, plural, one {# formula cell ({cells}) has no stored value} other "
+                              "{# formula cells ({cells}) have no stored value}} (the file was saved by a program "
+                              "that does not calculate formulas) and {count, plural, one {was imported as empty} "
+                              "other {were imported as empty}}. Open and re-save the file in Excel or LibreOffice, or "
+                              "replace the formulas with values.",
     "xlsx_merged": "Merged cells ({ranges}): only the top-left cell of each range has a value; the other cells are "
                    "imported as empty, not copied.",
     "openpyxl": "openpyxl: {message}",
@@ -166,7 +170,7 @@ class Msg(str):
     params: dict[str, str | int]
 
     def __new__(cls, code: str, **params: str | int) -> Msg:
-        text = super().__new__(cls, MESSAGES[code].format(**params))
+        text = super().__new__(cls, render(MESSAGES[code], params))
         text.code, text.params = code, params
         return text
 

@@ -16,7 +16,7 @@ import { EmptyState, ErrorNote, PageHeader } from "@/components/ui/misc";
 import { useT } from "@/i18n";
 import { api } from "@/lib/api";
 import { clampView, contigOptions, regionOf, type View, viewOf, viewOfFeature } from "@/lib/explorer";
-import { fmtBases, fmtDate, fmtInt } from "@/lib/format";
+import { fmtBases, fmtBp, fmtDate, fmtInt } from "@/lib/format";
 import type { Annotation, AnnotationFeature, AssemblyContig, FeatureLayoutItem, MapFeature } from "@/lib/types";
 
 /** The list of annotations to open (the sidebar's Genome Explorer entry). */
@@ -55,8 +55,8 @@ export function ExplorerListPage() {
                       <Link to={`/samples/${r.sample_id}`} className="font-medium hover:underline">
                         {r.sample_code}
                       </Link>
-                      {r.synthetic_evidence.length > 0 && <Badge className="ml-1.5" tone="warning">SYNTHETIC</Badge>}
-                      {r.is_demo && <Badge className="ml-1.5">DEMO</Badge>}
+                      {r.synthetic_evidence.length > 0 && <Badge className="ml-1.5" tone="warning">{t("explorer.badge.synthetic")}</Badge>}
+                      {r.is_demo && <Badge className="ml-1.5">{t("explorer.badge.demo")}</Badge>}
                     </td>
                     <td className="px-3 py-2 text-muted-foreground">{r.project_name}</td>
                     <td className="px-3 py-2">
@@ -320,7 +320,7 @@ function Explorer({ annotation, contigs, assembler }: { annotation: Annotation; 
             <option value={0}>{t("explorer.windowAutoOption")}</option>
             {WINDOWS.filter((w) => w <= contig.length).map((w) => (
               <option key={w} value={w}>
-                {fmtInt(w)} bp
+                {fmtBp(w)}
               </option>
             ))}
           </Select>
@@ -331,7 +331,7 @@ function Explorer({ annotation, contigs, assembler }: { annotation: Annotation; 
             <Select value={gc.step ?? gc.window} onChange={(e) => setGc({ ...gc, step: Number(e.target.value) })} className="w-32">
               {STEP_DIVISORS.map((d) => (
                 <option key={d} value={Math.max(1, Math.round(gc.window! / d))}>
-                  {fmtInt(Math.max(1, Math.round(gc.window! / d)))} bp
+                  {fmtBp(Math.max(1, Math.round(gc.window! / d)))}
                 </option>
               ))}
             </Select>

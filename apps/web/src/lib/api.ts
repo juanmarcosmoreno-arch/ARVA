@@ -1,3 +1,5 @@
+import { translator } from "@/i18n";
+import { useSettings } from "@/store/settings";
 import type {
   Annotation,
   AnnotationCharts,
@@ -125,9 +127,9 @@ function uploadFiles(sampleId: string, files: File[], onProgress?: (p: UploadPro
     xhr.upload.onprogress = (e) => onProgress?.({ loaded: e.loaded, total: e.total });
     xhr.onload = () => {
       if (xhr.status >= 200 && xhr.status < 300) resolve(xhr.response as UploadResult);
-      else reject(new ApiError(xhr.status, xhr.response?.detail ?? `Upload failed (${xhr.status})`));
+      else reject(new ApiError(xhr.status, xhr.response?.detail ?? translator(useSettings.getState().language)("import.uploadFailed", { status: xhr.status })));
     };
-    xhr.onerror = () => reject(new ApiError(0, "Network error during upload"));
+    xhr.onerror = () => reject(new ApiError(0, translator(useSettings.getState().language)("import.networkError")));
     xhr.send(form);
   });
 }
