@@ -9,7 +9,7 @@ import { Field, Select } from "@/components/ui/form";
 import { ErrorNote, Skeleton } from "@/components/ui/misc";
 import { type TranslationKey, useT } from "@/i18n";
 import { api } from "@/lib/api";
-import { fmtBases, fmtInt, fmtNum } from "@/lib/format";
+import { fmtBases, fmtInt, fmtNum, fmtPct } from "@/lib/format";
 import { type QcSortKey, type SortDirection, filterQcRows, missingStatsReason, sortQcRows, technologiesIn } from "@/lib/overview";
 import type { QcOverviewRow, SequencingTechnology } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -205,8 +205,8 @@ function OverviewRow({ row }: { row: QcOverviewRow }) {
       <td className={NUM} title={largest}>
         {row.mean_read_quality == null ? <Missing>{noQuality}</Missing> : `Q${fmtNum(row.mean_read_quality)}`}
       </td>
-      <td className={NUM}>{row.q30_percent == null ? <Missing>{noQuality}</Missing> : `${fmtNum(row.q30_percent)}%`}</td>
-      <td className={NUM}>{row.gc_percent == null ? <Missing /> : `${fmtNum(row.gc_percent, 2)}%`}</td>
+      <td className={NUM}>{row.q30_percent == null ? <Missing>{noQuality}</Missing> : fmtPct(row.q30_percent)}</td>
+      <td className={NUM}>{row.gc_percent == null ? <Missing /> : fmtPct(row.gc_percent, 2)}</td>
       <td className={NUM}>
         <Depth row={row} />
       </td>

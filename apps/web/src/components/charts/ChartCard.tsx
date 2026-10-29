@@ -5,6 +5,8 @@ import { useRef, useState, type ReactNode } from "react";
 import { Explain } from "@/components/guide/Explain";
 import { Card } from "@/components/ui/card";
 import type { GuideId } from "@/guide/metrics";
+import { useT } from "@/i18n";
+import { fmtMax } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { echarts } from "./echarts";
 import { useChartTheme } from "./theme";
@@ -15,7 +17,7 @@ export interface TableView {
 }
 
 function slug(s: string) {
-  return s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+  return s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
 }
 
 function download(url: string, filename: string) {
@@ -47,6 +49,7 @@ export function ChartCard({
   height?: number;
   filePrefix?: string;
 }) {
+  const t = useT();
   const ref = useRef<ReactEChartsCore>(null);
   const theme = useChartTheme();
   const [showTable, setShowTable] = useState(false);
@@ -90,19 +93,19 @@ export function ChartCard({
               onClick={() => setShowTable((v) => !v)}
               className={cn("rounded-md p-1.5 text-muted-foreground hover:bg-muted", showTable && "bg-muted text-foreground")}
               aria-pressed={showTable}
-              aria-label="Show data table"
-              title="Data table"
+              aria-label={t("chart.showTable")}
+              title={t("chart.table")}
             >
               <Table2 className="h-3.5 w-3.5" />
             </button>
           )}
           <div className="group relative">
-            <button className="rounded-md p-1.5 text-muted-foreground hover:bg-muted" aria-label="Export figure" title="Export figure">
+            <button className="rounded-md p-1.5 text-muted-foreground hover:bg-muted" aria-label={t("chart.export")} title={t("chart.export")}>
               <Download className="h-3.5 w-3.5" />
             </button>
             <div className="invisible absolute right-0 z-10 mt-1 w-32 rounded-lg border bg-surface py-1 text-xs opacity-0 shadow-lg transition group-focus-within:visible group-focus-within:opacity-100 group-hover:visible group-hover:opacity-100">
               <button className="block w-full px-3 py-1.5 text-left hover:bg-muted" onClick={exportSvg}>
-                SVG (vector)
+                {t("chart.svg")}
               </button>
               <button className="block w-full px-3 py-1.5 text-left hover:bg-muted" onClick={exportPng}>
                 PNG (3×)
@@ -130,7 +133,7 @@ export function ChartCard({
                   <tr key={i} className="border-b border-border/50">
                     {r.map((v, j) => (
                       <td key={j} className="py-1 pr-3 tabular-nums">
-                        {typeof v === "number" ? v.toLocaleString("en-US") : v}
+                        {typeof v === "number" ? fmtMax(v) : v}
                       </td>
                     ))}
                   </tr>

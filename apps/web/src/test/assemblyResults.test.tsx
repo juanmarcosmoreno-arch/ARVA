@@ -220,7 +220,7 @@ describe("Assembly results", () => {
 
 describe("New assembly dialog", () => {
   const plan: FlyePlan = {
-    tool: { status: "available", version: "2.9.3", version_validated: true, message: "", reason: null, options: ["--genome-size", "--meta", "--asm-coverage", "--read-error"], max_threads: 4 },
+    tool: { status: "available", version: "2.9.3", version_validated: true, message: "", reason: null, options: ["--genome-size", "--meta", "--asm-coverage", "--read-error"], max_threads: 4, default_threads: 4 },
     files: [
       { file_id: "f1", name: "ont.fastq.gz", origin: "imported", header_platform: null, header_confidence: "none", basecall_models: [], pacbio_read_types: [], stats_job_id: "j", total_bases: 9_000_000, max_read_length: 45_000, read_n50: 8_700, mean_base_quality: 13.9 },
       { file_id: "f2", name: "ont.filtlong.fastq.gz", origin: "derived", header_platform: null, header_confidence: "none", basecall_models: [], pacbio_read_types: [], stats_job_id: "j", total_bases: 6_000_000, max_read_length: 45_000, read_n50: 9_900, mean_base_quality: 15.0 },

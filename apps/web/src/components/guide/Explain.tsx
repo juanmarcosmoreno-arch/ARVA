@@ -30,7 +30,7 @@ export function Explain({ id, compact = false, className }: { id: GuideId; compa
         {!compact && <span>{t("common.whatDoesThisMean")}</span>}
       </button>
       <Dialog open={open} onOpenChange={setOpen} title={localized(entry, language).title} className="max-w-xl">
-        <div className="mb-4 flex gap-1 rounded-lg bg-muted p-1 text-xs" role="radiogroup" aria-label="Explanation level">
+        <div className="mb-4 flex gap-1 rounded-lg bg-muted p-1 text-xs" role="radiogroup" aria-label={t("settings.guideLevel")}>
           {(["beginner", "intermediate", "advanced"] as GuideLevel[]).map((l) => (
             <button
               key={l}
@@ -38,11 +38,11 @@ export function Explain({ id, compact = false, className }: { id: GuideId; compa
               aria-checked={level === l}
               onClick={() => setLevel(l)}
               className={cn(
-                "flex-1 rounded-md px-2 py-1 capitalize",
+                "flex-1 rounded-md px-2 py-1",
                 level === l ? "bg-surface font-medium shadow-sm" : "text-muted-foreground",
               )}
             >
-              {l}
+              {t(`guide.level.${l}`)}
             </button>
           ))}
         </div>

@@ -2,29 +2,30 @@ import { ArrowRight, Loader2 } from "lucide-react";
 import { CompareGcChart, CompareQualityChart, CompareYieldChart } from "@/components/charts/CompareCharts";
 import { Explain } from "@/components/guide/Explain";
 import { Card, CardBody, CardHeader } from "@/components/ui/card";
-import { type TranslationKey, useT } from "@/i18n";
-import { fmtBases, fmtInt, fmtNum } from "@/lib/format";
+import { type Translate, type TranslationKey, useT } from "@/i18n";
+import { bpUnit, fmtBases, fmtBp, fmtInt, fmtNum, fmtPct } from "@/lib/format";
 import { pct } from "@/lib/filters";
 import type { AnalysisJobDetail, FastpSummary, FiltlongParams, FiltlongSummary, RawFile, SequenceStats } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-type Row = { label: string; before: number | null; after: number | null; fmt: (v: number) => string; retained?: boolean };
+type Row = { label: string; before: number | null; after: number | null; fmt: (v: number) => string; retained?: boolean; minMax?: boolean };
 
-function rows(b: SequenceStats, a: SequenceStats): Row[] {
+function rows(t: Translate, b: SequenceStats, a: SequenceStats): Row[] {
+  const bp = { unit: bpUnit() };
   const r: Row[] = [
-    { label: "Reads", before: b.read_count, after: a.read_count, fmt: fmtInt, retained: true },
-    { label: "Total bases", before: b.total_bases, after: a.total_bases, fmt: fmtBases, retained: true },
-    { label: "Mean length (bp)", before: b.mean_length, after: a.mean_length, fmt: (v) => fmtNum(v, 1) },
-    { label: "Median length (bp)", before: b.median_length, after: a.median_length, fmt: (v) => fmtNum(v, 1) },
-    { label: "N50 (bp)", before: b.n50, after: a.n50, fmt: fmtInt },
-    { label: "Min / max length (bp)", before: null, after: null, fmt: fmtInt },
+    { label: t("stats.reads"), before: b.read_count, after: a.read_count, fmt: fmtInt, retained: true },
+    { label: t("stats.totalBases"), before: b.total_bases, after: a.total_bases, fmt: fmtBases, retained: true },
+    { label: t("beforeAfter.meanLength", bp), before: b.mean_length, after: a.mean_length, fmt: (v) => fmtNum(v, 1) },
+    { label: t("beforeAfter.medianLength", bp), before: b.median_length, after: a.median_length, fmt: (v) => fmtNum(v, 1) },
+    { label: `N50 (${bpUnit()})`, before: b.n50, after: a.n50, fmt: fmtInt },
+    { label: t("beforeAfter.minMax", bp), before: null, after: null, fmt: fmtInt, minMax: true },
     { label: "GC (%)", before: b.gc_percent, after: a.gc_percent, fmt: (v) => fmtNum(v, 2) },
   ];
   if (b.quality && a.quality) {
     r.push(
-      { label: "Mean read quality (Q)", before: b.quality.mean_read_quality, after: a.quality.mean_read_quality, fmt: (v) => fmtNum(v, 2) },
-      { label: "Bases ≥ Q20 (%)", before: b.quality.q20_bases_percent, after: a.quality.q20_bases_percent, fmt: (v) => fmtNum(v, 2) },
-      { label: "Bases ≥ Q30 (%)", before: b.quality.q30_bases_percent, after: a.quality.q30_bases_percent, fmt: (v) => fmtNum(v, 2) },
+      { label: t("beforeAfter.meanQ"), before: b.quality.mean_read_quality, after: a.quality.mean_read_quality, fmt: (v) => fmtNum(v, 2) },
+      { label: t("crosscheck.q20"), before: b.quality.q20_bases_percent, after: a.quality.q20_bases_percent, fmt: (v) => fmtNum(v, 2) },
+      { label: t("crosscheck.q30"), before: b.quality.q30_bases_percent, after: a.quality.q30_bases_percent, fmt: (v) => fmtNum(v, 2) },
     );
   }
   return r;
@@ -55,9 +56,7 @@ export function BeforeAfter({
     return (
       <Card className="flex items-center gap-3 p-5 text-sm text-muted-foreground">
         {pending ? <Loader2 className="h-4 w-4 animate-spin text-arva-teal" /> : null}
-        {pending
-          ? "Computing ARVA statistics for the original and filtered files…"
-          : "Statistics are missing for one of the files; run read statistics on both to compare."}
+        {pending ? t("beforeAfter.computing") : t("beforeAfter.missing")}
       </Card>
     );
   }
@@ -72,7 +71,7 @@ export function BeforeAfter({
     b.coverage_estimate?.expected_genome_size_bp ??
     a.coverage_estimate?.expected_genome_size_bp ??
     null;
-  const table = rows(b, a);
+  const table = rows(t, b, a);
   if (genome) table.splice(2, 0, { label: t("beforeAfter.depth", { genome: fmtInt(genome) }), before: b.total_bases / genome, after: a.total_bases / genome, fmt: (v) => fmtNum(v, 1) });
 
   return (
@@ -84,33 +83,33 @@ export function BeforeAfter({
               {parent.original_filename} <ArrowRight className="h-3.5 w-3.5 text-muted-foreground" /> {derived.original_filename}
             </span>
           }
-          description={`${filterJob ? `${filterJob.tool_name} ${filterJob.tool_version}` : "Filtering"} · both sides computed with ARVA read statistics`}
+          description={t("beforeAfter.subtitle", { tool: filterJob ? `${filterJob.tool_name} ${filterJob.tool_version}` : t("sample.filtering") })}
           action={<Explain id="before_after" />}
         />
         <CardBody className="pt-3">
           <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <Retained label="Reads kept" value={pct(a.read_count, b.read_count)} sub={`${fmtInt(a.read_count)} of ${fmtInt(b.read_count)}`} />
-            <Retained label="Bases kept" value={pct(a.total_bases, b.total_bases)} sub={`${fmtBases(a.total_bases)} of ${fmtBases(b.total_bases)}`} />
-            <Delta label="Mean length" before={b.mean_length} after={a.mean_length} unit=" bp" digits={0} />
+            <Retained label={t("beforeAfter.readsKept")} value={pct(a.read_count, b.read_count)} sub={t("beforeAfter.of", { part: fmtInt(a.read_count), whole: fmtInt(b.read_count) })} />
+            <Retained label={t("beforeAfter.basesKept")} value={pct(a.total_bases, b.total_bases)} sub={t("beforeAfter.of", { part: fmtBases(a.total_bases), whole: fmtBases(b.total_bases) })} />
+            <Delta label={t("crosscheck.meanLength")} before={b.mean_length} after={a.mean_length} unit={` ${bpUnit()}`} digits={0} />
             {b.quality && a.quality ? (
-              <Delta label="Mean read quality" before={b.quality.mean_read_quality} after={a.quality.mean_read_quality} prefix="Q" digits={1} />
+              <Delta label={t("stats.meanReadQuality")} before={b.quality.mean_read_quality} after={a.quality.mean_read_quality} prefix="Q" digits={1} />
             ) : (
-              <Delta label="N50" before={b.n50} after={a.n50} unit=" bp" digits={0} />
+              <Delta label="N50" before={b.n50} after={a.n50} unit={` ${bpUnit()}`} digits={0} />
             )}
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b text-left text-xs text-muted-foreground">
-                  <th className="py-2 pr-3 font-medium">Metric</th>
-                  <th className="py-2 pr-3 text-right font-medium">Before</th>
-                  <th className="py-2 pr-3 text-right font-medium">After</th>
-                  <th className="py-2 pr-3 text-right font-medium">Change</th>
+                  <th className="py-2 pr-3 font-medium">{t("crosscheck.metric")}</th>
+                  <th className="py-2 pr-3 text-right font-medium">{t("beforeAfter.before")}</th>
+                  <th className="py-2 pr-3 text-right font-medium">{t("beforeAfter.after")}</th>
+                  <th className="py-2 pr-3 text-right font-medium">{t("beforeAfter.change")}</th>
                 </tr>
               </thead>
               <tbody>
                 {table.map((r) =>
-                  r.label.startsWith("Min / max") ? (
+                  r.minMax ? (
                     <tr key={r.label} className="border-b border-border/50">
                       <td className="py-1.5 pr-3">{r.label}</td>
                       <td className="py-1.5 pr-3 text-right tabular-nums">{fmtInt(b.min_length)} / {fmtInt(b.max_length)}</td>
@@ -125,7 +124,7 @@ export function BeforeAfter({
                       <td className="py-1.5 pr-3 text-right tabular-nums text-muted-foreground">
                         {r.before != null && r.after != null
                           ? r.retained
-                            ? `${fmtNum(pct(r.after, r.before), 1)}% kept`
+                            ? t("beforeAfter.kept", { percent: fmtPct(pct(r.after, r.before), 1) })
                             : signed(r.after - r.before, r.fmt)
                           : ""}
                       </td>
@@ -154,13 +153,14 @@ function Retained({ label, value, sub }: { label: string; value: number; sub: st
   return (
     <div className="rounded-xl bg-muted/60 p-3">
       <div className="text-xs text-muted-foreground">{label}</div>
-      <div className="text-xl font-semibold tabular-nums">{fmtNum(value, 1)}%</div>
+      <div className="text-xl font-semibold tabular-nums">{fmtPct(value, 1)}</div>
       <div className="text-[11px] text-muted-foreground">{sub}</div>
     </div>
   );
 }
 
 function Delta({ label, before, after, unit = "", prefix = "", digits }: { label: string; before: number; after: number; unit?: string; prefix?: string; digits: number }) {
+  const t = useT();
   const d = after - before;
   return (
     <div className="rounded-xl bg-muted/60 p-3">
@@ -171,10 +171,7 @@ function Delta({ label, before, after, unit = "", prefix = "", digits }: { label
         {unit}
       </div>
       <div className={cn("text-[11px] tabular-nums", d === 0 ? "text-muted-foreground" : "text-foreground/80")}>
-        from {prefix}
-        {fmtNum(before, digits)}
-        {unit} ({d >= 0 ? "+" : "−"}
-        {fmtNum(Math.abs(d), digits)})
+        {t("beforeAfter.from", { value: `${prefix}${fmtNum(before, digits)}${unit}`, change: `${d >= 0 ? "+" : "−"}${fmtNum(Math.abs(d), digits)}` })}
       </div>
     </div>
   );
@@ -209,7 +206,7 @@ function FastpBreakdown({ s }: { s: FastpSummary }) {
             <div className="flex items-start justify-between gap-1 text-xs text-muted-foreground">
               {t("fastpSummary.insertPeak")} <Explain id="insert_size" compact />
             </div>
-            <div className="text-lg font-semibold tabular-nums">{fmtInt(s.insert_size_peak)} bp</div>
+            <div className="text-lg font-semibold tabular-nums">{fmtBp(s.insert_size_peak)}</div>
             {s.insert_size && s.insert_size.evaluated_pairs > 0 && (
               <div className="text-[11px] text-muted-foreground">
                 {t("fastpSummary.insertOverlap", {
@@ -224,7 +221,7 @@ function FastpBreakdown({ s }: { s: FastpSummary }) {
         {s.duplication_rate != null && (
           <div className="rounded-lg border p-3">
             <div className="text-xs text-muted-foreground">{t("qcdata.fastp.dupRate")}</div>
-            <div className="text-lg font-semibold tabular-nums">{fmtNum(100 * s.duplication_rate, 2)}%</div>
+            <div className="text-lg font-semibold tabular-nums">{fmtPct(100 * s.duplication_rate, 2)}</div>
           </div>
         )}
       </CardBody>

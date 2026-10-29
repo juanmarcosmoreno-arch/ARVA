@@ -28,16 +28,16 @@ export function GuidePage() {
                 role="radio"
                 aria-checked={level === l}
                 onClick={() => setLevel(l)}
-                className={cn("rounded-md px-3 py-1 capitalize", level === l ? "bg-surface font-medium shadow-sm" : "text-muted-foreground")}
+                className={cn("rounded-md px-3 py-1", level === l ? "bg-surface font-medium shadow-sm" : "text-muted-foreground")}
               >
-                {l}
+                {t(`guide.level.${l}`)}
               </button>
             ))}
           </div>
         }
       />
       <div className="grid gap-6 md:grid-cols-[240px_1fr]">
-        <nav aria-label="Guide topics">
+        <nav aria-label={t("guide.topics")}>
           <ul className="space-y-0.5">
             {GUIDE.map((g) => (
               <li key={g.id}>

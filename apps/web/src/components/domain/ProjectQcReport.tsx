@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, ChevronDown, Download, ExternalLink, FileBarChart, Loader2, Play } from "lucide-react";
 import { useState } from "react";
 import { Link } from "react-router-dom";
+import { JobResources } from "@/components/domain/JobResources";
 import { JobStatusBadge } from "@/components/domain/bits";
 import { Explain } from "@/components/guide/Explain";
 import { useTools } from "@/components/tools/useTools";
@@ -321,6 +322,7 @@ function JobDetails({ job }: { job: AnalysisJob }) {
         <ChevronDown className="h-3.5 w-3.5 transition group-open:rotate-180" aria-hidden /> {t("multiqc.details")}
       </summary>
       <div className="mt-2 space-y-2">
+        <JobResources job={job} />
         {job.commands?.map((c, i) => (
           <div key={i}>
             <div className="mb-1 text-muted-foreground">{t("multiqc.command")}</div>

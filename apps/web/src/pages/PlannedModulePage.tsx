@@ -21,14 +21,14 @@ export function PlannedModulePage() {
           <item.icon className="h-8 w-8 text-arva-royal dark:text-arva-cyan" />
         </div>
         <Badge>
-          <Construction className="h-3 w-3" /> {t("common.planned")} · Phase {item.plannedPhase}
+          <Construction className="h-3 w-3" /> {t("common.planned")} · {t("timeline.phase", { phase: item.plannedPhase })}
         </Badge>
-        <p className="mt-4 max-w-lg text-sm text-muted-foreground">{item.description}</p>
+        <p className="mt-4 max-w-lg text-sm text-muted-foreground">{item.description && t(item.description)}</p>
         <p className="mt-2 max-w-lg text-xs text-muted-foreground">
-          This module is not implemented yet. ARVA does not display simulated results for unavailable analyses.
+          {t("planned.notImplemented")}
         </p>
         <Link to="/samples" className="mt-6 text-sm text-arva-royal underline dark:text-arva-cyan">
-          Work with available read-level analyses
+          {t("planned.available")}
         </Link>
       </Card>
     </div>
@@ -36,12 +36,13 @@ export function PlannedModulePage() {
 }
 
 export function NotFoundPage() {
+  const t = useT();
   return (
     <div className="py-24 text-center">
       <p className="text-5xl font-semibold text-muted-foreground">404</p>
-      <p className="mt-2 text-sm">Page not found.</p>
+      <p className="mt-2 text-sm">{t("notFound.text")}</p>
       <Link to="/" className="mt-4 inline-block text-sm text-arva-royal underline dark:text-arva-cyan">
-        Back to dashboard
+        {t("notFound.back")}
       </Link>
     </div>
   );

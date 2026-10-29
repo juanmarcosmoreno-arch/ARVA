@@ -19,6 +19,7 @@ import { QuastDialog } from "@/components/assembly/QuastDialog";
 import { AnalysisTimeline, JobStatusBadge, MetricTile, type Stage } from "@/components/domain/bits";
 import { CancelJobButton, isActiveJob, isCancelling } from "@/components/domain/JobControls";
 import { FileDropzone } from "@/components/domain/FileDropzone";
+import { JobResources } from "@/components/domain/JobResources";
 import { CustomMetadataList } from "@/components/domain/MetadataImport";
 import { RawSignalSection } from "@/components/domain/RawSignal";
 import { ReadHeadersCard, TechnologySuggestion, useHeaderSummary } from "@/components/domain/ReadHeaders";
@@ -37,9 +38,10 @@ import { Button } from "@/components/ui/button";
 import { Card, CardBody, CardHeader } from "@/components/ui/card";
 import { Field, Input, Select } from "@/components/ui/form";
 import { EmptyState, ErrorNote, PageHeader, Skeleton, Tabs } from "@/components/ui/misc";
-import { useT } from "@/i18n";
+import { useT, type TranslationKey } from "@/i18n";
 import { api } from "@/lib/api";
-import { fmtBases, fmtBytes, fmtDate, fmtDuration, fmtInt, fmtNum, formatLabel, technologyLabel } from "@/lib/format";
+import { fmtBases, fmtBp, fmtBytes, fmtDate, fmtDuration, fmtInt, fmtNum, fmtPct, formatLabel, shellJoin, technologyLabel } from "@/lib/format";
+import { derivedDescription, fileValidation, jobError, seqstatsWarnings } from "@/lib/messages";
 import { lineageOrder } from "@/lib/filters";
 import { ANNOTATION_JOBS } from "@/lib/annotation";
 import { ASSEMBLY_JOBS } from "@/lib/flye";
@@ -102,21 +104,25 @@ export function SampleDetailPage() {
   const stages: Stage[] = [
     {
       key: "raw",
-      label: "Raw data",
+      label: t("sample.files"),
       state: importing || readingSignal ? "running" : files.data?.length ? "done" : "ready",
-      detail: importing ? "Importing…" : readingSignal ? t("pod5.reading") : files.data?.length ? `${files.data.length} file(s)` : "Import reads",
+      detail: importing ? t("timeline.importing") : readingSignal ? t("pod5.reading") : files.data?.length ? t("timeline.files", { count: files.data.length }) : t("timeline.importReads"),
     },
     {
       key: "qc",
-      label: "Read QC",
+      label: t("timeline.readQc"),
       state: qcJobs.some(isActive) ? "running" : latestFailed ? "failed" : completed.length ? "done" : "ready",
-      detail: qcJobs.some(isActive) ? "Computing…" : completed.length ? `${completed.length} run(s)` : "Not run",
+      detail: qcJobs.some(isActive) ? t("timeline.computing") : completed.length ? t("assembly.timelineRuns", { count: completed.length }) : t("assembly.timelineNotRun"),
     },
     {
       key: "filtering",
-      label: "Filtering",
+      label: t("sample.filtering"),
       state: filterJobs.some(isActive) ? "running" : filterJobs[0]?.status === "failed" ? "failed" : filterJobs.some((j) => j.status === "completed") ? "done" : "ready",
-      detail: filterJobs.some(isActive) ? "Running…" : filterJobs.length ? `${filterJobs.filter((j) => j.status === "completed").length} run(s)` : "Optional",
+      detail: filterJobs.some(isActive)
+        ? t("timeline.running")
+        : filterJobs.length
+          ? t("assembly.timelineRuns", { count: filterJobs.filter((j) => j.status === "completed").length })
+          : t("timeline.optional"),
     },
     {
       key: "assembly",
@@ -131,7 +137,7 @@ export function SampleDetailPage() {
               : "")
           : t("assembly.timelineNotRun"),
     },
-    { key: "polishing", label: "Polishing", state: "planned", phase: 3 },
+    { key: "polishing", label: t("timeline.polishing"), state: "planned", phase: 3 },
     {
       key: "annotation",
       label: t("sample.annotation"),
@@ -142,11 +148,11 @@ export function SampleDetailPage() {
           ? t("annotation.timelineRuns", { count: annotationJobs.filter((j) => j.status === "completed").length })
           : t("annotation.timelineNotRun"),
     },
-    { key: "biology", label: "Biological analysis", state: "planned", phase: 5 },
+    { key: "biology", label: t("timeline.biology"), state: "planned", phase: 5 },
   ];
 
   if (sample.isLoading) return <Skeleton className="h-40" />;
-  if (sample.error || !sample.data) return <ErrorNote error={sample.error ?? "Sample not found"} />;
+  if (sample.error || !sample.data) return <ErrorNote error={sample.error ?? t("sample.notFound")} />;
   const s = sample.data;
 
   return (
@@ -162,9 +168,9 @@ export function SampleDetailPage() {
         subtitle={
           <span className="flex flex-wrap items-center gap-2">
             {s.organism && <i>{s.organism}</i>}
-            <Badge tone={s.sequencing_technology === "unknown" ? "neutral" : "blue"}>{technologyLabel[s.sequencing_technology]}</Badge>
+            <Badge tone={s.sequencing_technology === "unknown" ? "neutral" : "blue"}>{technologyLabel(s.sequencing_technology)}</Badge>
             <TechnologySuggestion sample={s} summary={headerSummary.data} />
-            {s.host && <span>Host: {s.host}</span>}
+            {s.host && <span>{t("sample.host", { host: s.host })}</span>}
             {s.geographic_origin && <span>· {s.geographic_origin}</span>}
           </span>
         }
@@ -287,26 +293,29 @@ export function SampleDetailPage() {
   );
 }
 
+const REPORT_FORMATS: { f: "html" | "csv" | "json"; label: TranslationKey; sub: TranslationKey }[] = [
+  { f: "html", label: "report.html", sub: "report.htmlHint" },
+  { f: "csv", label: "report.csv", sub: "report.csvHint" },
+  { f: "json", label: "report.json", sub: "report.jsonHint" },
+];
+
 function ReportMenu({ sampleId, disabled }: { sampleId: string; disabled: boolean }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   return (
     <div className="relative" onBlur={(e) => !e.currentTarget.contains(e.relatedTarget) && setOpen(false)}>
-      <Button variant="outline" onClick={() => setOpen((o) => !o)} aria-expanded={open} disabled={disabled} title={disabled ? "Compute read statistics first" : undefined}>
-        <FileText className="h-4 w-4" /> Report <ChevronDown className="h-3.5 w-3.5" />
+      <Button variant="outline" onClick={() => setOpen((o) => !o)} aria-expanded={open} disabled={disabled} title={disabled ? t("report.disabled") : undefined}>
+        <FileText className="h-4 w-4" /> {t("sample.report")} <ChevronDown className="h-3.5 w-3.5" />
       </Button>
       {open && (
         <div className="absolute right-0 z-20 mt-1 w-56 rounded-xl border bg-surface py-1 text-sm shadow-lg">
-          {[
-            { f: "html", label: "HTML report", sub: "Printable, with figures & methods" },
-            { f: "csv", label: "CSV table", sub: "One row per file" },
-            { f: "json", label: "JSON", sub: "Full structured results" },
-          ].map((o) => (
-            <a key={o.f} href={api.reportUrl(sampleId, o.f as "html")} download className="block px-3 py-2 hover:bg-muted" onClick={() => setOpen(false)}>
+          {REPORT_FORMATS.map((o) => (
+            <a key={o.f} href={api.reportUrl(sampleId, o.f)} download className="block px-3 py-2 hover:bg-muted" onClick={() => setOpen(false)}>
               <div className="flex items-center gap-2">
                 <Download className="h-3.5 w-3.5" />
-                {o.label}
+                {t(o.label)}
               </div>
-              <div className="pl-5 text-xs text-muted-foreground">{o.sub}</div>
+              <div className="pl-5 text-xs text-muted-foreground">{t(o.sub)}</div>
             </a>
           ))}
         </div>
@@ -382,18 +391,18 @@ function FilesTab({
     <div className="grid gap-6 xl:grid-cols-3">
       <div className="min-w-0 space-y-6 xl:col-span-2">
         <Card>
-          <CardHeader title="Import files" description="FASTQ/FASTA, plain or gzip-compressed. Drop several files or a whole folder." action={<Explain id="fastq" />} />
+          <CardHeader title={t("files.import")} description={t("files.importHint")} action={<Explain id="fastq" />} />
           <CardBody>
             <FileDropzone sampleId={sampleId} />
           </CardBody>
         </Card>
         <Card>
-          <CardHeader title={`Registered files (${files.length})`} description="Originals are stored read-only; analyses never modify them." action={<Explain id="integrity" />} />
+          <CardHeader title={t("files.registered", { count: files.length })} description={t("files.registeredHint")} action={<Explain id="integrity" />} />
           <CardBody className="pt-3">
             {loading ? (
               <Skeleton className="h-16" />
             ) : files.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No files yet.</p>
+              <p className="text-sm text-muted-foreground">{t("files.none")}</p>
             ) : (
               <ul className="divide-y">
                 {lineageOrder(files).map(({ file: f, depth }) => (
@@ -405,7 +414,7 @@ function FilesTab({
                       checked={chosen.has(f.id)}
                       disabled={!hasReads(f.file_format)}
                       onChange={() => toggle(f.id)}
-                      aria-label={`Include ${f.original_filename}`}
+                      aria-label={t("files.include", { name: f.original_filename })}
                       title={f.file_format === "pod5" ? t("pod5.notAnalysable") : undefined}
                     />
                     <div className="min-w-0 flex-1">
@@ -414,23 +423,23 @@ function FilesTab({
                         {f.file_format === "pod5" ? (
                           <Badge tone="blue">{t("pod5.badge")}</Badge>
                         ) : (
-                          <Badge tone={f.file_format === "unknown" ? "danger" : "teal"}>{formatLabel[f.file_format]}</Badge>
+                          <Badge tone={f.file_format === "unknown" ? "danger" : "teal"}>{formatLabel(f.file_format)}</Badge>
                         )}
                         {f.read_mate && <Badge tone="blue">{f.read_mate}</Badge>}
-                        {f.origin === "derived" && <Badge tone="neutral">Derived</Badge>}
+                        {f.origin === "derived" && <Badge tone="neutral">{t("files.derived")}</Badge>}
                         {!f.is_valid && f.file_format !== "unknown" && (
                           <Badge tone="warning">
-                            <AlertTriangle className="h-3 w-3" /> Invalid
+                            <AlertTriangle className="h-3 w-3" /> {t("files.invalid")}
                           </Badge>
                         )}
                       </div>
                       <div className="mt-0.5 text-xs text-muted-foreground">
                         {fmtBytes(f.size_bytes)} · {fmtDate(f.uploaded_at)} · SHA-256 <Checksum value={f.checksum_sha256} />
                       </div>
-                      {f.description && <div className="mt-0.5 text-xs text-foreground/80">{f.description}</div>}
-                      <div className={cn("mt-0.5 text-xs", f.is_valid ? "text-muted-foreground" : "text-amber-700 dark:text-warning")}>{f.validation_message}</div>
+                      {f.description && <div className="mt-0.5 text-xs text-foreground/80">{derivedDescription(t, f.description)}</div>}
+                      <div className={cn("mt-0.5 text-xs", f.is_valid ? "text-muted-foreground" : "text-amber-700 dark:text-warning")}>{fileValidation(t, f)}</div>
                     </div>
-                    <a href={api.fileDownloadUrl(f.id)} className="rounded-md p-1.5 text-muted-foreground hover:bg-muted" aria-label={`Download ${f.original_filename}`}>
+                    <a href={api.fileDownloadUrl(f.id)} className="rounded-md p-1.5 text-muted-foreground hover:bg-muted" aria-label={t("files.download", { name: f.original_filename })}>
                       <Download className="h-4 w-4" />
                     </a>
                   </li>
@@ -443,12 +452,12 @@ function FilesTab({
       </div>
 
       <Card className="h-fit">
-        <CardHeader title="Compute read statistics" description="Streams every record of the selected files in a background worker." />
+        <CardHeader title={t("sample.runStats")} description={t("stats.runHint")} />
         <CardBody className="space-y-4">
-          <Field label="Expected genome size (Mbp, optional)" hint="Only used to report an approximate depth (total bases ÷ genome size).">
-            <Input inputMode="decimal" placeholder="e.g. 2.8" value={genomeMbp} onChange={(e) => setGenomeMbp(e.target.value)} aria-invalid={!genomeValid} />
+          <Field label={t("stats.genomeSize")} hint={t("stats.genomeSizeHint")}>
+            <Input inputMode="decimal" placeholder={t("stats.genomeSizePlaceholder")} value={genomeMbp} onChange={(e) => setGenomeMbp(e.target.value)} aria-invalid={!genomeValid} />
           </Field>
-          <Field label="Length histogram bins">
+          <Field label={t("stats.bins")}>
             <Select value={bins} onChange={(e) => setBins(e.target.value)}>
               {[25, 50, 100, 200].map((b) => (
                 <option key={b}>{b}</option>
@@ -456,39 +465,39 @@ function FilesTab({
             </Select>
           </Field>
           <div className="rounded-lg bg-muted p-3 text-xs text-muted-foreground">
-            Tool: <b>arva-core.seqstats</b>. Tool, version, parameters, input checksums, timings and logs are recorded with the result. No reads are filtered or modified.
+            {t("stats.tool")} <b>arva-core.seqstats</b>. {t("stats.recorded")}
           </div>
           <ErrorNote error={run.error} />
           <Button className="w-full" disabled={!chosen.size || !genomeValid || run.isPending} onClick={() => run.mutate()}>
             {run.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
-            Analyse {chosen.size} file{chosen.size === 1 ? "" : "s"}
+            {t("stats.analyse", { count: chosen.size })}
           </Button>
         </CardBody>
       </Card>
 
       <Card className="h-fit xl:col-start-3">
-        <CardHeader title="Quality control tools" description="External tools run on the selected files. Their versions and exact commands are recorded." />
+        <CardHeader title={t("qcTools.title")} description={t("qcTools.hint")} />
         <CardBody className="space-y-3">
           {(
             [
-              { id: "seqkit", label: "Independent check (SeqKit)", explain: "crosscheck" },
-              { id: "fastqc", label: "FastQC report", explain: "fastqc_flags" },
+              { id: "seqkit", label: "qcTools.seqkit", explain: "crosscheck" },
+              { id: "fastqc", label: "qcTools.fastqc", explain: "fastqc_flags" },
             ] as const
-          ).map((t) => {
-            const info = toolStatus(t.id);
+          ).map((tool) => {
+            const info = toolStatus(tool.id);
             const ok = info?.status === "available";
             return (
-              <div key={t.id} className="flex items-center justify-between gap-2">
+              <div key={tool.id} className="flex items-center justify-between gap-2">
                 <div className="min-w-0">
                   <div className="flex items-center gap-1.5 text-sm">
-                    {t.label} <Explain id={t.explain} compact />
+                    {t(tool.label)} <Explain id={tool.explain} compact />
                   </div>
                   <div className="text-xs text-muted-foreground">
-                    {info ? (ok ? `${info.name} ${info.version}` : `${info.name}: not installed`) : "Checking…"}
+                    {info ? (ok ? `${info.name} ${info.version}` : t("qcTools.notInstalled", { tool: info.name })) : t("qcTools.checking")}
                   </div>
                 </div>
-                <Button size="sm" variant="outline" disabled={!ok || !chosen.size || runTool.isPending} onClick={() => runTool.mutate(t.id)}>
-                  <Play className="h-3.5 w-3.5" /> Run
+                <Button size="sm" variant="outline" disabled={!ok || !chosen.size || runTool.isPending} onClick={() => runTool.mutate(tool.id)}>
+                  <Play className="h-3.5 w-3.5" /> {t("qcTools.run")}
                 </Button>
               </div>
             );
@@ -496,9 +505,9 @@ function FilesTab({
           <ErrorNote error={runTool.error} />
           <div className="border-t pt-3">
             <Button variant="outline" className="w-full" disabled={!hasFastq} onClick={onFilter}>
-              <Filter className="h-4 w-4" /> Filter reads…
+              <Filter className="h-4 w-4" /> {t("qcTools.filter")}
             </Button>
-            <p className="mt-1.5 text-xs text-muted-foreground">fastp (short reads) or Filtlong (long reads). Creates a new derived file; originals are kept.</p>
+            <p className="mt-1.5 text-xs text-muted-foreground">{t("qcTools.filterHint")}</p>
           </div>
         </CardBody>
       </Card>
@@ -507,6 +516,7 @@ function FilesTab({
 }
 
 function Checksum({ value }: { value: string | null }) {
+  const t = useT();
   const [copied, setCopied] = useState(false);
   if (!value) return <span>—</span>;
   return (
@@ -520,7 +530,7 @@ function Checksum({ value }: { value: string | null }) {
       }}
     >
       {value.slice(0, 12)}… <Copy className="h-3 w-3" />
-      {copied && <span className="text-success">copied</span>}
+      {copied && <span className="text-success">{t("files.copied")}</span>}
     </button>
   );
 }
@@ -544,6 +554,7 @@ function QcTab({
   onGoFiles: () => void;
   activeCount: number;
 }) {
+  const t = useT();
   const results = useMemo(() => latestResults(jobs), [jobs]);
   const withResults = files.filter((f) => results.has(f.id));
   const [fileId, setFileId] = useState<string | null>(null);
@@ -560,12 +571,12 @@ function QcTab({
       <div className="space-y-4">
         {overview}
         {activeCount > 0 ? (
-          <EmptyState icon={<Loader2 className="h-7 w-7 animate-spin text-arva-teal" />} title={`Computing statistics for ${activeCount} file(s)…`}>
-            Results appear here automatically.
+          <EmptyState icon={<Loader2 className="h-7 w-7 animate-spin text-arva-teal" />} title={t("stats.computing", { count: activeCount })}>
+            {t("stats.appearHere")}
           </EmptyState>
         ) : (
-          <EmptyState title="No read statistics yet">
-            <Button onClick={onGoFiles}>Import files and run analysis</Button>
+          <EmptyState title={t("stats.none")}>
+            <Button onClick={onGoFiles}>{t("stats.goFiles")}</Button>
           </EmptyState>
         )}
         {rawSignal}
@@ -586,20 +597,20 @@ function QcTab({
       {overview}
       <div className="flex flex-wrap items-end justify-between gap-3">
         {withResults.length > 1 ? (
-          <Field label="File" className="w-full max-w-md">
+          <Field label={t("stats.file")} className="w-full max-w-md">
             <Select value={currentId} onChange={(e) => setFileId(e.target.value)}>
               {withResults.map((f) => (
                 <option key={f.id} value={f.id}>
                   {f.original_filename}
                   {f.read_mate ? ` (${f.read_mate})` : ""}
-                  {f.origin === "derived" ? " · derived" : ""}
+                  {f.origin === "derived" ? ` · ${t("stats.derivedSuffix")}` : ""}
                 </option>
               ))}
             </Select>
           </Field>
         ) : (
           <div className="text-sm">
-            <span className="text-muted-foreground">File </span>
+            <span className="text-muted-foreground">{t("stats.file")} </span>
             <b>{file.original_filename}</b>
           </div>
         )}
@@ -607,7 +618,7 @@ function QcTab({
           {current.job.tool_name} {current.job.tool_version} · {fmtDate(current.job.finished_at)} · {fmtDuration(current.job.duration_seconds)}
           {activeCount > 0 && (
             <span className="ml-2 inline-flex items-center gap-1 text-arva-royal dark:text-arva-cyan">
-              <Loader2 className="h-3 w-3 animate-spin" /> {activeCount} running
+              <Loader2 className="h-3 w-3 animate-spin" /> {t("stats.running", { count: activeCount })}
             </span>
           )}
         </div>
@@ -616,10 +627,10 @@ function QcTab({
       {m.warnings.length > 0 && (
         <div className="rounded-xl border border-warning/40 bg-warning/5 px-4 py-3 text-sm">
           <div className="mb-1 flex items-center gap-2 font-medium">
-            <AlertTriangle className="h-4 w-4 text-warning" /> Warnings
+            <AlertTriangle className="h-4 w-4 text-warning" /> {t("stats.warnings")}
           </div>
           <ul className="list-disc pl-6 text-muted-foreground">
-            {m.warnings.map((w) => (
+            {seqstatsWarnings(t, m).map((w) => (
               <li key={w}>{w}</li>
             ))}
           </ul>
@@ -627,36 +638,46 @@ function QcTab({
       )}
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
-        <MetricTile label={m.file.format === "fasta" ? "Sequences" : "Reads"} value={fmtInt(m.read_count)} explain="read_count" />
-        <MetricTile label="Total bases" value={fmtBases(m.total_bases)} sub={`${fmtInt(m.total_bases)} bp`} explain="read_count" />
-        <MetricTile label="Mean / median length" value={`${fmtInt(m.mean_length)} bp`} sub={`median ${fmtInt(m.median_length)} · range ${fmtInt(m.min_length)}–${fmtInt(m.max_length)}`} explain="length_distribution" />
-        <MetricTile label="N50" value={`${fmtInt(m.n50)} bp`} sub={`L50 ${fmtInt(m.l50)} · N90 ${fmtInt(m.n90)} bp`} explain="n50" />
-        <MetricTile label="GC content" value={`${fmtNum(m.gc_percent, 2)}%`} sub={`${fmtNum(m.ambiguous_percent, 3)}% ambiguous bases`} explain="gc_content" />
+        <MetricTile label={m.file.format === "fasta" ? t("stats.sequences") : t("stats.reads")} value={fmtInt(m.read_count)} explain="read_count" />
+        <MetricTile label={t("stats.totalBases")} value={fmtBases(m.total_bases)} sub={fmtBp(m.total_bases)} explain="read_count" />
+        <MetricTile
+          label={t("stats.meanMedianLength")}
+          value={fmtBp(m.mean_length)}
+          sub={t("stats.lengthSub", { median: fmtInt(m.median_length), min: fmtInt(m.min_length), max: fmtInt(m.max_length) })}
+          explain="length_distribution"
+        />
+        <MetricTile label="N50" value={fmtBp(m.n50)} sub={`L50 ${fmtInt(m.l50)} · N90 ${fmtBp(m.n90)}`} explain="n50" />
+        <MetricTile label={t("stats.gc")} value={fmtPct(m.gc_percent, 2)} sub={t("stats.ambiguous", { percent: fmtPct(m.ambiguous_percent, 3) })} explain="gc_content" />
         {q && (
           <>
-            <MetricTile label="Mean read quality" value={`Q${fmtNum(q.mean_read_quality)}`} sub={`median Q${fmtNum(q.median_read_quality)} · range Q${q.min_base_quality}–Q${q.max_base_quality}`} explain="read_quality" />
-            <MetricTile label="Bases ≥ Q20" value={`${fmtNum(q.q20_bases_percent)}%`} explain="q20_q30" />
-            <MetricTile label="Bases ≥ Q30" value={`${fmtNum(q.q30_bases_percent)}%`} explain="q20_q30" />
-            <MetricTile label="Mean base quality" value={`Q${fmtNum(q.mean_base_quality)}`} sub="error-probability averaged" explain="phred" />
+            <MetricTile
+              label={t("stats.meanReadQuality")}
+              value={`Q${fmtNum(q.mean_read_quality)}`}
+              sub={t("stats.qualitySub", { median: fmtNum(q.median_read_quality), min: q.min_base_quality, max: q.max_base_quality })}
+              explain="read_quality"
+            />
+            <MetricTile label={t("stats.basesQ", { q: 20 })} value={fmtPct(q.q20_bases_percent)} explain="q20_q30" />
+            <MetricTile label={t("stats.basesQ", { q: 30 })} value={fmtPct(q.q30_bases_percent)} explain="q20_q30" />
+            <MetricTile label={t("stats.meanBaseQuality")} value={`Q${fmtNum(q.mean_base_quality)}`} sub={t("stats.meanBaseQualitySub")} explain="phred" />
           </>
         )}
         <MetricTile
-          label="Approximate depth"
+          label={t("stats.depth")}
           value={m.coverage_estimate ? `${fmtNum(m.coverage_estimate.estimated_depth)}×` : "—"}
-          sub={m.coverage_estimate ? `for ${fmtBases(m.coverage_estimate.expected_genome_size_bp)} genome` : "provide a genome size to estimate"}
+          sub={m.coverage_estimate ? t("stats.depthFor", { size: fmtBases(m.coverage_estimate.expected_genome_size_bp) }) : t("stats.depthNone")}
           explain="coverage"
         />
       </div>
 
       {q && (
         <Card>
-          <CardHeader title="Reads above quality thresholds" description="Share of reads whose mean quality is at least each value — useful before choosing a filter." action={<Explain id="read_quality" />} />
+          <CardHeader title={t("stats.aboveQ")} description={t("stats.aboveQHint")} action={<Explain id="read_quality" />} />
           <CardBody className="grid grid-cols-3 gap-3 pt-3 sm:grid-cols-6">
             {q.reads_above_quality.map((r) => (
               <div key={r.threshold} className="rounded-lg bg-muted/60 p-3 text-center">
                 <div className="text-xs text-muted-foreground">≥ Q{r.threshold}</div>
-                <div className="text-lg font-semibold tabular-nums">{fmtNum(r.percent)}%</div>
-                <div className="text-[11px] text-muted-foreground">{fmtInt(r.reads)} reads</div>
+                <div className="text-lg font-semibold tabular-nums">{fmtPct(r.percent)}</div>
+                <div className="text-[11px] text-muted-foreground">{t("stats.readCount", { count: r.reads })}</div>
               </div>
             ))}
           </CardBody>
@@ -684,8 +705,7 @@ function QcTab({
       </div>
 
       <p className="text-xs text-muted-foreground">
-        All values are computed from every record in the file. ARVA does not apply pass/fail thresholds: suitable values depend on the
-        technology, chemistry and intended analysis. Compare original and filtered reads in the Filtering tab.
+        {t("stats.footnote")}
       </p>
       {rawSignal}
       <FailedJobs jobs={failed} />
@@ -694,15 +714,16 @@ function QcTab({
 }
 
 function FailedJobs({ jobs }: { jobs: AnalysisJobDetail[] }) {
+  const t = useT();
   if (!jobs.length) return null;
   return (
     <Card className="border-danger/30">
-      <CardHeader title="Recent failed analyses" description="Failures are recorded with the exact reason; no partial results are kept." />
+      <CardHeader title={t("failed.title")} description={t("failed.hint")} />
       <CardBody className="space-y-2 pt-3">
         {jobs.map((j) => (
           <div key={j.id} className="rounded-lg bg-danger/5 px-3 py-2 text-sm">
             <div className="text-xs text-muted-foreground">{fmtDate(j.created_at)}</div>
-            <div className="text-danger">{j.error_message}</div>
+            <div className="text-danger">{jobError(t, j)}</div>
           </div>
         ))}
       </CardBody>
@@ -716,7 +737,7 @@ function HistoryTab({ jobs, files, openJob }: { jobs: AnalysisJobDetail[]; files
   const t = useT();
   const [open, setOpen] = useState<string | null>(openJob);
   const byId = new Map(files.map((f) => [f.id, f]));
-  if (!jobs.length) return <EmptyState title="No analyses have been run for this sample yet." />;
+  if (!jobs.length) return <EmptyState title={t("history.empty")} />;
   return (
     <Card>
       <ul className="divide-y">
@@ -732,9 +753,9 @@ function HistoryTab({ jobs, files, openJob }: { jobs: AnalysisJobDetail[]; files
                     <div className="truncate text-sm font-medium">
                       {jobLabel(j.job_type, t)} ·{" "}
                       {IMPORT_JOBS.has(j.job_type)
-                        ? `${((j.parameters?.paths as string[] | undefined) ?? []).length} file(s) from ${String(j.parameters?.root ?? "")}`
-                        : inputs.map((f) => f?.original_filename ?? "deleted file").join(", ")}
-                      {j.parent_job_id && <span className="ml-2 text-xs font-normal text-muted-foreground">(started automatically)</span>}
+                        ? t("history.importFrom", { count: ((j.parameters?.paths as string[] | undefined) ?? []).length, root: String(j.parameters?.root ?? "") })
+                        : inputs.map((f) => f?.original_filename ?? t("history.deletedFile")).join(", ")}
+                      {j.parent_job_id && <span className="ml-2 text-xs font-normal text-muted-foreground">{t("history.automatic")}</span>}
                     </div>
                     <div className="text-xs text-muted-foreground">
                       {fmtDate(j.created_at)} · {j.tool_name} {j.tool_version} · {fmtDuration(j.duration_seconds)}
@@ -752,13 +773,13 @@ function HistoryTab({ jobs, files, openJob }: { jobs: AnalysisJobDetail[]; files
                 <div className="space-y-4 px-5 pb-5 pl-12 text-sm">
                   <dl className="grid gap-x-6 gap-y-2 sm:grid-cols-2">
                     {[
-                      ["Analysis job ID", <code className="text-xs">{j.id}</code>],
-                      ["Tool", `${j.tool_name} ${j.tool_version}`],
-                      ["Executable", j.tool_path ? <code className="text-xs">{j.tool_path}</code> : inProcessTool(j, t)],
-                      ["Database", j.database_name ? `${j.database_name} ${j.database_version ?? ""}` : "None (no reference database used)"],
-                      ["Queued", fmtDate(j.created_at)],
-                      ["Started / finished", `${fmtDate(j.started_at)} → ${fmtDate(j.finished_at)}`],
-                      ["Run time", fmtDuration(j.duration_seconds)],
+                      [t("history.jobId"), <code className="text-xs">{j.id}</code>],
+                      [t("history.tool"), `${j.tool_name} ${j.tool_version}`],
+                      [t("tools.executable"), j.tool_path ? <code className="text-xs">{j.tool_path}</code> : inProcessTool(j, t)],
+                      [t("history.database"), j.database_name ? `${j.database_name} ${j.database_version ?? ""}` : t("history.noDatabase")],
+                      [t("history.queued"), fmtDate(j.created_at)],
+                      [t("history.startedFinished"), `${fmtDate(j.started_at)} → ${fmtDate(j.finished_at)}`],
+                      [t("history.runTime"), fmtDuration(j.duration_seconds)],
                       ...(j.cancel_requested_at ? [[t("history.cancelRequested"), fmtDate(j.cancel_requested_at)]] : []),
                     ].map(([k, v], i) => (
                       <div key={i}>
@@ -768,7 +789,7 @@ function HistoryTab({ jobs, files, openJob }: { jobs: AnalysisJobDetail[]; files
                     ))}
                   </dl>
                   <div>
-                    <div className="mb-1 text-xs text-muted-foreground">Inputs</div>
+                    <div className="mb-1 text-xs text-muted-foreground">{t("history.inputs")}</div>
                     <ul className="space-y-0.5 text-xs">
                       {inputs.map((f, i) => (
                         <li key={i}>
@@ -777,29 +798,30 @@ function HistoryTab({ jobs, files, openJob }: { jobs: AnalysisJobDetail[]; files
                               {f.original_filename} · {fmtBytes(f.size_bytes)} · <code>sha256:{f.checksum_sha256}</code>
                             </>
                           ) : (
-                            "File record no longer available"
+                            t("history.fileGone")
                           )}
                         </li>
                       ))}
                     </ul>
                   </div>
+                  <JobResources job={j} />
                   <div>
-                    <div className="mb-1 text-xs text-muted-foreground">Parameters</div>
+                    <div className="mb-1 text-xs text-muted-foreground">{t("history.parameters")}</div>
                     <pre className="overflow-x-auto rounded-lg bg-muted p-3 text-xs">{JSON.stringify(j.parameters, null, 2)}</pre>
                   </div>
                   {j.commands?.length ? (
                     <div>
-                      <div className="mb-1 text-xs text-muted-foreground">Exact command{j.commands.length > 1 ? "s" : ""} executed</div>
+                      <div className="mb-1 text-xs text-muted-foreground">{t("history.commands", { count: j.commands.length })}</div>
                       {j.commands.map((c, i) => (
                         <pre key={i} className="overflow-x-auto whitespace-pre-wrap break-all rounded-lg bg-muted p-3 text-[11px]">
-                          {c.map((a) => (/^[\w@%+=:,./-]+$/.test(a) ? a : `'${a.replace(/'/g, `'"'"'`)}'`)).join(" ")}
+                          {shellJoin(c)}
                         </pre>
                       ))}
                     </div>
                   ) : null}
                   {j.output_paths?.length ? (
                     <div>
-                      <div className="mb-1 text-xs text-muted-foreground">Outputs (relative to the ARVA data directory)</div>
+                      <div className="mb-1 text-xs text-muted-foreground">{t("history.outputs")}</div>
                       <ul className="space-y-0.5 text-xs">
                         {j.output_paths.map((p) => (
                           <li key={p} className="flex flex-wrap items-center gap-2">
@@ -807,7 +829,7 @@ function HistoryTab({ jobs, files, openJob }: { jobs: AnalysisJobDetail[]; files
                             {!p.startsWith("processed/") && (
                               <a className="inline-flex items-center gap-1 text-arva-royal hover:underline dark:text-arva-cyan" href={api.jobOutputUrl(j.id, jobRelativePath(j.id, p), !p.endsWith(".html"))} target={p.endsWith(".html") ? "_blank" : undefined} rel="noreferrer">
                                 {p.endsWith(".html") ? <ExternalLink className="h-3 w-3" /> : <Download className="h-3 w-3" />}
-                                {p.endsWith(".html") ? "open" : "download"}
+                                {p.endsWith(".html") ? t("history.open") : t("history.download")}
                               </a>
                             )}
                           </li>
@@ -817,14 +839,14 @@ function HistoryTab({ jobs, files, openJob }: { jobs: AnalysisJobDetail[]; files
                   ) : null}
                   {j.result_summary && j.job_type !== "sequence_stats" && (
                     <details>
-                      <summary className="cursor-pointer text-xs text-muted-foreground">Structured result summary</summary>
+                      <summary className="cursor-pointer text-xs text-muted-foreground">{t("history.summary")}</summary>
                       <pre className="mt-1 max-h-72 overflow-auto rounded-lg bg-muted p-3 text-[11px]">{JSON.stringify(j.result_summary, null, 2)}</pre>
                     </details>
                   )}
-                  {j.error_message && <ErrorNote error={j.error_message} />}
+                  {j.error_message && <ErrorNote error={jobError(t, j)} />}
                   <div>
-                    <div className="mb-1 text-xs text-muted-foreground">Log</div>
-                    <pre className="max-h-72 overflow-auto rounded-lg bg-arva-navy p-3 text-[11px] leading-relaxed text-slate-200">{j.log_text || "(empty)"}</pre>
+                    <div className="mb-1 text-xs text-muted-foreground">{t("history.log")}</div>
+                    <pre className="max-h-72 overflow-auto rounded-lg bg-arva-navy p-3 text-[11px] leading-relaxed text-slate-200">{j.log_text || t("history.logEmpty")}</pre>
                   </div>
                 </div>
               )}
@@ -849,6 +871,7 @@ function FilteringTab({
   onNew: () => void;
   technology: SequencingTechnology;
 }) {
+  const t = useT();
   const filterJobs = jobs.filter((j) => FILTER_JOBS.has(j.job_type));
   const derived = files.filter((f) => f.origin === "derived" && f.parent_file_id);
   const [selected, setSelected] = useState<string | null>(null);
@@ -861,22 +884,21 @@ function FilteringTab({
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="max-w-2xl text-sm text-muted-foreground">
-          Filtering creates new derived files and never changes the originals. Each run below lists the tool, version and exact settings;
-          ARVA statistics are computed automatically for every output so you can compare before and after.
-          {technology === "unknown" && " Set the sequencing technology in Metadata to get the right tool suggested."}
+          {t("filtering.intro")}
+          {technology === "unknown" && ` ${t("filtering.setTechnology")}`}
         </p>
         <Button onClick={onNew}>
-          <Filter className="h-4 w-4" /> New filtering run
+          <Filter className="h-4 w-4" /> {t("filtering.new")}
         </Button>
       </div>
 
       {filterJobs.length === 0 ? (
-        <EmptyState icon={<Filter className="h-7 w-7" />} title="No filtering runs yet">
-          Filtering is optional. Review the read statistics first, then decide whether it is needed. <Explain id="filtering" />
+        <EmptyState icon={<Filter className="h-7 w-7" />} title={t("filtering.none")}>
+          {t("filtering.noneHint")} <Explain id="filtering" />
         </EmptyState>
       ) : (
         <Card>
-          <CardHeader title="Filtering runs" action={<Explain id="filtering" />} />
+          <CardHeader title={t("filtering.runs")} action={<Explain id="filtering" />} />
           <CardBody className="pt-3">
             <ul className="divide-y">
               {filterJobs.map((j) => {
@@ -889,10 +911,10 @@ function FilteringTab({
                         <span className="ml-2 text-xs font-normal text-muted-foreground">{fmtDate(j.created_at)}</span>
                       </div>
                       <div className="text-xs text-muted-foreground">
-                        {(j.input_raw_file_ids ?? []).map((id) => byId.get(id)?.original_filename ?? "deleted file").join(" + ")}
+                        {(j.input_raw_file_ids ?? []).map((id) => byId.get(id)?.original_filename ?? t("history.deletedFile")).join(" + ")}
                         {outs.length > 0 && <> → {outs.map((o) => o.original_filename).join(" + ")}</>}
                       </div>
-                      {j.error_message && <div className="text-xs text-danger">{j.error_message}</div>}
+                      {j.error_message && <div className="text-xs text-danger">{jobError(t, j)}</div>}
                     </div>
                     <JobStatusBadge status={j.status} />
                   </li>
@@ -906,7 +928,7 @@ function FilteringTab({
       {current && (
         <>
           {derived.length > 1 && (
-            <Field label="Compare filtered file with its original" className="max-w-xl">
+            <Field label={t("filtering.compare")} className="max-w-xl">
               <Select value={current.id} onChange={(e) => setSelected(e.target.value)}>
                 {derived.map((f) => (
                   <option key={f.id} value={f.id}>

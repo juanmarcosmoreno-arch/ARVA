@@ -142,7 +142,8 @@ def test_polishing_preview_explains_strategy_tools_and_problems(client, setup):
     assert set(plan["tools"]) == {"racon", "minimap2", "pilon", "java", "bwa", "samtools", "dnadiff"}
     assert [f["role"] for f in plan["files"]] == ["r1", "r2", "long"]
     assert plan["preset_suggestion"]["heuristic"] is True
-    assert plan["default_heap_gb"] == min(16, get_settings().max_tool_memory_gb)
+    # The test computer has 64 GB; the profile's memory per job (44 GB) exceeds Debian's 16 GB default heap.
+    assert (plan["default_heap_gb"], plan["max_memory_gb"], plan["default_threads"], plan["max_threads"]) == (16, 64, 4, 4)
     only_pairs = client.post(f"{API}/assemblies/{draft['id']}/polishing/preview",
                              json={"inputs": {"r1_file_id": ids["r1"]}}).json()
     assert only_pairs["strategy"] == "pilon" and "R2" in only_pairs["problem"]

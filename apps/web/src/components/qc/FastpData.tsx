@@ -9,7 +9,7 @@ import { Card, CardBody, CardHeader } from "@/components/ui/card";
 import { ErrorNote } from "@/components/ui/misc";
 import { useT } from "@/i18n";
 import { api } from "@/lib/api";
-import { escapeHtml, fmtDate, fmtInt, fmtNum } from "@/lib/format";
+import { escapeHtml, fmtDate, fmtInt, fmtNum, fmtPct } from "@/lib/format";
 import { asPercent, fastpMate, insertSizeSpan, padCurve } from "@/lib/qcData";
 import type { AnalysisJobDetail, FastpCurves, FastpData, FastpMate, RawFile } from "@/lib/types";
 
@@ -179,7 +179,7 @@ function AdapterCard({ data }: { data: FastpData }) {
         <div className="grid gap-3 sm:grid-cols-3">
           {ac && tile(t("qcdata.fastp.trimmedReads"), fmtInt(ac.adapter_trimmed_reads ?? 0))}
           {ac && tile(t("qcdata.fastp.trimmedBases"), fmtInt(ac.adapter_trimmed_bases ?? 0))}
-          {tile(t("qcdata.fastp.dupRate"), rate === null ? t("qcdata.fastp.dupNotEvaluated") : `${fmtNum(100 * rate, 2)}%`)}
+          {tile(t("qcdata.fastp.dupRate"), rate === null ? t("qcdata.fastp.dupNotEvaluated") : fmtPct(100 * rate, 2))}
         </div>
         {!ac ? (
           <p className="text-muted-foreground">{t("qcdata.fastp.adapterNone")}</p>
@@ -250,7 +250,7 @@ function InsertSizeChart({ data, prefix }: { data: FastpData; prefix: string }) 
       axisPointer: { type: "shadow", shadowStyle: { color: th.grid, opacity: 0.6 } },
       formatter: (p: unknown) => {
         const size = sizes[(p as { dataIndex: number }[])[0].dataIndex];
-        return `<b>${fmtInt(size)} bp</b>${tooltipRow(t("qcdata.insert.pairs"), fmtInt(ins.histogram[size]))}${tooltipRow(t("qcdata.insert.colPercent"), `${fmtNum(ins.histogram_percent[size], 2)}%`)}`;
+        return `<b>${fmtInt(size)} bp</b>${tooltipRow(t("qcdata.insert.pairs"), fmtInt(ins.histogram[size]))}${tooltipRow(t("qcdata.insert.colPercent"), fmtPct(ins.histogram_percent[size], 2))}`;
       },
     },
     xAxis: { type: "category", data: sizes, ...axisStyle(th, t("qcdata.insert.x"), { nameGap: 28, splitLine: { show: false } }) },

@@ -25,7 +25,7 @@ export function useHeaderSummary(sample: Sample | undefined, files: RawFile[] | 
   });
 }
 
-const platformText = (t: T, platform: string) => (platform === "unknown" ? t("headers.notInferable") : technologyLabel[platform] ?? platform);
+const platformText = (t: T, platform: string) => (platform === "unknown" ? t("headers.notInferable") : technologyLabel(platform));
 
 function formatText(t: T, fmt: string) {
   const label = (code: string) => {
@@ -50,8 +50,8 @@ export function TechnologySuggestion({ sample, summary }: { sample: Sample; summ
   const suggested = summary?.suggested_technology;
   if (!suggested?.value) return null;
   const value = suggested.value;
-  const technology = technologyLabel[value];
-  const user = technologyLabel[sample.sequencing_technology];
+  const technology = technologyLabel(value);
+  const user = technologyLabel(sample.sequencing_technology);
   const state = suggestionState(sample.sequencing_technology, suggested);
   return (
     <>
@@ -123,7 +123,7 @@ function SampleSuggestion({ t, summary }: { t: T; summary: HeaderSummary }) {
     <div className="space-y-1 text-sm">
       {st.value && (
         <div className="font-medium">
-          {t("headers.suggested", { technology: technologyLabel[st.value], confidence: t(`headers.confidence.${st.confidence}`) })}
+          {t("headers.suggested", { technology: technologyLabel(st.value), confidence: t(`headers.confidence.${st.confidence}`) })}
         </div>
       )}
       <p className="text-xs text-muted-foreground">{text}</p>
@@ -178,7 +178,7 @@ function FileHeaders({ t, file }: { t: T; file: RawFile }) {
             <Badge tone="neutral">{t("headers.notRead")}</Badge>
           ) : st?.value ? (
             <Badge tone="teal">
-              {technologyLabel[st.value]} · {t(`headers.confidence.${st.confidence}`)}
+              {technologyLabel(st.value)} · {t(`headers.confidence.${st.confidence}`)}
             </Badge>
           ) : (
             <Badge tone="neutral">{t("headers.notInferable")}</Badge>
@@ -222,7 +222,7 @@ function FileHeaderDetails({ t, meta }: { t: T; meta: HeaderMetadata }) {
       </p>
       <dl className="grid gap-x-6 gap-y-2 sm:grid-cols-2">
         <Detail label={t("headers.platformHint")}>
-          {st?.value ? `${technologyLabel[st.value]} (${t(`headers.confidence.${st.confidence}`)})` : t("headers.notInferable")}
+          {st?.value ? `${technologyLabel(st.value)} (${t(`headers.confidence.${st.confidence}`)})` : t("headers.notInferable")}
           <span className="block text-xs text-muted-foreground">
             {Object.entries(meta.platform_counts ?? {})
               .map(([p, n]) => `${platformText(t, p)}: ${fmtInt(n)}`)

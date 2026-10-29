@@ -88,7 +88,7 @@ export function SplashScreen() {
         onClick={(e) => e.stopPropagation()}
       >
         {still ? (
-          <img src="/intro/arva-intro-end.jpg" alt="ARVA — Genomic Discovery Platform" className="block aspect-video w-full" />
+          <img src="/intro/arva-intro-end.jpg" alt={t("brand.splashAlt")} className="block aspect-video w-full" />
         ) : (
           <video
             ref={videoRef}

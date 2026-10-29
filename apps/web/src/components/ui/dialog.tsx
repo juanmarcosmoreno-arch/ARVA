@@ -1,6 +1,7 @@
 import * as RD from "@radix-ui/react-dialog";
 import { X } from "lucide-react";
 import type { ReactNode } from "react";
+import { useT } from "@/i18n";
 import { cn } from "@/lib/utils";
 
 export function Dialog({
@@ -18,6 +19,7 @@ export function Dialog({
   children: ReactNode;
   className?: string;
 }) {
+  const t = useT();
   return (
     <RD.Root open={open} onOpenChange={onOpenChange}>
       <RD.Portal>
@@ -34,10 +36,10 @@ export function Dialog({
               {description ? (
                 <RD.Description className="mt-1 text-sm text-muted-foreground">{description}</RD.Description>
               ) : (
-                <RD.Description className="sr-only">{typeof title === "string" ? title : "Dialog"}</RD.Description>
+                <RD.Description className="sr-only">{typeof title === "string" ? title : t("common.dialog")}</RD.Description>
               )}
             </div>
-            <RD.Close className="rounded-md p-1 text-muted-foreground hover:bg-muted" aria-label="Close">
+            <RD.Close className="rounded-md p-1 text-muted-foreground hover:bg-muted" aria-label={t("common.close")}>
               <X className="h-4 w-4" />
             </RD.Close>
           </div>

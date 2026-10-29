@@ -161,8 +161,8 @@ export function FlyePanel({
           <Field label={t("flye.iterations")} hint={t("flye.iterationsHint")}>
             <Input type="number" min={0} max={10} value={form.iterations} onChange={(e) => set("iterations", e.target.value)} />
           </Field>
-          <Field label={t("flye.threads")} hint={t("flye.threadsHint", { max: p?.tool.max_threads ?? "?" })}>
-            <Input type="number" min={1} max={p?.tool.max_threads} placeholder={String(p?.tool.max_threads ?? "")} value={form.threads} onChange={(e) => set("threads", e.target.value)} />
+          <Field label={t("flye.threads")} hint={t("flye.threadsHint", { max: p?.tool.max_threads ?? "?", default: p?.tool.default_threads ?? "?" })}>
+            <Input type="number" min={1} max={p?.tool.max_threads} placeholder={String(p?.tool.default_threads ?? "")} value={form.threads} onChange={(e) => set("threads", e.target.value)} />
           </Field>
         </div>
       </Section>
@@ -213,7 +213,7 @@ export function FlyePanel({
           <input type="checkbox" className={CHECK} checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} />
           <span>
             {t("flye.confirm")}
-            <span className="block text-muted-foreground">{t("flye.confirmHint", { technology: technologyLabel[p.sample_technology] })}</span>
+            <span className="block text-muted-foreground">{t("flye.confirmHint", { technology: technologyLabel(p.sample_technology) })}</span>
           </span>
         </label>
       )}
@@ -262,7 +262,7 @@ function RunSummary({ form, plan, files, ids, advanced }: { form: FlyeForm; plan
   const fileNames = chosen.map((f) => f.original_filename + (f.origin === "derived" ? ` (${t("flye.derived")})` : "")).join(", ");
   const genome = chosenGenomeSize(form, plan);
   const iterations = Number(form.iterations);
-  const threads = form.threads.trim() || String(plan?.tool.max_threads ?? "?");
+  const threads = form.threads.trim() || String(plan?.tool.default_threads ?? "?");
   const basisKey = `assembly.genomeSource.${genome.basis}`;
   const items = [
     t("assembly.summary.assembler", { version: plan?.tool.version ?? "?" }),

@@ -91,7 +91,7 @@ describe("Assembly tab", () => {
 describe("Flye dialog", () => {
   it("shows ARVA's heuristic suggestion without choosing for the user", async () => {
     const plan: FlyePlan = {
-      tool: { status: "available", version: "2.9.3", version_validated: true, message: "", reason: null, options: ["--genome-size", "--meta"], max_threads: 4 },
+      tool: { status: "available", version: "2.9.3", version_validated: true, message: "", reason: null, options: ["--genome-size", "--meta"], max_threads: 4, default_threads: 4 },
       files: [{ file_id: "f1", name: "ont.fastq.gz", origin: "imported", header_platform: null, header_confidence: "none", basecall_models: [], pacbio_read_types: [], stats_job_id: "j", total_bases: 9_869_520, max_read_length: 45_000, read_n50: 8_700, mean_base_quality: 13.89 }],
       read_type_suggestion: { heuristic: true, value: "nano-hq", basis: "error_at_most_5_percent", platform: "nanopore", platform_source: "sample_metadata", mean_error_rate: 0.0408, mean_base_quality: 13.89, q20_read_error_note: false, sup_model_but_low_quality: false },
       genome_size: { expected: { bp: null, status: "not_given", source: null }, total_read_bases: 9_869_520, files_without_stats: [], from_depth: null },

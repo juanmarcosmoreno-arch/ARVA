@@ -54,6 +54,8 @@ class RawFile(Base):
 
     is_valid: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     validation_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # {code, params} of validation_message, so the interface can show it translated.
+    validation_detail: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
     uploaded_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
 

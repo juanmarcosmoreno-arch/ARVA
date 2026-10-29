@@ -50,7 +50,14 @@
   live log (only inside the job's results folder), else of the ARVA job log. Status is `pending`, `running`,
   `completed`, `failed` or `cancelled`; `cancel_requested_at` records a cancellation request (a running job keeps
   status `running` until the worker has stopped its tool), and `checkpoint` (JSON, nullable) describes a stopped
-  Flye run's work folder kept under `checkpoints/` for `--resume` (never a result).
+  Flye run's work folder kept under `checkpoints/` for `--resume` (never a result). `resources` (JSON, nullable)
+  records what the job was given when it was created: performance profile and how it was chosen, threads, the
+  profile's memory per job and the value passed to the tool's own memory option, CPU priority (`nice`, and the
+  `nice` executable the worker used), the CPUs and memory ARVA could use, and a one-line description of the
+  computer. Jobs ARVA runs in its own process (read statistics, imports, POD5) record none.
+- **AppSetting**: a key → JSON value stored server-side so that the API and the worker read the same setting; the
+  key `performance` holds the chosen performance profile (`auto`, `light`, `balanced`, `maximum`, or `custom` with
+  `threads` and `memory_gb`).
 - **MetadataImport**: provenance of one sample-metadata table applied to a project (file name, SHA-256,
   kind, sheet, encoding, delimiter, header row, column mapping, date order, mode, and the created /
   updated / unchanged / skipped counts). The table file itself is not stored.
@@ -206,6 +213,41 @@ validates the Arrow tables before converting them. A damaged file that still cra
 
 On Linux each job runs in a forked process; on macOS the worker uses RQ's `SimpleWorker`
 (fork-after-Objective-C-init is unsafe there). Tests run the queue synchronously with `fakeredis`.
+
+### Performance profiles and resources
+
+Thread counts, memory limits and CPU priority come from one function, `app.services.performance.
+effective_resources(db)`, used by every job constructor (`app/services/jobs.py`), by the routes for their
+defaults and by the previews (`default_threads`, `max_threads`, `default_memory_gb`, `max_memory_gb`,
+`default_heap_gb`). It combines three things:
+
+1. **Detection** (`app/services/host.py`, pure parsers plus readers, cached per process): the CPUs this process can
+   use (`os.sched_getaffinity`, then the tightest cgroup v2 `cpu.max` or v1 `cpu.cfs_quota_us`/`cpu.cfs_period_us`
+   along the process's cgroup path), the memory (the tightest cgroup `memory.max` / `memory.limit_in_bytes`, else
+   `/proc/meminfo` `MemTotal`), whether it runs in a container (`/.dockerenv`, `/run/.containerenv` or the
+   `container` variable, as systemd's detect-virt checks), and host facts: on native macOS read with `sysctl -n`,
+   `sw_vers -productVersion` and `system_profiler -json SPHardwareDataType` (argument vectors, absolute paths,
+   timeouts), otherwise taken from the `ARVA_HOST_*` variables `scripts/start.sh` sets. Those are untrusted
+   strings: control characters are removed, text is bounded to 80 characters, numbers must be plain digits in a
+   range (cores 1–1024, memory 256 MiB–64 TiB), versions and architectures must match a pattern; anything else
+   is unknown. Each fact carries its source (`launcher`, `macos`) for the interface.
+2. **The choice** stored in `app_settings` (`GET`/`PUT /api/v1/system/performance`, validated by the schema and
+   again when read).
+3. **The profile table** (ARVA heuristics, `compute()`): the automatic profile from the Mac family (model name,
+   else the pre-2022 model identifier prefix), else from usable cores and memory; threads from performance or
+   physical cores; memory per job as a share of usable memory; `nice` per profile; capped by the usable CPUs and
+   memory and by `ARVA_TOOL_THREADS` / `ARVA_TOOL_MEMORY_GB`. `threads`/`memory_gb` are defaults, `max_threads`/
+   `max_memory_gb` the most a request may ask for. `docker_advice()` compares Docker Desktop's figures (from the
+   launcher, else the container's view) with what the profile needs on that Mac.
+
+The worker applies the recorded `nice` through `run_command(..., nice=N)`, which prefixes the argument vector
+with the `nice` executable resolved by `shutil.which` (no `preexec_fn`, no shell); the error messages and the
+recorded `commands` stay the tool's own. samtools sort gets `-m` per thread from the job's memory per job when its
+default would exceed it. A tool that exits with SIGKILL (−9, or 137) not caused by ARVA (cancellation and the
+time limit raise their own exceptions) marks the job context; `run_job` then appends to the failure reason the
+memory ARVA could use, the run's threads and memory limit, and what to change
+(`performance.out_of_memory_reason`). `python -m app.services.performance --lang en|es` prints the same summary
+for the launcher. Reports list each step's resources and add a methods paragraph on them.
 
 ## External tools
 

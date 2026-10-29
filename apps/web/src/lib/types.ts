@@ -64,6 +64,8 @@ export interface RawFile {
   checksum_sha256: string | null;
   is_valid: boolean;
   validation_message: string | null;
+  /** Stable code and parameters of validation_message (file.validation.<code>); null for files imported before codes. */
+  validation_detail?: CodedMessage | null;
   uploaded_at: string;
   origin: "imported" | "derived";
   parent_file_id: string | null;
@@ -135,6 +137,12 @@ export interface HeaderSummary {
 
 export type ToolStatus = "available" | "not_installed" | "incompatible" | "failed";
 
+/** A stable message code with its parameters; the English text travels next to it. */
+export interface CodedMessage {
+  code: string;
+  params: Record<string, string | number>;
+}
+
 export interface Tool {
   id: string;
   name: string;
@@ -154,8 +162,9 @@ export interface Tool {
   version: string | null;
   version_validated: boolean;
   message: string;
-  /** Stable code of a tool-specific message (translated as tool.reason.<code>). */
+  /** Stable code of the detection message (translated as tool.reason.<code>), with its parameters. */
   reason?: string | null;
+  reason_params?: Record<string, string | number> | null;
 }
 
 export interface Library {
@@ -610,6 +619,8 @@ export interface SequenceStats {
     note: string;
   } | null;
   warnings: string[];
+  /** The warnings with stable codes (seqstats.warning.<code>); absent in results computed before codes. */
+  messages?: ServerMessage[];
 }
 
 export interface QCResult {
@@ -649,6 +660,8 @@ export interface AnalysisJob {
   duration_seconds: number | null;
   log_text: string | null;
   error_message: string | null;
+  /** Stable code and parameters of error_message (job.error.<code>), when the worker knows the reason. */
+  error_detail?: CodedMessage | null;
   created_at: string;
   commands: string[][] | null;
   tool_path: string | null;
@@ -660,6 +673,87 @@ export interface AnalysisJob {
   cancel_requested_at?: string | null;
   /** A stopped Flye run's work folder, kept so that Flye's own --resume can continue it. */
   checkpoint?: JobCheckpoint | null;
+  /** The threads, memory limit and CPU priority ARVA gave the job; null for jobs run in ARVA's own process. */
+  resources?: JobResources | null;
+}
+
+export type PerformanceProfile = "light" | "balanced" | "maximum" | "custom";
+export type PerformanceChoice = "auto" | PerformanceProfile;
+
+export interface JobResources {
+  profile: PerformanceProfile;
+  choice: PerformanceChoice;
+  threads: number | null;
+  /** The profile's memory per job, in GB. */
+  memory_gb: number;
+  /** The value given to the tool's own memory option, when it has one. */
+  memory_limit_gb: number | null;
+  memory_option: string | null;
+  nice: number;
+  /** Set by the worker at the first command: the nice executable used, or null when it was not found. */
+  nice_executable?: string | null;
+  usable_cpus: number;
+  usable_memory_gb: number;
+  in_container: boolean;
+  host: string;
+}
+
+export type HostFactKey =
+  | "platform" | "model_name" | "model_id" | "chip" | "performance_cores" | "efficiency_cores" | "physical_cores"
+  | "logical_cpus" | "memory_bytes" | "os_version" | "arch" | "docker_cpus" | "docker_memory_bytes";
+
+export interface HostFact {
+  value: string | number | null;
+  /** launcher: scripts/start.sh; macos: read natively; null: unknown. */
+  source: "launcher" | "macos" | null;
+}
+
+export type PerformanceReason =
+  | "macbook_air" | "macbook" | "macbook_pro" | "mac_mini" | "imac" | "mac_studio" | "mac_pro"
+  | "few_resources" | "many_resources" | "default";
+
+export interface PerformanceOverview {
+  host: Record<HostFactKey, HostFact>;
+  mac_class: string | null;
+  container: {
+    usable_cpus: number;
+    cpus_source: string;
+    memory_bytes: number | null;
+    memory_source: string | null;
+    in_container: boolean;
+    container_marker: string | null;
+  };
+  automatic: { profile: PerformanceProfile; reason: PerformanceReason; core_basis: "performance_cores" | "physical_cores" | "usable_cpus"; cores: number };
+  choice: { profile: PerformanceChoice; threads: number | null; memory_gb: number | null; updated_at: string | null };
+  effective: {
+    profile: PerformanceProfile;
+    choice: PerformanceChoice;
+    threads: number;
+    max_threads: number;
+    memory_gb: number;
+    max_memory_gb: number;
+    nice: number;
+    usable_cpus: number;
+    usable_memory_gb: number;
+    requested_threads: number;
+    requested_memory_gb: number;
+    exceeds: ("threads" | "memory_gb")[];
+    admin_threads: number | null;
+    admin_memory_gb: number | null;
+    host: string;
+  };
+  profiles: { profile: Exclude<PerformanceProfile, "custom">; threads: number; memory_gb: number; nice: number }[];
+  docker: {
+    status: "ok" | "adjust" | "partial" | "host_unknown" | "not_container";
+    cpus?: { current: number; recommended: number; status: "ok" | "increase" } | null;
+    memory?: { current_bytes: number | null; recommended_gb: number; most_gb: number; status: "ok" | "increase" | "decrease" | "unknown" } | null;
+  };
+}
+
+export interface PerformanceUpdate {
+  profile: PerformanceChoice;
+  threads?: number;
+  memory_gb?: number;
 }
 
 export interface JobCheckpoint {
@@ -964,9 +1058,12 @@ export interface FlyePlan {
     version_validated: boolean;
     message: string;
     reason: string | null;
+    reason_params?: Record<string, string | number> | null;
     /** Optional Flye options this installed version lists in its --help. */
     options: string[];
     max_threads: number;
+  /** Threads a run gets when none are given: the performance profile's (max_threads: the CPUs ARVA can use). */
+    default_threads: number;
   };
   files: FlyeFileEvidence[];
   read_type_suggestion: FlyeReadTypeSuggestion;
@@ -1183,8 +1280,10 @@ export interface QuastPlan {
     version_validated: boolean;
     message: string;
     reason: string | null;
+    reason_params?: Record<string, string | number> | null;
     aligner: QuastAligner | null;
     max_threads: number;
+    default_threads: number;
     default_min_contig: number;
   };
   min_contig: number;
@@ -1283,10 +1382,13 @@ export interface AssemblyToolInfo {
   version_validated: boolean;
   message: string;
   reason: string | null;
+  reason_params?: Record<string, string | number> | null;
   /** Options of interest this installed version lists in its help. */
   options: string[];
   max_threads: number;
-  /** Most memory ARVA may give a run (ARVA_TOOL_MEMORY_GB, or the computer's memory). */
+  /** Threads a run gets when none are given: the performance profile's (max_threads: the CPUs ARVA can use). */
+  default_threads: number;
+  /** Most memory ARVA may give a run: the memory it can use (or ARVA_TOOL_MEMORY_GB). */
   max_memory_gb: number;
   /** Used when no memory is given: min(250, max_memory_gb), as SPAdes does. */
   default_memory_gb: number;
@@ -1329,6 +1431,7 @@ export interface PolishingTool {
   version_validated: boolean;
   message: string;
   reason: string | null;
+  reason_params?: Record<string, string | number> | null;
   path: string | null;
 }
 
@@ -1362,6 +1465,7 @@ export interface PolishingPlan {
   sample_technology: SequencingTechnology;
   confirmation_required: boolean;
   max_threads: number;
+  default_threads: number;
   max_memory_gb: number;
   default_heap_gb: number;
 }
@@ -1667,11 +1771,13 @@ export interface AnnotationPlan {
     version_validated: boolean;
     message: string;
     reason: string | null;
+    reason_params?: Record<string, string | number> | null;
     path: string | null;
     license: string;
     citation: string;
     citation_url: string;
     max_threads: number;
+    default_threads: number;
   };
   steps: Record<string, AnnotationStep>;
   assembly: AnnotationAssemblyFacts;

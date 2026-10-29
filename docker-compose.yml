@@ -12,6 +12,25 @@ x-arva-env: &arva-env
   # Host folder mounted read-only at /import for server-side import (see import/README.md).
   ARVA_IMPORT_ROOTS: '["/import"]'
   ARVA_MIN_FREE_BYTES: ${ARVA_MIN_FREE_BYTES:-1073741824}
+  # Administrator caps on the performance profile (threads and memory per tool run); empty: no cap.
+  ARVA_TOOL_THREADS: ${ARVA_TOOL_THREADS:-}
+  ARVA_TOOL_MEMORY_GB: ${ARVA_TOOL_MEMORY_GB:-}
+  # Facts about the computer, set by scripts/start.sh on a Mac (sysctl, system_profiler, sw_vers, docker info) so that
+  # ARVA can choose a performance profile. Empty with a plain `docker compose up`: the computer is then unknown and
+  # the profile follows the CPUs and memory the containers can use.
+  ARVA_HOST_PLATFORM: ${ARVA_HOST_PLATFORM:-}
+  ARVA_HOST_MODEL_NAME: ${ARVA_HOST_MODEL_NAME:-}
+  ARVA_HOST_MODEL_ID: ${ARVA_HOST_MODEL_ID:-}
+  ARVA_HOST_CHIP: ${ARVA_HOST_CHIP:-}
+  ARVA_HOST_PERF_CORES: ${ARVA_HOST_PERF_CORES:-}
+  ARVA_HOST_EFF_CORES: ${ARVA_HOST_EFF_CORES:-}
+  ARVA_HOST_PHYSICAL_CORES: ${ARVA_HOST_PHYSICAL_CORES:-}
+  ARVA_HOST_LOGICAL_CPUS: ${ARVA_HOST_LOGICAL_CPUS:-}
+  ARVA_HOST_MEMORY_BYTES: ${ARVA_HOST_MEMORY_BYTES:-}
+  ARVA_HOST_OS_VERSION: ${ARVA_HOST_OS_VERSION:-}
+  ARVA_HOST_ARCH: ${ARVA_HOST_ARCH:-}
+  ARVA_HOST_DOCKER_CPUS: ${ARVA_HOST_DOCKER_CPUS:-}
+  ARVA_HOST_DOCKER_MEMORY_BYTES: ${ARVA_HOST_DOCKER_MEMORY_BYTES:-}
 
 services:
   postgres:

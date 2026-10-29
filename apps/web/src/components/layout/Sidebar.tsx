@@ -7,7 +7,7 @@ import { NAV } from "./nav";
 export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const t = useT();
   return (
-    <nav aria-label="Main" className="flex h-full flex-col bg-arva-navy text-slate-200">
+    <nav aria-label={t("nav.main")} className="flex h-full flex-col bg-arva-navy text-slate-200">
       <div className="px-5 pb-4 pt-5 text-white">
         <ArvaWordmark tagline />
       </div>
@@ -52,7 +52,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
         ))}
       </div>
       <div className="border-t border-white/5 px-5 py-3 text-[10px] tracking-[0.18em] text-slate-500">
-        FROM SEQUENCE TO INSIGHT
+        {t("brand.motto")}
       </div>
     </nav>
   );

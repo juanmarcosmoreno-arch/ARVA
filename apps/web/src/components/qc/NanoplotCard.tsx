@@ -9,7 +9,7 @@ import { Card, CardBody, CardHeader } from "@/components/ui/card";
 import { ErrorNote } from "@/components/ui/misc";
 import { type TranslationKey, useT } from "@/i18n";
 import { api } from "@/lib/api";
-import { fmtDate, fmtInt, fmtNum } from "@/lib/format";
+import { fmtDate, fmtInt, fmtNum, fmtPct } from "@/lib/format";
 import { toolMessage } from "@/lib/messages";
 import {
   NANOPLOT_JOB,
@@ -250,7 +250,7 @@ function AboveQuality({ stats }: { stats: NanoplotStats }) {
                   &gt; Q{r.threshold}
                 </th>
                 <td className={`${TD} text-right`}>{fmtInt(r.reads)}</td>
-                <td className={`${TD} text-right`}>{fmtNum(r.percent, 1)}%</td>
+                <td className={`${TD} text-right`}>{fmtPct(r.percent, 1)}</td>
                 <td className={`${TD} text-right`}>{fmtNum(r.megabases, 1)}</td>
               </tr>
             ))}

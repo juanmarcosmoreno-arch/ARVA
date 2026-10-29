@@ -16,9 +16,9 @@ from arva_tools.spades import SpadesAdapter
 from arva_tools.unicycler import UnicyclerAdapter, helper_paths, modes_available
 from sqlalchemy.orm import Session
 
-from app.core.config import get_settings
 from app.models import FileFormat, RawFile, Sample, SequencingTechnology
 from app.services.flye import CONFIDENT, LONG_READ_PLATFORMS, InputError, evidence
+from app.services.performance import Resources, effective_resources
 from app.services.raw_signal import is_raw_signal, not_reads_message
 
 ROLES = ("r1", "r2", "unpaired", "long")
@@ -155,9 +155,12 @@ def needs_confirmation(sample: Sample) -> bool:
     return sample.sequencing_technology is SequencingTechnology.unknown
 
 
-def memory_options() -> dict[str, int]:
-    cap = get_settings().max_tool_memory_gb
-    return {"max_memory_gb": cap, "default_memory_gb": min(SPADES_MAX_DEFAULT_GB, cap)}
+def memory_options(res: Resources) -> dict[str, int]:
+    return {"max_memory_gb": res.max_memory_gb, "default_memory_gb": min(SPADES_MAX_DEFAULT_GB, res.memory_gb)}
+
+
+def _resources(res: Resources) -> dict[str, int]:
+    return {"max_threads": res.max_threads, "default_threads": res.threads, **memory_options(res)}
 
 
 def _options(read_options, executable: str | None, wanted: tuple[str, ...]) -> list[str]:
@@ -170,16 +173,16 @@ def _options(read_options, executable: str | None, wanted: tuple[str, ...]) -> l
     return [o for o in wanted if o in supported]
 
 
-def spades_status() -> dict[str, Any]:
+def spades_status(res: Resources) -> dict[str, Any]:
     d = detect("spades")
     available = d.status is ToolStatus.available
     return {"status": d.status.value, "version": d.version, "version_validated": d.version_validated,
             "message": d.message, "reason": d.reason,
             "options": _options(SpadesAdapter.help_options, d.path if available else None, SPADES_OPTIONS),
-            "max_threads": get_settings().tool_threads, **memory_options()}
+            **_resources(res)}
 
 
-def unicycler_status() -> dict[str, Any]:
+def unicycler_status(res: Resources) -> dict[str, Any]:
     d = detect("unicycler")
     available = d.status is ToolStatus.available
     paths = helper_paths()
@@ -190,7 +193,7 @@ def unicycler_status() -> dict[str, Any]:
             "modes": modes_available(paths) if available else [],
             "helpers": {name: {"path": path, "version": spades.version if name == "spades" and path else None}
                         for name, path in paths.items()},
-            "max_threads": get_settings().tool_threads, **memory_options()}
+            **_resources(res)}
 
 
 def plan(db: Session, sample: Sample, inputs: Inputs, tool: str) -> dict[str, Any]:
@@ -203,7 +206,7 @@ def plan(db: Session, sample: Sample, inputs: Inputs, tool: str) -> dict[str, An
     except InputError as exc:
         problem = str(exc)
     return {
-        "tool": spades_status() if tool == "SPAdes" else unicycler_status(),
+        "tool": (spades_status if tool == "SPAdes" else unicycler_status)(effective_resources(db)),
         "files": ev,
         "assembly_mode": inputs.assembly_mode(),
         "read_layout": library_layout(inputs.ids()),

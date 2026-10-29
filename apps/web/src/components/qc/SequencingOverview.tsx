@@ -7,7 +7,7 @@ import { Explain } from "@/components/guide/Explain";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardBody, CardHeader } from "@/components/ui/card";
 import { type TranslationKey, useT } from "@/i18n";
-import { escapeHtml, fmtBases, fmtCompact, fmtInt, fmtNum, formatLabel } from "@/lib/format";
+import { escapeHtml, fmtBases, fmtCompact, fmtInt, fmtNum, formatLabel, fmtPct } from "@/lib/format";
 import { type FileOverviewRow, type FileState, sequencingOverview } from "@/lib/overview";
 import { signalHours } from "@/lib/pod5";
 import type { AnalysisJobDetail, RawFile } from "@/lib/types";
@@ -103,7 +103,7 @@ function FileCell({ row }: { row: FileOverviewRow }) {
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-1.5">
             <span className="break-all font-medium">{f.original_filename}</span>
-            {f.file_format === "pod5" ? <Badge tone="blue">{t("pod5.badge")}</Badge> : <Badge tone={f.file_format === "unknown" ? "danger" : "teal"}>{formatLabel[f.file_format]}</Badge>}
+            {f.file_format === "pod5" ? <Badge tone="blue">{t("pod5.badge")}</Badge> : <Badge tone={f.file_format === "unknown" ? "danger" : "teal"}>{formatLabel(f.file_format)}</Badge>}
             {f.read_mate && <Badge tone="blue">{f.read_mate}</Badge>}
           </div>
           <div className="text-[11px] text-muted-foreground">{lineage(row, t)}</div>
@@ -144,8 +144,8 @@ function Values({ row, span }: { row: FileOverviewRow; span: number }) {
       <td className={cn(NUM, "align-top")}>{fmtInt(s.mean_length)} bp</td>
       <td className={cn(NUM, "align-top")}>{fmtInt(s.n50)} bp</td>
       <td className={cn(NUM, "align-top")}>{q ? `Q${fmtNum(q.mean_read_quality)}` : "—"}</td>
-      <td className={cn(NUM, "align-top")}>{q ? `${fmtNum(q.q30_bases_percent)}%` : "—"}</td>
-      <td className={cn(NUM, "align-top")}>{fmtNum(s.gc_percent, 2)}%</td>
+      <td className={cn(NUM, "align-top")}>{q ? fmtPct(q.q30_bases_percent) : "—"}</td>
+      <td className={cn(NUM, "align-top")}>{fmtPct(s.gc_percent, 2)}</td>
     </>
   );
 }

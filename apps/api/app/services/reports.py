@@ -259,6 +259,7 @@ def _assemblies(db: Session, sample: Sample, by_id: dict[str, RawFile]) -> list[
             "job": None if job is None else {
                 "id": job.id, "tool": job.tool_name, "tool_version": job.tool_version, "tool_path": job.tool_path,
                 "commands": [shlex.join(c) for c in job.commands or []], "parameters": job.parameters,
+                "resources": job.resources,
                 "started_at": job.started_at.isoformat() if job.started_at else None,
                 "finished_at": job.finished_at.isoformat() if job.finished_at else None,
                 "duration_seconds": job.duration_seconds,
@@ -296,6 +297,7 @@ def _annotations(db: Session, sample: Sample) -> list[dict[str, Any]]:
             "files": a.files,
             "job": None if job is None else {
                 "id": job.id, "tool_path": job.tool_path, "commands": [shlex.join(c) for c in job.commands or []],
+                "resources": job.resources,
                 "started_at": job.started_at.isoformat() if job.started_at else None,
                 "finished_at": job.finished_at.isoformat() if job.finished_at else None,
                 "duration_seconds": job.duration_seconds,
@@ -420,6 +422,7 @@ def _processing_steps(db: Session, sample: Sample, latest: dict) -> list[dict[st
             "tool_version": j.tool_version,
             "inputs": [names.get(i, i) for i in j.input_raw_file_ids or []],
             "commands": [shlex.join(c) for c in j.commands or []],
+            "resources": j.resources,
             "finished_at": j.finished_at.isoformat() if j.finished_at else None,
             "highlights": [],
         }
@@ -925,6 +928,33 @@ _ANNOTATION_METHODS = (
     "COG 2020 release (fun-20.tab).</p>"
 )
 
+_RESOURCES_METHODS = (
+    "<p>Thread counts, memory limits and CPU priority came from ARVA's performance profile (light, balanced, maximum "
+    "or custom), an ARVA heuristic chosen from the computer's family and cores, and are recorded with each step. "
+    "Memory limits apply only to tools that have one (SPAdes -m, Unicycler's SPAdes, Pilon's Java heap, samtools sort "
+    "per thread); Flye, Racon, minimap2, BWA, QUAST, Bakta, Prokka, fastp, FastQC, SeqKit, NanoPlot, Filtlong and "
+    "MultiQC take none. Tools started through <code>nice</code>, which changes only their scheduling, not their "
+    "results; Flye's output and fastp's insert-size estimate can depend on the thread count.</p>"
+)
+
+
+def resources_text(r: dict[str, Any] | None) -> str:
+    """One line describing the resources a job was given (analysis_jobs.resources)."""
+    if not r:
+        return ""
+    parts = [f"{r.get('profile')} performance profile ({'automatic' if r.get('choice') == 'auto' else 'chosen'})"]
+    if r.get("threads"):
+        parts.append(f"{r['threads']} thread(s)")
+    if r.get("memory_limit_gb"):
+        parts.append(f"memory limit {r['memory_limit_gb']} GB ({r.get('memory_option')})")
+    applied = "nice_executable" not in r or r["nice_executable"]
+    parts.append(f"CPU priority nice {r.get('nice')}" + ("" if applied else " (not applied: nice was not found)"))
+    parts.append(f"ARVA could use {r.get('usable_cpus')} CPUs and {r.get('usable_memory_gb')} GB"
+                 + (" (container)" if r.get("in_container") else ""))
+    parts.append(f"computer: {r.get('host')}")
+    return "; ".join(parts)
+
+
 _HEADER_FIELDS = (
     ("instrument", "Instrument"), ("run_number", "Run number"), ("run_name", "Run name"),
     ("flowcell_id", "Flow cell"), ("lane", "Lanes"), ("run_id", "Run ID"), ("sample_id", "Sample ID in headers"),
@@ -1158,6 +1188,8 @@ def _assembly_html(data: dict[str, Any]) -> str:
             + (f" (<code>{escape(job['tool_path'])}</code>)" if job.get("tool_path") else "") + "</td></tr>"
             + f"<tr><th>Parameters</th><td><code>{escape(json.dumps(job.get('parameters'), sort_keys=True))}</code></td></tr>"
             + f"<tr><th>Analysis job</th><td><code>{escape(job.get('id') or '')}</code></td></tr>"
+            + (f"<tr><th>Resources</th><td>{escape(resources_text(job['resources']))}</td></tr>"
+               if job.get("resources") else "")
             + files + "</table>"
             + "".join(f"<pre>{escape(c)}</pre>" for c in job.get("commands") or [])
         )
@@ -1205,6 +1237,8 @@ def _annotation_html(data: dict[str, Any]) -> str:
             + (f"<br>Content checksum <code>{escape(db['checksum'])}</code>" if db["checksum"] else "") + "</td></tr>"
             + f"<tr><th>Settings</th><td><code>{escape(json.dumps(a['parameters'], sort_keys=True))}</code></td></tr>"
             + f"<tr><th>Analysis job</th><td><code>{escape(job.get('id') or '')}</code></td></tr>"
+            + (f"<tr><th>Resources</th><td>{escape(resources_text(job['resources']))}</td></tr>"
+               if job.get("resources") else "")
             + files + "</table>"
             + "".join(f"<pre>{escape(c)}</pre>" for c in job.get("commands") or [])
         )
@@ -1437,9 +1471,12 @@ def render_html(data: dict[str, Any]) -> str:
         f"<p class='muted'>Inputs: {escape(', '.join(st['inputs']))} · finished {escape(st['finished_at'] or '')}"
         f" · job <code>{escape(st['job_id'])}</code></p>"
         + "".join(f"<p>{escape(h)}</p>" for h in st["highlights"])
+        + (f"<p class='muted'>Resources: {escape(resources_text(st['resources']))}</p>" if st.get("resources") else "")
         + "".join(f"<pre>{escape(c)}</pre>" for c in st["commands"])
         for st in data.get("processing", [])
     )
+    with_resources = any(st.get("resources") for st in data.get("processing", [])) or any(
+        (x.get("job") or {}).get("resources") for x in [*data.get("assemblies", []), *data.get("annotations", [])])
     return f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -1495,6 +1532,7 @@ technology recorded for the sample.</p>
 {_POD5_METHODS if data.get("raw_signal_files") else ""}
 {_ASSEMBLY_METHODS if data.get("assemblies") else ""}
 {_ANNOTATION_METHODS if data.get("annotations") else ""}
+{_RESOURCES_METHODS if with_resources else ""}
 <h2>Limitations</h2><ul>{limitations}</ul>
 <footer>This report is descriptive. It contains values computed from the input files and does not
 make clinical or biological claims.</footer>

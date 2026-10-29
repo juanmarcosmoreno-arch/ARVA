@@ -47,12 +47,12 @@ export function ProjectsPage() {
               <Card className="flex h-full flex-col p-5 transition-colors group-hover:border-arva-teal/50">
                 <div className="flex items-start justify-between gap-2">
                   <h3 className="font-medium leading-snug">{p.name}</h3>
-                  {p.is_demo && <Badge tone="warning">DEMO</Badge>}
+                  {p.is_demo && <Badge tone="warning">{t("common.demo")}</Badge>}
                 </div>
-                <p className="mt-1 line-clamp-2 flex-1 text-sm text-muted-foreground">{p.description || "No description"}</p>
+                <p className="mt-1 line-clamp-2 flex-1 text-sm text-muted-foreground">{p.description || t("projects.noDescription")}</p>
                 <div className="mt-4 flex items-center justify-between text-xs text-muted-foreground">
                   <span>
-                    <b className="text-foreground">{p.sample_count}</b> samples
+                    {t("dashboard.sampleCount", { count: p.sample_count })}
                     {p.institution && ` · ${p.institution}`}
                   </span>
                   <span>{fmtDate(p.updated_at)}</span>

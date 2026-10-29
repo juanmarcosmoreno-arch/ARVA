@@ -17,7 +17,6 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_or_404, project_or_404, sample_or_404
 from app.api.routes.tools import _owned, _tool_call
-from app.core.config import get_settings
 from app.db.session import get_db
 from app.models import Assembly, Sample
 from app.schemas.schemas import (
@@ -51,6 +50,7 @@ from app.services.jobs import (
     create_spades_job,
     create_unicycler_job,
 )
+from app.services.performance import effective_resources
 from app.storage import get_storage
 from app.storage.local import sanitize_filename
 
@@ -150,7 +150,7 @@ def start_flye(sample_id: str, payload: FlyeRequest, db: Session = Depends(get_d
     sample = sample_or_404(db, sample_id)
     files = _owned(db, sample, payload.raw_file_ids)
     values = payload.params.model_dump()
-    threads = values.pop("threads") or get_settings().tool_threads
+    threads = values.pop("threads") or effective_resources(db).threads
     params = FlyeParams(**values, threads=threads)
     try:
         ev = flye.evidence(db, files)
@@ -211,10 +211,11 @@ def start_spades(sample_id: str, payload: SpadesRequest, db: Session = Depends(g
     sample = sample_or_404(db, sample_id)
     inputs = _short_hybrid_inputs(db, sample, payload.inputs.roles(), "SPAdes", payload.reads_confirmed)
     values = payload.params.model_dump()
-    threads = values.pop("threads") or get_settings().tool_threads
+    res = effective_resources(db)
+    threads = values.pop("threads") or res.threads
     memory = values.pop("memory_gb")
     params = SpadesParams(**values, threads=threads,
-                          memory_gb=memory or short_hybrid.memory_options()["default_memory_gb"])
+                          memory_gb=memory or short_hybrid.memory_options(res)["default_memory_gb"])
     try:
         params.validate()
     except ValueError as exc:
@@ -241,10 +242,11 @@ def start_unicycler(sample_id: str, payload: UnicyclerRequest, db: Session = Dep
     sample = sample_or_404(db, sample_id)
     inputs = _short_hybrid_inputs(db, sample, payload.inputs.roles(), "Unicycler", payload.reads_confirmed)
     values = payload.params.model_dump()
-    threads = values.pop("threads") or get_settings().tool_threads
+    res = effective_resources(db)
+    threads = values.pop("threads") or res.threads
     memory = values.pop("spades_memory_gb")
     params = UnicyclerParams(assembly_mode=inputs.assembly_mode(), **values, threads=threads,
-                             spades_memory_gb=memory or short_hybrid.memory_options()["default_memory_gb"])
+                             spades_memory_gb=memory or short_hybrid.memory_options(res)["default_memory_gb"])
     try:
         params.validate()
     except ValueError as exc:
@@ -271,7 +273,7 @@ def start_quast(sample_id: str, payload: QuastRequest, db: Session = Depends(get
     """Evaluate (and compare) assemblies of the sample with QUAST in one background job, optionally against a
     reference genome chosen from the sample's FASTA files."""
     sample = sample_or_404(db, sample_id)
-    params = QuastParams(min_contig=payload.min_contig, threads=payload.threads or get_settings().tool_threads)
+    params = QuastParams(min_contig=payload.min_contig, threads=payload.threads or effective_resources(db).threads)
     try:
         assemblies = quast.assemblies_for(db, sample, payload.assembly_ids)
         reference = quast.reference_for(db, sample, payload.reference_file_id)
@@ -316,14 +318,15 @@ def start_polishing(assembly_id: str, payload: PolishingRequest, db: Session = D
     if payload.quast and detect("quast", refresh=True).status is not ToolStatus.available:
         raise HTTPException(status.HTTP_409_CONFLICT, "QUAST is not available, so the assemblies cannot be compared "
                                                       "with it; polish without the QUAST comparison or install QUAST")
-    threads = payload.threads or get_settings().tool_threads
+    res = effective_resources(db)
+    threads = payload.threads or res.threads
     racon = pilon = None
     if payload.strategy in ("racon", "hybrid"):
         racon = RaconParams(**payload.racon.model_dump(), threads=threads)
     if payload.strategy in ("pilon", "hybrid"):
         values = payload.pilon.model_dump()
         heap = values.pop("heap_gb")
-        pilon = PilonParams(**values, heap_gb=heap or polishing.resources()["default_heap_gb"], threads=threads)
+        pilon = PilonParams(**values, heap_gb=heap or polishing.resources(res)["default_heap_gb"], threads=threads)
     try:
         for params in (racon, pilon):
             if params is not None:
@@ -337,7 +340,7 @@ def start_polishing(assembly_id: str, payload: PolishingRequest, db: Session = D
         "arva_strategy_suggestion": polishing.suggested_strategy(sample),
         "arva_read_type_suggestion": polishing.preset_suggestion(sample, ev)["value"],
         "heap_source": None if pilon is None else "user" if payload.pilon.heap_gb else
-        "default: min(16 GB, ARVA's memory cap)",
+        "default: min(16 GB, the performance profile's memory per job)",
         "quast": payload.quast,
         "quast_reference_file_id": reference.id if reference else None,
     }

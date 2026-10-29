@@ -34,9 +34,9 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app import __version__
-from app.core.config import get_settings
 from app.models import AnalysisJob, Assembly, JobStatus, Project, RawFile, ReferenceDatabase, Sample
 from app.services.annotation import assembly_record
+from app.services.performance import Resources, effective_resources
 from app.services.queue import get_queue
 from app.services.raw_signal import POD5_INSTALL, is_raw_signal, pod5_versions
 from app.storage import get_storage
@@ -141,7 +141,8 @@ def files_without_stats(db: Session, sample_id: str, files: list[RawFile]) -> li
     return [f for f in files if f.id not in covered and not is_raw_signal(f)]
 
 
-def _tool_job(sample: Sample, job_type: str, tool: DetectedTool, parameters: dict, inputs: list[str]) -> AnalysisJob:
+def _tool_job(sample: Sample, job_type: str, tool: DetectedTool, parameters: dict, inputs: list[str],
+              resources: dict | None = None) -> AnalysisJob:
     return AnalysisJob(
         project_id=sample.project_id,
         sample_id=sample.id,
@@ -153,7 +154,13 @@ def _tool_job(sample: Sample, job_type: str, tool: DetectedTool, parameters: dic
         input_raw_file_ids=inputs,
         status=JobStatus.pending,
         log_text="",
+        resources=resources,
     )
+
+
+def _ran_threads(tool_id: str, threads: int) -> int:
+    # ARVA runs FastQC on one file per job, with --threads 1 (its threads are files processed at once).
+    return 1 if tool_id == "fastqc" else threads
 
 
 def create_per_file_tool_jobs(
@@ -167,8 +174,9 @@ def create_per_file_tool_jobs(
         "nanoplot": (NANOPLOT_JOB, run_nanoplot_job),
     }[tool_id]
     tool = require_tool(tool_id)
-    threads = get_settings().tool_threads
-    jobs = [_tool_job(sample, job_type, tool, {"threads": threads, **(parameters or {})}, [f.id]) for f in files]
+    res = effective_resources(db)
+    jobs = [_tool_job(sample, job_type, tool, {"threads": res.threads, **(parameters or {})}, [f.id],
+                      res.record(_ran_threads(tool_id, res.threads))) for f in files]
     db.add_all(jobs)
     db.commit()
     _enqueue(jobs, func)
@@ -186,9 +194,10 @@ def create_batch_qc_jobs(db: Session, runs: dict[str, list[tuple[Sample, RawFile
     from app.tasks.tools import run_fastqc_job, run_seqkit_job
 
     tools = {tool_id: require_tool(tool_id) for tool_id in ("seqkit", "fastqc") if runs.get(tool_id)}
-    threads = get_settings().tool_threads
+    res = effective_resources(db)
     stats = [new_sequence_stats_job(sample, f.id, StatsParameters().as_dict()) for sample, f in runs.get("sequence_stats", [])]
-    by_tool = {tool_id: [_tool_job(sample, job_type, tools[tool_id], {"threads": threads}, [f.id])
+    by_tool = {tool_id: [_tool_job(sample, job_type, tools[tool_id], {"threads": res.threads}, [f.id],
+                                   res.record(_ran_threads(tool_id, res.threads)))
                          for sample, f in runs.get(tool_id, [])]
                for tool_id, job_type in (("seqkit", SEQKIT_JOB), ("fastqc", FASTQC_JOB))}
     jobs = stats + by_tool["seqkit"] + by_tool["fastqc"]
@@ -205,11 +214,13 @@ def create_batch_qc_jobs(db: Session, runs: dict[str, list[tuple[Sample, RawFile
 def create_fastp_job(db: Session, sample: Sample, r1: RawFile, r2: RawFile | None, params: FastpParams) -> AnalysisJob:
     from app.tasks.tools import run_fastp_job
 
-    params.threads = min(params.threads, get_settings().tool_threads)
+    res = effective_resources(db)
+    # fastp's own default thread count, lowered to the profile's.
+    params.threads = min(params.threads, res.threads)
     params.validate(paired=r2 is not None)
     tool = require_tool("fastp")
     inputs = [r1.id] + ([r2.id] if r2 else [])
-    job = _tool_job(sample, FASTP_JOB, tool, params.as_dict(), inputs)
+    job = _tool_job(sample, FASTP_JOB, tool, params.as_dict(), inputs, res.record(params.threads))
     db.add(job)
     db.commit()
     _enqueue([job], run_fastp_job)
@@ -222,7 +233,7 @@ def create_filtlong_job(db: Session, sample: Sample, f: RawFile, params: Filtlon
 
     params.validate()
     tool = require_tool("filtlong")
-    job = _tool_job(sample, FILTLONG_JOB, tool, params.as_dict(), [f.id])
+    job = _tool_job(sample, FILTLONG_JOB, tool, params.as_dict(), [f.id], effective_resources(db).record(1))
     db.add(job)
     db.commit()
     _enqueue([job], run_filtlong_job)
@@ -241,9 +252,11 @@ def create_flye_job(db: Session, sample: Sample, files: list[RawFile], params: F
         supported = FlyeAdapter.help_options(tool.path or "flye")
     except (OSError, RuntimeError, subprocess.TimeoutExpired) as exc:
         raise ToolUnavailableError(f"Flye's --help could not be read to check its options: {exc}") from exc
-    params.threads = min(params.threads, get_settings().tool_threads)
+    res = effective_resources(db)
+    params.threads = res.cap_threads(params.threads)
     params.validate(supported)
-    job = _tool_job(sample, FLYE_JOB, tool, {**params.as_dict(), **provenance}, [f.id for f in files])
+    job = _tool_job(sample, FLYE_JOB, tool, {**params.as_dict(), **provenance}, [f.id for f in files],
+                    res.record(params.threads))
     db.add(job)
     db.commit()
     _enqueue([job], run_flye_job)
@@ -251,13 +264,15 @@ def create_flye_job(db: Session, sample: Sample, files: list[RawFile], params: F
     return job
 
 
-def _cap_resources(params: SpadesParams | UnicyclerParams, memory_field: str) -> None:
-    settings = get_settings()
-    params.threads = min(params.threads, settings.tool_threads)
-    cap = settings.max_tool_memory_gb
-    if getattr(params, memory_field) > cap:
-        raise ValueError(f"{memory_field} is {getattr(params, memory_field)} GB, more than the {cap} GB ARVA may give a "
-                         "tool on this computer (ARVA_TOOL_MEMORY_GB, or the physical memory)")
+def _check_memory(res: Resources, name: str, gb: int) -> None:
+    if gb > res.max_memory_gb:
+        raise ValueError(f"{name} is {gb} GB, more than the {res.max_memory_gb} GB ARVA may give a tool here (the "
+                         "memory ARVA can use, or ARVA_TOOL_MEMORY_GB)")
+
+
+def _cap_resources(params: SpadesParams | UnicyclerParams, memory_field: str, res: Resources) -> None:
+    params.threads = res.cap_threads(params.threads)
+    _check_memory(res, memory_field, getattr(params, memory_field))
 
 
 def _supported(read_options, tool: DetectedTool, name: str) -> frozenset[str]:
@@ -275,14 +290,15 @@ def create_spades_job(db: Session, sample: Sample, inputs: dict[str, RawFile | N
 
     tool = require_tool("spades")
     supported = _supported(SpadesAdapter.help_options, tool, "spades.py")
-    _cap_resources(params, "memory_gb")
+    res = effective_resources(db)
+    _cap_resources(params, "memory_gb", res)
     params.validate()
     paired, unpaired = inputs.get("r1") is not None, inputs.get("unpaired") is not None
     if missing := [f for f in params.flags(paired, unpaired) if f not in supported]:
         raise ValueError(f"this SPAdes version does not offer {', '.join(missing)} (not in its --help)")
     roles = {r: f.id if f else None for r, f in inputs.items()}
     job = _tool_job(sample, SPADES_JOB, tool, {**params.as_dict(), "inputs": roles, **provenance},
-                    [f.id for f in inputs.values() if f is not None])
+                    [f.id for f in inputs.values() if f is not None], res.record(params.threads, params.memory_gb, "-m"))
     db.add(job)
     db.commit()
     _enqueue([job], run_spades_job)
@@ -297,7 +313,8 @@ def create_unicycler_job(db: Session, sample: Sample, inputs: dict[str, RawFile 
 
     tool = require_tool("unicycler")
     supported = _supported(UnicyclerAdapter.help_options, tool, "unicycler")
-    _cap_resources(params, "spades_memory_gb")
+    res = effective_resources(db)
+    _cap_resources(params, "spades_memory_gb", res)
     params.validate()
     paths = helper_paths()
     needed = ["makeblastdb", "tblastn"] + (["spades"] if params.short else []) + (["racon"] if params.long else [])
@@ -308,8 +325,9 @@ def create_unicycler_job(db: Session, sample: Sample, inputs: dict[str, RawFile 
     if missing := [f for f in params.flags(paired, unpaired) if f not in supported]:
         raise ValueError(f"this Unicycler version does not offer {', '.join(missing)} (not in its --help_all)")
     roles = {r: f.id if f else None for r, f in inputs.items()}
+    memory = (params.spades_memory_gb, "--spades_options -m") if params.short else (None, None)
     job = _tool_job(sample, UNICYCLER_JOB, tool, {**params.as_dict(), "inputs": roles, **provenance},
-                    [f.id for f in inputs.values() if f is not None])
+                    [f.id for f in inputs.values() if f is not None], res.record(params.threads, *memory))
     db.add(job)
     db.commit()
     _enqueue([job], run_unicycler_job)
@@ -318,7 +336,7 @@ def create_unicycler_job(db: Session, sample: Sample, inputs: dict[str, RawFile 
 
 
 def new_quast_job(sample: Sample, assemblies: list[Assembly], labels: dict[str, str], reference: RawFile | None,
-                  params: QuastParams, parent_job_id: str | None = None) -> AnalysisJob:
+                  params: QuastParams, res: Resources, parent_job_id: str | None = None) -> AnalysisJob:
     """A pending QUAST job over the sample's chosen assemblies (and reference), not yet added to a session; the
     assemblies and their labels are recorded in the parameters, the reference file as the job's input."""
     tool = require_tool("quast")
@@ -326,7 +344,7 @@ def new_quast_job(sample: Sample, assemblies: list[Assembly], labels: dict[str, 
         supported = QuastAdapter.help_options(tool.path or "quast.py")
     except (OSError, RuntimeError, subprocess.TimeoutExpired) as exc:
         raise ToolUnavailableError(f"QUAST's --help could not be read to check its options: {exc}") from exc
-    params.threads = min(params.threads, get_settings().tool_threads)
+    params.threads = res.cap_threads(params.threads)
     params.validate()
     if missing := [f for f in quast_flags(reference is not None, False) if f not in supported]:
         raise ValueError(f"this QUAST version does not offer {', '.join(missing)} (not in its --help)")
@@ -341,7 +359,7 @@ def new_quast_job(sample: Sample, assemblies: list[Assembly], labels: dict[str, 
                         "assembler_version": a.assembler_version, "assembly_job_id": a.job_id,
                         "contigs_sha256": a.stats["files"]["contigs"]["sha256"]} for a in assemblies],
     }
-    job = _tool_job(sample, QUAST_JOB, tool, parameters, [reference.id] if reference else [])
+    job = _tool_job(sample, QUAST_JOB, tool, parameters, [reference.id] if reference else [], res.record(params.threads))
     job.parent_job_id = parent_job_id
     return job
 
@@ -355,7 +373,7 @@ def enqueue_quast(jobs: list[AnalysisJob]) -> None:
 def create_quast_job(db: Session, sample: Sample, assemblies: list[Assembly], labels: dict[str, str],
                      reference: RawFile | None, params: QuastParams) -> AnalysisJob:
     """One QUAST run over the sample's chosen assemblies (and reference)."""
-    job = new_quast_job(sample, assemblies, labels, reference, params)
+    job = new_quast_job(sample, assemblies, labels, reference, params, effective_resources(db))
     db.add(job)
     db.commit()
     enqueue_quast([job])
@@ -432,6 +450,8 @@ def create_multiqc_job(db: Session, project: Project, parameters: dict, file_ids
         input_raw_file_ids=file_ids,
         status=JobStatus.pending,
         log_text="",
+        # MultiQC takes no thread count.
+        resources=effective_resources(db).record(None),
     )
     db.add(job)
     db.commit()
@@ -458,27 +478,25 @@ def _check_flags(read_options, tool: DetectedTool, flags: tuple[str, ...], *args
         raise ValueError(f"this {tool.info.name} version does not offer {', '.join(missing)} (not in its --help)")
 
 
-def _cap_threads(params: RaconParams | PilonParams) -> None:
-    params.threads = min(params.threads, get_settings().tool_threads)
-
-
-def new_racon_job(sample: Sample, draft: Assembly, reads: RawFile, params: RaconParams, extra: dict,
+def new_racon_job(sample: Sample, draft: Assembly, reads: RawFile, params: RaconParams, extra: dict, res: Resources,
                   parent_job_id: str | None = None) -> AnalysisJob:
     """A pending Racon polishing job (minimap2 overlaps, Racon rounds, comparisons), not yet added to a session."""
     tool = require_tool("racon")
     for helper in ("minimap2", "samtools"):
         require_tool(helper)
     _check_flags(RaconAdapter.help_options, tool, RACON_FLAGS, tool.path or "racon")
-    _cap_threads(params)
+    params.threads = res.cap_threads(params.threads)
     params.validate()
+    # Racon and minimap2 take no memory limit; samtools sort gets one per thread from memory_gb in the worker.
     job = _tool_job(sample, RACON_JOB, tool, {**params.as_dict(), "draft": draft_record(draft),
-                                              "inputs": {"long": reads.id}, **extra}, [reads.id])
+                                              "inputs": {"long": reads.id}, **extra}, [reads.id],
+                    res.record(params.threads))
     job.parent_job_id = parent_job_id
     return job
 
 
 def new_pilon_job(sample: Sample, draft: Assembly, inputs: dict[str, RawFile | None], params: PilonParams, extra: dict,
-                  parent_job_id: str | None = None) -> AnalysisJob:
+                  res: Resources, parent_job_id: str | None = None) -> AnalysisJob:
     """A pending Pilon polishing job (BWA-MEM alignments, Pilon rounds, comparisons); `inputs` maps r1, r2 and
     unpaired to their files."""
     tool = require_tool("pilon")
@@ -488,15 +506,12 @@ def new_pilon_job(sample: Sample, draft: Assembly, inputs: dict[str, RawFile | N
     if java is None or not tool.path:
         raise ToolUnavailableError("Pilon needs Java, which was not found")
     _check_flags(PilonAdapter.help_options, tool, PILON_FLAGS, java, tool.path)
-    _cap_threads(params)
-    cap = get_settings().max_tool_memory_gb
-    if params.heap_gb > cap:
-        raise ValueError(f"heap_gb is {params.heap_gb} GB, more than the {cap} GB ARVA may give a tool on this computer "
-                         "(ARVA_TOOL_MEMORY_GB, or the physical memory)")
+    params.threads = res.cap_threads(params.threads)
+    _check_memory(res, "heap_gb", params.heap_gb)
     params.validate()
     roles = {r: f.id if f else None for r, f in inputs.items()}
     job = _tool_job(sample, PILON_JOB, tool, {**params.as_dict(), "draft": draft_record(draft), "inputs": roles, **extra},
-                    [f.id for f in inputs.values() if f is not None])
+                    [f.id for f in inputs.values() if f is not None], res.record(params.threads, params.heap_gb, "-Xmx"))
     job.parent_job_id = parent_job_id
     return job
 
@@ -518,14 +533,15 @@ def create_polishing_job(db: Session, sample: Sample, draft: Assembly, strategy:
     if (strategy != "pilon" and (racon is None or long is None)) or (strategy != "racon" and pilon is None):
         raise ValueError(f"the {strategy} strategy needs its settings and reads")
     extra = {**extra, "strategy": strategy}
-    pilon_job = new_pilon_job(sample, draft, short, pilon, extra) if pilon is not None and strategy != "racon" else None
+    res = effective_resources(db)
+    pilon_job = new_pilon_job(sample, draft, short, pilon, extra, res) if pilon is not None and strategy != "racon" else None
     if strategy == "pilon":
         job = pilon_job
     else:
         then = None
         if strategy == "hybrid":
             then = {"params": pilon.as_dict(), "inputs": {r: f.id if f else None for r, f in short.items()}}
-        job = new_racon_job(sample, draft, long, racon, {**extra, "then_pilon": then})
+        job = new_racon_job(sample, draft, long, racon, {**extra, "then_pilon": then}, res)
     db.add(job)
     db.commit()
     enqueue_polishing([job])
@@ -543,12 +559,14 @@ def create_bakta_job(db: Session, sample: Sample, assembly: Assembly, params: Ba
     from app.tasks.annotation import run_bakta_job
 
     tool = require_tool("bakta")
-    params.threads = min(params.threads, get_settings().tool_threads)
+    res = effective_resources(db)
+    params.threads = res.cap_threads(params.threads)
     params.validate()
     _check_flags(BaktaAdapter.help_options, tool, tuple(bakta_flags(params, plan["skip_options"])), tool.path or "bakta")
     parameters = {**params.as_dict(), "assembly": assembly_record(assembly), "steps": plan["steps"],
                   "skip_options": plan["skip_options"], "dependencies": plan["dependencies"], **provenance}
-    job = _tool_job(sample, BAKTA_JOB, tool, parameters, [])
+    # Bakta has no memory option.
+    job = _tool_job(sample, BAKTA_JOB, tool, parameters, [], res.record(params.threads))
     record_use(job, record)
     db.add(job)
     db.commit()
@@ -563,14 +581,15 @@ def create_prokka_job(db: Session, sample: Sample, assembly: Assembly, params: P
     from app.tasks.annotation import run_prokka_job
 
     tool = require_tool("prokka")
-    params.threads = min(params.threads, get_settings().tool_threads)
+    res = effective_resources(db)
+    params.threads = res.cap_threads(params.threads)
     params.validate()
     _check_flags(ProkkaAdapter.help_options, tool, tuple(prokka_flags(params)), tool.path or "prokka")
     database = plan["database"]
     parameters = {**params.as_dict(), "assembly": assembly_record(assembly), "steps": plan["steps"],
                   "database": {k: database.get(k) for k in ("path", "package", "files", "genera", "hmm")},
                   "programs": plan["programs"], **provenance}
-    job = _tool_job(sample, PROKKA_JOB, tool, parameters, [])
+    job = _tool_job(sample, PROKKA_JOB, tool, parameters, [], res.record(params.threads))
     job.database_key, job.database_name = database["key"], database["name"]
     job.database_version, job.database_checksum = database["version"], database["checksum"]
     db.add(job)
@@ -694,10 +713,11 @@ def resume_flye_job(db: Session, job: AnalysisJob) -> AnalysisJob:
         raise ToolUnavailableError("this Flye version does not offer --resume (not in its --help)")
     params = FlyeParams.from_dict(job.parameters or {})
     params.validate(supported)
-    if params.threads > get_settings().tool_threads:
+    res = effective_resources(db)
+    if params.threads > res.max_threads:
         raise JobStateError(f"The run used {params.threads} threads, more than ARVA may now give a tool "
-                            f"({get_settings().tool_threads}, ARVA_TOOL_THREADS). Flye's output can depend on the "
-                            "thread count, so ARVA resumes only with the same one")
+                            f"({res.max_threads}: the CPUs ARVA can use, or ARVA_TOOL_THREADS). Flye's output can "
+                            "depend on the thread count, so ARVA resumes only with the same one")
     files = [db.get(RawFile, fid) for fid in job.input_raw_file_ids or []]
     if not files or any(f is None for f in files):
         raise JobStateError("A read file of the stopped run no longer exists, so it cannot be resumed")
@@ -705,7 +725,7 @@ def resume_flye_job(db: Session, job: AnalysisJob) -> AnalysisJob:
     parameters = {k: v for k, v in (job.parameters or {}).items() if k != "resume"}
     parameters["resume"] = {"of_job_id": job.id, "checkpoint_path": kept["path"], "stage": kept["resume_stage"],
                             "completed_stages": kept["completed_stages"]}
-    new = _tool_job(sample, FLYE_JOB, tool, parameters, list(job.input_raw_file_ids or []))
+    new = _tool_job(sample, FLYE_JOB, tool, parameters, list(job.input_raw_file_ids or []), res.record(params.threads))
     db.add(new)
     db.commit()
     _enqueue([new], run_flye_job)

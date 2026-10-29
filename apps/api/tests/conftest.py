@@ -15,6 +15,8 @@ os.environ["ARVA_DATABASE_URL"] = os.environ.get(
 )
 os.environ["ARVA_STORAGE_ROOT"] = _STORAGE
 os.environ["ARVA_TASK_QUEUE_ASYNC"] = "false"
+# An administrator cap, so tool runs get 4 threads whatever the profile (tests of the profiles lift it).
+os.environ["ARVA_TOOL_THREADS"] = "4"
 
 import pytest  # noqa: E402
 from alembic import command  # noqa: E402
@@ -26,7 +28,13 @@ from sqlalchemy import text  # noqa: E402
 
 from app.db.session import engine  # noqa: E402
 from app.main import app  # noqa: E402
+from app.services import host, performance  # noqa: E402
 from app.services import jobs as jobs_service  # noqa: E402
+
+# A constructed computer, so that resources do not depend on the machine running the tests: no host facts, 8 usable
+# CPUs and 64 GB, outside a container.
+TEST_DETECTION = host.Detection(host.HostFacts(), host.ContainerFacts(
+    usable_cpus=8, cpus_source="affinity", memory_bytes=64 * 1024**3, memory_source="meminfo"))
 
 API_ROOT = Path(__file__).resolve().parents[1]
 
@@ -46,8 +54,16 @@ def clean_tables():
     yield
     with engine.begin() as conn:
         conn.execute(
-            text("TRUNCATE annotations, qc_results, analysis_jobs, raw_files, samples, projects, reference_databases CASCADE")
+            text("TRUNCATE annotations, qc_results, analysis_jobs, raw_files, samples, projects, reference_databases, "
+                 "app_settings CASCADE")
         )
+
+
+@pytest.fixture(autouse=True)
+def detected(monkeypatch):
+    """The detection every test sees; a test replaces it with monkeypatch.setattr(performance, "detection", ...)."""
+    monkeypatch.setattr(performance, "detection", lambda: TEST_DETECTION)
+    return TEST_DETECTION
 
 
 @pytest.fixture(autouse=True)

@@ -41,7 +41,7 @@ export function ProjectDetailPage() {
   });
 
   if (project.isLoading) return <Skeleton className="h-40" />;
-  if (project.error || !project.data) return <ErrorNote error={project.error ?? "Project not found"} />;
+  if (project.error || !project.data) return <ErrorNote error={project.error ?? t("projects.notFound")} />;
   const p = project.data;
 
   return (
@@ -54,16 +54,16 @@ export function ProjectDetailPage() {
         }
         title={
           <span className="flex items-center gap-2">
-            {p.name} {p.is_demo && <Badge tone="warning">DEMO</Badge>}
+            {p.name} {p.is_demo && <Badge tone="warning">{t("common.demo")}</Badge>}
           </span>
         }
-        subtitle={[p.researcher, p.institution, `Created ${fmtDate(p.created_at)}`].filter(Boolean).join(" · ")}
+        subtitle={[p.researcher, p.institution, t("projects.created", { date: fmtDate(p.created_at) })].filter(Boolean).join(" · ")}
         actions={
           <>
             <Button variant="outline" onClick={() => setEditing(true)}>
-              <Pencil className="h-4 w-4" /> Edit
+              <Pencil className="h-4 w-4" /> {t("common.edit")}
             </Button>
-            <Button variant="ghost" onClick={() => setConfirmDelete(true)} aria-label="Delete project">
+            <Button variant="ghost" onClick={() => setConfirmDelete(true)} aria-label={t("projects.delete")}>
               <Trash2 className="h-4 w-4" />
             </Button>
             <Button variant="outline" onClick={() => setBulk(true)}>
@@ -101,10 +101,9 @@ export function ProjectDetailPage() {
       <ProjectFormDialog open={editing} onOpenChange={setEditing} project={p} />
       <SampleFormDialog open={creating} onOpenChange={setCreating} projectId={p.id} />
       <BulkImportDialog open={bulk} onOpenChange={setBulk} projectId={p.id} samples={samples.data ?? []} />
-      <Dialog open={confirmDelete} onOpenChange={setConfirmDelete} title="Delete project?">
+      <Dialog open={confirmDelete} onOpenChange={setConfirmDelete} title={t("projects.deleteTitle")}>
         <p className="text-sm text-muted-foreground">
-          This removes the project, its {p.sample_count} sample(s) and their analysis records from ARVA. Raw files already stored on disk are
-          not deleted (original data are never removed automatically).
+          {t("projects.deleteText", { count: p.sample_count })}
         </p>
         <ErrorNote error={del.error} />
         <div className="mt-5 flex justify-end gap-2">
@@ -112,7 +111,7 @@ export function ProjectDetailPage() {
             {t("common.cancel")}
           </Button>
           <Button variant="danger" disabled={del.isPending} onClick={() => del.mutate()}>
-            Delete project
+            {t("projects.delete")}
           </Button>
         </div>
       </Dialog>

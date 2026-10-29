@@ -158,7 +158,7 @@ function Confirmation({ plan, confirmed, setConfirmed }: { plan: ShortReadPlan |
       <input type="checkbox" className={CHECK} checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} />
       <span>
         {t("shortReads.confirm")}
-        <span className="block text-muted-foreground">{t("shortReads.confirmHint", { technology: technologyLabel[plan.sample_technology] })}</span>
+        <span className="block text-muted-foreground">{t("shortReads.confirmHint", { technology: technologyLabel(plan.sample_technology) })}</span>
       </span>
     </label>
   );
@@ -276,8 +276,8 @@ export function SpadesPanel({ open, sampleId, files, jobs = [], report }: { open
 
       <Section title={t("assembly.runSettings")}>
         <div className="grid gap-3 sm:grid-cols-2">
-          <Field label={t("flye.threads")} hint={t("shortReads.threadsHint", { max: p?.tool.max_threads ?? "?" })}>
-            <Input type="number" min={1} max={p?.tool.max_threads} placeholder={String(p?.tool.max_threads ?? "")} value={form.threads} onChange={(e) => set("threads", e.target.value)} />
+          <Field label={t("flye.threads")} hint={t("shortReads.threadsHint", { max: p?.tool.max_threads ?? "?", default: p?.tool.default_threads ?? "?" })}>
+            <Input type="number" min={1} max={p?.tool.max_threads} placeholder={String(p?.tool.default_threads ?? "")} value={form.threads} onChange={(e) => set("threads", e.target.value)} />
           </Field>
           <Field label={t("spades.memory")} hint={t("spades.memoryHint", { max: p?.tool.max_memory_gb ?? "?", default: p?.tool.default_memory_gb ?? "?" })}>
             <Input type="number" min={1} max={p?.tool.max_memory_gb} placeholder={String(p?.tool.default_memory_gb ?? "")} value={form.memory} onChange={(e) => set("memory", e.target.value)} />
@@ -311,7 +311,7 @@ export function SpadesPanel({ open, sampleId, files, jobs = [], report }: { open
           t("spades.summary.mode", { mode: form.mode === "standard" ? t("spades.mode.standardLabel") : `--${form.mode}` }),
           form.k.trim() ? t("spades.summary.kGiven", { k: form.k.trim() }) : t("spades.summary.kAuto"),
           t("spades.summary.cov", { value: form.covCutoff === "value" ? form.covValue || "?" : form.covCutoff }),
-          t("spades.summary.resources", { threads: form.threads.trim() || String(p?.tool.max_threads ?? "?"), memory }),
+          t("spades.summary.resources", { threads: form.threads.trim() || String(p?.tool.default_threads ?? "?"), memory }),
           t("spades.summary.output", { file: `${form.output}.fasta` }),
           t("spades.summary.coverage"),
         ]}
@@ -372,8 +372,8 @@ export function UnicyclerPanel({ open, sampleId, files, jobs = [], report }: { o
 
       <Section title={t("assembly.runSettings")}>
         <div className="grid gap-3 sm:grid-cols-2">
-          <Field label={t("flye.threads")} hint={t("shortReads.threadsHint", { max: p?.tool.max_threads ?? "?" })}>
-            <Input type="number" min={1} max={p?.tool.max_threads} placeholder={String(p?.tool.max_threads ?? "")} value={form.threads} onChange={(e) => set("threads", e.target.value)} />
+          <Field label={t("flye.threads")} hint={t("shortReads.threadsHint", { max: p?.tool.max_threads ?? "?", default: p?.tool.default_threads ?? "?" })}>
+            <Input type="number" min={1} max={p?.tool.max_threads} placeholder={String(p?.tool.default_threads ?? "")} value={form.threads} onChange={(e) => set("threads", e.target.value)} />
           </Field>
           {short && (
             <Field label={t("unicycler.spadesMemory")} hint={t("unicycler.spadesMemoryHint", { max: p?.tool.max_memory_gb ?? "?", default: p?.tool.default_memory_gb ?? "?" })}>
@@ -418,7 +418,7 @@ export function UnicyclerPanel({ open, sampleId, files, jobs = [], report }: { o
           t("unicycler.summary.bridging", { mode: form.mode }),
           ...(short ? [form.kmers.trim() ? t("unicycler.summary.kGiven", { k: form.kmers.trim() }) : t("unicycler.summary.kAuto")] : []),
           t("unicycler.summary.resources", {
-            threads: form.threads.trim() || String(p?.tool.max_threads ?? "?"),
+            threads: form.threads.trim() || String(p?.tool.default_threads ?? "?"),
             memory: short ? t("unicycler.summary.memory", { memory: form.memory.trim() || String(p?.tool.default_memory_gb ?? "?") }) : "",
           }),
           t("unicycler.summary.outputs", { keep: form.keep }),

@@ -41,7 +41,7 @@ const r2 = file("r2", "iso_S1_R2_001.fastq.gz", { read_mate: "R2" });
 const other2 = file("x2", "other_R2_001.fastq.gz", { read_mate: "R2" });
 const ont = file("ont", "ont.fastq.gz", { header_metadata: nanoporeHeaders });
 
-const tool = { status: "available", version: "3.15.5", version_validated: true, message: "", reason: null, options: ["--isolate", "--careful", "-k", "--cov-cutoff", "-s"], max_threads: 4, max_memory_gb: 16, default_memory_gb: 16 } as const;
+const tool = { status: "available", version: "3.15.5", version_validated: true, message: "", reason: null, options: ["--isolate", "--careful", "-k", "--cov-cutoff", "-s"], max_threads: 4, default_threads: 4, max_memory_gb: 16, default_memory_gb: 16 } as const;
 const evidence = (id: string, role: "r1" | "r2" | "unpaired" | "long", name: string) => ({
   file_id: id, name, origin: "imported" as const, header_platform: null, header_confidence: "none" as const, basecall_models: [], pacbio_read_types: [], stats_job_id: "j",
   total_bases: 6_000_000, max_read_length: 150, read_n50: 150, mean_base_quality: 35, role, read_mate: role === "r1" ? "R1" : role === "r2" ? "R2" : null, read_count: 40_000,

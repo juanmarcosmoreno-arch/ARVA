@@ -34,9 +34,9 @@ from arva_tools.registry import detect
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.config import get_settings
 from app.models import Annotation, Assembly, DatabaseStatus, RawFile, ReferenceDatabase, Sample
 from app.services.metadata_table import sanitize_spreadsheet_cell
+from app.services.performance import Resources, effective_resources
 from app.storage import get_storage
 
 ANNOTATORS = ("bakta", "prokka")
@@ -168,18 +168,18 @@ def bakta_database(db: Session, database_id: str | None) -> ReferenceDatabase:
     return db.get(ReferenceDatabase, chosen["id"])
 
 
-def _tool(tool_id: str) -> dict[str, Any]:
+def _tool(tool_id: str, res: Resources) -> dict[str, Any]:
     d = detect(tool_id, refresh=True)
     return {"status": d.status.value, "version": d.version, "version_validated": d.version_validated,
             "message": d.message, "reason": d.reason, "path": d.path, "license": d.info.license,
             "citation": d.info.citation, "citation_url": d.info.citation_url,
-            "max_threads": get_settings().tool_threads}
+            "max_threads": res.max_threads, "default_threads": res.threads}
 
 
 def bakta_plan(db: Session, sample: Sample, a: Assembly, database_id: str | None, skip_plot: bool) -> dict[str, Any]:
     """What a Bakta run of this assembly would do here: Bakta and each program it checks, the database, every step
     (run or skipped and why), the assembly's facts and ARVA's suggestions. Nothing is run except version checks."""
-    tool = _tool("bakta")
+    tool = _tool("bakta", effective_resources(db))
     facts = assembly_facts(db, a)
     databases = bakta_databases(db)
     record = None
@@ -235,7 +235,7 @@ def prokka_database(executable: str) -> dict[str, Any]:
 
 def prokka_plan(db: Session, sample: Sample, a: Assembly, rfam: bool, use_genus: bool, genus: str | None,
                 rename_contigs: bool) -> dict[str, Any]:
-    tool = _tool("prokka")
+    tool = _tool("prokka", effective_resources(db))
     facts = assembly_facts(db, a)
     problems, steps, database, programs = [], {}, None, {}
     if tool["status"] == ToolStatus.available.value and tool["path"]:

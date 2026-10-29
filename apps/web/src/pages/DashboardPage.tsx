@@ -69,7 +69,7 @@ export function DashboardPage() {
 
       <div className="grid gap-6 lg:grid-cols-3">
         <Card className="lg:col-span-2">
-          <CardHeader title={t("dashboard.recentActivity")} description="Latest analysis jobs with their recorded status" />
+          <CardHeader title={t("dashboard.recentActivity")} description={t("dashboard.recentActivityHint")} />
           <CardBody className="pt-3">
             {data && data.recent_jobs.length === 0 ? (
               <EmptyState icon={<Activity className="h-6 w-6" />} title={t("dashboard.noActivity")} />
@@ -102,7 +102,7 @@ export function DashboardPage() {
 
         <div className="space-y-6">
           <Card>
-            <CardHeader title={t("dashboard.recentProjects")} action={<Link to="/projects" className="text-xs text-arva-royal hover:underline dark:text-arva-cyan">All</Link>} />
+            <CardHeader title={t("dashboard.recentProjects")} action={<Link to="/projects" className="text-xs text-arva-royal hover:underline dark:text-arva-cyan">{t("dashboard.all")}</Link>} />
             <CardBody className="pt-3">
               {data && data.recent_projects.length === 0 ? (
                 <p className="text-sm text-muted-foreground">{t("projects.empty")}</p>
@@ -112,7 +112,7 @@ export function DashboardPage() {
                     <li key={p.id}>
                       <Link to={`/projects/${p.id}`} className="flex items-center justify-between rounded-lg px-2 py-2 hover:bg-muted/60">
                         <span className="min-w-0 truncate text-sm">{p.name}</span>
-                        <span className="shrink-0 text-xs text-muted-foreground">{p.sample_count} samples</span>
+                        <span className="shrink-0 text-xs text-muted-foreground">{t("dashboard.sampleCount", { count: p.sample_count })}</span>
                       </Link>
                     </li>
                   ))}
@@ -120,13 +120,13 @@ export function DashboardPage() {
               )}
             </CardBody>
           </Card>
-          <StatTile label={t("dashboard.storage")} value={data ? fmtBytes(data.storage_used_bytes) : "—"} sub="Raw data, results, reports and logs" icon={HardDrive} />
+          <StatTile label={t("dashboard.storage")} value={data ? fmtBytes(data.storage_used_bytes) : "—"} sub={t("dashboard.storageHint")} icon={HardDrive} />
         </div>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-3">
         <div className="lg:col-span-2">
-          <h2 className="mb-3 text-sm font-semibold">Modules</h2>
+          <h2 className="mb-3 text-sm font-semibold">{t("dashboard.modules")}</h2>
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
             {modules.map((m) => (
               <Link key={m.key} to={m.to} className="group">
@@ -137,10 +137,10 @@ export function DashboardPage() {
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
                       <span className="text-sm font-medium">{t(m.label)}</span>
-                      {m.plannedPhase !== undefined ? <Badge>Phase {m.plannedPhase}</Badge> : <Badge tone="success">Available</Badge>}
+                      {m.plannedPhase !== undefined ? <Badge>{t("timeline.phase", { phase: m.plannedPhase })}</Badge> : <Badge tone="success">{t("dashboard.available")}</Badge>}
                     </div>
                     <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
-                      {m.description ?? (m.key === "import" ? "Import FASTQ/FASTA with validation and checksums." : "Read statistics, FastQC, SeqKit cross-check and fastp/Filtlong filtering.")}
+                      {m.description && t(m.description)}
                     </p>
                   </div>
                   <ArrowRight className="mt-1 h-4 w-4 text-muted-foreground transition group-hover:translate-x-0.5" />
@@ -153,9 +153,13 @@ export function DashboardPage() {
           <Card className="relative overflow-hidden bg-arva-navy p-6 text-white">
             <div className="absolute -right-10 -top-10 h-40 w-40 rounded-full bg-arva-royal/40 blur-2xl" aria-hidden />
             <div className="relative">
-              <p className="text-xl font-medium leading-snug">Same tools.<br />A clearer path.</p>
+              <p className="text-xl font-medium leading-snug">
+                {t("dashboard.claim1")}
+                <br />
+                {t("dashboard.claim2")}
+              </p>
               <div className="my-4 h-0.5 w-10 bg-arva-teal" />
-              <p className="text-sm text-slate-300">Bring together the best bioinformatics tools in a single, transparent platform.</p>
+              <p className="text-sm text-slate-300">{t("dashboard.claimText")}</p>
             </div>
           </Card>
           <Card className="p-5">
@@ -163,10 +167,10 @@ export function DashboardPage() {
             <div className="mb-4 mt-2 h-0.5 w-8 bg-arva-teal" />
             <ol className="grid grid-cols-4 gap-1 text-center text-[11px]">
               {[
-                { icon: Upload, label: "Upload data", to: "/import" },
-                { icon: Database, label: "Run analyses", to: "/qc" },
-                { icon: BarChart3, label: "Explore results", to: "/samples" },
-                { icon: Share2, label: "Report", to: "/reports" },
+                { icon: Upload, label: t("dashboard.flow.upload"), to: "/import" },
+                { icon: Database, label: t("dashboard.flow.run"), to: "/qc" },
+                { icon: BarChart3, label: t("dashboard.flow.explore"), to: "/samples" },
+                { icon: Share2, label: t("dashboard.flow.report"), to: "/reports" },
               ].map((s) => (
                 <li key={s.label}>
                   <Link to={s.to} className="flex flex-col items-center gap-1.5 rounded-lg p-1 hover:bg-muted">

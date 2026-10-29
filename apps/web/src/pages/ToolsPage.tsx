@@ -10,17 +10,17 @@ import { Card, CardBody } from "@/components/ui/card";
 import { ErrorNote, PageHeader, Skeleton } from "@/components/ui/misc";
 import { useT, type TranslationKey } from "@/i18n";
 import { api } from "@/lib/api";
-import { toolMessage } from "@/lib/messages";
+import { toolDescription, toolMessage } from "@/lib/messages";
 import type { Library, Tool } from "@/lib/types";
 
-const STATUS: Record<Tool["status"], { label: string; tone: "success" | "neutral" | "warning" | "danger" }> = {
-  available: { label: "Available", tone: "success" },
-  not_installed: { label: "Not installed", tone: "neutral" },
-  incompatible: { label: "Incompatible version", tone: "warning" },
-  failed: { label: "Detection failed", tone: "danger" },
+const STATUS: Record<Tool["status"], { label: TranslationKey; tone: "success" | "neutral" | "warning" | "danger" }> = {
+  available: { label: "dashboard.available", tone: "success" },
+  not_installed: { label: "tools.status.not_installed", tone: "neutral" },
+  incompatible: { label: "tools.status.incompatible", tone: "warning" },
+  failed: { label: "tools.status.failed", tone: "danger" },
 };
 
-const INSTALL_LABEL: Record<string, string> = { conda: "Conda / Bioconda (macOS & Linux)", apt: "Debian / Ubuntu" };
+const INSTALL_LABEL: Record<string, TranslationKey> = { conda: "tools.install.conda", apt: "tools.install.apt" };
 
 function installCommand(kind: string, pkg: string) {
   if (kind === "conda") return `mamba install -c conda-forge -c bioconda ${pkg.replace("bioconda::", "")}`;
@@ -49,10 +49,10 @@ export function ToolsPage() {
     <div className="animate-fade-in space-y-6">
       <PageHeader
         title={t("nav.tools")}
-        subtitle="External tools ARVA can run. ARVA detects them but never installs anything by itself."
+        subtitle={t("tools.subtitle")}
         actions={
           <Button variant="outline" onClick={refresh} disabled={refreshing}>
-            <RefreshCw className={refreshing ? "h-4 w-4 animate-spin" : "h-4 w-4"} /> Re-detect
+            <RefreshCw className={refreshing ? "h-4 w-4 animate-spin" : "h-4 w-4"} /> {t("tools.redetect")}
           </Button>
         }
       />
@@ -86,9 +86,8 @@ export function ToolsPage() {
       </section>
       <DatabasesSection />
       <p className="text-xs text-muted-foreground">
-        Tools are found on the system PATH, in folders listed in <code>ARVA_TOOLS_PATH</code>, or at an explicit path given by{" "}
-        <code>ARVA_TOOL_&lt;ID&gt;</code> (e.g. <code>ARVA_TOOL_FASTP=/opt/fastp/bin/fastp</code>). Results already produced are never affected by
-        installing a different version: every analysis records the version it used.
+        {t("tools.pathNote1")} <code>ARVA_TOOLS_PATH</code>, {t("tools.pathNote2")} <code>ARVA_TOOL_&lt;ID&gt;</code> ({t("tools.pathNote3")}{" "}
+        <code>ARVA_TOOL_FASTP=/opt/fastp/bin/fastp</code>). {t("tools.pathNote4")}
       </p>
     </div>
   );
@@ -105,11 +104,11 @@ function ToolCard({ tool }: { tool: Tool }) {
             {tool.name}
             {tool.version && <span className="text-sm font-normal text-muted-foreground">v{tool.version}</span>}
           </h3>
-          <p className="mt-1 text-sm text-muted-foreground">{tool.description}</p>
+          <p className="mt-1 text-sm text-muted-foreground">{toolDescription(t, tool)}</p>
         </div>
         <Badge tone={st.tone}>
           {tool.status === "available" ? <CheckCircle2 className="h-3 w-3" /> : tool.status === "not_installed" ? null : <XCircle className="h-3 w-3" />}
-          {st.label}
+          {t(st.label)}
         </Badge>
       </div>
       <CardBody className="flex-1 space-y-3 pt-3 text-sm">
@@ -125,27 +124,29 @@ function ToolCard({ tool }: { tool: Tool }) {
           </div>
         )}
         <dl className="grid grid-cols-[110px_1fr] gap-x-3 gap-y-1 text-xs">
-          <dt className="text-muted-foreground">Executable</dt>
+          <dt className="text-muted-foreground">{t("tools.executable")}</dt>
           <dd className="break-all font-mono">{tool.path ?? "—"}</dd>
-          <dt className="text-muted-foreground">Validated with</dt>
-          <dd>{tool.tested_versions.join(", ")} (min. {tool.min_version})</dd>
-          <dt className="text-muted-foreground">Licence</dt>
+          <dt className="text-muted-foreground">{t("libraries.validatedWith")}</dt>
+          <dd>
+            {tool.tested_versions.join(", ")} ({t("tools.minVersion", { version: tool.min_version })})
+          </dd>
+          <dt className="text-muted-foreground">{t("libraries.licence")}</dt>
           <dd>{tool.license}</dd>
-          <dt className="text-muted-foreground">Input / output</dt>
+          <dt className="text-muted-foreground">{t("tools.io")}</dt>
           <dd>
             {tool.input_formats.join(", ")} → {tool.output_formats.join(", ")}
           </dd>
-          <dt className="text-muted-foreground">Cite</dt>
+          <dt className="text-muted-foreground">{t("libraries.cite")}</dt>
           <dd>
             {tool.citation}{" "}
             <a href={tool.citation_url} target="_blank" rel="noreferrer noopener" className="inline-flex items-center gap-0.5 text-arva-royal hover:underline dark:text-arva-cyan">
-              link <ExternalLink className="h-3 w-3" />
+              {t("libraries.link")} <ExternalLink className="h-3 w-3" />
             </a>
           </dd>
         </dl>
         {tool.status !== "available" && (
           <div className="space-y-1.5">
-            <div className="text-xs font-medium">Install (run it yourself):</div>
+            <div className="text-xs font-medium">{t("tools.installYourself")}</div>
             {Object.entries(tool.install).map(([kind, pkg]) =>
               kind === "pip" ? (
                 <div key={kind} className="text-xs">
@@ -154,7 +155,7 @@ function ToolCard({ tool }: { tool: Tool }) {
                 </div>
               ) : (
                 <div key={kind} className="text-xs">
-                  <span className="text-muted-foreground">{INSTALL_LABEL[kind] ?? kind}: </span>
+                  <span className="text-muted-foreground">{INSTALL_LABEL[kind] ? t(INSTALL_LABEL[kind]) : kind}: </span>
                   <code className="rounded bg-muted px-1.5 py-0.5">{installCommand(kind, pkg)}</code>
                 </div>
               ),
@@ -162,7 +163,7 @@ function ToolCard({ tool }: { tool: Tool }) {
           </div>
         )}
         <a href={tool.homepage} target="_blank" rel="noreferrer noopener" className="inline-flex items-center gap-1 text-xs text-arva-royal hover:underline dark:text-arva-cyan">
-          Official documentation <ExternalLink className="h-3 w-3" />
+          {t("libraries.docs")} <ExternalLink className="h-3 w-3" />
         </a>
       </CardBody>
     </Card>

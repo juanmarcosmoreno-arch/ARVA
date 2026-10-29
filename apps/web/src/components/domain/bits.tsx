@@ -74,8 +74,9 @@ const STAGE_STYLE: Record<StageState, { ring: string; icon: LucideIcon; text: st
 
 /** ARVA Analysis Timeline: Raw Data → QC → … → Biological Analysis (spec §24). */
 export function AnalysisTimeline({ stages, onSelect, selected }: { stages: Stage[]; onSelect?: (key: string) => void; selected?: string }) {
+  const t = useT();
   return (
-    <ol className="flex overflow-x-auto pb-2" aria-label="Analysis timeline">
+    <ol className="flex overflow-x-auto pb-2" aria-label={t("timeline.label")}>
       {stages.map((s, i) => {
         const st = STAGE_STYLE[s.state];
         const clickable = onSelect && s.state !== "planned";
@@ -92,7 +93,7 @@ export function AnalysisTimeline({ stages, onSelect, selected }: { stages: Stage
                   clickable && "hover:scale-105",
                   selected === s.key && "ring-2 ring-ring ring-offset-2 ring-offset-background",
                 )}
-                aria-label={`${s.label}: ${s.state}`}
+                aria-label={`${s.label}: ${t(`timeline.state.${s.state}`)}`}
               >
                 <st.icon className={cn("h-4 w-4", s.state === "running" && "animate-spin")} />
               </button>
@@ -100,7 +101,7 @@ export function AnalysisTimeline({ stages, onSelect, selected }: { stages: Stage
             </div>
             <div className={cn("mt-2 text-xs font-medium", st.text)}>{s.label}</div>
             <div className="mt-0.5 px-1 text-[10px] text-muted-foreground">
-              {s.state === "planned" ? `Phase ${s.phase}` : s.detail}
+              {s.state === "planned" ? t("timeline.phase", { phase: s.phase ?? "?" }) : s.detail}
             </div>
           </li>
         );

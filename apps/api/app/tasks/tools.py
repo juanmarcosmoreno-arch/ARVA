@@ -23,7 +23,14 @@ from pathlib import Path
 from arva_core.assembly_stats import AssemblyFormatError, ContigAnnotation, min_length_summary
 from arva_core.formats import is_gzip
 from arva_core.seqstats import SequenceFormatError, StatsParameters, quick_validate
-from arva_tools import ToolExecutionError, ToolStatus, ToolTimeoutError, run_command
+from arva_tools import (
+    SIGKILL_STATUSES,
+    ToolExecutionError,
+    ToolStatus,
+    ToolTimeoutError,
+    nice_prefix,
+    run_command,
+)
 from arva_tools.fastp import FastpAdapter, FastpParams, removed_reads
 from arva_tools.fastqc import DATA_JSON as FASTQC_DATA_JSON
 from arva_tools.fastqc import FastqcAdapter
@@ -118,9 +125,27 @@ def _resolve_tool(ctx: JobContext, tool_id: str) -> str:
     return d.path
 
 
+def _priority(ctx: JobContext) -> int:
+    """The CPU priority the job was given (its profile's nice value), noted in the log and in job.resources at the
+    first command; 0 when the job records none or `nice` is not installed."""
+    resources = ctx.job.resources or {}
+    nice = resources.get("nice") or 0
+    if not nice:
+        return 0
+    if "nice_executable" not in resources:
+        prefix = nice_prefix(nice)
+        resources = ctx.job.resources = {**resources, "nice_executable": prefix[0] if prefix else None}
+        ctx.log(f"CPU priority: tools start through {shlex.join(prefix)} ({resources.get('profile')} performance "
+                "profile); the commands below are the tools' own" if prefix else
+                f"CPU priority: the nice executable was not found, so tools run at normal priority (the "
+                f"{resources.get('profile')} profile asks for nice {nice})")
+    return nice if resources["nice_executable"] else 0
+
+
 def _run(ctx: JobContext, argv: list[str], workdir: Path, log_name: str, stdout: Path | None = None,
          extra_env: Mapping[str, str] | None = None, log_dir: Path | None = None, home: Path | None = None,
          monitor: Callable[[], None] | None = None) -> Path:
+    nice = _priority(ctx)
     ctx.job.commands = [*(ctx.job.commands or []), argv]
     inherited = os.environ.get("PATH", "")
     env_note = "".join(f"{k}={v.replace(inherited, '$PATH') if k == 'PATH' and inherited else v} "
@@ -134,9 +159,16 @@ def _run(ctx: JobContext, argv: list[str], workdir: Path, log_name: str, stdout:
         if monitor is not None:
             monitor()
 
-    result = run_command(argv, cwd=workdir, stderr_path=log_path, stdout_path=stdout,
-                         timeout_seconds=get_settings().tool_timeout_seconds, extra_env=extra_env, home=home,
-                         monitor=watch, monitor_seconds=MONITOR_SECONDS)
+    try:
+        result = run_command(argv, cwd=workdir, stderr_path=log_path, stdout_path=stdout,
+                             timeout_seconds=get_settings().tool_timeout_seconds, extra_env=extra_env, home=home,
+                             monitor=watch, monitor_seconds=MONITOR_SECONDS, nice=nice)
+    except ToolExecutionError as exc:
+        # ARVA's own stops (cancellation, time limit) raise other exceptions; a SIGKILL from outside is most often the
+        # kernel's out-of-memory killer.
+        if not isinstance(exc, ToolTimeoutError) and exc.returncode in SIGKILL_STATUSES:
+            ctx.killed_tool = Path(argv[0]).name
+        raise
     ctx.log(f"{Path(argv[0]).name} finished in {result.duration_seconds:.1f}s")
     return log_path
 

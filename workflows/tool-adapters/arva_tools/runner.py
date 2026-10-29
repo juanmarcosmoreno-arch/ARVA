@@ -10,12 +10,15 @@
 * stdout/stderr go to files, never into memory; stdout can be gzip-streamed.
 * Each tool runs in its own process group, so a timeout, or an exception raised by the monitor callback (ARVA's
   cancellation), kills the tool with all its children.
+* With `nice`, the tool starts through the `nice` executable (POSIX nice(1): `nice -n N utility`, whose exit status
+  is the utility's), resolved by path, so it runs at a lower CPU priority than ARVA's own processes.
 """
 from __future__ import annotations
 
 import gzip
 import os
 import re
+import shutil
 import signal
 import subprocess
 import tempfile
@@ -32,12 +35,19 @@ _SECRET = re.compile(r"PASSWORD|SECRET|TOKEN|CREDENTIAL|API_?KEY|PRIVATE", re.IG
 _TOOL_CONFIG_PREFIXES = ("ARVA_", "DATABASE", "MULTIQC_", "JAVA_TOOL_OPTIONS", "_JAVA_OPTIONS", "JDK_JAVA_OPTIONS")
 HOME_VARIABLES = ("HOME", "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_DATA_HOME")
 CHUNK = 1 << 20
+# Exit statuses of a process killed by SIGKILL: Popen's -9, or 137 (128 + 9) from a wrapper script whose child was.
+SIGKILL_STATUSES = (-signal.SIGKILL, 128 + signal.SIGKILL)
 
 
 class ToolExecutionError(RuntimeError):
-    def __init__(self, message: str, returncode: int | None = None, stderr_tail: str = ""):
+    """`code` and `params` name the failure for the interface (job.error.<code>); the message stays English."""
+
+    def __init__(self, message: str, returncode: int | None = None, stderr_tail: str = "", code: str | None = None,
+                 params: dict[str, str | int] | None = None):
         self.returncode = returncode
         self.stderr_tail = stderr_tail
+        self.code = code
+        self.params = params or {}
         super().__init__(message)
 
 
@@ -59,6 +69,14 @@ def tool_environment(home: Path | None = None) -> dict[str, str]:
     if home is not None:
         env.update(dict.fromkeys(HOME_VARIABLES, str(home)))
     return env
+
+
+def nice_prefix(nice: int) -> list[str]:
+    """The argument vector that lowers a tool's CPU priority by `nice` (1-19); empty for 0, or without `nice`."""
+    if not 0 < nice < 20:
+        return []
+    exe = shutil.which("nice")
+    return [exe, "-n", str(nice)] if exe else []
 
 
 @contextmanager
@@ -88,14 +106,15 @@ def run_command(
     home: Path | None = None,
     monitor: Callable[[], None] | None = None,
     monitor_seconds: float = 5.0,
+    nice: int = 0,
 ) -> RunResult:
     """Run `argv` and wait. stdout goes to `stdout_path` (gzip if it ends in .gz)
     or is appended to the stderr log. `home` replaces the temporary HOME. While the tool runs, `monitor` is
     called every `monitor_seconds`; if it raises, the tool's process group is killed and the exception propagates.
-    Raises ToolExecutionError on failure."""
+    `nice` > 0 starts the tool through `nice -n <nice>` (see nice_prefix). Raises ToolExecutionError on failure."""
     with nullcontext(home) if home is not None else isolated_home() as tool_home:
         return _run(argv, cwd, stderr_path, stdout_path, timeout_seconds,
-                    {**tool_environment(tool_home), **(extra_env or {})}, monitor, monitor_seconds)
+                    {**tool_environment(tool_home), **(extra_env or {})}, monitor, monitor_seconds, nice)
 
 
 def _run(
@@ -107,10 +126,16 @@ def _run(
     env: dict[str, str],
     monitor: Callable[[], None] | None = None,
     monitor_seconds: float = 5.0,
+    nice: int = 0,
 ) -> RunResult:
     if not argv or not all(isinstance(a, str | os.PathLike) for a in argv):
         raise ValueError("argv must be a non-empty sequence of strings or paths")
     argv = [os.fspath(a) for a in argv]
+    prefix = nice_prefix(nice)
+    # Through nice, a missing tool would be nice's exit status 127 rather than an error starting it.
+    if prefix and shutil.which(argv[0], path=env.get("PATH")) is None:
+        raise ToolExecutionError(f"could not start {argv[0]}: not found or not executable",
+                                 code="tool_not_executable", params={"tool": Path(argv[0]).name})
     cwd.mkdir(parents=True, exist_ok=True)
     stderr_path.parent.mkdir(parents=True, exist_ok=True)
     gz_out = stdout_path is not None and stdout_path.suffix == ".gz"
@@ -122,7 +147,7 @@ def _run(
             out_handle = open(stdout_path, "wb")
         try:
             proc = subprocess.Popen(
-                argv,
+                [*prefix, *argv],
                 cwd=cwd,
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.PIPE if gz_out else (out_handle or err),
@@ -134,7 +159,8 @@ def _run(
         except OSError as exc:
             if out_handle:
                 out_handle.close()
-            raise ToolExecutionError(f"could not start {argv[0]}: {exc}") from exc
+            raise ToolExecutionError(f"could not start {argv[0]}: {exc}", code="tool_not_started",
+                                     params={"tool": Path(argv[0]).name, "detail": str(exc)}) from exc
 
         pump = _GzipPump(proc, stdout_path) if gz_out and stdout_path is not None else None
         try:
@@ -146,7 +172,8 @@ def _run(
             if pump is not None:
                 pump.join()
             raise ToolTimeoutError(
-                f"{argv[0]} exceeded the time limit of {timeout_seconds:.0f} s", None, _tail(stderr_path)
+                f"{argv[0]} exceeded the time limit of {timeout_seconds:.0f} s", None, _tail(stderr_path),
+                "tool_timeout", {"tool": Path(argv[0]).name, "seconds": round(timeout_seconds)},
             ) from None
         except BaseException:
             _kill_group(proc)
@@ -163,6 +190,8 @@ def _run(
             f"{Path(argv[0]).name} exited with status {proc.returncode}",
             proc.returncode,
             _tail(stderr_path),
+            "tool_exit",
+            {"tool": Path(argv[0]).name, "status": proc.returncode},
         )
     return RunResult(argv, proc.returncode, duration, stderr_path, stdout_path)
 

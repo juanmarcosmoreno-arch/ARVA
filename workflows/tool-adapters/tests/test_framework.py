@@ -9,7 +9,14 @@ import pytest
 
 from arva_tools.base import ToolStatus
 from arva_tools.fastp import FastpAdapter
-from arva_tools.runner import ToolExecutionError, ToolTimeoutError, run_command, tool_environment
+from arva_tools.runner import (
+    SIGKILL_STATUSES,
+    ToolExecutionError,
+    ToolTimeoutError,
+    nice_prefix,
+    run_command,
+    tool_environment,
+)
 
 
 def make_exe(dirpath: Path, name: str, body: str) -> Path:
@@ -45,6 +52,28 @@ def test_failure_reports_exit_status_and_stderr(tmp_path):
         run_command([str(exe)], cwd=tmp_path, stderr_path=tmp_path / "err.log")
     assert exc.value.returncode == 3
     assert "bad input on line 7" in exc.value.stderr_tail
+
+
+@pytest.mark.skipif(not nice_prefix(5), reason="the nice executable is not installed")
+def test_nice_lowers_the_tools_priority_and_errors_name_the_tool(tmp_path):
+    exe = make_exe(tmp_path, "prio", "import os, sys; print(os.nice(0)); sys.exit(int(sys.argv[1]))")
+    out = tmp_path / "out.txt"
+    result = run_command([str(exe), "0"], cwd=tmp_path, stderr_path=tmp_path / "err.log", stdout_path=out, nice=7)
+    assert int(out.read_text()) == os.nice(0) + 7
+    assert result.argv == [str(exe), "0"]
+    with pytest.raises(ToolExecutionError, match=r"^prio exited with status 4") as exc:
+        run_command([str(exe), "4"], cwd=tmp_path, stderr_path=tmp_path / "err.log", nice=7)
+    assert exc.value.returncode == 4
+    with pytest.raises(ToolExecutionError, match="could not start"):
+        run_command([str(tmp_path / "missing")], cwd=tmp_path, stderr_path=tmp_path / "err.log", nice=7)
+    assert nice_prefix(0) == [] and nice_prefix(20) == [] and nice_prefix(10)[1:] == ["-n", "10"]
+
+
+def test_a_tool_killed_by_sigkill_reports_its_status(tmp_path):
+    exe = make_exe(tmp_path, "oom", "import os, signal; os.kill(os.getpid(), signal.SIGKILL)")
+    with pytest.raises(ToolExecutionError) as exc:
+        run_command([str(exe)], cwd=tmp_path, stderr_path=tmp_path / "err.log", nice=3)
+    assert exc.value.returncode in SIGKILL_STATUSES and exc.value.returncode == -9
 
 
 def test_timeout_kills_process_group(tmp_path):

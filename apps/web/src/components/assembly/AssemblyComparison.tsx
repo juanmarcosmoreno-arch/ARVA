@@ -1,7 +1,7 @@
 import { Card, CardBody, CardHeader } from "@/components/ui/card";
 import { type TranslationKey, useT } from "@/i18n";
 import { MAX_COMPARED, assemblyLabel, compared } from "@/lib/assembly";
-import { fmtBases, fmtDate, fmtInt, fmtNum } from "@/lib/format";
+import { fmtBases, fmtDate, fmtInt, fmtPct } from "@/lib/format";
 import { COVERAGE_LABEL, coverageKind, fmtCoverage } from "@/lib/shortReads";
 import type { Assembly, RawFile } from "@/lib/types";
 import { CompareCumulativeChart } from "./AssemblyCharts";
@@ -25,7 +25,7 @@ export function AssemblyComparison({ assemblies, files }: { assemblies: Assembly
     { label: "assembly.stat.l50", value: (a) => fmtInt(a.stats.l50) },
     { label: "assembly.stat.n90", value: (a) => `${fmtInt(a.stats.n90)} bp` },
     { label: "assembly.stat.l90", value: (a) => fmtInt(a.stats.l90) },
-    { label: "assembly.stat.gc", value: (a) => (a.stats.gc_percent === null ? "—" : `${fmtNum(a.stats.gc_percent, 2)}%`) },
+    { label: "assembly.stat.gc", value: (a) => (a.stats.gc_percent === null ? "—" : fmtPct(a.stats.gc_percent, 2)) },
     {
       label: "assembly.stat.circular",
       value: (a) => t("assembly.circularValue", { circular: a.stats.circularity.circular_contigs, total: a.stats.circularity.contigs_with_circularity }),

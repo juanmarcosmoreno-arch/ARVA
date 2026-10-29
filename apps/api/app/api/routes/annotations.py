@@ -7,7 +7,6 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_or_404, sample_or_404
 from app.api.routes.tools import _tool_call
-from app.core.config import get_settings
 from app.db.session import get_db
 from app.models import Annotation, Assembly, Sample
 from app.schemas.schemas import (
@@ -28,6 +27,7 @@ from app.schemas.schemas import (
 from app.services import annotation as svc
 from app.services import genome_explorer as explorer
 from app.services.jobs import create_bakta_job, create_prokka_job
+from app.services.performance import effective_resources
 from app.storage import get_storage
 
 router = APIRouter(tags=["annotation"])
@@ -108,7 +108,7 @@ def start_bakta(assembly_id: str, payload: BaktaRequest, db: Session = Depends(g
                                                       f"would now skip {', '.join(plan['skip_options']) or 'nothing'}); "
                                                       "review the preview again")
     record = svc.bakta_database(db, plan["database_id"])
-    params = BaktaParams(**values, threads=payload.threads or get_settings().tool_threads)
+    params = BaktaParams(**values, threads=payload.threads or effective_resources(db).threads)
     return _tool_call(create_bakta_job, db, sample, a, params, record, plan,
                       {**_provenance(plan), "complete_confirmed": payload.complete_confirmed})
 
@@ -137,7 +137,7 @@ def start_prokka(assembly_id: str, payload: ProkkaRequest, db: Session = Depends
     plan = _plan_or_400(svc.prokka_plan, db, sample, a, values["rfam"], values["use_genus"], values["genus"],
                         values["rename_contigs"])
     _blocking(plan)
-    params = ProkkaParams(**values, threads=payload.threads or get_settings().tool_threads)
+    params = ProkkaParams(**values, threads=payload.threads or effective_resources(db).threads)
     return _tool_call(create_prokka_job, db, sample, a, params, plan, _provenance(plan))
 
 

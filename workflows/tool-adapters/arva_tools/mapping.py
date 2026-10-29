@@ -24,6 +24,9 @@ from typing import Any
 
 from arva_tools.base import ToolAdapter, ToolInfo
 
+# samtools sort -m: the default memory per thread in samtools 1.19.2's usage ("[768M]").
+SORT_MEMORY_DEFAULT_MB = 768
+
 LONG_READ_PRESETS = ("map-ont", "map-pb", "map-hifi")
 BWA_BATCH_BASES = 100_000_000
 _SN = re.compile(r"^SN\t([^:]+):\t([^\t]+)")
@@ -135,9 +138,12 @@ class SamtoolsAdapter(ToolAdapter):
     version_pattern = re.compile(r"^samtools (\d+\.\d+(?:\.\d+)?)", re.M)
 
     @staticmethod
-    def sort_argv(executable: str, sam: Path, bam: Path, threads: int, temp_prefix: Path) -> list[str]:
-        # -@ is the number of threads besides the main one.
-        return [executable, "sort", "-@", str(max(threads - 1, 0)), "-T", str(temp_prefix), "-o", str(bam), str(sam)]
+    def sort_argv(executable: str, sam: Path, bam: Path, threads: int, temp_prefix: Path,
+                  memory_per_thread_mb: int | None = None) -> list[str]:
+        # -@ is the number of threads besides the main one; -m the memory per thread (default 768M in 1.19.2's usage).
+        memory = ["-m", f"{memory_per_thread_mb}M"] if memory_per_thread_mb else []
+        return [executable, "sort", "-@", str(max(threads - 1, 0)), *memory, "-T", str(temp_prefix), "-o", str(bam),
+                str(sam)]
 
     @staticmethod
     def index_argv(executable: str, bam: Path) -> list[str]:

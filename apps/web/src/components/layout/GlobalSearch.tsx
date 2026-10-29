@@ -58,7 +58,7 @@ export function GlobalSearch() {
       {open && q.trim() && (
         <div className="absolute z-30 mt-1 w-full overflow-hidden rounded-xl border bg-surface shadow-lg">
           {results.length === 0 ? (
-            <div className="px-4 py-3 text-sm text-muted-foreground">No matches</div>
+            <div className="px-4 py-3 text-sm text-muted-foreground">{t("search.noMatches")}</div>
           ) : (
             results.map((r) => (
               <button

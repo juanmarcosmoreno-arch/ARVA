@@ -100,6 +100,12 @@ class SampleRead(ORMModel, SampleBase):
 
 # --- Raw files ----------------------------------------------------------------
 
+class CodedMessage(BaseModel):
+    """A stable code and its parameters for an English message, so the interface can show it translated."""
+    code: str
+    params: dict[str, str | int | float] = {}
+
+
 class RawFileRead(ORMModel):
     id: str
     sample_id: str
@@ -110,6 +116,7 @@ class RawFileRead(ORMModel):
     checksum_sha256: str | None
     is_valid: bool
     validation_message: str | None
+    validation_detail: CodedMessage | None = None
     uploaded_at: dt.datetime
     origin: FileOrigin
     parent_file_id: str | None
@@ -232,6 +239,7 @@ class AnalysisJobRead(ORMModel):
     duration_seconds: float | None
     log_text: str | None
     error_message: str | None
+    error_detail: CodedMessage | None = None
     created_at: dt.datetime
     commands: list[list[str]] | None = None
     tool_path: str | None = None
@@ -241,6 +249,9 @@ class AnalysisJobRead(ORMModel):
     cancel_requested_at: dt.datetime | None = Field(
         default=None, description="When cancelling was asked; a running job stays 'running' until the worker stops it")
     checkpoint: JobCheckpoint | None = None
+    resources: dict[str, Any] | None = Field(
+        default=None, description="The threads, memory limit and CPU priority ARVA gave the job (performance profile), "
+        "with the computer it ran on; None for jobs ARVA runs in its own process")
 
 
 class AnalysisJobDetail(AnalysisJobRead):
@@ -269,6 +280,7 @@ class ToolRead(BaseModel):
     version_validated: bool
     message: str
     reason: str | None = None
+    reason_params: dict[str, str] = {}
 
 
 class LibraryRead(BaseModel):
@@ -800,6 +812,7 @@ class UploadRejection(BaseModel):
     filename: str
     reason: str
     code: Literal["duplicate", "too_large", "insufficient_storage"]
+    params: dict[str, str | int] = Field(default={}, description="Values for the translated text of the code")
 
 
 class UploadResult(BaseModel):
@@ -818,6 +831,111 @@ class StorageCapacityRead(BaseModel):
     upload_overhead_factor: Literal[1, 2] = Field(
         description="2 when browser uploads are buffered on the same disk and so need twice their size while received"
     )
+
+
+PerformanceProfile = Literal["light", "balanced", "maximum", "custom"]
+PerformanceChoice = Literal["auto", "light", "balanced", "maximum", "custom"]
+
+
+class HostFactRead(BaseModel):
+    value: Any = None
+    source: Literal["launcher", "macos"] | None = Field(
+        description="launcher: scripts/start.sh (ARVA_HOST_*); macos: read natively; None: unknown")
+
+
+class PerformanceContainerRead(BaseModel):
+    usable_cpus: int
+    cpus_source: str = Field(description="affinity, cpu_count, cgroup_v2 or cgroup_v1")
+    memory_bytes: int | None
+    memory_source: str | None = Field(description="cgroup_v2, cgroup_v1, meminfo, macos or sysconf")
+    in_container: bool
+    container_marker: str | None
+
+
+class PerformanceAutomaticRead(BaseModel):
+    profile: PerformanceProfile
+    reason: str = Field(description="The Mac family (macbook_air, macbook, macbook_pro, mac_mini, imac, mac_studio, "
+                        "mac_pro), or few_resources / many_resources / default for other computers")
+    core_basis: Literal["performance_cores", "physical_cores", "usable_cpus"]
+    cores: int
+
+
+class PerformanceChoiceRead(BaseModel):
+    profile: PerformanceChoice
+    threads: int | None = None
+    memory_gb: int | None = None
+    updated_at: dt.datetime | None = None
+
+
+class PerformanceEffectiveRead(BaseModel):
+    profile: PerformanceProfile
+    choice: PerformanceChoice
+    threads: int = Field(description="Threads a tool run gets by default")
+    max_threads: int = Field(description="Most threads a run may ask for")
+    memory_gb: int = Field(description="Memory per job: the limit given to tools that take one")
+    max_memory_gb: int
+    nice: int = Field(description="CPU priority: tools start through nice -n <nice>")
+    usable_cpus: int
+    usable_memory_gb: float
+    requested_threads: int = Field(description="What the profile asks for before the caps")
+    requested_memory_gb: int
+    exceeds: list[Literal["threads", "memory_gb"]] = Field(description="What the choice asks beyond what ARVA can use")
+    admin_threads: int | None = Field(description="ARVA_TOOL_THREADS, when set")
+    admin_memory_gb: int | None = Field(description="ARVA_TOOL_MEMORY_GB, when set")
+    host: str
+
+
+class PerformanceProfileRow(BaseModel):
+    profile: Literal["light", "balanced", "maximum"]
+    threads: int
+    memory_gb: int
+    nice: int
+
+
+class DockerCpusRead(BaseModel):
+    current: int
+    recommended: int
+    status: Literal["ok", "increase"]
+
+
+class DockerMemoryRead(BaseModel):
+    current_bytes: int | None
+    recommended_gb: int
+    most_gb: int = Field(description="The most that still leaves macOS a quarter of the Mac's memory")
+    status: Literal["ok", "increase", "decrease", "unknown"]
+
+
+class DockerAdviceRead(BaseModel):
+    status: Literal["ok", "adjust", "partial", "host_unknown", "not_container"]
+    cpus: DockerCpusRead | None = None
+    memory: DockerMemoryRead | None = None
+
+
+class PerformanceRead(BaseModel):
+    host: dict[str, HostFactRead] = Field(description="platform, model_name, model_id, chip, performance_cores, "
+                                          "efficiency_cores, physical_cores, logical_cpus, memory_bytes, os_version, "
+                                          "arch, docker_cpus, docker_memory_bytes")
+    mac_class: str | None
+    container: PerformanceContainerRead
+    automatic: PerformanceAutomaticRead
+    choice: PerformanceChoiceRead
+    effective: PerformanceEffectiveRead
+    profiles: list[PerformanceProfileRow]
+    docker: DockerAdviceRead
+
+
+class PerformanceUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    profile: PerformanceChoice
+    threads: int | None = Field(default=None, ge=1, le=256, description="Required for a custom profile")
+    memory_gb: int | None = Field(default=None, ge=1, le=4096, description="Required for a custom profile")
+
+    @model_validator(mode="after")
+    def custom_needs_values(self):
+        if self.profile == "custom" and (self.threads is None or self.memory_gb is None):
+            raise ValueError("a custom profile needs threads and memory_gb")
+        return self
 
 
 class ImportRootRead(BaseModel):
@@ -1178,8 +1296,10 @@ class FlyeToolRead(BaseModel):
     version_validated: bool
     message: str
     reason: str | None
+    reason_params: dict[str, str] = {}
     options: list[str] = Field(description="Optional Flye options this installed version lists in its --help")
-    max_threads: int
+    max_threads: int = Field(description="Most threads a run may ask for: the CPUs ARVA can use (or ARVA_TOOL_THREADS)")
+    default_threads: int = Field(description="Threads a run gets when none are given: the performance profile's")
 
 
 class FlyeFileEvidence(BaseModel):
@@ -1237,10 +1357,14 @@ class AssemblyToolRead(BaseModel):
     version_validated: bool
     message: str
     reason: str | None
+    reason_params: dict[str, str] = {}
     options: list[str] = Field(description="Options of interest this installed version lists in its help")
-    max_threads: int
-    max_memory_gb: int = Field(description="Most memory ARVA may give a run (ARVA_TOOL_MEMORY_GB or physical memory)")
-    default_memory_gb: int = Field(description="Used when no memory is given: min(250, max_memory_gb), as SPAdes does")
+    max_threads: int = Field(description="Most threads a run may ask for: the CPUs ARVA can use (or ARVA_TOOL_THREADS)")
+    default_threads: int = Field(description="Threads a run gets when none are given: the performance profile's")
+    max_memory_gb: int = Field(description="Most memory ARVA may give a run: the memory it can use (or "
+                               "ARVA_TOOL_MEMORY_GB)")
+    default_memory_gb: int = Field(description="Used when no memory is given: min(250, the profile's memory per job); "
+                                   "SPAdes' own default is 250")
 
 
 class UnicyclerHelperRead(BaseModel):
@@ -1299,8 +1423,10 @@ class QuastToolRead(BaseModel):
     version_validated: bool
     message: str
     reason: str | None
+    reason_params: dict[str, str] = {}
     aligner: QuastAligner | None
     max_threads: int
+    default_threads: int = Field(description="Threads a run gets when none are given: the performance profile's")
     default_min_contig: int
 
 
@@ -1409,6 +1535,7 @@ class PolishingToolRead(BaseModel):
     version_validated: bool
     message: str
     reason: str | None
+    reason_params: dict[str, str] = {}
     path: str | None
 
 
@@ -1447,8 +1574,9 @@ class PolishingPlanRead(BaseModel):
     sample_technology: SequencingTechnology
     confirmation_required: bool
     max_threads: int
+    default_threads: int = Field(description="Threads a run gets when none are given: the performance profile's")
     max_memory_gb: int
-    default_heap_gb: int
+    default_heap_gb: int = Field(description="min(16 GB, the profile's memory per job); Debian's Pilon launcher uses 16")
 
 
 # --- Reference databases (Database Manager) ---------------------------------------------------------------------
@@ -1510,6 +1638,7 @@ class ReferenceDatabaseRead(ORMModel):
     verified_at: dt.datetime | None
     notes: str | None
     error_message: str | None
+    error_detail: CodedMessage | None = None
     progress: DatabaseProgress | None
     cancel_requested_at: dt.datetime | None
     created_at: dt.datetime
@@ -1670,11 +1799,13 @@ class AnnotationToolRead(BaseModel):
     version_validated: bool
     message: str
     reason: str | None
+    reason_params: dict[str, str] = {}
     path: str | None
     license: str
     citation: str
     citation_url: str
     max_threads: int
+    default_threads: int = Field(description="Threads a run gets when none are given: the performance profile's")
 
 
 class AnnotationAssemblyFacts(BaseModel):

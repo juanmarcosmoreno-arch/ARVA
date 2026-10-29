@@ -44,6 +44,8 @@ import type {
   PolishingRequest,
   ImportListing,
   ImportRoot,
+  PerformanceOverview,
+  PerformanceUpdate,
   Library,
   MetadataApplyResult,
   MetadataImportMode,
@@ -177,6 +179,8 @@ export const api = {
   uploadFiles,
 
   storage: () => request<StorageCapacity>("/system/storage"),
+  performance: () => request<PerformanceOverview>("/system/performance"),
+  setPerformance: (body: PerformanceUpdate) => request<PerformanceOverview>("/system/performance", json("PUT", body)),
   importRoots: () => request<ImportRoot[]>("/imports/roots"),
   browseImport: (root: number, path: string) =>
     request<ImportListing>(`/imports/browse?${new URLSearchParams({ root: String(root), path })}`),

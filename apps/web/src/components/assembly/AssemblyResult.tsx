@@ -11,7 +11,7 @@ import { dictionaries, type TranslationKey, useT } from "@/i18n";
 import { api } from "@/lib/api";
 import { type ContigSortKey, type SortDir, assemblyLabel, lineageNames, sortContigs } from "@/lib/assembly";
 import { flyeContigRows } from "@/lib/flye";
-import { fmtBases, fmtDate, fmtInt, fmtNum } from "@/lib/format";
+import { fmtBases, fmtDate, fmtInt, fmtNum, fmtPct } from "@/lib/format";
 import { messageText } from "@/lib/messages";
 import { lineage, polishedFrom } from "@/lib/polishing";
 import { basename } from "@/lib/results";
@@ -123,7 +123,7 @@ export function AssemblyCard({
           <MetricTile label={t("assembly.stat.l50")} value={fmtInt(s.l50)} sub={t("assembly.stat.lSub", { x: 50 })} />
           <MetricTile label={t("assembly.stat.n90")} value={`${fmtInt(s.n90)} bp`} />
           <MetricTile label={t("assembly.stat.l90")} value={fmtInt(s.l90)} sub={t("assembly.stat.lSub", { x: 90 })} />
-          <MetricTile label={t("assembly.stat.gc")} value={s.gc_percent === null ? "—" : `${fmtNum(s.gc_percent, 2)}%`} explain="gc_content" />
+          <MetricTile label={t("assembly.stat.gc")} value={s.gc_percent === null ? "—" : fmtPct(s.gc_percent, 2)} explain="gc_content" />
           <MetricTile
             label={t("assembly.stat.circular")}
             value={s.circularity.contigs_with_circularity ? t("assembly.circularValue", { circular: s.circularity.circular_contigs, total: s.circularity.contigs_with_circularity }) : "—"}

@@ -6,7 +6,7 @@ import { Card, CardBody, CardHeader } from "@/components/ui/card";
 import { ErrorNote } from "@/components/ui/misc";
 import { type TranslationKey, useT } from "@/i18n";
 import { api } from "@/lib/api";
-import { fmtBases, fmtDate, fmtInt, fmtNum } from "@/lib/format";
+import { fmtBases, fmtDate, fmtInt, fmtPct } from "@/lib/format";
 import { COVERAGE_LABEL, coverageKind, fmtCoverage } from "@/lib/shortReads";
 
 const TH = "px-2 py-1.5 text-left font-medium text-muted-foreground whitespace-nowrap";
@@ -69,7 +69,7 @@ export function ProjectAssemblies({ projectId }: { projectId: string }) {
                   </td>
                   <td className={TD}>{fmtInt(r.n50)} bp</td>
                   <td className={TD}>{fmtInt(r.largest_contig)} bp</td>
-                  <td className={TD}>{r.gc_percent === null ? "—" : `${fmtNum(r.gc_percent, 2)}%`}</td>
+                  <td className={TD}>{r.gc_percent === null ? "—" : fmtPct(r.gc_percent, 2)}</td>
                   <td className={TD}>{t("assembly.circularValue", { circular: r.circular_contigs, total: r.contigs_with_circularity })}</td>
                   <td className={TD} title={coverageKind(r) ? t(COVERAGE_LABEL[coverageKind(r)!]) : undefined}>
                     {fmtCoverage(r.median_coverage, coverageKind(r))}

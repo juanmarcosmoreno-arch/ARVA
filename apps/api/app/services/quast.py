@@ -16,8 +16,8 @@ from arva_tools.quast import DEFAULT_MIN_CONTIG, MAX_ASSEMBLIES, aligner, assemb
 from arva_tools.registry import detect
 from sqlalchemy.orm import Session
 
-from app.core.config import get_settings
 from app.models import Assembly, FileFormat, RawFile, Sample
+from app.services.performance import Resources, effective_resources
 from app.storage import get_storage
 
 REFERENCE_FORMATS = (FileFormat.fasta, FileFormat.fasta_gz)
@@ -92,12 +92,13 @@ def check_contigs_kept(assemblies: list[Assembly], summaries: list[dict[str, Any
                          "the assembly out; lower the minimum contig length")
 
 
-def tool_status() -> dict[str, Any]:
+def tool_status(res: Resources) -> dict[str, Any]:
     """Detected afresh: a preview should describe the QUAST and minimap2 that a run started now would use."""
     d = detect("quast", refresh=True)
     a = aligner(d.path) if d.status is ToolStatus.available and d.path else None
     return {"status": d.status.value, "version": d.version, "version_validated": d.version_validated,
-            "message": d.message, "reason": d.reason, "aligner": a, "max_threads": get_settings().tool_threads,
+            "message": d.message, "reason": d.reason, "aligner": a, "max_threads": res.max_threads,
+            "default_threads": res.threads,
             "default_min_contig": DEFAULT_MIN_CONTIG}
 
 
@@ -116,7 +117,7 @@ def plan(db: Session, sample: Sample, assembly_ids: list[str], reference_id: str
             "length_left_out": s["all_total_length"] - s["total_length"],
         })
     return {
-        "tool": tool_status(),
+        "tool": tool_status(effective_resources(db)),
         "min_contig": min_contig,
         "assemblies": rows,
         "reference": None if reference is None else {

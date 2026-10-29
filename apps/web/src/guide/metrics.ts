@@ -91,9 +91,16 @@ export type GuideId =
   | "genome_explorer"
   | "gc_skew"
   | "circular_map"
-  | "annotation_charts";
+  | "annotation_charts"
+  | "performance_profile"
+  | "docker_resources";
 
 const REF = {
+  appleSysctl: { label: "Apple Developer Documentation — Determining system capabilities (sysctlbyname: hw.perflevelN.physicalcpu, hw.physicalcpu, hw.memsize)", url: "https://developer.apple.com/documentation/kernel/1387446-sysctlbyname/determining_system_capabilities" },
+  posixNice: { label: "The Open Group Base Specifications (POSIX.1-2017) — nice utility", url: "https://pubs.opengroup.org/onlinepubs/9699919799/utilities/nice.html" },
+  cgroupV2: { label: "Linux kernel documentation — Control Group v2 (cpu.max, memory.max)", url: "https://docs.kernel.org/admin-guide/cgroup-v2.html" },
+  dockerDesktopSettings: { label: "Docker Desktop documentation — Settings: Resources (CPU limit, Memory limit)", url: "https://docs.docker.com/desktop/settings-and-maintenance/settings/" },
+  dockerEngineInfo: { label: "Docker Engine API v1.47 — System information (NCPU, MemTotal)", url: "https://docs.docker.com/reference/api/engine/version/v1.47/" },
   racon: { label: "Vaser, Sović, Nagarajan & Šikić (2017) Genome Research 27:737–746 — Racon (window consensus)", url: "https://doi.org/10.1101/gr.214270.116" },
   raconHome: { label: "Racon source code and usage (lbcb-sci/racon)", url: "https://github.com/lbcb-sci/racon" },
   pilon: { label: "Walker et al. (2014) PLoS ONE 9:e112963 — Pilon", url: "https://doi.org/10.1371/journal.pone.0112963" },
@@ -2043,6 +2050,68 @@ export const GUIDE: GuideEntry[] = [
         "Leer las categorías COG como funciones medidas: se transfieren de ortólogos.",
       ],
       limitations: "Los recuentos describen predicciones sobre las secuencias tal como se ensamblaron; las roturas entre contigs separan operones y pueden cortar genes. En los genomas sintéticos de ARVA los recuentos describen las herramientas, no biología.",
+    },
+  },
+  {
+    id: "performance_profile",
+    references: [REF.appleSysctl, REF.cgroupV2, REF.posixNice],
+    en: {
+      title: "Performance profile",
+      what: "How many CPU threads each tool run gets, how much memory the tools that take a memory limit may use, and at which CPU priority tools run. ARVA chooses a profile for the computer automatically (Light, Balanced or Maximum); you can choose another one, or Custom values, in Settings → Performance.",
+      why: "Assemblers, polishers and annotators can keep every core busy for a long time. On a laptop, and above all a fanless one, that makes the computer hot and the interface slow, and a tool that needs more memory than there is gets stopped by the system. A profile keeps the load within what the computer and macOS can bear while ARVA works.",
+      how: "ARVA reads what the computer offers: the CPUs and memory its process can use (CPU affinity, the container's CPU quota and memory limit, or the memory the system reports) and, when it is started with scripts/start.sh on a Mac, the Mac's model, chip, performance and efficiency cores and memory (sysctl, system_profiler, sw_vers). The automatic choice is ARVA's heuristic: MacBook Air and 12-inch MacBook → Light; MacBook Pro, Mac mini and iMac → Balanced; Mac Studio and Mac Pro → Maximum; other computers by their cores and memory (4 cores or fewer, or less than 8 GB → Light; 12 cores or more and 32 GB or more → Maximum; otherwise Balanced). Threads are counted from the performance cores (Apple silicon) or the physical cores: Light takes half, Balanced three quarters, Maximum every performance core when efficiency cores remain for macOS, otherwise all but one, and never more than the CPUs ARVA can use. The memory per job is 50 %, 70 % or 85 % of the memory ARVA can use; it is given to SPAdes (-m), to SPAdes inside Unicycler, to Pilon (Java -Xmx) and to samtools sort (per thread). Tools start through nice (15, 10 or 5) so that ARVA's interface keeps priority. ARVA_TOOL_THREADS and ARVA_TOOL_MEMORY_GB cap every profile.",
+      interpret: "Each job records the profile, threads, memory limit, priority and computer it ran with, in its history and in the reports. A profile changes how long a run takes, not its result, with two recorded exceptions: Flye's output can depend on its thread count, and so can fastp's insert-size estimate.",
+      next: "If runs are slow and the computer stays cool, choose a heavier profile; if the computer gets hot or slow, or a tool is stopped for lack of memory, choose a lighter one or fewer threads. On a Mac with Docker Desktop, follow the Docker Desktop recommendation in Settings → Performance.",
+      mistakes: [
+        "Comparing run times between profiles or computers as if they measured the tools.",
+        "Expecting a memory limit for Flye, Racon, minimap2, BWA, QUAST, Bakta, Prokka or fastp: they have no such option.",
+        "Choosing Maximum on a fanless laptop for a long assembly.",
+      ],
+      limitations: "The profiles are ARVA's own heuristics, not measurements of heat or speed. The Mac detection has been tested only with constructed outputs of sysctl, system_profiler, sw_vers and docker info, not yet on a real Mac. Inside Docker Desktop, nice only orders work inside the Linux virtual machine.",
+    },
+    es: {
+      title: "Perfil de rendimiento",
+      what: "Cuántos hilos de CPU recibe cada ejecución de una herramienta, cuánta memoria pueden usar las herramientas que aceptan un límite de memoria y con qué prioridad de CPU se ejecutan las herramientas. ARVA elige automáticamente un perfil para el equipo (Ligero, Equilibrado o Máximo); puedes elegir otro, o valores personalizados, en Ajustes → Rendimiento.",
+      why: "Los ensambladores, los pulidores y los anotadores pueden mantener ocupados todos los núcleos durante mucho tiempo. En un portátil, y sobre todo en uno sin ventilador, eso calienta el equipo y vuelve lenta la interfaz, y el sistema detiene una herramienta que necesita más memoria de la que hay. Un perfil mantiene la carga dentro de lo que el equipo y macOS pueden soportar mientras ARVA trabaja.",
+      how: "ARVA lee lo que ofrece el equipo: las CPU y la memoria que puede usar su proceso (afinidad de CPU, la cuota de CPU y el límite de memoria del contenedor, o la memoria que indica el sistema) y, si se inicia con scripts/start.sh en un Mac, el modelo, el chip, los núcleos de rendimiento y de eficiencia y la memoria del Mac (sysctl, system_profiler, sw_vers). La elección automática es una heurística de ARVA: MacBook Air y MacBook de 12 pulgadas → Ligero; MacBook Pro, Mac mini e iMac → Equilibrado; Mac Studio y Mac Pro → Máximo; los demás equipos según sus núcleos y su memoria (4 núcleos o menos, o menos de 8 GB → Ligero; 12 núcleos o más y 32 GB o más → Máximo; si no, Equilibrado). Los hilos se cuentan a partir de los núcleos de rendimiento (Apple silicon) o de los núcleos físicos: Ligero toma la mitad, Equilibrado tres cuartas partes, Máximo todos los núcleos de rendimiento si quedan núcleos de eficiencia para macOS y, si no, todos menos uno; nunca más de las CPU que ARVA puede usar. La memoria por trabajo es el 50 %, el 70 % o el 85 % de la memoria que ARVA puede usar; se da a SPAdes (-m), a SPAdes dentro de Unicycler, a Pilon (Java -Xmx) y a samtools sort (por hilo). Las herramientas se inician con nice (15, 10 o 5) para que la interfaz de ARVA conserve la prioridad. ARVA_TOOL_THREADS y ARVA_TOOL_MEMORY_GB limitan todos los perfiles.",
+      interpret: "Cada trabajo registra el perfil, los hilos, el límite de memoria, la prioridad y el equipo con que se ejecutó, en su historial y en los informes. Un perfil cambia cuánto tarda una ejecución, no su resultado, con dos excepciones que quedan registradas: el resultado de Flye puede depender de su número de hilos, y también la estimación del tamaño de inserto de fastp.",
+      next: "Si las ejecuciones son lentas y el equipo se mantiene fresco, elige un perfil más pesado; si el equipo se calienta o se vuelve lento, o el sistema detiene una herramienta por falta de memoria, elige uno más ligero o menos hilos. En un Mac con Docker Desktop, sigue la recomendación para Docker Desktop de Ajustes → Rendimiento.",
+      mistakes: [
+        "Comparar tiempos de ejecución entre perfiles o equipos como si midieran las herramientas.",
+        "Esperar un límite de memoria para Flye, Racon, minimap2, BWA, QUAST, Bakta, Prokka o fastp: no tienen esa opción.",
+        "Elegir Máximo en un portátil sin ventilador para un ensamblaje largo.",
+      ],
+      limitations: "Los perfiles son heurísticas propias de ARVA, no mediciones de temperatura ni de velocidad. La detección del Mac solo se ha probado con salidas construidas de sysctl, system_profiler, sw_vers y docker info, aún no en un Mac real. Dentro de Docker Desktop, nice solo ordena el trabajo dentro de la máquina virtual Linux.",
+    },
+  },
+  {
+    id: "docker_resources",
+    references: [REF.dockerDesktopSettings, REF.dockerEngineInfo],
+    en: {
+      title: "Docker Desktop resources on a Mac",
+      what: "On a Mac, ARVA runs inside Docker Desktop's Linux virtual machine. The CPUs and memory Docker Desktop gives that machine (Settings → Resources → Advanced: CPU limit, Memory limit) are all ARVA can use, whatever the Mac itself has.",
+      why: "With too little, long runs are slow or tools are stopped for lack of memory; with too much memory, macOS itself can run short while a large job runs.",
+      how: "scripts/start.sh reads Docker Desktop's figures with docker info (NCPU and MemTotal: the virtual machine's CPUs and memory) together with the Mac's own, and ARVA compares them with what the profile in use needs on that Mac (ARVA's heuristic): CPUs = the profile's threads + 1 for ARVA's own services, at most the Mac's logical CPUs; memory = 50 % (Light), 60 % (Balanced) or 75 % (Maximum) of the Mac's memory. It recommends more when Docker Desktop gives fewer CPUs or less memory (memory counts as enough from 90 % of the recommendation, because the virtual machine reports a little less than its setting), and less memory when Docker Desktop's share leaves macOS less than a quarter. Docker's documentation gives 50 % of the host's memory as the default memory limit.",
+      interpret: "More CPUs than recommended do no harm: ARVA's thread count is what limits its tools. A recommendation appears only when ARVA knows the Mac, that is, when it was started with scripts/start.sh.",
+      next: "Open Docker Desktop → Settings → Resources → Advanced, set the CPU limit and Memory limit that ARVA shows in Settings → Performance and apply them; then start ARVA again with scripts/start.sh.",
+      mistakes: [
+        "Giving Docker Desktop almost all of the Mac's memory: macOS and other apps need it too.",
+        "Not starting ARVA again after changing Docker Desktop's resources: ARVA reads them when it starts.",
+      ],
+      limitations: "Not yet validated on a real Mac. From inside a container, Docker Desktop's resources are visible only as the CPUs and memory the container sees; Docker Desktop's own figures come from the launcher.",
+    },
+    es: {
+      title: "Recursos de Docker Desktop en un Mac",
+      what: "En un Mac, ARVA se ejecuta dentro de la máquina virtual Linux de Docker Desktop. Las CPU y la memoria que Docker Desktop da a esa máquina (Settings → Resources → Advanced: CPU limit, Memory limit) son todo lo que ARVA puede usar, tenga el Mac lo que tenga.",
+      why: "Con muy poco, las ejecuciones largas son lentas o el sistema detiene herramientas por falta de memoria; con demasiada memoria, el propio macOS puede quedarse corto mientras se ejecuta un trabajo grande.",
+      how: "scripts/start.sh lee las cifras de Docker Desktop con docker info (NCPU y MemTotal: las CPU y la memoria de la máquina virtual) junto con las de la propia Mac, y ARVA las compara con lo que necesita el perfil en uso en esa Mac (heurística de ARVA): CPU = los hilos del perfil + 1 para los servicios propios de ARVA, como mucho las CPU lógicas del Mac; memoria = el 50 % (Ligero), el 60 % (Equilibrado) o el 75 % (Máximo) de la memoria del Mac. Recomienda más cuando Docker Desktop da menos CPU o menos memoria (la memoria cuenta como suficiente desde el 90 % de la recomendación, porque la máquina virtual indica un poco menos que su ajuste), y menos memoria cuando la parte de Docker Desktop deja a macOS menos de una cuarta parte. La documentación de Docker indica como límite de memoria predeterminado el 50 % de la memoria del equipo.",
+      interpret: "Más CPU de las recomendadas no causan problemas: el número de hilos de ARVA es lo que limita sus herramientas. Solo hay recomendación cuando ARVA conoce el Mac, es decir, cuando se inició con scripts/start.sh.",
+      next: "Abre Docker Desktop → Settings → Resources → Advanced, pon el CPU limit y el Memory limit que muestra ARVA en Ajustes → Rendimiento y aplícalos; después vuelve a iniciar ARVA con scripts/start.sh.",
+      mistakes: [
+        "Dar a Docker Desktop casi toda la memoria del Mac: macOS y las demás aplicaciones también la necesitan.",
+        "No volver a iniciar ARVA después de cambiar los recursos de Docker Desktop: ARVA los lee al iniciarse.",
+      ],
+      limitations: "Aún no validado en un Mac real. Desde dentro de un contenedor, los recursos de Docker Desktop solo se ven como las CPU y la memoria que ve el contenedor; las cifras propias de Docker Desktop vienen del lanzador.",
     },
   },
 ];

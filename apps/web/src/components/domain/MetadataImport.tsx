@@ -72,7 +72,7 @@ const changeLabel = (t: T, c: MetadataChange) =>
   c.field === "custom_metadata" ? t("metadata.customField", { key: c.key ?? "" }) : t(`metadata.field.${c.field}`);
 
 const changeValue = (c: MetadataChange, value: string | null) =>
-  c.field === "sequencing_technology" && value ? technologyLabel[value] ?? value : value;
+  c.field === "sequencing_technology" && value ? technologyLabel(value) : value;
 
 /** Import dialog: choose a table, review the server's row-by-row preview, then apply it in one transaction. */
 export function MetadataImportDialog({ open, onOpenChange, projectId }: { open: boolean; onOpenChange: (o: boolean) => void; projectId: string }) {

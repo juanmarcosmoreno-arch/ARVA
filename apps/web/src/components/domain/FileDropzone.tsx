@@ -24,7 +24,7 @@ export function UploadResultList({ result }: { result: UploadResult }) {
           )}
           <div className="min-w-0">
             <div className="truncate font-medium">
-              {f.original_filename} <span className="font-normal text-muted-foreground">· {formatLabel[f.file_format]} · {fmtBytes(f.size_bytes)}</span>
+              {f.original_filename} <span className="font-normal text-muted-foreground">· {formatLabel(f.file_format)} · {fmtBytes(f.size_bytes)}</span>
             </div>
             <div className="break-words text-xs text-muted-foreground">{f.validation_message}</div>
           </div>

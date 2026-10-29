@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { Outlet, useLocation } from "react-router-dom";
 import { ArvaMark } from "@/components/brand/ArvaLogo";
 import { Button } from "@/components/ui/button";
+import { useT } from "@/i18n";
 import { resolveDark, useSettings } from "@/store/settings";
 import { GlobalSearch } from "./GlobalSearch";
 import { Sidebar } from "./Sidebar";
@@ -25,6 +26,7 @@ function useApplyTheme() {
 }
 
 export function AppShell() {
+  const t = useT();
   const dark = useApplyTheme();
   const setTheme = useSettings((s) => s.setTheme);
   const language = useSettings((s) => s.language);
@@ -52,7 +54,7 @@ export function AppShell() {
           <button
             className="absolute right-4 top-4 rounded-md bg-white/10 p-2 text-white"
             onClick={() => setMobileOpen(false)}
-            aria-label="Close menu"
+            aria-label={t("shell.closeMenu")}
           >
             <X className="h-5 w-5" />
           </button>
@@ -61,7 +63,7 @@ export function AppShell() {
 
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="sticky top-0 z-20 flex h-16 items-center gap-3 border-b bg-background/85 px-4 backdrop-blur sm:px-6">
-          <button className="rounded-md p-2 hover:bg-muted lg:hidden" onClick={() => setMobileOpen(true)} aria-label="Open menu">
+          <button className="rounded-md p-2 hover:bg-muted lg:hidden" onClick={() => setMobileOpen(true)} aria-label={t("shell.openMenu")}>
             <Menu className="h-5 w-5" />
           </button>
           <ArvaMark className="h-7 w-7 lg:hidden" />
@@ -71,7 +73,7 @@ export function AppShell() {
               variant="ghost"
               size="sm"
               onClick={() => setLanguage(language === "en" ? "es" : "en")}
-              aria-label="Switch language"
+              aria-label={t("shell.switchLanguage")}
               className="font-semibold uppercase"
             >
               {language}
@@ -80,7 +82,7 @@ export function AppShell() {
               variant="ghost"
               size="icon"
               onClick={() => setTheme(dark ? "light" : "dark")}
-              aria-label={dark ? "Switch to light mode" : "Switch to dark mode"}
+              aria-label={dark ? t("shell.lightMode") : t("shell.darkMode")}
             >
               {dark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
             </Button>

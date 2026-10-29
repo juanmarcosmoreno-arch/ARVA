@@ -14,10 +14,10 @@ from arva_tools.pilon import java_executable, java_version
 from arva_tools.registry import detect
 from sqlalchemy.orm import Session
 
-from app.core.config import get_settings
 from app.models import Assembly, Sample, SequencingTechnology
 from app.services import short_hybrid
 from app.services.flye import CONFIDENT, InputError, read_type_suggestion
+from app.services.performance import Resources, effective_resources
 from app.storage import get_storage
 
 STRATEGIES = ("racon", "pilon", "hybrid")
@@ -116,11 +116,9 @@ def strategies_available(tools: dict[str, Any]) -> list[str]:
     return [s for s, needed in STRATEGY_TOOLS.items() if set(needed) <= ok and (s == "racon" or "java" in ok)]
 
 
-def resources() -> dict[str, int]:
-    settings = get_settings()
-    cap = settings.max_tool_memory_gb
-    return {"max_threads": settings.tool_threads, "max_memory_gb": cap,
-            "default_heap_gb": min(DEBIAN_PILON_HEAP_GB, cap)}
+def resources(res: Resources) -> dict[str, int]:
+    return {"max_threads": res.max_threads, "default_threads": res.threads, "max_memory_gb": res.max_memory_gb,
+            "default_heap_gb": min(DEBIAN_PILON_HEAP_GB, res.memory_gb)}
 
 
 def draft_summary(a: Assembly) -> dict[str, Any]:
@@ -154,5 +152,5 @@ def plan(db: Session, sample: Sample, draft: Assembly, inputs: short_hybrid.Inpu
         "problem": problem,
         "sample_technology": sample.sequencing_technology,
         "confirmation_required": short_hybrid.needs_confirmation(sample),
-        **resources(),
+        **resources(effective_resources(db)),
     }

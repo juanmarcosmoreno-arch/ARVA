@@ -15,7 +15,6 @@ from arva_tools.registry import detect
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.config import get_settings
 from app.models import (
     AnalysisJob,
     FileFormat,
@@ -27,6 +26,7 @@ from app.models import (
 )
 from app.services.assemblies import expected_genome_size
 from app.services.jobs import FASTQ_STATS_JOB
+from app.services.performance import Resources, effective_resources
 from app.services.raw_signal import is_raw_signal, not_reads_message
 
 LONG_READ_PLATFORMS = ("nanopore", "pacbio")
@@ -183,7 +183,7 @@ def check_genome_size(db: Session, sample: Sample, ev: list[dict[str, Any]], par
                              f"{estimate['bp']:,} bp, not {params.genome_size_bp:,} bp")
 
 
-def tool_status() -> dict[str, Any]:
+def tool_status(res: Resources) -> dict[str, Any]:
     d = detect("flye")
     options: list[str] = []
     if d.status is ToolStatus.available and d.path:
@@ -193,14 +193,15 @@ def tool_status() -> dict[str, Any]:
             supported = frozenset()
         options = [o for o in OPTIONAL_OPTIONS if o in supported]
     return {"status": d.status.value, "version": d.version, "version_validated": d.version_validated,
-            "message": d.message, "reason": d.reason, "options": options, "max_threads": get_settings().tool_threads}
+            "message": d.message, "reason": d.reason, "options": options, "max_threads": res.max_threads,
+            "default_threads": res.threads}
 
 
 def plan(db: Session, sample: Sample, files: list[RawFile], depth_x: float | None) -> dict[str, Any]:
     ev = evidence(db, files)
     check_files(sample, files, ev)
     return {
-        "tool": tool_status(),
+        "tool": tool_status(effective_resources(db)),
         "files": ev,
         "read_type_suggestion": read_type_suggestion(sample, ev),
         "genome_size": genome_size_options(db, sample, ev, depth_x),

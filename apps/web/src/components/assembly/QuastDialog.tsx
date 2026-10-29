@@ -144,8 +144,8 @@ export function QuastDialog({
             <Field label={t("quast.minContig")} hint={t("quast.minContigHint")}>
               <Input type="number" min={0} max={QUAST_LIMITS.minContig[1]} value={form.minContig} onChange={(e) => set("minContig", e.target.value)} />
             </Field>
-            <Field label={t("quast.threads")} hint={t("quast.threadsHint", { max: p?.tool.max_threads ?? "?" })}>
-              <Input type="number" min={1} max={p?.tool.max_threads} placeholder={String(p?.tool.max_threads ?? "")} value={form.threads} onChange={(e) => set("threads", e.target.value)} />
+            <Field label={t("quast.threads")} hint={t("quast.threadsHint", { max: p?.tool.max_threads ?? "?", default: p?.tool.default_threads ?? "?" })}>
+              <Input type="number" min={1} max={p?.tool.max_threads} placeholder={String(p?.tool.default_threads ?? "")} value={form.threads} onChange={(e) => set("threads", e.target.value)} />
             </Field>
           </div>
           <p className="text-xs text-muted-foreground">{t("quast.fixedOptions")}</p>

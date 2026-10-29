@@ -1,5 +1,6 @@
 from app.models.analysis_job import AnalysisJob, JobStatus
 from app.models.annotation import Annotation
+from app.models.app_setting import AppSetting
 from app.models.assembly import Assembly, AssemblyKind, AssemblyMode
 from app.models.metadata_import import MetadataFileKind, MetadataImport, MetadataImportMode
 from app.models.project import Project
@@ -11,6 +12,7 @@ from app.models.sample import Sample, SequencingTechnology
 __all__ = [
     "AnalysisJob",
     "Annotation",
+    "AppSetting",
     "Assembly",
     "AssemblyKind",
     "AssemblyMode",

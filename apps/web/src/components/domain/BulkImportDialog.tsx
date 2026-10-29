@@ -12,7 +12,7 @@ import { useT } from "@/i18n";
 import { api } from "@/lib/api";
 import { totalBytes, uploadSpace } from "@/lib/capacity";
 import { filesFromDrop } from "@/lib/dropFiles";
-import { fmtBytes, technologyLabel } from "@/lib/format";
+import { fmtBytes, TECHNOLOGIES, technologyLabel } from "@/lib/format";
 import { groupFilesBySample, isImportableFile, matchExistingSample, type Mate, type PairingWarning } from "@/lib/sampleNames";
 import type { Sample, SequencingTechnology, UploadResult } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -201,9 +201,9 @@ export function BulkImportDialog({
       .map(([key, count]) => t(key, { count })),
   ].join(" ");
 
-  const techOptions = Object.entries(technologyLabel).map(([v, l]) => (
+  const techOptions = TECHNOLOGIES.map((v) => (
     <option key={v} value={v}>
-      {l}
+      {technologyLabel(v)}
     </option>
   ));
 

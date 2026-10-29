@@ -98,7 +98,7 @@ const plan: PolishingPlan = {
   tools: { racon: tool("racon"), minimap2: tool("minimap2"), pilon: tool("pilon"), java: tool("java"), bwa: tool("bwa"), samtools: tool("samtools"), dnadiff: tool("dnadiff") },
   strategies_available: ["racon", "pilon", "hybrid"], files: [], strategy: "racon", suggested_strategy: "racon",
   preset_suggestion: { heuristic: true, value: "map-ont", basis: "nanopore reads", flye_read_type: "nano-hq", platform: "nanopore" },
-  problem: null, sample_technology: "nanopore", confirmation_required: false, max_threads: 4, max_memory_gb: 32, default_heap_gb: 16,
+  problem: null, sample_technology: "nanopore", confirmation_required: false, max_threads: 4, default_threads: 4, max_memory_gb: 32, default_heap_gb: 16,
 };
 
 function renderWith(ui: ReactElement) {

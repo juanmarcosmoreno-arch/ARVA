@@ -70,6 +70,8 @@ class AnalysisJob(TimestampMixin, Base):
 
     log_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # {code, params} of error_message when the worker knows the reason, so the interface can show it translated.
+    error_detail: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
     # Exact argument vectors executed (one list per external command), so a run
     # can be reproduced outside ARVA.
@@ -83,6 +85,9 @@ class AnalysisJob(TimestampMixin, Base):
     cancel_requested_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     # A tool's own restart point kept after a stopped run (Flye's work folder for --resume); not a result.
     checkpoint: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    # The CPU threads, memory limit and CPU priority ARVA gave the job, from the performance profile in use when it was
+    # created, with a short description of the computer (app.services.performance).
+    resources: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     # A job launched automatically by another job (e.g. statistics of filtered reads).
     parent_job_id: Mapped[str | None] = mapped_column(
         String(36), ForeignKey("analysis_jobs.id", ondelete="SET NULL"), nullable=True

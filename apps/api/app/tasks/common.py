@@ -68,6 +68,8 @@ class JobContext:
     # Run when the job fails or is cancelled, after the rollback and before partial outputs are removed (e.g. keep
     # Flye's work folder for --resume).
     before_cleanup: list[Callable[[BaseException], None]] = field(default_factory=list)
+    # A tool of this job stopped by SIGKILL from outside ARVA (most often for lack of memory).
+    killed_tool: str | None = None
 
     @property
     def _scope(self) -> str:
@@ -112,6 +114,16 @@ class JobContext:
 def cancellation_note(job: AnalysisJob) -> str:
     asked = job.cancel_requested_at.isoformat(timespec="seconds") if job.cancel_requested_at else "?"
     return f"Cancelled at the user's request (asked at {asked})"
+
+
+def _with_memory_advice(job: AnalysisJob, tool: str) -> tuple[str, str]:
+    """The failure reason with what to change; a reason that already names memory (an adapter's) gets only the
+    advice."""
+    from app.services.performance import memory_advice, out_of_memory_reason
+
+    message = (job.error_message or "").rstrip(". ")
+    note = memory_advice(job.resources) if "memory" in message.lower() else out_of_memory_reason(tool, job.resources)
+    return (f"{message}. {note}" if message else note), note
 
 
 def run_job(
@@ -162,6 +174,9 @@ def run_job(
             else:
                 job.error_message = f"{type(exc).__name__}: {exc}"
                 log("ERROR: unexpected failure\n" + traceback.format_exc())
+            if ctx.killed_tool and not isinstance(exc, JobCancelled):
+                job.error_message, note = _with_memory_advice(job, ctx.killed_tool)
+                log(note)
             for hook in ctx.before_cleanup:
                 hook(exc)
             for rel in (ctx.results_rel, ctx.processed_rel):

@@ -52,6 +52,8 @@ class ReferenceDatabase(TimestampMixin, Base):
     progress: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     log_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # {code, params} of error_message for the expected failures, so the interface can show it translated.
+    error_detail: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     cancel_requested_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     # The task-queue id of the current download or verification.
     task_id: Mapped[str | None] = mapped_column(String(64), nullable=True)

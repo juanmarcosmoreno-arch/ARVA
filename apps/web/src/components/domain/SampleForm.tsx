@@ -7,7 +7,7 @@ import { Field, Input, Select, Textarea } from "@/components/ui/form";
 import { ErrorNote } from "@/components/ui/misc";
 import { useT } from "@/i18n";
 import { api } from "@/lib/api";
-import { technologyLabel } from "@/lib/format";
+import { TECHNOLOGIES, technologyLabel } from "@/lib/format";
 import type { Sample, SampleInput, SequencingTechnology } from "@/lib/types";
 
 const FIELDS: { key: keyof SampleInput; label: string; placeholder?: string; type?: string }[] = [
@@ -48,9 +48,9 @@ export function SampleFields({ form, setForm }: { form: SampleInput; setForm: (f
         </Field>
         <Field label="Sequencing technology">
           <Select value={form.sequencing_technology} onChange={(e) => setForm({ ...form, sequencing_technology: e.target.value as SequencingTechnology })}>
-            {Object.entries(technologyLabel).map(([v, l]) => (
+            {TECHNOLOGIES.map((v) => (
               <option key={v} value={v}>
-                {l}
+                {technologyLabel(v)}
               </option>
             ))}
           </Select>

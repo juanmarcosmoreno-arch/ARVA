@@ -8,7 +8,7 @@ All base images are multi-architecture.
 ```bash
 git clone <repository> arva && cd arva
 cp .env.example .env              # optional: set ARVA_DB_PASSWORD, ARVA_DATA_DIR
-docker compose up -d --build
+docker compose up -d --build      # on a Mac: scripts/start.sh --build (see below)
 ```
 
 - Web interface: <http://localhost:8080>
@@ -29,6 +29,84 @@ docker compose down               # stop (volumes are kept)
 The `import/` folder of the repository is mounted read-only at `/import` in the `api` and `worker`
 containers for [server-side import](#importing-large-files-from-a-server-folder); set
 `ARVA_IMPORT_DIR=/absolute/path` in `.env` to mount another host folder instead.
+
+### On a Mac: the launcher and the performance profile
+
+Start ARVA with `scripts/start.sh` (it runs `docker compose up -d`, passing on extra arguments such as
+`--build`). Before starting, it reads which Mac this is and what Docker Desktop gives its Linux virtual machine,
+and passes these facts to the `api` and `worker` containers as `ARVA_HOST_*` variables:
+
+| Fact | Read with | Source of the key or field |
+|---|---|---|
+| Model name (`MacBook Air`, `Mac Studio`, …) | `system_profiler -json SPHardwareDataType` → `machine_name` | system_profiler(8); field names as parsed by mondoohq/cnquery |
+| Model identifier, chip | `sysctl -n hw.model`, `machdep.cpu.brand_string` (else `chip_type`) | sysctl(3) |
+| Performance and efficiency cores | `sysctl -n hw.nperflevels`, `hw.perflevelN.physicalcpu` (N = 0 is the fastest kind); else `number_processors` (`proc TOTAL:PERFORMANCE:EFFICIENCY`) | Apple, "Determining system capabilities" |
+| Physical and logical cores, memory | `sysctl -n hw.physicalcpu`, `hw.logicalcpu`, `hw.memsize` | same |
+| macOS version, architecture | `sw_vers -productVersion`; `uname -m` (`sysctl.proc_translated` = 1 under Rosetta means arm64) | sw_vers(1); Apple, "About the Rosetta translation environment" |
+| Docker Desktop's CPUs and memory | `docker info --format '{{.NCPU}} {{.MemTotal}}'` | Docker Engine API, `SystemInfo` |
+
+Only the model name, chip and core counts are kept from system_profiler's report; the serial number and other
+identifiers are never passed on, and nothing leaves the computer. Intel Macs and older macOS lack the
+`hw.perflevel*` keys: ARVA then uses the physical cores (Intel) or system_profiler's processor field (Apple
+silicon). Every value is validated and bounded again by the API (`app/services/host.py`); a missing or malformed
+one is shown as unknown. Once ARVA runs, the launcher prints the profile in use and, if Docker Desktop's resources
+do not suit it, what to set. A plain `docker compose up` keeps working: the computer is then unknown and the
+profile follows the CPUs and memory the containers can use.
+
+**Not yet validated on a real Mac.** The launcher and the macOS readers were written from Apple's documentation
+and the open-source code cited above, and tested only with constructed outputs of `sysctl`, `system_profiler`,
+`sw_vers` and `docker` (`apps/api/tests/test_start_script.py`, `test_performance.py`).
+
+**Profiles** (ARVA's own heuristics, not measurements; Settings → Performance shows the values on this computer):
+
+| Profile | Threads per tool | Memory per job | CPU priority | Chosen automatically for |
+|---|---|---|---|---|
+| Light (*Ligero*) | half the cores | 50 % of the memory ARVA can use | `nice 15` | MacBook Air, 12-inch MacBook; other computers with ≤ 4 cores or < 8 GB |
+| Balanced (*Equilibrado*) | cores − max(1, cores ÷ 4) | 70 % | `nice 10` | MacBook Pro, Mac mini, iMac; other computers in between |
+| Maximum (*Máximo*) | every performance core when efficiency cores remain, else cores − 1 | 85 % | `nice 5` | Mac Studio, Mac Pro; other computers with ≥ 12 cores and ≥ 32 GB |
+| Custom (*Personalizado*) | chosen | chosen | `nice 10` | — |
+
+"Cores" are the Mac's performance cores (Apple silicon), else its physical cores, else the CPUs the container can
+use; the result is always capped by the CPUs and memory ARVA can actually use (CPU affinity, cgroup v2 `cpu.max`
+or v1 `cpu.cfs_quota_us`, cgroup memory limit, else `MemTotal`). The memory per job is the default memory limit of
+the tools that have one — SPAdes (`-m`), SPAdes inside Unicycler (`--spades_options "-m N"`), Pilon (Java
+`-Xmx`) and samtools sort (`-m` per thread, only when 768M per thread, samtools' default, would exceed it); a
+dialog may ask for up to all the memory ARVA can use. Flye, Racon, minimap2, BWA, QUAST, Bakta, Prokka, fastp,
+FastQC, SeqKit, NanoPlot, Filtlong and MultiQC have no memory option: give them fewer threads instead. Tool
+dialogs take their default thread count from the profile (still editable up to the usable CPUs). Flye's output
+can depend on its thread count, so each run records it.
+
+Tools start through `nice -n <N>` (the `nice` executable found on `PATH`; the recorded commands are the tools'
+own). Inside Docker Desktop this only orders work inside the Linux virtual machine, where it keeps ARVA's own
+API and interface responsive; for macOS, the real limits are the thread count and the CPUs and memory Docker
+Desktop gives that machine.
+
+**Docker Desktop resources per Mac class** (ARVA's recommendation for the profile in use; Docker Desktop →
+Settings → Resources → Advanced → *CPU limit* and *Memory limit*, then apply and run `scripts/start.sh` again):
+
+| Profile on this Mac | CPU limit | Memory limit |
+|---|---|---|
+| Light (MacBook Air) | the profile's threads + 1, at most the Mac's logical CPUs | 50 % of the Mac's memory |
+| Balanced (MacBook Pro, Mac mini, iMac) | same rule | 60 % |
+| Maximum (Mac Studio, Mac Pro) | same rule | 75 % |
+| Custom | the custom threads + 1, same cap | 60 % |
+
+For example, for a (constructed) MacBook Pro with 8 performance and 2 efficiency cores and 16 GB the
+recommendation is 7 CPUs and 9 GB. ARVA asks for more when Docker Desktop gives fewer CPUs or less than 90 % of
+the recommended memory (the virtual machine reports a little less than its setting), and for less memory when
+Docker Desktop's share would leave macOS less than a quarter. More CPUs than recommended do no harm. Docker's
+documentation gives 50 % of the host's memory as the default memory limit.
+
+**Changing or overriding it.** Choose another profile, or Custom threads and memory, in Settings → Performance
+(`PUT /api/v1/system/performance`; `GET` returns every detected fact with its source). The choice is stored in the
+database (`app_settings`), so the worker uses it too, and applies to jobs created afterwards; each job records the
+resources it was given (`analysis_jobs.resources`: profile, threads, memory limit, priority, computer), shown in
+its history and in the reports. `ARVA_TOOL_THREADS` and `ARVA_TOOL_MEMORY_GB`, when set, cap every profile and
+every request. Without Docker (Option B on a Mac), ARVA reads the Mac's facts itself with the same keys.
+
+When a tool is killed with SIGKILL (exit status −9, or 137 from a wrapper), which usually means the computer or
+the container ran out of memory, the job's failure reason says so, with the memory ARVA could use, the threads and
+memory limit of the run, and what to change.
 
 ## Option B — Local development
 
@@ -180,8 +258,8 @@ runtime), Bowtie 2 and BCFtools, which Unicycler 0.5.0 does not call. Both tools
 
 SPAdes needs memory in proportion to the genome and to the read errors (the SPAdes manual lists about 8 GB for an
 *E. coli* isolate). ARVA passes a memory limit to SPAdes (`-m`, also inside Unicycler); by default
-min(250 GB, `ARVA_TOOL_MEMORY_GB`), where `ARVA_TOOL_MEMORY_GB` defaults to the computer's physical memory. When
-SPAdes needs more, it stops and the job says so.
+min(250 GB, the performance profile's memory per job), at most the memory ARVA can use (and `ARVA_TOOL_MEMORY_GB`
+when set). When SPAdes needs more, it stops and the job says so.
 
 ### Polishing (Racon, Pilon)
 
@@ -199,8 +277,8 @@ there is no direct evidence of Racon's changes (Pilon's own list of changes is s
 lists what is missing for each strategy.
 
 Pilon is a Java program. Debian's `/usr/bin/pilon` runs it with a fixed 16 GB heap, so ARVA runs the jar it names
-(`/usr/share/java/pilon.jar`) with `java -Xmx<heap>` itself, the heap chosen in the dialog (default min(16 GB,
-`ARVA_TOOL_MEMORY_GB`)). For another installation set `ARVA_TOOL_PILON` to the path of `pilon.jar`. Debian's build
+(`/usr/share/java/pilon.jar`) with `java -Xmx<heap>` itself, the heap chosen in the dialog (default min(16 GB, the
+performance profile's memory per job)). For another installation set `ARVA_TOOL_PILON` to the path of `pilon.jar`. Debian's build
 prints no version number (`Pilon version [COMMIT] [DATE]`), so ARVA reads the version from dpkg and says so on the
 Tools page. `JAVA_TOOL_OPTIONS`, `_JAVA_OPTIONS` and `JDK_JAVA_OPTIONS` are removed from every tool's environment,
 as they would change the recorded heap. Medaka is not integrated (it needs a model matching the reads' basecaller,
@@ -477,8 +555,9 @@ Environment variables (prefix `ARVA_`), also read from `apps/api/.env`:
 | `ARVA_METADATA_MAX_CELL_CHARS` | 10000 | Characters per cell of a metadata table |
 | `ARVA_TOOLS_PATH` | — | Extra folders (`:`-separated) searched for external tools |
 | `ARVA_TOOL_<ID>` | — | Explicit executable for one tool (`SEQKIT`, `FASTQC`, `FASTP`, `FILTLONG`, `MULTIQC`, `NANOPLOT`, `FLYE`, `SPADES`, `UNICYCLER`, `QUAST`, `RACON`, `MINIMAP2`, `BWA`, `SAMTOOLS`, `DNADIFF`; `PILON` takes the path of `pilon.jar`; helpers: `MAKEBLASTDB` and `TBLASTN` for Unicycler, `JAVA` for Pilon) |
-| `ARVA_TOOL_THREADS` | 4 | Maximum threads given to a tool run |
-| `ARVA_TOOL_MEMORY_GB` | physical memory | Most memory (GB) a tool run may be given (SPAdes' `-m`, also inside Unicycler; Pilon's Java heap) |
+| `ARVA_TOOL_THREADS` | — (no cap) | Administrator cap: no tool run gets more threads, whatever the [performance profile](#on-a-mac-the-launcher-and-the-performance-profile) or a request says |
+| `ARVA_TOOL_MEMORY_GB` | — (no cap) | Administrator cap on the memory (GB) a tool run may be given (SPAdes' `-m`, also inside Unicycler; Pilon's Java heap; samtools sort) |
+| `ARVA_HOST_*` | — | Facts about the computer, set by `scripts/start.sh` on a Mac (`PLATFORM`, `MODEL_NAME`, `MODEL_ID`, `CHIP`, `PERF_CORES`, `EFF_CORES`, `PHYSICAL_CORES`, `LOGICAL_CPUS`, `MEMORY_BYTES`, `OS_VERSION`, `ARCH`, `DOCKER_CPUS`, `DOCKER_MEMORY_BYTES`); validated and bounded, unknown when empty |
 | `ARVA_TOOL_TIMEOUT_SECONDS` | 43200 | A tool run is stopped after this time |
 
 ## Running tests
@@ -521,11 +600,14 @@ The API test suite **drops and recreates** the schema of the test database — n
 | Flye: "found no read longer than the minimum overlap" | The reads are shorter than 1,000 bp (or than the minimum overlap you set): Flye needs long reads |
 | Flye: "could not assemble the reads" | Too few reads or too little coverage, or a read type that does not match the data (check the error rate on the Read statistics tab) |
 | Two Flye runs on the same reads differ | Expected with more than one thread: Flye is not deterministic then; the thread count is recorded with each run |
-| SPAdes or Unicycler: "ran out of memory" | Raise the memory limit in the dialog (up to `ARVA_TOOL_MEMORY_GB`) if the computer has more, or assemble fewer reads (e.g. Filtlong/fastp first) |
+| SPAdes or Unicycler: "ran out of memory" | Raise the memory limit in the dialog (up to the memory ARVA can use, shown in Settings → Performance) if the computer has more, or assemble fewer reads (e.g. Filtlong/fastp first); on a Mac, give Docker Desktop more memory |
+| A job failed: "stopped by the operating system with SIGKILL" | The tool most likely ran out of memory: choose a lighter profile or fewer threads in Settings → Performance, or give Docker Desktop more memory (Settings → Resources → Advanced), then start ARVA again with `scripts/start.sh` |
+| Settings → Performance says the computer is unknown | ARVA was started with a plain `docker compose up`: on a Mac start it with `scripts/start.sh`; the profile meanwhile follows the containers' CPUs and memory |
+| The Mac gets hot or slow while ARVA works | Choose Light in Settings → Performance (new jobs use it), or fewer threads in the tool's dialog |
 | SPAdes refused with "paths with white space" | The storage folder (`ARVA_STORAGE_ROOT`) contains a space or `* ? [ ]`, which Debian's SPAdes launcher splits: move it |
 | Unicycler: "needs racon" / "needs tblastn" (HTTP 409) | Install `racon` (long reads) or `ncbi-blast+` (always), then **Re-detect** on the Tools page |
 | A SPAdes contig shows a lower coverage than Flye's for the same genome | Expected: SPAdes reports k-mer coverage, which is lower than read depth; ARVA labels each kind and never compares them |
-| Pilon: "ran out of Java heap memory" | Raise the Java heap in the polishing dialog (up to `ARVA_TOOL_MEMORY_GB`) if the computer has the memory |
+| Pilon: "ran out of Java heap memory" | Raise the Java heap in the polishing dialog (up to the memory ARVA can use) if the computer has the memory |
 | Pilon shows *Detection failed*: "does not name the jar it runs" | The `pilon` found is not Debian's launcher: set `ARVA_TOOL_PILON` to the path of `pilon.jar` |
 | Racon: "found no overlaps" | No read aligned to the draft: check that the reads belong to the isolate and that the long-read type (minimap2 preset) matches them |
 | A Racon-polished contig is a few bases shorter than its draft | Expected: Racon trims its consensus where few reads support it, which happens at contig ends; the polishing result lists the bases removed at each end |

@@ -10,7 +10,7 @@ import { Card, CardBody, CardHeader } from "@/components/ui/card";
 import { ErrorNote } from "@/components/ui/misc";
 import { useT } from "@/i18n";
 import { api } from "@/lib/api";
-import { escapeHtml, fmtDate, fmtInt, fmtNum } from "@/lib/format";
+import { escapeHtml, fmtDate, fmtInt, fmtNum, fmtPct } from "@/lib/format";
 import { ADAPTER_FAIL_PERCENT, ADAPTER_WARN_PERCENT, binCentre, copiesText, curvePeak, isLongReadData, positionText } from "@/lib/qcData";
 import type { AnalysisJobDetail, FastqcData, SequencingTechnology } from "@/lib/types";
 
@@ -96,7 +96,7 @@ function AdapterContentChart({ data, prefix }: { data: FastqcData; prefix: strin
         const items = p as { dataIndex: number; seriesName: string; value: [number, number] }[];
         const pos = ac.positions[items[0].dataIndex];
         return `<b>${escapeHtml(t("qcdata.adapter.position", { position: positionText(pos) }))}</b>${items
-          .map((i) => tooltipRow(i.seriesName, `${fmtNum(i.value[1], 2)}%`))
+          .map((i) => tooltipRow(i.seriesName, fmtPct(i.value[1], 2)))
           .join("")}`;
       },
     },
@@ -177,7 +177,7 @@ function DuplicationChart({ data, longReads, prefix }: { data: FastqcData; longR
       axisPointer: { type: "shadow", shadowStyle: { color: th.grid, opacity: 0.6 } },
       formatter: (p: unknown) => {
         const b = dup.bins[(p as { dataIndex: number }[])[0].dataIndex];
-        return `<b>${escapeHtml(t("qcdata.dup.colLevel"))} ${escapeHtml(b.level)}</b>${tooltipRow(t("qcdata.dup.copies"), copiesText(b.level))}${tooltipRow(t("qcdata.dup.percent"), `${fmtNum(b.percent_of_total, 2)}%`)}`;
+        return `<b>${escapeHtml(t("qcdata.dup.colLevel"))} ${escapeHtml(b.level)}</b>${tooltipRow(t("qcdata.dup.copies"), copiesText(b.level))}${tooltipRow(t("qcdata.dup.percent"), fmtPct(b.percent_of_total, 2))}`;
       },
     },
     xAxis: {

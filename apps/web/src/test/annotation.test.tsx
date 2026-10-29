@@ -42,7 +42,7 @@ const plan: AnnotationPlan = {
   annotator: "bakta",
   tool: {
     status: "available", version: "1.12.2", version_validated: true, message: "", reason: "bakta_steps_skipped", path: "/root/.arva-tools/bakta/bin/bakta",
-    license: "GPL-3.0", citation: "Schwengers O et al. 2021", citation_url: "https://doi.org/10.1099/mgen.0.000685", max_threads: 4,
+    license: "GPL-3.0", citation: "Schwengers O et al. 2021", citation_url: "https://doi.org/10.1099/mgen.0.000685", max_threads: 4, default_threads: 4,
   },
   steps: plannedSteps,
   assembly: {

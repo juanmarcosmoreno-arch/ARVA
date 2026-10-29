@@ -293,6 +293,18 @@ as inline SVG (escaped names), a sequence table and the charts' numbers; the JSO
 - The circular map has no zoom (the linear view is for detail) and draws at most 50,000 features per map; contigs of a
   draft assembly on one circle are in the annotator's order, not in genome order.
 
+## Performance profiles (P1) ✅
+
+- Host detection (`app/services/host.py`): usable CPUs (affinity, cgroup v2/v1 quota), memory (cgroup limit or
+  `MemTotal`), container detection; the Mac's model, chip, performance/efficiency cores, memory, macOS version and
+  Docker Desktop's allocation, read natively on macOS or passed in by `scripts/start.sh` (`ARVA_HOST_*`, validated).
+- Light / Balanced / Maximum / Custom profiles (ARVA heuristics), chosen automatically by Mac family or by cores and
+  memory, stored server-side, applied to every tool's default and maximum threads and to the tools with a memory
+  option; tools run through `nice`; each job records its resources; SIGKILL failures name memory and what to change;
+  Settings → Performance with the Docker Desktop recommendation.
+- **Not yet validated on a real Mac**: the launcher and the macOS readers were tested with constructed outputs only.
+  The profiles' shares are heuristics, not measurements of heat or speed.
+
 ## Later phases
 
 | Phase | Scope |

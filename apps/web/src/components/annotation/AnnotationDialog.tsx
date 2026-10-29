@@ -161,8 +161,8 @@ export function AnnotationDialog({
             <Field label={t("annotation.minContig")} hint={t("annotation.minContigHint")}>
               <Input type="number" min={1} value={form.minContig} onChange={(e) => set("minContig", e.target.value)} />
             </Field>
-            <Field label={t("annotation.threads")} hint={t("annotation.threadsHint", { max: p?.tool.max_threads ?? "?" })}>
-              <Input type="number" min={1} max={p?.tool.max_threads} placeholder={String(p?.tool.max_threads ?? "")} value={form.threads} onChange={(e) => set("threads", e.target.value)} />
+            <Field label={t("annotation.threads")} hint={t("annotation.threadsHint", { max: p?.tool.max_threads ?? "?", default: p?.tool.default_threads ?? "?" })}>
+              <Input type="number" min={1} max={p?.tool.max_threads} placeholder={String(p?.tool.default_threads ?? "")} value={form.threads} onChange={(e) => set("threads", e.target.value)} />
             </Field>
           </div>
           {bakta ? <BaktaOptions form={form} set={set} plan={p} /> : <ProkkaOptions form={form} set={set} plan={p} />}

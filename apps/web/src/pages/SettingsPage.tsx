@@ -3,6 +3,7 @@ import { ShieldCheck } from "lucide-react";
 import { Card, CardBody, CardHeader } from "@/components/ui/card";
 import { Field, Select } from "@/components/ui/form";
 import { PageHeader } from "@/components/ui/misc";
+import { PerformanceSection } from "@/components/settings/PerformanceSection";
 import { useT } from "@/i18n";
 import { useSettings, type GuideLevel, type Language, type Theme } from "@/store/settings";
 
@@ -19,16 +20,16 @@ export function SettingsPage() {
       <PageHeader title={t("settings.title")} />
       <div className="grid gap-6 lg:grid-cols-2">
         <Card>
-          <CardHeader title="Interface" description="Stored in this browser only." />
+          <CardHeader title={t("settings.interface")} description={t("settings.interfaceHint")} />
           <CardBody className="space-y-4">
             <Field label={t("settings.theme")}>
               <Select value={s.theme} onChange={(e) => s.setTheme(e.target.value as Theme)}>
-                <option value="system">System</option>
-                <option value="light">Light</option>
-                <option value="dark">Dark</option>
+                <option value="system">{t("settings.theme.system")}</option>
+                <option value="light">{t("settings.theme.light")}</option>
+                <option value="dark">{t("settings.theme.dark")}</option>
               </Select>
             </Field>
-            <Field label={t("settings.language")} hint="Interface and ARVA Guide. Scientific documentation is in English.">
+            <Field label={t("settings.language")} hint={t("settings.languageHint")}>
               <Select value={s.language} onChange={(e) => s.setLanguage(e.target.value as Language)}>
                 <option value="en">English</option>
                 <option value="es">Español</option>
@@ -36,9 +37,9 @@ export function SettingsPage() {
             </Field>
             <Field label={t("settings.guideLevel")}>
               <Select value={s.guideLevel} onChange={(e) => s.setGuideLevel(e.target.value as GuideLevel)}>
-                <option value="beginner">Beginner — plain language</option>
-                <option value="intermediate">Intermediate — adds methods, limitations and references</option>
-                <option value="advanced">Advanced — adds formulas and methodological detail</option>
+                <option value="beginner">{t("settings.level.beginner")}</option>
+                <option value="intermediate">{t("settings.level.intermediate")}</option>
+                <option value="advanced">{t("settings.level.advanced")}</option>
               </Select>
             </Field>
             <label className="flex items-start gap-2.5">
@@ -56,22 +57,31 @@ export function SettingsPage() {
           </CardBody>
         </Card>
         <Card>
-          <CardHeader title="System" />
+          <CardHeader title={t("settings.system")} />
           <CardBody className="space-y-3 text-sm">
             <div className="flex justify-between">
-              <span className="text-muted-foreground">API status</span>
-              <span>{health.data?.status === "ok" ? <span className="text-success">Connected</span> : health.isLoading ? "…" : <span className="text-danger">Unreachable</span>}</span>
+              <span className="text-muted-foreground">{t("settings.apiStatus")}</span>
+              <span>
+                {health.data?.status === "ok" ? (
+                  <span className="text-success">{t("settings.apiConnected")}</span>
+                ) : health.isLoading ? (
+                  "…"
+                ) : (
+                  <span className="text-danger">{t("settings.apiUnreachable")}</span>
+                )}
+              </span>
             </div>
             <div className="flex justify-between">
-              <span className="text-muted-foreground">ARVA version</span>
+              <span className="text-muted-foreground">{t("settings.version")}</span>
               <span>{health.data?.version ?? "—"}</span>
             </div>
             <div className="flex gap-2 rounded-lg bg-muted p-3 text-xs text-muted-foreground">
               <ShieldCheck className="h-4 w-4 shrink-0 text-arva-teal" />
-              ARVA runs locally. Sequence data are never sent to external services; external links in the Guide open documentation only.
+              {t("settings.privacy")}
             </div>
           </CardBody>
         </Card>
+        <PerformanceSection />
       </div>
     </div>
   );

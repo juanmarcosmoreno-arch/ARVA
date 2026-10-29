@@ -28,7 +28,7 @@ from arva_core.genome_view import depth_bins, parse_depth_lines, write_depth_pro
 from arva_tools import ToolExecutionError, ToolStatus, ToolTimeoutError
 from arva_tools.dnadiff import DnadiffAdapter, nucmer_version
 from arva_tools.flye import read_link_name
-from arva_tools.mapping import BwaAdapter, Minimap2Adapter, SamtoolsAdapter
+from arva_tools.mapping import SORT_MEMORY_DEFAULT_MB, BwaAdapter, Minimap2Adapter, SamtoolsAdapter
 from arva_tools.pilon import PilonAdapter, PilonParams, java_executable, java_version
 from arva_tools.racon import RaconAdapter, RaconParams
 from arva_tools.registry import detect
@@ -222,11 +222,22 @@ def _depth_profile(ctx: JobContext, samtools: str, bam: Path, name: str, lengths
     return {"path": _rel(ctx, out), "sha256": _sha256(out), "resolution": DEPTH_RESOLUTION}
 
 
+def _sort_memory_mb(ctx: JobContext, threads: int) -> int | None:
+    """samtools sort -m per thread so that all threads stay within the job's memory per job, when samtools' default
+    would not; None keeps the default (sorting with less memory only writes more temporary files)."""
+    memory_gb = (ctx.job.resources or {}).get("memory_gb")
+    if not memory_gb:
+        return None
+    per_thread = memory_gb * 1024 // max(threads, 1)
+    return per_thread if per_thread < SORT_MEMORY_DEFAULT_MB else None
+
+
 def _sorted_bam(ctx: JobContext, samtools: str, sam: Path, name: str, threads: int, logs: Path,
                 index: bool = False) -> Path:
     bam = sam.parent / f"{name}.bam"
-    _run(ctx, SamtoolsAdapter.sort_argv(samtools, sam, bam, threads, sam.parent / f"{name}.sort"), sam.parent,
-         f"{name}.samtools_sort.log", log_dir=logs)
+    argv = SamtoolsAdapter.sort_argv(samtools, sam, bam, threads, sam.parent / f"{name}.sort",
+                                     _sort_memory_mb(ctx, threads))
+    _run(ctx, argv, sam.parent, f"{name}.samtools_sort.log", log_dir=logs)
     sam.unlink()
     if index:
         _run(ctx, SamtoolsAdapter.index_argv(samtools, bam), sam.parent, f"{name}.samtools_index.log", log_dir=logs)
@@ -310,10 +321,12 @@ def _queue_followups(ctx: JobContext, polished: Assembly, draft: Assembly) -> di
         new_pilon_job,
         new_quast_job,
     )
+    from app.services.performance import effective_resources
     from app.services.quast import labels
 
     params = ctx.job.parameters or {}
     out: dict[str, Any] = {}
+    res = effective_resources(ctx.db)
     then = params.get("then_pilon")
     compared = [*(params.get("compare_with") or []), draft.id]
     if then:
@@ -322,7 +335,7 @@ def _queue_followups(ctx: JobContext, polished: Assembly, draft: Assembly) -> di
             job = new_pilon_job(ctx.job.sample, polished, inputs, PilonParams.from_dict(then["params"]),
                                 {"strategy": "hybrid", "quast": params.get("quast", False),
                                  "quast_reference_file_id": params.get("quast_reference_file_id"),
-                                 "compare_with": compared}, parent_job_id=ctx.job.id)
+                                 "compare_with": compared}, res, parent_job_id=ctx.job.id)
         except (ToolUnavailableError, ValueError) as exc:
             out["pilon_error"] = str(exc)
             ctx.log(f"The hybrid strategy's Pilon step could not be queued: {exc}")
@@ -340,7 +353,7 @@ def _queue_followups(ctx: JobContext, polished: Assembly, draft: Assembly) -> di
         reference = ctx.db.get(RawFile, reference_id) if reference_id else None
         try:
             job = new_quast_job(ctx.job.sample, assemblies, labels(assemblies), reference,
-                                QuastParams(threads=params.get("threads") or 1), parent_job_id=ctx.job.id)
+                                QuastParams(threads=params.get("threads") or 1), res, parent_job_id=ctx.job.id)
         except (ToolUnavailableError, ValueError) as exc:
             out["quast_error"] = str(exc)
             ctx.log(f"QUAST could not be queued to compare the assemblies: {exc}")

@@ -112,7 +112,7 @@ describe("QUAST helpers", () => {
     expect(quastProblems(form, undefined)).toEqual([]);
     expect(quastProblems({ ...form, selected: [], minContig: "1.5", threads: "9" }, undefined)).toEqual([
       "quast.problem.assemblies", "quast.problem.minContig", "quast.problem.threads"]);
-    const plan = { tool: { max_threads: 4, aligner: { provided_by: "missing" } }, assemblies: [{ contigs_kept: 0 }] } as unknown as QuastPlan;
+    const plan = { tool: { max_threads: 4, default_threads: 4, aligner: { provided_by: "missing" } }, assemblies: [{ contigs_kept: 0 }] } as unknown as QuastPlan;
     expect(quastProblems({ ...form, referenceId: "ref" }, plan)).toEqual(["quast.problem.nothingKept", "quast.problem.aligner"]);
     expect(quastRequest({ ...form, referenceId: "ref", threads: "2" })).toEqual({ assembly_ids: ["a"], reference_file_id: "ref", min_contig: 500, threads: 2 });
     expect(referenceCandidates([fasta, reads, { ...fasta, id: "bad", is_valid: false }]).map((f) => f.id)).toEqual(["ref"]);
@@ -160,7 +160,7 @@ describe("QUAST dialog", () => {
   it("explains which contigs QUAST leaves out and blocks a run that would skip an assembly", async () => {
     const plan: QuastPlan = {
       tool: { status: "available", version: "5.2.0", version_validated: true, message: "", reason: null,
-        aligner: { provided_by: "path", executable: "/usr/bin/minimap2", version: "2.26-r1175" }, max_threads: 4, default_min_contig: 500 },
+        aligner: { provided_by: "path", executable: "/usr/bin/minimap2", version: "2.26-r1175" }, max_threads: 4, default_threads: 4, default_min_contig: 500 },
       min_contig: 500,
       assemblies: [{ assembly_id: assembly.id, label: "Flye 2.9.3 aaaaaaaa", assembler: "Flye", assembler_version: "2.9.3", read_type: "nano-hq",
         created_at: assembly.created_at, contigs: 8, total_length: 338_399, contigs_kept: 6, length_kept: 337_500, contigs_left_out: 2, length_left_out: 899 }],
@@ -179,5 +179,22 @@ describe("QUAST dialog", () => {
     fireEvent.change(screen.getByRole("spinbutton", { name: /Longitud mínima de contig/ }), { target: { value: "200000" } });
     expect(await screen.findByText(/Ningún contig llega a 200,000 pb/, {}, { timeout: 2000 })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Iniciar la evaluación/ })).toBeDisabled();
+  });
+
+  it("takes its default thread count from the performance profile, bounded by the usable CPUs", async () => {
+    const plan = {
+      tool: { status: "available", version: "5.2.0", version_validated: true, message: "", reason: null,
+        aligner: { provided_by: "path", executable: "/usr/bin/minimap2", version: "2.26-r1175" }, max_threads: 8, default_threads: 3, default_min_contig: 500 },
+      min_contig: 500,
+      assemblies: [{ assembly_id: assembly.id, label: "Flye 2.9.3 aaaaaaaa", assembler: "Flye", assembler_version: "2.9.3", read_type: "nano-hq",
+        created_at: assembly.created_at, contigs: 8, total_length: 338_399, contigs_kept: 8, length_kept: 338_399, contigs_left_out: 0, length_left_out: 0 }],
+      reference: null,
+    } as QuastPlan;
+    vi.spyOn(api, "quastPreview").mockResolvedValue(plan);
+    renderWith(<QuastDialog open onOpenChange={() => undefined} sampleId="s" assemblies={[assembly]} files={[reads, fasta]} />);
+    const threads = await screen.findByRole("spinbutton", { name: /^Hilos/ });
+    expect(threads).toHaveAttribute("placeholder", "3");
+    expect(threads).toHaveAttribute("max", "8");
+    expect(screen.getByText("1–8 en este equipo (vacío: 3, del perfil de rendimiento); QUAST los reparte entre los ensamblajes.")).toBeInTheDocument();
   });
 });

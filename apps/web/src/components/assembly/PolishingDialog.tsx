@@ -132,7 +132,7 @@ export function PolishingDialog({
               badge: s === suggested ? t("polishing.suggested") : undefined,
             }))}
           />
-          <p className="text-xs text-muted-foreground">{t("polishing.strategyBasis", { technology: technologyLabel[technology] ?? technology })}</p>
+          <p className="text-xs text-muted-foreground">{t("polishing.strategyBasis", { technology: technologyLabel(technology) })}</p>
           {p && <Tools plan={p} strategy={form.strategy} />}
         </Section>
 
@@ -282,8 +282,8 @@ export function PolishingDialog({
               ))}
             </Select>
           )}
-          <Field label={t("polishing.threads")} hint={t("polishing.threadsHint", { max: p?.max_threads ?? "?" })}>
-            <Input type="number" min={1} max={p?.max_threads} placeholder={String(p?.max_threads ?? "")} value={form.threads} onChange={(e) => set("threads", e.target.value)} />
+          <Field label={t("polishing.threads")} hint={t("polishing.threadsHint", { max: p?.max_threads ?? "?", default: p?.default_threads ?? "?" })}>
+            <Input type="number" min={1} max={p?.max_threads} placeholder={String(p?.default_threads ?? "")} value={form.threads} onChange={(e) => set("threads", e.target.value)} />
           </Field>
         </Section>
 
@@ -292,7 +292,7 @@ export function PolishingDialog({
             <input type="checkbox" className={CHECK} checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} />
             <span>
               {t("shortReads.confirm")}
-              <span className="block text-muted-foreground">{t("shortReads.confirmHint", { technology: technologyLabel[p.sample_technology] })}</span>
+              <span className="block text-muted-foreground">{t("shortReads.confirmHint", { technology: technologyLabel(p.sample_technology) })}</span>
             </span>
           </label>
         )}

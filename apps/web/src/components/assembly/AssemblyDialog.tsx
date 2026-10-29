@@ -190,7 +190,7 @@ function AssemblerChoice({
         })}
       </div>
       <p className={cn("text-xs", fit === "none" ? "text-amber-700 dark:text-warning" : "text-muted-foreground")}>
-        {t(`assembly.assembler.fit.${fit}`, { technology: technologyLabel[technology] })}
+        {t(`assembly.assembler.fit.${fit}`, { technology: technologyLabel(technology) })}
       </p>
       <label className="flex items-start gap-2 text-xs">
         <input type="checkbox" className={CHECK} checked={several} onChange={(e) => onSeveral(e.target.checked)} />

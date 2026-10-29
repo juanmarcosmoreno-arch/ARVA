@@ -45,8 +45,9 @@ class DetectedTool:
     version: str | None = None
     version_validated: bool = False
     message: str = ""
-    # Stable code for a tool-specific message, so the interface can show it in the user's language.
+    # Stable code of the message, with its values, so the interface can show it in the user's language.
     reason: str | None = None
+    reason_params: dict[str, str] = field(default_factory=dict)
 
 
 def parse_version(text: str) -> tuple[int, ...]:
@@ -96,7 +97,7 @@ class ToolAdapter:
     def detect(self) -> DetectedTool:
         path = resolve_executable(self.info.id, self.info.executable)
         if path is None:
-            return DetectedTool(self.info, ToolStatus.not_installed, message="Executable not found")
+            return DetectedTool(self.info, ToolStatus.not_installed, message="Executable not found", reason="not_found")
         try:
             with isolated_home() as home:
                 proc = subprocess.run(
@@ -114,7 +115,7 @@ class ToolAdapter:
         match = self.version_pattern.search(proc.stdout + "\n" + proc.stderr)
         if not match:
             return DetectedTool(
-                self.info, ToolStatus.failed, path, message="Version could not be determined"
+                self.info, ToolStatus.failed, path, message="Version could not be determined", reason="no_version"
             )
         version = match.group(1)
         if parse_version(version) < parse_version(self.info.min_version):
@@ -124,14 +125,15 @@ class ToolAdapter:
                 path,
                 version,
                 message=f"Version {version} is older than the minimum supported {self.info.min_version}",
+                reason="too_old",
+                reason_params={"version": version, "min": self.info.min_version},
             )
         validated = version in self.info.tested_versions
+        tested = ", ".join(self.info.tested_versions)
+        if validated:
+            return DetectedTool(self.info, ToolStatus.available, path, version, True)
         return DetectedTool(
-            self.info,
-            ToolStatus.available,
-            path,
-            version,
-            validated,
-            "" if validated else
-            f"Version {version} has not been validated with ARVA (validated: {', '.join(self.info.tested_versions)})",
+            self.info, ToolStatus.available, path, version, False,
+            f"Version {version} has not been validated with ARVA (validated: {tested})",
+            "not_validated", {"version": version, "tested": tested},
         )
