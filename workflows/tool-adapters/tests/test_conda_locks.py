@@ -32,7 +32,8 @@ def test_each_platform_has_a_valid_lock_or_a_note(tool):
             packages = conda_locks.check_lock(lock, plat)
             assert all(len(p["sha256"]) == 64 for p in packages)
             names = [p["url"].rsplit("/", 1)[1] for p in packages]
-            assert any(n.startswith(f"{tool}-") for n in names)
+            package = conda_locks.read_spec(tool)[0].split("=")[0]
+            assert any(n.startswith(f"{package}-") for n in names)
             spec = " ".join(conda_locks.read_spec(tool))
             assert f"# spec: {spec}" in lock.read_text()
 

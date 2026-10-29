@@ -4,7 +4,7 @@ import { memo, useEffect, useMemo, useRef, useState, type PointerEvent as ReactP
 import { type ChartTheme, useChartTheme } from "@/components/charts/theme";
 import { Button } from "@/components/ui/button";
 import { ErrorNote } from "@/components/ui/misc";
-import { useT } from "@/i18n";
+import { type TranslationKey, useT } from "@/i18n";
 import { api } from "@/lib/api";
 import {
   BASE_PX,
@@ -37,7 +37,9 @@ import {
   zoomView,
 } from "@/lib/explorer";
 import { fmtBp, fmtInt, fmtNum, fmtPct } from "@/lib/format";
-import type { CoverageTrack, FeatureLayout, FeatureLayoutItem, GcTrack } from "@/lib/types";
+import { KIND_TONE, kindText, ringOf } from "@/lib/amr";
+import { categoryKey, isWholeElement } from "@/lib/mobile";
+import type { AmrMapHit, CoverageTrack, FeatureLayout, FeatureLayoutItem, GcTrack } from "@/lib/types";
 
 const GUTTER = 96;
 const RULER_H = 30;
@@ -54,6 +56,10 @@ const GAP = 10;
 export function groupColour(theme: ChartTheme, group: FeatureGroup): string {
   return group === "gap" ? theme.muted : theme.series[group === "coding" ? 0 : group === "rna" ? 1 : 2];
 }
+
+/** The AMR ring and track (AMR genes, point mutations, stress response) and the virulence ring: the palette's slots
+ * after the custom ring's. */
+export const amrColour = (theme: ChartTheme, ring: "amr" | "virulence") => theme.series[ring === "amr" ? 4 : 5];
 
 /** The diverging pair for GC skew: blue (G > C) and red (C > G), validated against both chart surfaces. */
 export const SKEW = { light: { pos: "#2B54C4", neg: "#e34948" }, dark: { pos: "#4A88EC", neg: "#e66767" } };
@@ -114,6 +120,38 @@ export function GenomeBrowser(p: Props) {
     const ps = piecesOf(features, length);
     return { pieces: ps, lanes: assignLanes(ps) };
   }, [features, length]);
+  const amrRun = useQuery({ queryKey: ["annotationAmr", p.annotationId], queryFn: () => api.annotationAmr(p.annotationId), staleTime: 60_000 });
+  const amrHits = useMemo(() => (amrRun.data?.hits ?? []).filter((h) => h.contig === p.contig.id && h.start != null), [amrRun.data, p.contig.id]);
+  const vfdbRun = useQuery({ queryKey: ["annotationVirulence", p.annotationId], queryFn: () => api.annotationVirulence(p.annotationId), staleTime: 60_000 });
+  const mobileRun = useQuery({ queryKey: ["annotationMobile", p.annotationId], queryFn: () => api.annotationMobile(p.annotationId), staleTime: 60_000 });
+  const vfdbItems = useMemo<TrackItem[]>(
+    () =>
+      (vfdbRun.data?.hits ?? [])
+        .filter((h) => h.contig === p.contig.id)
+        .map((h) => ({
+          id: h.id,
+          start: h.start,
+          end: h.end,
+          whole: h.hit_kind === "complete" || h.hit_kind === "complete_gaps",
+          featureId: h.feature?.feature_id ?? null,
+          title: [`${h.gene} · ${t("virulence.sourceName.vfdb")}`, h.vf_name ?? h.product ?? "", h.vf_category ?? "", `${t(`mobile.completeness.${["complete", "complete_gaps", "partial", "contig_end"].includes(h.hit_kind) ? h.hit_kind : "unknown"}` as TranslationKey)} · ${t("amr.col.identity")} ${fmtNum(h.identity ?? 0, 2)} · ${t("amr.col.coverage")} ${fmtNum(h.coverage ?? 0, 2)}`, `${fmtInt(h.start)}–${fmtInt(h.end)} (${h.strand ?? "?"})`, t("virulence.notPhenotype")].filter(Boolean).join("\n"),
+        })),
+    [vfdbRun.data, p.contig.id, t],
+  );
+  const mobileItems = useMemo<TrackItem[]>(
+    () =>
+      (mobileRun.data?.elements ?? [])
+        .filter((e) => e.contig === p.contig.id)
+        .map((e) => ({
+          id: e.id,
+          start: e.start,
+          end: e.end,
+          whole: isWholeElement(e),
+          featureId: e.feature?.feature_id ?? null,
+          title: [`${e.element ?? "?"} · ${t(categoryKey(e.category))}`, e.element_type ?? "", t(`mobile.method.${e.method}` as TranslationKey), `${fmtInt(e.start)}–${fmtInt(e.end)} (${e.strand ?? "?"})`].filter(Boolean).join("\n"),
+        })),
+    [mobileRun.data, p.contig.id, t],
+  );
   const gaps = useMemo(() => intergenic(features, length), [features, length]);
   const visible = useMemo(() => visiblePieces(pieces, v), [pieces, v]);
   const detailed = visible.length <= MAX_GLYPHS;
@@ -143,7 +181,13 @@ export function GenomeBrowser(p: Props) {
   const yPlus = RULER_H + 4;
   const yMid = yPlus + nPlus * LANE_H;
   const yMinus = yMid + nMid * LANE_H;
-  const yGc = yMinus + nMinus * LANE_H + GAP;
+  const yAmr = yMinus + nMinus * LANE_H + GAP;
+  const amrH = amrRun.data?.run ? LANE_H + 4 : 0;
+  const yVfdb = yAmr + amrH + (amrH ? GAP : 0);
+  const vfdbH = vfdbRun.data?.run ? LANE_H + 4 : 0;
+  const yMobile = yVfdb + vfdbH + (vfdbH ? GAP : 0);
+  const mobileH = Object.values(mobileRun.data?.runs ?? {}).some(Boolean) ? LANE_H + 4 : 0;
+  const yGc = yMobile + mobileH + (mobileH ? GAP : 0);
   const ySkew = yGc + LINE_H + GAP;
   const yCov = ySkew + LINE_H + GAP;
   const covH = trackData?.coverage.available ? LINE_H : MSG_H;
@@ -365,6 +409,22 @@ export function GenomeBrowser(p: Props) {
           <TrackLabel y={yPlus + (nPlus * LANE_H) / 2} text={t("explorer.track.forward")} theme={theme} />
           <TrackLabel y={yMid + (nMid * LANE_H) / 2} text={t("explorer.track.axis")} theme={theme} />
           <TrackLabel y={yMinus + (nMinus * LANE_H) / 2} text={t("explorer.track.reverse")} theme={theme} />
+          {amrRun.data?.run && (
+            <AmrTrack
+              y={yAmr}
+              hits={amrHits}
+              x={x}
+              theme={theme}
+              label={t("explorer.track.amr")}
+              onSelect={(h) => {
+                const linked = features.find((f) => f.id === h.feature?.feature_id);
+                if (linked) p.onSelect(linked);
+              }}
+              tooltip={(h) => amrTooltip(t, h)}
+            />
+          )}
+          {vfdbH > 0 && <ElementTrack track="vfdb" y={yVfdb} items={vfdbItems} x={x} colour={amrColour(theme, "virulence")} theme={theme} label={t("explorer.track.vfdb")} onSelect={(id) => { const f = features.find((x) => x.id === id); if (f) p.onSelect(f); }} />}
+          {mobileH > 0 && <ElementTrack track="mobile" y={yMobile} items={mobileItems} x={x} colour={theme.series[1]} theme={theme} label={t("explorer.track.mobile")} onSelect={(id) => { const f = features.find((x) => x.id === id); if (f) p.onSelect(f); }} />}
           <g clipPath="url(#explorer-plot)">
             <line x1={GUTTER} x2={GUTTER + plotW} y1={yMid + (nMid * LANE_H) / 2} y2={yMid + (nMid * LANE_H) / 2} stroke={theme.axis} />
             {gapPixels.map(([a, b], i) => (
@@ -481,6 +541,109 @@ export function GenomeBrowser(p: Props) {
 }
 
 const COMPLEMENT: Record<string, string> = { A: "T", C: "G", G: "C", T: "A", N: "N", a: "t", c: "g", g: "c", t: "a", n: "n" };
+
+/** AMRFinderPlus's elements of the most recent run on this assembly: AMR (and stress) in one colour, virulence in
+ * another; partial, contig-end and internal-stop hits drawn hollow, so an incomplete gene is never shown as whole. */
+function AmrTrack({ y, hits, x, theme, label, onSelect, tooltip }: {
+  y: number;
+  hits: AmrMapHit[];
+  x: (pos: number) => number;
+  theme: ChartTheme;
+  label: string;
+  onSelect: (h: AmrMapHit) => void;
+  tooltip: (h: AmrMapHit) => string;
+}) {
+  return (
+    <g data-track="amr">
+      <TrackLabel y={y + LANE_H / 2 + 2} text={label} theme={theme} />
+      <g clipPath="url(#explorer-plot)">
+        {hits.map((h) => {
+          const colour = amrColour(theme, ringOf(h));
+          const whole = KIND_TONE[h.method_kind] === "success" || h.method_kind === "point";
+          const x0 = x((h.start as number) - 1);
+          return (
+            <rect
+              key={h.id}
+              data-amr={h.element_symbol}
+              x={x0}
+              y={y + 2}
+              width={Math.max(2, x(h.end) - x0)}
+              height={GLYPH_H + 2}
+              rx={2}
+              fill={whole ? colour : theme.surface}
+              stroke={colour}
+              strokeWidth={1.5}
+              style={{ cursor: h.feature ? "pointer" : "default" }}
+              onClick={() => onSelect(h)}
+            >
+              <title>{tooltip(h)}</title>
+            </rect>
+          );
+        })}
+      </g>
+    </g>
+  );
+}
+
+interface TrackItem {
+  id: string;
+  start: number;
+  end: number;
+  /** Drawn filled when whole, hollow when partial. */
+  whole: boolean;
+  featureId: number | null;
+  title: string;
+}
+
+/** One lane of calls from another tool (VFDB hits, mobile elements): whole ones filled, partial ones hollow; a click
+ * opens the annotated CDS the call overlaps most. */
+function ElementTrack({ track, y, items, x, colour, theme, label, onSelect }: {
+  track: string;
+  y: number;
+  items: TrackItem[];
+  x: (pos: number) => number;
+  colour: string;
+  theme: ChartTheme;
+  label: string;
+  onSelect: (featureId: number) => void;
+}) {
+  return (
+    <g data-track={track}>
+      <TrackLabel y={y + LANE_H / 2 + 2} text={label} theme={theme} />
+      <g clipPath="url(#explorer-plot)">
+        {items.map((h) => {
+          const x0 = x(h.start - 1);
+          return (
+            <rect
+              key={h.id}
+              x={x0}
+              y={y + 2}
+              width={Math.max(2, x(h.end) - x0)}
+              height={GLYPH_H + 2}
+              rx={2}
+              fill={h.whole ? colour : theme.surface}
+              stroke={colour}
+              strokeWidth={1.5}
+              style={{ cursor: h.featureId != null ? "pointer" : "default" }}
+              onClick={() => h.featureId != null && onSelect(h.featureId)}
+            >
+              <title>{h.title}</title>
+            </rect>
+          );
+        })}
+      </g>
+    </g>
+  );
+}
+
+function amrTooltip(t: ReturnType<typeof useT>, h: AmrMapHit): string {
+  const values = [h.identity != null ? `${t("amr.col.identity")} ${fmtNum(h.identity, 2)}` : null, h.coverage != null ? `${t("amr.col.coverage")} ${fmtNum(h.coverage, 2)}` : null]
+    .filter(Boolean)
+    .join(" · ");
+  return [`${h.element_symbol} · ${h.type}${h.amr_class ? ` · ${h.amr_class}` : ""}`, h.element_name ?? "", `${kindText(t, h.method_kind)} (${h.method})${values ? ` · ${values}` : ""}`, `${fmtInt(h.start ?? 0)}–${fmtInt(h.end)} (${h.strand ?? "?"})`, t("amr.notPhenotype")]
+    .filter(Boolean)
+    .join("\n");
+}
 
 function TrackLabel({ y, text, theme }: { y: number; text: string; theme: ChartTheme }) {
   return (

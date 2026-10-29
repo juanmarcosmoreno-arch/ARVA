@@ -126,11 +126,40 @@ describe("Databases section", () => {
     const confirm = await within(dialog).findByRole("button", { name: /Download 1\.25 GB/ });
     expect(within(dialog).getByText("/Volumes/JM/ARVA/databases/bakta-light/6.0")).toBeInTheDocument();
     fireEvent.change(within(dialog).getByPlaceholderText("bakta-light/6.0"), { target: { value: "bakta/light-6.0" } });
-    await waitFor(() => expect(planCall).toHaveBeenLastCalledWith("bakta-light", null, "bakta/light-6.0"));
+    await waitFor(() => expect(planCall).toHaveBeenLastCalledWith("bakta-light", null, "bakta/light-6.0", { keep_plasmid_fasta: false, taxonomy_archive: null }));
     expect(confirm).toBeDisabled();
     fireEvent.click(within(dialog).getByRole("checkbox"));
     fireEvent.click(await within(dialog).findByRole("button", { name: /Download 1\.25 GB/ }));
-    await waitFor(() => expect(download).toHaveBeenCalledWith("bakta-light", 1_344_199_496, true, null, "bakta/light-6.0"));
+    await waitFor(() => expect(download).toHaveBeenCalledWith("bakta-light", 1_344_199_496, true, null, "bakta/light-6.0", {}));
+  });
+
+  it("shows what preparing MOB-suite's database adds and repeats the NCBI taxonomy archive shown", async () => {
+    // Facts of the MOB-suite catalogue entry (Zenodo 10304948) and NCBI's taxdump_archive listing on 2026-10-29.
+    const mob = { ...light, key: "mobsuite-3.1.8", name: "MOB-suite database", kind: "mobsuite", tool: "mobsuite", version: "3.1.8", archive_bytes: 472_851_578, install_dir: "mobsuite/3.1.8" };
+    const extras = {
+      taxonomy: { name: "taxdmp_2026-10-01.zip", date: "2026-10-01", url: "https://ftp.ncbi.nlm.nih.gov/pub/taxonomy/taxdump_archive/taxdmp_2026-10-01.zip", bytes: 70_000_000 },
+      taxonomy_archives: [{ name: "taxdmp_2026-10-01.zip", date: "2026-10-01" }, { name: "taxdmp_2026-09-01.zip", date: "2026-09-01" }],
+      keep_plasmid_fasta: false, plasmid_fasta_bytes: 1_641_486_485, extra_bytes: 770_000_000, steps: ["makeblastdb -in repetitive.dna.fas -dbtype nucl"],
+    };
+    vi.spyOn(api, "databaseKinds").mockResolvedValue([...KINDS, kind("mobsuite", "MOB-suite database", "catalogue")]);
+    vi.spyOn(api, "databaseCatalogue").mockResolvedValue([light, mob]);
+    const planCall = vi.spyOn(api, "databasePlan").mockImplementation(async (_k, _d, _f, o) => plan({ entry: mob, extras: { ...extras, ...(o?.taxonomy_archive ? { taxonomy: { ...extras.taxonomy, name: o.taxonomy_archive } } : {}), keep_plasmid_fasta: !!o?.keep_plasmid_fasta } }));
+    const download = vi.spyOn(api, "downloadDatabase").mockResolvedValue({} as ReferenceDatabase);
+    renderSection();
+    fireEvent.click(await screen.findByText("MOB-suite database"));
+    fireEvent.click(await screen.findByRole("button", { name: /Download…/ }));
+    const dialog = await screen.findByRole("dialog");
+    const section = await within(dialog).findByRole("region", { name: /Preparing the MOB-suite database/ });
+    expect(within(section).getByText("makeblastdb -in repetitive.dna.fas -dbtype nucl")).toBeInTheDocument();
+    fireEvent.change(within(section).getByRole("combobox"), { target: { value: "taxdmp_2026-09-01.zip" } });
+    await waitFor(() => expect(planCall).toHaveBeenLastCalledWith("mobsuite-3.1.8", null, null, { keep_plasmid_fasta: false, taxonomy_archive: "taxdmp_2026-09-01.zip" }));
+    fireEvent.click(within(await within(dialog).findByRole("region", { name: /Preparing the MOB-suite database/ })).getByRole("checkbox"));
+    await waitFor(() => expect(planCall).toHaveBeenLastCalledWith("mobsuite-3.1.8", null, null, { keep_plasmid_fasta: true, taxonomy_archive: "taxdmp_2026-09-01.zip" }));
+    expect(await within(dialog).findByText(/Keep the reference plasmids' FASTA \(1\.\d+ G/)).toBeInTheDocument();
+    const boxes = within(dialog).getAllByRole("checkbox");
+    fireEvent.click(boxes[boxes.length - 1]);
+    fireEvent.click(await within(dialog).findByRole("button", { name: /Download 1\.25 GB/ }));
+    await waitFor(() => expect(download).toHaveBeenCalledWith("mobsuite-3.1.8", 472_851_578, true, null, null, { keep_plasmid_fasta: true, taxonomy_archive: "taxdmp_2026-09-01.zip" }));
   });
 
   it("refuses an invalid folder name and says why in Spanish", async () => {

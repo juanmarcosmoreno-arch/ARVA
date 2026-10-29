@@ -373,6 +373,16 @@ function StepsSection({ plan }: { plan: AnnotationPlan }) {
           </li>
         ))}
       </ul>
+      {plan.amr_data && plan.amr_data.used !== "bundled" && (
+        <p className="flex gap-1.5 rounded-lg border border-warning/40 bg-warning/5 p-2.5 text-xs">
+          <Info className="h-3.5 w-3.5 shrink-0" aria-hidden />
+          <span>
+            {plan.amr_data.used === "replacement" && plan.amr_data.replacement
+              ? t("annotation.amrData.replacement", { name: plan.amr_data.replacement.name, version: plan.amr_data.replacement.version ?? "?", bundled: plan.amr_data.bundled.version ?? "?", error: plan.amr_data.bundled.error ?? "" })
+              : t("annotation.amrData.none", { bundled: plan.amr_data.bundled.version ?? "?", error: plan.amr_data.bundled.error ?? "" })}
+          </span>
+        </p>
+      )}
       {plan.dependencies.length > 0 && (
         <details className="text-xs">
           <summary className="cursor-pointer text-muted-foreground">{t("annotation.dependencies")}</summary>

@@ -1,0 +1,35 @@
+SYNOPSIS
+  Find and collate amplicons in assembled contigs
+AUTHOR
+  Torsten Seemann (@torstenseemann)
+USAGE
+  % abricate --list
+  % abricate [options] <contigs.{fasta,gbk,embl}[.gz] ...> > out.tab
+  % abricate [options] --fofn fileOfFilenames.txt > out.tab
+  % abricate --summary <out1.tab> <out2.tab> <out3.tab> ... > summary.tab
+GENERAL
+  --help          This help.
+  --debug         Verbose debug output.
+  --quiet         Quiet mode, no stderr output.
+  --version       Print version and exit.
+  --check         Check dependencies are installed.
+  --threads [N]   Use this many BLAST+ threads [1].
+  --fofn [X]      Run on files listed in this file [].
+DATABASES
+  --setupdb       Format all the BLAST databases.
+  --list          List included databases.
+  --datadir [X]   Databases folder [/env/db].
+  --db [X]        Database to use [ncbi].
+OUTPUT
+  --outfmt [X]    Output format: tsv csv bed gff json [tsv].
+  --noheader      Suppress column header row.
+  --csv           Output CSV instead of TSV.
+  --nopath        Strip filename paths from FILE column.
+FILTERING
+  --minid [n.n]   Minimum DNA %identity [80].
+  --mincov [n.n]  Minimum DNA %coverage [80].
+MODE
+  --summary       Summarize multiple reports into a table.
+  --identity      Use %IDENTITY instead of %COVERAGE in summary table.
+DOCUMENTATION
+  https://github.com/tseemann/abricate

@@ -217,22 +217,53 @@ def bakta_plan(db: Session, sample: Sample, a: Assembly, database_id: str | None
     except InputError as exc:
         code = "database_unavailable" if isinstance(exc, DatabaseNotConnected) else "no_database"
         problems.append({"code": code, "message": str(exc)})
-    dependencies, steps = [], {}
+    dependencies, steps, amr_data = [], {}, None
     if tool["status"] == ToolStatus.available.value and tool["path"]:
         db_path = Path(record.path) if record and record.path else None
-        dependencies = bakta_tool.check_dependencies(tool["path"], db_path)
+        amr_data = bakta_amr_data(db, db_path, tool["path"]) if db_path else None
+        replacement = Path(amr_data["replacement"]["path"]) if amr_data and amr_data["used"] == "replacement" else None
+        dependencies = bakta_tool.check_dependencies(tool["path"], db_path, replacement)
         steps = bakta_tool.plan_steps(dependencies, _db_type(record) if record else None, skip_plot)
     else:
         problems.append({"code": "tool_unavailable", "message": f"Bakta is not available ({tool['status']}): "
                                                                 f"{tool['message']}"})
     if steps and not any(v["run"] for k, v in steps.items() if k not in ("gap", "plot")):
         problems.append({"code": "nothing_to_annotate", "message": "Every annotation step would be skipped here"})
-    return {"annotator": "bakta", "tool": tool, "dependencies": dependencies, "steps": steps,
+    return {"annotator": "bakta", "tool": tool, "dependencies": dependencies, "steps": steps, "amr_data": amr_data,
             "skip_options": bakta_tool.skip_options(steps) if steps else [], "databases": databases,
             "database_id": record.id if record else None, "assembly": facts,
             "suggestions": {"locus_tag": suggested_locus_tag(sample), "complete": facts["all_circular"],
                             "translation_table": 11},
             "translation_tables": list(bakta_tool.TRANSLATION_TABLES), "problems": problems}
+
+
+def bakta_amr_data(db: Session, db_path: Path, executable: str) -> dict[str, Any]:
+    """The AMRFinderPlus data Bakta's AMR expert system will read: the Bakta database's own copy
+    (amrfinderplus-db/latest) when the AMRFinderPlus of Bakta's environment accepts it, otherwise an AMRFinderPlus
+    database ARVA knows that it accepts (the default first), put in its place by a composed view of the database at
+    run time; None used when there is neither (the CDS step is then skipped)."""
+    from app.services.databases import USABLE, availability
+
+    env = bakta_tool.env_for(executable)
+    bundled = bakta_tool.amrfinder_database_check(bakta_tool.amrfinder_data(db_path), env)
+    out: dict[str, Any] = {"bundled": {**bundled, "path": str(bakta_tool.amrfinder_data(db_path))},
+                           "used": "bundled" if bundled["status"] == "ok" else None, "replacement": None}
+    if bundled["status"] == "ok":
+        return out
+    rows = db.scalars(select(ReferenceDatabase).where(ReferenceDatabase.kind == "amrfinderplus",
+                                                      ReferenceDatabase.status.in_(USABLE))
+                      .order_by(ReferenceDatabase.is_default.desc(), ReferenceDatabase.created_at.desc()))
+    for r in rows:
+        variant = ((r.details or {}).get("detection") or {}).get("variant")
+        if not availability(r)[0] or variant != "release" or not r.path:
+            continue
+        check = bakta_tool.amrfinder_database_check(Path(r.path), env)
+        if check["status"] == "ok":
+            out["used"] = "replacement"
+            out["replacement"] = {"id": r.id, "key": r.key, "name": r.name, "version": r.version,
+                                  "checksum": r.checksum, "path": r.path}
+            break
+    return out
 
 
 # --- Prokka --------------------------------------------------------------------------------------------------

@@ -541,36 +541,36 @@ when it exists; the Docker image installs QUAST and minimap2.
 
 ### Bakta and Prokka (genome annotation)
 
-The Annotation tab annotates an assembly with Bakta (recommended) or Prokka. Install the programs Bakta's steps
-call, and Prokka, from the distribution, and Bakta from PyPI into its own virtual environment:
+The Annotation tab annotates an assembly with Bakta (recommended) or Prokka. Bakta 1.12.2 and every program it runs
+come from one pinned Bioconda environment (see *Bioconda tools from pinned locks* below); Prokka and its programs
+come from the distribution:
 
 ```bash
-# Ubuntu 24.04 (validated): tRNAscan-SE 2.0.12, Aragorn 1.2.41, Infernal 1.1.5, PILER-CR 1.06, DIAMOND 2.1.9,
-# HMMER 3.4, Prodigal 2.6.3, barrnap 0.9, Prokka 1.14.6+dfsg-6 (about 225 MB with their dependencies)
-sudo apt install trnascan-se aragorn infernal pilercr diamond-aligner hmmer prodigal barrnap prokka
-python3 -m venv ~/.arva-tools/bakta
-~/.arva-tools/bakta/bin/pip install "bakta==1.12.2" "biopython==1.88" "xopen==2.1.0" "requests==2.34.2" \
-  "alive-progress==3.3.0" "PyYAML==6.0.3" "pyrodigal==3.7.1" "pyhmmer==0.12.3" "pyCirclize==1.10.1"
-export ARVA_TOOL_BAKTA=~/.arva-tools/bakta/bin/bakta     # about 320 MB; Python 3.12.3 here
+python3 scripts/conda_locks.py install bakta ~/.arva-tools/conda/bakta      # linux-64 only (see below)
+export ARVA_TOOL_BAKTA=~/.arva-tools/conda/bakta/bin/bakta                    # 1,429 MB installed
+# Prokka 1.14.6+dfsg-6 and its programs (Ubuntu 24.04, validated):
+sudo apt install aragorn infernal hmmer prodigal barrnap prokka
 ```
 
-Then install the Bakta database from **Tools & Databases → Databases** (light 6.0 is 3.7 GiB unpacked). Bakta's
-own `bakta_db` is not needed.
+The environment (`docker/conda-locks/bakta/`, spec `bakta=1.12.2=pyhdfd78af_0` with `ncbi-amrfinderplus=4.2.7`)
+holds the versions Bakta's own start-up checks require: tRNAscan-SE 2.0.13, Aragorn 1.2.41, Infernal 1.1.5,
+PILER-CR 1.06 (Bioconda's build passes ARVA's crash test, unlike Ubuntu's), Pyrodigal 3.7.1, AMRFinderPlus 4.2.7,
+PyHMMER 0.12.3, DIAMOND 2.2.8, BLAST+ 2.17.0 and pyCirclize 1.10.1. ARVA puts the environment's `bin/` first in PATH
+for Bakta's checks and its run (Bakta calls its programs by name), so every step can run, CDS included.
 
-What Bakta can do depends on the programs it finds: at start-up it checks one for each step and stops if one is
-missing or too old. ARVA runs the same checks before every run and passes Bakta's own `--skip-*` options for the
-steps that cannot run, recording why (the Tools page and the run dialog list them). With the Ubuntu 24.04
-packages above:
+Then install the Bakta database from **Tools & Databases → Databases** (light 6.0 is 3.7 GiB unpacked). Bakta's own
+`bakta_db` is not needed. **CDS needs an AMRFinderPlus database too**: Bakta's AMR expert system runs `amrfinder
+--database <db>/amrfinderplus-db/latest`, and the copy inside the light database 6.0 (2024-12-18.1) is older than
+AMRFinderPlus 4.2.7 accepts ("Software requires database version at least 2025-09-22.2"). Bakta's installer would
+fix this with `amrfinder_update --force_update`, which fetches NCBI's latest release unpinned; ARVA does not.
+Download a dated AMRFinderPlus release in the Database Manager instead (below): ARVA then gives Bakta a view of
+its database — links to every file of the read-only Bakta database, with `amrfinderplus-db/latest` pointing to the
+AMRFinderPlus database — inside the job's temporary folder, records which AMRFinderPlus data were used, and
+removes the view after the run. Without such a database ARVA skips the CDS step and says why.
 
-- **CDS and sORF are skipped.** Bakta 1.12.2 needs AMRFinderPlus ≥ 4.2.7 (no Ubuntu or Debian package) and
-  DIAMOND ≥ 2.2.0 (Ubuntu has 2.1.9) for CDS, and DIAMOND for sORF. ARVA does not download other binaries; with
-  AMRFinderPlus and a recent DIAMOND on PATH (or `ARVA_TOOLS_PATH`) the steps run, but that setup is not
-  validated with ARVA yet. Prokka predicts CDS in the meantime.
-- **oriC/oriV/oriT are skipped**: BLAST+ 2.12.0 is older than the 2.17.0 Bakta requires.
-- **CRISPR is skipped**: Ubuntu's `pilercr 1.06+dfsg-5` passes Bakta's version check but crashes (SIGSEGV) on any
-  non-empty input, and Bakta would then only print a warning and report no arrays. ARVA runs PILER-CR on a short
-  test sequence before each run and skips the step when it crashes.
-- tRNA, tmRNA, rRNA, ncRNA, ncRNA regions, gaps and the circular plot (pyCirclize, drawn offline) run.
+What Bakta can do still depends on the programs it finds: at start-up it checks one for each step and stops if one
+is missing or too old. ARVA runs the same checks before every run and passes Bakta's own `--skip-*` options for the
+steps that cannot run, recording why (the Tools page and the run dialog list them).
 
 Prokka (GPL-3.0-or-later; its README states that its author no longer maintains it and recommends Bakta) uses the
 databases of the Debian package in `/usr/share/prokka/db` (104 MB). They are not indexed, and Prokka refuses
@@ -580,32 +580,38 @@ MinCED (CRISPR) and SignalP are not packaged, so those steps do not run. Prokka 
 options internally, so ARVA restricts genus, species, strain and locus tags to letters, digits and a few
 punctuation marks; contig names longer than 37 characters can be replaced with `contig_1`, … for Prokka.
 
-**Docker** (Debian bookworm, not validated with ARVA): the image installs the same packages where bookworm has
-them (`trnascan-se`, `infernal`, `hmmer`, `barrnap` and `prokka` are amd64-only) and Bakta into
-`/opt/arva-tools/bakta`. Bookworm's versions are older: tRNAscan-SE 2.0.10, Aragorn 1.2.38, Infernal 1.1.4 and
-DIAMOND 2.1.3 are below Bakta's minimums, so ARVA's checks skip tRNA, tmRNA, rRNA and ncRNA as well, and say so.
+**Docker** (not built here): on amd64 the image takes Bakta from the `conda-tools` stage, with all its programs.
+Bioconda has no BLAST+ 2.17.0 for linux-aarch64, which Bakta's recipe requires, so there is no Bakta lock for arm64
+(`docker/conda-locks/bakta/linux-aarch64.unavailable`); arm64 images (Apple Silicon) install Bakta 1.12.2 from PyPI
+with Debian bookworm's programs, whose older versions make ARVA's checks skip tRNA, tmRNA, rRNA, ncRNA, CDS, sORF and
+oriC/oriV/oriT there (tRNAscan-SE 2.0.10, Aragorn 1.2.38, Infernal 1.1.4, DIAMOND 2.1.3, no AMRFinderPlus on PATH,
+BLAST+ 2.12.0), and say so. `ARVA_TOOL_BAKTA=/opt/arva-tools/bin/bakta` is a link to whichever Bakta the image has.
 Bookworm's `prokka 1.14.6+dfsg-4` lacks the kingdom protein sets (restored in `1.14.6+dfsg-6`), so ARVA reports
 Prokka as unable to annotate there. The database volume is `ARVA_DB_DIR` (`/databases`).
 
-`scripts/test-all.sh` uses `~/.arva-tools/bakta/bin/bakta` when it exists; the real Bakta tests use the light
-database at `ARVA_TEST_BAKTA_DB` (default `~/.arva-db/bakta-light/6.0`) and are skipped without it.
+`scripts/test-all.sh` uses `~/.arva-tools/conda/bakta/bin/bakta` when it exists; the real Bakta tests use the light
+database at `ARVA_TEST_BAKTA_DB` (default `~/.arva-db/bakta-light/6.0`) and the AMRFinderPlus database at
+`ARVA_TEST_AMRFINDER_DB` (default `~/.arva-db/amrfinderplus/2026-08-07.1`), and are skipped without them.
 
-**Disk space for annotation** (measured on the development system, 2026-10-28):
+**Disk space for annotation** (measured on the development system, 2026-10-29):
 
 | Item | Where | Size |
 |---|---|---|
-| Bakta 1.12.2 environment | `~/.arva-tools/bakta` (`ARVA_TOOL_BAKTA`) | 319 MB |
-| Distribution packages above (Bakta's programs and Prokka) | system | about 225 MB |
+| Bakta 1.12.2 environment (Bakta and all its programs) | `~/.arva-tools/conda/bakta` (`ARVA_TOOL_BAKTA`) | 1,429 MB; 359 MB of packages downloaded while it is created (removed afterwards) |
+| Distribution packages for Prokka | system | about 225 MB |
 | Prokka's indexed databases, per running job | the job's folder, removed after the run | about 150 MB |
 | Bakta light database 6.0 | `ARVA_DB_DIR/bakta-light/6.0` (here `ARVA_DB_DIR=~/.arva-db`) | 3,994,877,552 bytes in 47 files and a `latest` link (3.8 GB on disk); the 1,344,199,496-byte archive is needed while it downloads and is deleted after the checked unpacking |
+| AMRFinderPlus database 2026-08-07.1 (for Bakta's CDS step and AMR detection) | `ARVA_DB_DIR/amrfinderplus/2026-08-07.1` | 124,922,531 bytes downloaded, 252,182,468 bytes (162 files) once indexed |
 | Bakta full database 6.0 (not installed here) | `ARVA_DB_DIR/bakta-full/6.0` | 84 Gb unpacked (Bakta README), plus the 31,921,769,288-byte archive while downloading |
+
+The earlier PyPI installation of Bakta (`~/.arva-tools/bakta`, 319 MB) is no longer used and can be removed.
 
 Keep `ARVA_DB_DIR` outside the repository and outside `ARVA_STORAGE_ROOT` if the databases should survive a
 reset of the data folder; the API and the worker must see it at the same path. The Genome Explorer's linear and
 circular views, the annotation charts and the report's genome map need no further tools or databases: they are
 drawn by ARVA from the annotator's files.
 
-### Bioconda tools from pinned locks (micromamba): mlst, FastANI, skani, Mash, sylph, GTDB-Tk
+### Bioconda tools from pinned locks (micromamba): mlst, FastANI, skani, Mash, sylph, GTDB-Tk, AMRFinderPlus, Bakta, ABRicate, MOB-suite, IntegronFinder, ISEScan, geNomad
 
 Tools that are not packaged by the distribution or PyPI come from Bioconda (with conda-forge), one environment per
 tool, created **only** from the explicit lock files checked in under `docker/conda-locks/<tool>/` — one per
@@ -637,8 +643,17 @@ python3 scripts/conda_locks.py verify-env mlst ~/.arva-tools/conda/mlst
 | Mash | `mash=2.3` (BSD-3-Clause; hf85e966_11) | 17 packages | 17 packages | 135 MB |
 | sylph | `sylph=1.0.0` (MIT; hb42e459_0) | 5 packages | 5 packages | 30 MB |
 | GTDB-Tk | `gtdbtk=2.8.0=pyhdfd78af_0` (GPL-3.0-or-later) | 53 packages | none: Bioconda has no pplacer 1.1.alpha19 for linux-aarch64 (`linux-aarch64.unavailable`) | 434 MB (installed once to read its `--help`, then removed: not validated) |
+| AMRFinderPlus | `ncbi-amrfinderplus=4.2.7`, `blast=2.16.0`, `hmmer=3.4` (public domain; linux-64 build hf69ffd2_0, linux-aarch64 h9686939_0) | 66 packages | 66 packages (solved, not installed here) | 869 MB (BLAST+ 423 MB of it); 258 MB downloaded while it is created |
+| Bakta | `bakta=1.12.2=pyhdfd78af_0`, `ncbi-amrfinderplus=4.2.7` (GPL-3.0) | 150 packages | none: Bioconda has no BLAST+ 2.17.0 (Bakta's recipe needs ≥ 2.17.0) for linux-aarch64 (`linux-aarch64.unavailable`) | 1,429 MB |
+| ABRicate | `abricate=1.4.0=h05cac1d_0`, `blast=2.16.0` (GPL-2.0; bundles VFDB and PlasmidFinder) | 180 packages | 263 packages (solved, not installed here) | 1.3 GB |
+| MOB-suite | `mob_suite=3.1.9=pyhdfd78af_1`, `blast=2.15.0` (Apache-2.0; this build needs BLAST+ < 2.16) | 178 packages | none: Bioconda has no BLAST+ < 2.16 for linux-aarch64 | 2.2 GB (with Mash 2.3, ete3 3.1.3) |
+| IntegronFinder | `integron_finder=2.0.6=pyhdfd78af_0` (GPL-3.0; HMMER 3.3.2, Infernal 1.1.4, Prodigal 2.6.3) | 75 packages | none: Bioconda has no HMMER ≤ 3.3.2 for linux-aarch64 | 0.72 GB |
+| ISEScan | `isescan=1.7.3` (GPL-3.0) | 83 packages | none: no isescan 1.7.3 build for linux-aarch64 | not installed here (342 MB to download): not validated |
+| geNomad | `genomad=1.13.0=pyhdfd78af_0` (MIT) | 161 packages | 148 packages | not installed here (983 MB to download on linux-64, 634 MB on linux-aarch64): not validated |
 
 ```bash
+python3 scripts/conda_locks.py install amrfinderplus ~/.arva-tools/conda/amrfinderplus
+export ARVA_TOOL_AMRFINDERPLUS=~/.arva-tools/conda/amrfinderplus/bin/amrfinder
 for t in fastani skani mash sylph; do python3 scripts/conda_locks.py install $t ~/.arva-tools/conda/$t; done
 export ARVA_TOOL_FASTANI=~/.arva-tools/conda/fastani/bin/fastANI ARVA_TOOL_SKANI=~/.arva-tools/conda/skani/bin/skani \
        ARVA_TOOL_MASH=~/.arva-tools/conda/mash/bin/mash ARVA_TOOL_SYLPH=~/.arva-tools/conda/sylph/bin/sylph
@@ -646,6 +661,27 @@ export ARVA_TOOL_FASTANI=~/.arva-tools/conda/fastani/bin/fastANI ARVA_TOOL_SKANI
 python3 scripts/conda_locks.py install gtdbtk ~/.arva-tools/conda/gtdbtk
 export ARVA_TOOL_GTDBTK=~/.arva-tools/conda/gtdbtk/bin/gtdbtk
 ```
+
+Plasmids, mobile elements and virulence factors (Phase 5D2):
+
+```bash
+for t in abricate mobsuite integronfinder; do python3 scripts/conda_locks.py install $t ~/.arva-tools/conda/$t; done
+export ARVA_TOOL_ABRICATE=~/.arva-tools/conda/abricate/bin/abricate \
+       ARVA_TOOL_MOBSUITE=~/.arva-tools/conda/mobsuite/bin/mob_recon \
+       ARVA_TOOL_INTEGRONFINDER=~/.arva-tools/conda/integronfinder/bin/integron_finder
+# Not validated with ARVA (adapters written from their source): ISEScan (linux-64) and geNomad
+python3 scripts/conda_locks.py install isescan ~/.arva-tools/conda/isescan     # ARVA_TOOL_ISESCAN=.../bin/isescan.py
+python3 scripts/conda_locks.py install genomad ~/.arva-tools/conda/genomad     # ARVA_TOOL_GENOMAD=.../bin/genomad
+# Optional: environments share many identical files (BLAST+, Perl, Python); util-linux's hardlink merges them
+hardlink -o -t ~/.arva-tools/conda      # saved about 1.8 GB across the environments installed here
+```
+
+`conda_locks.py install` lets micromamba hard-link files from its package cache (so one install needs little more
+than its own size) and passes `--skip-run-link-scripts`: MOB-suite's post-link script runs `mob_init`, which downloads
+its database with TLS verification turned off and the latest NCBI taxonomy into the environment. ARVA never runs it;
+the database is downloaded and prepared by the Database Manager (below). ABRicate's VFDB and PlasmidFinder copies
+come with its package and are listed read-only in the Database Manager; ARVA never runs `abricate-get_db`, which
+fetches unpinned data (VFDB over plain HTTP). IntegronFinder uses the models its package bundles.
 
 skani 0.4.0 (2026-10-11) and GTDB-Tk 2.8.0 (2026-10-13) were the newest releases and more than two weeks old when
 pinned. The species-identification databases are registered in the Database Manager, never bundled:
@@ -674,8 +710,39 @@ rm -rf ~/.arva-tools/conda/mlst && python3 scripts/conda_locks.py install mlst ~
 
 and run the adapter's tests (`workflows/tool-adapters/tests/test_mlst.py`, `test_conda_locks.py`) before
 committing the new locks with the tool's `tested_versions`. The Docker image builds the same environments in a
-build stage (`ARVA_CONDA_TOOLS="mlst fastani skani mash sylph"` by default; add `gtdbtk` on amd64; empty for none)
-and copies only `/opt/arva-tools/conda` into the final image.
+build stage (`ARVA_CONDA_TOOLS="mlst fastani skani mash sylph amrfinderplus bakta abricate mobsuite integronfinder"`
+by default, leaving out a tool without a lock for the image's architecture; add `gtdbtk` on amd64, `isescan` or
+`genomad`; empty for none) and copies only
+`/opt/arva-tools/conda` into the final image.
+
+**MOB-suite's database.** MOB-suite 3.1.9's `mob_init` downloads database 3.1.8 (Zenodo record 10304948, 472,851,578
+bytes, MD5 published by Zenodo; CC BY 4.0). In **Tools & Databases → Databases → MOB-suite database → Download…** ARVA
+shows the archive, the dated NCBI taxonomy archive it also needs (`taxdmp_YYYY-MM-DD.zip` from
+`https://ftp.ncbi.nlm.nih.gov/pub/taxonomy/taxdump_archive/`, newest by default; NCBI publishes no checksum, so its
+SHA-256 is recorded), whether to keep the reference plasmids' FASTA (1.64 GB; mob_recon 3.1.9 reads only its BLAST
+index) and the room needed. After you confirm it downloads the archive over HTTPS, compares its MD5, streams the
+reference plasmids into `makeblastdb -parse_seqids` and `mash sketch -k 21 -s 1000`, indexes `repetitive.dna.fas`,
+builds ete3's `taxa.sqlite` from the taxonomy archive, writes `ARVA_DATABASE.json` and makes the folder read-only.
+Here: 1,413,260,939 bytes installed without the FASTA (taxonomy `taxdmp_2026-10-01.zip`); the plan also reserves
+the taxonomy archive's size and 0.7 GB for ete3's temporary tables while taxa.sqlite is built. A folder `mob_init` prepared can be registered instead (its version is then
+declared by you).
+
+**AMRFinderPlus and its database.** AMRFinderPlus 4.2.7 (NCBI, public domain) needs a database release of
+2025-09-22.2 or later (its source's `dataVer_min`) whose `database_format_version.txt` is not newer than the
+software. NCBI publishes one folder per software minor version and release
+(`https://ftp.ncbi.nlm.nih.gov/pathogen/Antimicrobial_resistance/AMRFinderPlus/database/4.2/2026-08-07.1/` and four
+older releases of 4.2 when checked), as separate files without checksums. In **Tools & Databases → Databases →
+AMRFinderPlus database → Download a release** ARVA lists the dated releases for the installed AMRFinderPlus, shows
+the files `amrfinder_update` would fetch and their sizes from NCBI's listing, and after you confirm downloads them
+over HTTPS (checking each file's size against the server's and recording its SHA-256), checks that `version.txt`
+is the release asked for and that every taxgroup with nucleotide references has its `AMR_DNA-*` files, indexes the
+folder with the environment's `amrfinder_index` (`hmmpress` of AMR.LIB, `makeblastdb` of AMRProt.fa, AMR_CDS.fa and
+each AMR_DNA file), runs `amrfinder --database_version` on it and makes it read-only. ARVA never runs `amrfinder -u`
+or `amrfinder_update`. Release 2026-08-07.1: 124,922,531 bytes downloaded (38 files), 252,182,468 bytes once
+indexed. The copy inside a Bakta database is listed with whether this AMRFinderPlus reads it, and registered
+read-only only when it does and holds the files ARVA's searches read: the light database 6.0's copy (2024-12-18.1)
+is too old, and Bakta's archives keep only the protein BLAST index and HMMs of a release, while AMRFinderPlus's
+nucleotide and combined searches run tblastn with `AMRProt.fa` itself (amrfinder.cpp).
 
 **mlst and its schemes.** mlst 2.35.0 (Torsten Seemann, GPL-2.0, https://github.com/tseemann/mlst) bundles the
 PubMLST typing schemes in its package (`<env>/db`: 162 schemes downloaded 2026-03-11 without authentication from

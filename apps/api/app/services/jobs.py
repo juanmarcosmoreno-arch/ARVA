@@ -11,6 +11,8 @@ from pathlib import Path
 
 from arva_core.seqstats import TOOL_NAME, TOOL_VERSION
 from arva_tools import DetectedTool, ToolStatus
+from arva_tools.amrfinderplus import AmrfinderplusAdapter, AmrParams
+from arva_tools.amrfinderplus import flags as amr_flags
 from arva_tools.bakta import BaktaAdapter, BaktaParams
 from arva_tools.bakta import flags as bakta_flags
 from arva_tools.fastp import FastpParams
@@ -67,6 +69,9 @@ PROKKA_JOB = "prokka_annotation"
 ANNOTATION_JOBS = (BAKTA_JOB, PROKKA_JOB)
 MLST_JOB = "mlst_typing"
 SPECIES_JOB = "species_identification"
+AMR_JOB = "amr_detection"
+MOBILE_JOB = "mobile_elements"
+VIRULENCE_JOB = "virulence_screen"
 
 
 class ToolUnavailableError(RuntimeError):
@@ -568,7 +573,8 @@ def create_bakta_job(db: Session, sample: Sample, assembly: Assembly, params: Ba
     params.validate()
     _check_flags(BaktaAdapter.help_options, tool, tuple(bakta_flags(params, plan["skip_options"])), tool.path or "bakta")
     parameters = {**params.as_dict(), "assembly": assembly_record(assembly), "steps": plan["steps"],
-                  "skip_options": plan["skip_options"], "dependencies": plan["dependencies"], **provenance}
+                  "skip_options": plan["skip_options"], "dependencies": plan["dependencies"],
+                  "amr_data": plan.get("amr_data"), **provenance}
     # Bakta has no memory option.
     job = _tool_job(sample, BAKTA_JOB, tool, parameters, [], res.record(params.threads))
     record_use(job, record)
@@ -650,6 +656,82 @@ def create_species_job(db: Session, sample: Sample, assembly: Assembly, method: 
     db.add(job)
     db.commit()
     _enqueue([job], run_species_job)
+    db.refresh(job)
+    return job
+
+
+def create_amr_job(db: Session, sample: Sample, assembly: Assembly, params: AmrParams, record: ReferenceDatabase,
+                   annotation: dict | None, provenance: dict) -> AnalysisJob:
+    """One AMRFinderPlus run of an assembly (with the proteins and GFF of one of its annotations in a combined
+    search) against one AMRFinderPlus database (record_use keeps its kind, version, checksum and path)."""
+    from app.services.databases import record_use
+    from app.tasks.amr import run_amr_job
+
+    tool = require_tool("amrfinderplus")
+    res = effective_resources(db)
+    params.threads = res.cap_threads(params.threads)
+    params.validate()
+    _check_flags(AmrfinderplusAdapter.help_options, tool, tuple(amr_flags(params)), tool.path or "amrfinder")
+    parameters = {**params.as_dict(), "assembly": assembly_record(assembly),
+                  "annotation_id": annotation["id"] if annotation else None, "annotation": annotation, **provenance}
+    job = _tool_job(sample, AMR_JOB, tool, parameters, [], res.record(params.threads))
+    record_use(job, record)
+    db.add(job)
+    db.commit()
+    _enqueue([job], run_amr_job)
+    db.refresh(job)
+    return job
+
+
+def create_mobile_job(db: Session, sample: Sample, assembly: Assembly, method: str, params, record: ReferenceDatabase | None,
+                      models: dict | None, provenance: dict) -> AnalysisJob:
+    """One mobile-element search of an assembly with one method (MOB-suite, PlasmidFinder through ABRicate,
+    IntegronFinder, ISEScan or geNomad): record_use keeps the database's kind, version, checksum and path; for the
+    models a tool bundles, their name and checksum are recorded the same way."""
+    from app.services.databases import record_use
+    from app.services.mobile_elements import METHODS
+    from app.tasks.mobile_elements import ADAPTERS, FLAGS, run_mobile_job
+
+    tool_id = METHODS[method]["tool"]
+    tool = require_tool(tool_id)
+    res = effective_resources(db)
+    params.threads = res.cap_threads(params.threads)
+    params.validate()
+    _check_flags(ADAPTERS[method].help_options, tool, tuple(FLAGS[method](params)), tool.path or tool_id)
+    parameters = {"method": method, "settings": params.as_dict(), "assembly": assembly_record(assembly), **provenance}
+    job = _tool_job(sample, MOBILE_JOB, tool, parameters, [], res.record(params.threads))
+    if record is not None:
+        record_use(job, record)
+    elif models is not None:
+        job.database_kind, job.database_key, job.database_name = models["kind"], models["kind"], models["name"]
+        job.database_version, job.database_checksum, job.database_path = tool.version, models["checksum"], models["path"]
+    db.add(job)
+    db.commit()
+    _enqueue([job], run_mobile_job)
+    db.refresh(job)
+    return job
+
+
+def create_virulence_job(db: Session, sample: Sample, assembly: Assembly, params, record: ReferenceDatabase,
+                         provenance: dict) -> AnalysisJob:
+    """One ABRicate screen of an assembly against its bundled VFDB (recorded as a read-only database)."""
+    from arva_tools.abricate import AbricateAdapter
+    from arva_tools.abricate import flags as abricate_flags
+
+    from app.services.databases import record_use
+    from app.tasks.virulence import run_virulence_job
+
+    tool = require_tool("abricate")
+    res = effective_resources(db)
+    params.threads = res.cap_threads(params.threads)
+    params.validate()
+    _check_flags(AbricateAdapter.help_options, tool, tuple(abricate_flags(params)), tool.path or "abricate")
+    parameters = {"settings": params.as_dict(), "assembly": assembly_record(assembly), **provenance}
+    job = _tool_job(sample, VIRULENCE_JOB, tool, parameters, [], res.record(params.threads))
+    record_use(job, record)
+    db.add(job)
+    db.commit()
+    _enqueue([job], run_virulence_job)
     db.refresh(job)
     return job
 

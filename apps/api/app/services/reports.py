@@ -24,10 +24,13 @@ from app.models import (
     Sample,
     SpeciesResult,
 )
+from app.services import amr as amr_svc
 from app.services import annotation as annotation_svc
 from app.services import crosscheck, genome_explorer, qc_data
 from app.services import mlst as mlst_svc
+from app.services import mobile_elements as mobile_svc
 from app.services import species as species_svc
+from app.services import virulence as virulence_svc
 from app.services.annotation import describe_step
 from app.services.circular_svg import circular_map_svg
 from app.services.jobs import (
@@ -200,6 +203,9 @@ def collect_report_data(db: Session, sample: Sample) -> dict[str, Any]:
         "annotations": _annotations(db, sample),
         "mlst": _mlst(db, sample),
         "species": _species(db, sample),
+        "amr": _amr(db, sample),
+        "mobile": _mobile(db, sample),
+        "virulence": _virulence(db, sample),
         "limitations": LIMITATIONS,
     }
 
@@ -383,6 +389,48 @@ def _mlst(db: Session, sample: Sample) -> list[dict[str, Any]]:
             },
         })
     return out
+
+
+def _amr(db: Session, sample: Sample) -> list[dict[str, Any]]:
+    """Each completed AMRFinderPlus run, oldest first: the database, settings, organism (proposed and chosen), every
+    element with its method, identity and coverage, ARVA's warnings, the point-mutation screen, commands and files."""
+    out = []
+    for run in reversed(amr_svc.sample_runs(db, sample.id)):
+        job = db.get(AnalysisJob, run["job_id"])
+        out.append({**{k: v for k, v in run.items() if k != "created_at"}, "created_at": run["created_at"].isoformat(),
+                    "finished_at": run["finished_at"].isoformat() if run["finished_at"] else None,
+                    "warnings": [{**w, "text": amr_svc.warning_text(w)} for w in run["warnings"]],
+                    "job": _job_facts(job)})
+    return out
+
+
+def _mobile(db: Session, sample: Sample) -> dict[str, Any]:
+    """Each completed plasmid or mobile-element run, oldest first (rows, settings, database, warnings, commands,
+    files), and per assembly the contig table with MOB-suite's call next to the assembler's circularity."""
+    view = mobile_svc.sample_view(db, sample.id)
+    runs = []
+    for run in reversed(view["runs"]):
+        job = db.get(AnalysisJob, run["job_id"])
+        runs.append({**{k: v for k, v in run.items() if k not in ("created_at", "finished_at")},
+                     "created_at": run["created_at"].isoformat(),
+                     "finished_at": run["finished_at"].isoformat() if run["finished_at"] else None,
+                     "warnings": [{**w, "text": mobile_svc.warning_text(w)} for w in run["warnings"]],
+                     "job": _job_facts(job)})
+    return {"runs": runs, "assemblies": view["assemblies"]} if runs else {}
+
+
+def _virulence(db: Session, sample: Sample) -> dict[str, Any]:
+    """Each completed VFDB screen, oldest first, and per assembly the VFDB and AMRFinderPlus rows side by side."""
+    view = virulence_svc.sample_view(db, sample.id)
+    runs = []
+    for run in reversed(view["runs"]):
+        job = db.get(AnalysisJob, run["job_id"])
+        runs.append({**{k: v for k, v in run.items() if k not in ("created_at", "finished_at")},
+                     "created_at": run["created_at"].isoformat(),
+                     "finished_at": run["finished_at"].isoformat() if run["finished_at"] else None,
+                     "warnings": [{**w, "text": virulence_svc.warning_text(w)} for w in run["warnings"]],
+                     "job": _job_facts(job)})
+    return {"runs": runs, "assemblies": view["assemblies"]} if runs else {}
 
 
 def _annotation_figures(db: Session, sample: Sample, a: Annotation) -> dict[str, Any]:
@@ -741,6 +789,21 @@ CSV_COLUMNS = [
     "species_id", "species_method", "species_status", "species_name", "species_best_reference", "species_best_ani",
     "species_best_af", "species_runner_up", "species_runner_up_ani", "species_reasons", "species_consistency",
     "species_database", "species_database_checksum",
+    # AMR rows (record_type "amr"): one per element AMRFinderPlus reported (a gene or mutation found, not a phenotype);
+    # a run that found nothing has one row with amr_element "none found".
+    "amr_job_id", "amr_element", "amr_type", "amr_subtype", "amr_class", "amr_subclass", "amr_method",
+    "amr_method_kind", "amr_identity", "amr_coverage", "amr_contig", "amr_start", "amr_stop", "amr_strand",
+    "amr_closest_reference", "amr_organism", "amr_database", "amr_database_checksum",
+    # Mobile-element rows (record_type "mobile"): one per call (a contig's MOB-suite call, a plasmid, a replicon, an
+    # IS element, an integron, a geNomad call); a run that found nothing has one row with mobile_element "none found".
+    "mobile_job_id", "mobile_method", "mobile_category", "mobile_element", "mobile_element_type", "mobile_contig",
+    "mobile_start", "mobile_end", "mobile_strand", "mobile_identity", "mobile_coverage", "mobile_score",
+    "mobile_completeness", "mobile_database", "mobile_database_checksum",
+    # Virulence rows (record_type "virulence"): one per VFDB hit (a match to a known virulence-factor gene, not a
+    # phenotype); a screen that found nothing has one row with virulence_gene "none found".
+    "virulence_job_id", "virulence_gene", "virulence_factor", "virulence_category", "virulence_hit_kind",
+    "virulence_identity", "virulence_coverage", "virulence_reference_range", "virulence_contig", "virulence_start",
+    "virulence_end", "virulence_strand", "virulence_accession", "virulence_database", "virulence_database_checksum",
 ]
 
 
@@ -866,6 +929,69 @@ def render_csv(data: dict[str, Any]) -> str:
                                                                            m["database"]["version"]) if x)),
             "mlst_database_checksum": m["database"]["checksum"] or "",
         })
+    for run in data.get("amr", []):
+        base = {"sample_code": sanitize_spreadsheet_cell(data["sample"]["sample_code"]), "tool": run["tool"],
+                "tool_version": sanitize_spreadsheet_cell(run["tool_version"]), "job_id": run["job_id"],
+                "finished_at": run["finished_at"] or run["created_at"], "record_type": "amr",
+                "assembly_id": run["assembly_id"], "amr_job_id": run["job_id"],
+                "amr_organism": run["parameters"].get("organism") or "not searched",
+                "amr_database": sanitize_spreadsheet_cell(" ".join(x for x in (run["database_name"],
+                                                                              run["database_version"]) if x)),
+                "amr_database_checksum": run["database_checksum"] or ""}
+        if not run["hits"]:
+            writer.writerow({**base, "amr_element": "none found"})
+        for h in run["hits"]:
+            writer.writerow({
+                **base, "amr_element": sanitize_spreadsheet_cell(h["element_symbol"]), "amr_type": h["type"],
+                "amr_subtype": h["subtype"] or "", "amr_class": sanitize_spreadsheet_cell(h["amr_class"] or ""),
+                "amr_subclass": sanitize_spreadsheet_cell(h["amr_subclass"] or ""), "amr_method": h["method"],
+                "amr_method_kind": h["method_kind"], "amr_identity": "" if h["identity"] is None else h["identity"],
+                "amr_coverage": "" if h["coverage"] is None else h["coverage"],
+                "amr_contig": sanitize_spreadsheet_cell(h["assembly_contig"] or h["contig"] or ""),
+                "amr_start": h["start"] or "", "amr_stop": h["stop"] or "", "amr_strand": h["strand"] or "",
+                "amr_closest_reference": sanitize_spreadsheet_cell(h["closest_accession"] or "")})
+    for run in (data.get("mobile") or {}).get("runs", []):
+        base = {"sample_code": sanitize_spreadsheet_cell(data["sample"]["sample_code"]), "tool": run["tool"],
+                "tool_version": sanitize_spreadsheet_cell(run["tool_version"]), "job_id": run["job_id"],
+                "finished_at": run["finished_at"] or run["created_at"], "record_type": "mobile",
+                "assembly_id": run["assembly_id"], "mobile_job_id": run["job_id"], "mobile_method": run["method"],
+                "mobile_database": sanitize_spreadsheet_cell(" ".join(x for x in (run["database_name"],
+                                                                                 run["database_version"]) if x)),
+                "mobile_database_checksum": run["database_checksum"] or ""}
+        if not run["rows"]:
+            writer.writerow({**base, "mobile_element": "none found"})
+        for r in run["rows"]:
+            writer.writerow({
+                **base, "mobile_category": r["category"],
+                "mobile_element": sanitize_spreadsheet_cell(r["element"] or ""),
+                "mobile_element_type": sanitize_spreadsheet_cell(r["element_type"] or ""),
+                "mobile_contig": sanitize_spreadsheet_cell(r["contig"] or ""), "mobile_start": r["start"] or "",
+                "mobile_end": r["end"] or "", "mobile_strand": r["strand"] or "",
+                "mobile_identity": "" if r["identity"] is None else r["identity"],
+                "mobile_coverage": "" if r["coverage"] is None else r["coverage"],
+                "mobile_score": "" if r["score"] is None else r["score"],
+                "mobile_completeness": r["completeness"] or ""})
+    for run in (data.get("virulence") or {}).get("runs", []):
+        base = {"sample_code": sanitize_spreadsheet_cell(data["sample"]["sample_code"]), "tool": run["tool"],
+                "tool_version": sanitize_spreadsheet_cell(run["tool_version"]), "job_id": run["job_id"],
+                "finished_at": run["finished_at"] or run["created_at"], "record_type": "virulence",
+                "assembly_id": run["assembly_id"], "virulence_job_id": run["job_id"],
+                "virulence_database": sanitize_spreadsheet_cell(" ".join(x for x in (run["database_name"],
+                                                                                    run["database_version"]) if x)),
+                "virulence_database_checksum": run["database_checksum"] or ""}
+        if not run["hits"]:
+            writer.writerow({**base, "virulence_gene": "none found"})
+        for h in run["hits"]:
+            writer.writerow({
+                **base, "virulence_gene": sanitize_spreadsheet_cell(h["gene"]),
+                "virulence_factor": sanitize_spreadsheet_cell(h["vf_name"] or ""),
+                "virulence_category": sanitize_spreadsheet_cell(h["vf_category"] or ""),
+                "virulence_hit_kind": h["hit_kind"], "virulence_identity": h["identity"],
+                "virulence_coverage": h["coverage"],
+                "virulence_reference_range": f"{h['ref_start']}-{h['ref_end']}/{h['ref_length']}",
+                "virulence_contig": sanitize_spreadsheet_cell(h["contig"] or ""), "virulence_start": h["start"],
+                "virulence_end": h["end"], "virulence_strand": h["strand"] or "",
+                "virulence_accession": sanitize_spreadsheet_cell(h["accession"] or "")})
     for sp in data.get("species", []):
         best, other = sp["interpretation"].get("best") or {}, sp["interpretation"].get("runner_up") or {}
         writer.writerow({
@@ -1426,6 +1552,166 @@ def _mlst_html(data: dict[str, Any]) -> str:
             + "".join(sections))
 
 
+_METHOD_KIND = {"complete": "complete", "partial": "partial", "contig_end": "partial, at a contig end",
+                "internal_stop": "internal stop codon", "point": "point mutation", "hmm": "HMM only",
+                "frameshift": "frameshift", "extended": "extended", "ambiguous": "ambiguous base", "other": "other"}
+
+
+def _amr_pct(v: Any) -> str:
+    return "—" if v is None else f"{v:.2f}"
+
+
+def _amr_html(data: dict[str, Any]) -> str:
+    sections = []
+    for run in data.get("amr", []):
+        job, p = run["job"] or {}, run["parameters"]
+        organism = p.get("organism") or "none: point mutations not searched"
+        choice = run.get("organism_choice") or {}
+        if choice.get("proposed") and choice.get("changed_by_user"):
+            organism += f" (ARVA proposed {choice['proposed']} from the species identification)"
+        rows = [("Search", "contigs, proteins and GFF of an annotation (combined)" if p.get("mode") == "combined"
+                 else "contigs (translated nucleotide)"), ("Organism", organism),
+                ("Stress and virulence genes (--plus)", "searched" if p.get("plus") else "not searched"),
+                ("Elements found", ", ".join(f"{run['counts'].get(k, 0)} {k.lower()}" for k in
+                                             ("AMR", "VIRULENCE", "STRESS")) + f"; {run['counts'].get('point_mutations', 0)} "
+                                             "point mutations")]
+        table = "".join(f"<tr><th>{escape(k)}</th><td>{escape(str(v))}</td></tr>" for k, v in rows)
+        hits = "".join(
+            f"<tr><td>{escape(h['element_symbol'])}</td><td>{escape(h['element_name'] or '')}</td>"
+            f"<td>{escape(h['type'])}/{escape(h['subtype'] or '')}</td><td>{escape(h['amr_class'] or '')}</td>"
+            f"<td><code>{escape(h['method'])}</code> {escape(_METHOD_KIND.get(h['method_kind'], h['method_kind']))}</td>"
+            f"<td>{_amr_pct(h['identity'])}</td><td>{_amr_pct(h['coverage'])}</td>"
+            f"<td>{escape(h['assembly_contig'] or h['contig'] or '')}:{h['start'] or ''}-{h['stop'] or ''} "
+            f"({escape(h['strand'] or '')})</td><td>{escape(h['closest_accession'] or h['hmm_accession'] or '')}</td></tr>"
+            for h in run["hits"])
+        warnings = "".join(f"<li>{escape(w['text'])}</li>" for w in run["warnings"])
+        files = "".join(f"<tr><th>{escape(k)}</th><td><code>{escape(v['path'])}</code><br>SHA-256 "
+                        f"<code>{escape(v['sha256'])}</code></td></tr>" for k, v in (run["files"] or {}).items())
+        sections.append(
+            f"<h3>{escape(run['tool'])} {escape(run['tool_version'])}</h3>"
+            f"<p class='muted'>Run <code>{escape(run['job_id'])}</code> of assembly <code>"
+            f"{escape(run['assembly_id'] or '')}</code> · {escape(run['created_at'])}</p>"
+            f"<table>{table}</table>"
+            + (f"<table class='grid'><tr><th>Element</th><th>Name</th><th>Type</th><th>Class</th><th>Method</th>"
+               f"<th>Identity (%)</th><th>Coverage (%)</th><th>Location</th><th>Closest reference</th></tr>{hits}</table>"
+               if hits else "<p><strong>None found</strong> with these settings and this database.</p>")
+            + (f"<div class='warn'><strong>Notes</strong><ul>{warnings}</ul></div>" if warnings else "")
+            + "<table>"
+            + f"<tr><th>Database</th><td>{escape(run['database_name'] or '')} {escape(run['database_version'] or '')}"
+            + (f"<br>Content checksum <code>{escape(run['database_checksum'])}</code>" if run["database_checksum"]
+               else "") + "</td></tr>"
+            + f"<tr><th>Settings</th><td><code>{escape(json.dumps(p, sort_keys=True))}</code></td></tr>"
+            + f"<tr><th>Analysis job</th><td><code>{escape(job.get('id') or '')}</code></td></tr>"
+            + files + "</table>"
+            + "".join(f"<pre>{escape(c)}</pre>" for c in job.get("commands") or [])
+        )
+    if not sections:
+        return ""
+    return ("<h2>Antimicrobial resistance and virulence genes</h2><p>Genes and point mutations AMRFinderPlus found "
+            "in the assembly, with its method, identity and coverage. <strong>Genotype is not phenotype</strong>: "
+            "ARVA does not call the isolate resistant or susceptible.</p>" + "".join(sections))
+
+
+_MOBILE_METHOD_NAMES = {"mobsuite": "MOB-suite (mob_recon)", "plasmidfinder": "PlasmidFinder replicons (ABRicate)",
+                        "integronfinder": "IntegronFinder", "isescan": "ISEScan", "genomad": "geNomad"}
+
+
+def _run_footer(run: dict[str, Any]) -> str:
+    job = run["job"] or {}
+    files = "".join(f"<tr><th>{escape(k)}</th><td><code>{escape(v['path'])}</code><br>SHA-256 "
+                    f"<code>{escape(v['sha256'])}</code></td></tr>" for k, v in (run["files"] or {}).items())
+    warnings = "".join(f"<li>{escape(w['text'])}</li>" for w in run["warnings"])
+    return ((f"<div class='warn'><strong>Notes</strong><ul>{warnings}</ul></div>" if warnings else "")
+            + "<table>"
+            + f"<tr><th>Database</th><td>{escape(run['database_name'] or 'none (models bundled with the tool)')} "
+            + f"{escape(run['database_version'] or '')}"
+            + (f"<br>Content checksum <code>{escape(run['database_checksum'])}</code>" if run["database_checksum"]
+               else "") + "</td></tr>"
+            + f"<tr><th>Settings</th><td><code>{escape(json.dumps(run['parameters'], sort_keys=True))}</code></td></tr>"
+            + f"<tr><th>Analysis job</th><td><code>{escape(job.get('id') or '')}</code></td></tr>"
+            + files + "</table>"
+            + "".join(f"<pre>{escape(c)}</pre>" for c in job.get("commands") or []))
+
+
+def _mobile_html(data: dict[str, Any]) -> str:
+    mobile = data.get("mobile") or {}
+    if not mobile:
+        return ""
+    tables = []
+    for a in mobile["assemblies"]:
+        rows = []
+        for c in a["contigs"]:
+            m = c["mobsuite"]
+            call = "not searched" if m is None else (m.get("molecule_type") or "not reported")
+            if m and m.get("molecule_type") == "chromosome":
+                call = "chromosome (not assigned to a plasmid)"
+            reps = "not searched" if c["replicons"] is None else (
+                ", ".join(r["name"] for r in c["replicons"]) or "none found")
+            circ = "not reported" if c["circular"] is None else ("circular" if c["circular"] else "linear")
+            rows.append(f"<tr><td>{escape(c['contig'])}</td><td>{c['length'] or ''}</td><td>{escape(call)}</td>"
+                        f"<td>{escape(', '.join((m or {}).get('rep_types') or []))}</td>"
+                        f"<td>{escape(', '.join((m or {}).get('relaxase_types') or []))}</td>"
+                        f"<td>{escape((m or {}).get('predicted_mobility') or '')}</td><td>{escape(reps)}</td>"
+                        f"<td>{escape(circ)} ({escape(c['circular_source'] or a['assembler'])})</td></tr>")
+        tables.append(f"<p class='muted'>Assembly <code>{escape(a['assembly_id'])}</code> ({escape(a['assembler'])} "
+                      f"{escape(a['assembler_version'])})</p><table class='grid'><tr><th>Contig</th><th>Length</th>"
+                      "<th>MOB-suite call</th><th>Replicons (MOB-suite)</th><th>Relaxase</th><th>Predicted mobility</th>"
+                      "<th>PlasmidFinder</th><th>Assembler's circularity</th></tr>" + "".join(rows) + "</table>")
+    sections = []
+    for run in mobile["runs"]:
+        shown = [r for r in run["rows"] if r["category"] != "contig"]
+        body = "".join(
+            f"<tr><td>{escape(r['category'])}</td><td>{escape(r['element'] or '')}</td>"
+            f"<td>{escape(r['element_type'] or '')}</td><td>{escape(r['contig'] or '')}"
+            f"{':' + str(r['start']) + '-' + str(r['end']) if r['start'] is not None else ''}</td>"
+            f"<td>{_amr_pct(r['identity'])}</td><td>{_amr_pct(r['coverage'])}</td>"
+            f"<td>{escape(r['completeness'] or '')}</td></tr>" for r in shown[:500])
+        sections.append(
+            f"<h3>{escape(_MOBILE_METHOD_NAMES.get(run['method'], run['method']))} · {escape(run['tool'])} "
+            f"{escape(run['tool_version'])}</h3><p class='muted'>Run <code>{escape(run['job_id'])}</code> of assembly "
+            f"<code>{escape(run['assembly_id'] or '')}</code> · {escape(run['created_at'])} · "
+            f"{escape(', '.join(f'{k} {v}' for k, v in run['counts'].items() if not isinstance(v, list)))}</p>"
+            + (f"<table class='grid'><tr><th>Category</th><th>Element</th><th>Type</th><th>Location</th>"
+               f"<th>Identity (%)</th><th>Coverage (%)</th><th>Completeness</th></tr>{body}</table>" if body else
+               "<p><strong>None found</strong> with these settings" + (" and this database" if run["database_name"]
+                                                                      else "") + ".</p>")
+            + _run_footer(run))
+    return ("<h2>Plasmids and mobile elements</h2><p>Each contig with MOB-suite's call, the replicons found and the "
+            "assembler's own circularity, side by side; ARVA never calls a contig a plasmid from its size. "
+            "MOB-suite's 'chromosome' means not assigned to a plasmid.</p>" + "".join(tables) + "".join(sections))
+
+
+def _virulence_html(data: dict[str, Any]) -> str:
+    vir = data.get("virulence") or {}
+    if not vir:
+        return ""
+    merged = []
+    for a in vir["assemblies"]:
+        src = a["sources"]
+        rows = "".join(
+            f"<tr><td>{escape('VFDB (ABRicate)' if r['source'] == 'vfdb' else 'AMRFinderPlus')}</td>"
+            f"<td>{escape(r['gene'])}</td><td>{escape(r['vf_name'] or r['description'] or '')}</td>"
+            f"<td>{escape(r['kind'] or '')} ({escape(r['method'] or '')})</td><td>{_amr_pct(r['identity'])}</td>"
+            f"<td>{_amr_pct(r['coverage'])}</td><td>{escape(r['contig'] or '')}:{r['start'] or ''}-{r['end'] or ''}</td>"
+            f"<td>{escape(', '.join(r['also_found_by']))}</td></tr>" for r in a["rows"])
+        status = "; ".join(f"{'VFDB' if k == 'vfdb' else 'AMRFinderPlus'}: {v['status'].replace('_', ' ')}"
+                           + (f" ({v['hits']} hits)" if v["status"] == "searched" else "") for k, v in src.items())
+        merged.append(f"<p class='muted'>Assembly <code>{escape(a['assembly_id'])}</code> · {escape(status)}</p>"
+                      + (f"<table class='grid'><tr><th>Source</th><th>Gene</th><th>Factor or name</th><th>Hit</th>"
+                         f"<th>Identity (%)</th><th>Coverage (%)</th><th>Location</th><th>Also found by</th></tr>"
+                         f"{rows}</table>" if rows else "<p><strong>None found</strong> by the sources searched.</p>"))
+    sections = []
+    for run in vir["runs"]:
+        terms = run.get("database_terms") or {}
+        sections.append(f"<h3>{escape(run['tool'])} {escape(run['tool_version'])} · VFDB</h3><p class='muted'>Run "
+                        f"<code>{escape(run['job_id'])}</code> · {escape(run['created_at'])} · VFDB licence: "
+                        f"{escape(terms.get('licence') or '?')} · cite: {escape(terms.get('citation') or '')}</p>"
+                        + _run_footer(run))
+    return ("<h2>Virulence factors</h2><p>Hits against VFDB (through ABRicate) and the virulence genes AMRFinderPlus "
+            "reported, each row with its source; the two are never merged into one call. A hit is a match to a known "
+            "virulence-factor gene, not evidence of virulence.</p>" + "".join(merged) + "".join(sections))
+
+
 def _fmt_af(v: Any) -> str:
     return "—" if v is None else f"{v:.3f}"
 
@@ -1517,6 +1803,28 @@ SPECIES_LIMITATIONS = [
 ]
 
 
+_AMR_METHODS = (
+    "<p>Antimicrobial resistance, stress response and virulence genes and point mutations were searched with "
+    "AMRFinderPlus (Feldgarden M. et al. Sci Rep 2021;11:12728, doi:10.1038/s41598-021-91456-0) against the NCBI "
+    "database release shown with each run, with every option passed explicitly (Settings): the contigs alone "
+    "(translated nucleotide search) or with an annotation's proteins and GFF (combined search); --organism adds the "
+    "point-mutation search and organism-specific filtering, and was proposed from the species identification when "
+    "the species maps to an AMRFinderPlus organism. Methods: EXACT and ALLELE (identical to a reference protein), "
+    "BLAST (at least the curated identity, 90 % of the reference length), PARTIAL (50-90 % of the reference), "
+    "PARTIAL_CONTIG_END (partial at a contig end, so possibly split by the assembly), INTERNAL_STOP, HMM (an HMM "
+    "match without a close reference) and POINT (a known point mutation); the suffix tells protein (P), translated "
+    "nucleotide (X) or nucleotide (N) search.</p>"
+)
+AMR_LIMITATIONS = [
+    "AMRFinderPlus reports genes and mutations found; it does not predict phenotype. Expression, mechanisms not in "
+    "its database and other genetic contexts decide resistance; confirm with phenotypic testing.",
+    "Point mutations are searched only with an organism, and only the mutations in the database for that organism; "
+    "the absence of a reported mutation is not proof that no resistance mutation exists.",
+    "Partial hits, hits at contig ends and hits with internal stop codons may be assembly artefacts or "
+    "non-functional genes; they are shown as found, with their method.",
+]
+
+
 _MLST_METHODS = (
     "<p>MLST was called by mlst (T. Seemann, https://github.com/tseemann/mlst) on the assembly's contigs, with the "
     "PubMLST typing schemes bundled in its package; every option was passed explicitly (shown under Settings). mlst "
@@ -1527,6 +1835,40 @@ _MLST_METHODS = (
     "made use of the PubMLST website (https://pubmlst.org/) sited at the University of Oxford (Jolley K.A., Bray J.E., "
     "Maiden M.C.J. Wellcome Open Research 2018, 3:124, doi:10.12688/wellcomeopenres.14826.1).</p>"
 )
+_MOBILE_METHODS = (
+    "<p>Plasmids and mobile elements were searched on the assembly's contigs with the methods shown with each run, "
+    "every option passed explicitly (Settings): MOB-suite's mob_recon (Robertson J., Nash J.H.E. Microb Genom 2018, "
+    "doi:10.1099/mgen.0.000206) against its database 3.1.8 as ARVA prepared it (BLAST index, Mash sketch and NCBI "
+    "taxonomy, recorded with the database), which assigns contigs to plasmid clusters and types each plasmid "
+    "(replicon, relaxase, MPF, oriT, predicted mobility, host range); PlasmidFinder's replicons (Carattoli A. et al. "
+    "Antimicrob Agents Chemother 2014) through ABRicate's bundled copy (blastn, minimum identity and coverage shown); "
+    "IntegronFinder (Néron B. et al. Microorganisms 2022) with its bundled models and the assembler's circularity as "
+    "topology; ISEScan (Xie Z., Tang H. Bioinformatics 2017) and geNomad (Camargo A.P. et al. Nat Biotechnol 2024) "
+    "where they were run. The assembler's circularity (Flye, Unicycler) is shown next to the calls.</p>"
+)
+MOBILE_LIMITATIONS = [
+    "MOB-suite's 'chromosome' means the contig was not assigned to a known plasmid cluster: a novel plasmid, or one "
+    "split over short contigs, can be called chromosome. Host ranges are predictions from the reference plasmids.",
+    "A replicon, relaxase or integrase found is a sequence match: integrated plasmids carry replicons in "
+    "chromosomes, and small plasmids may carry none. No contig is called a plasmid from its size.",
+    "ISEScan and geNomad were not validated with ARVA on real data (they were not installed on its test machine).",
+]
+_VIRULENCE_METHODS = (
+    "<p>Virulence-factor genes were searched with ABRicate (T. Seemann, https://github.com/tseemann/abricate) against "
+    "the VFDB core set A nucleotides bundled in its package (index date and content checksum shown; Liu B. et al. "
+    "Nucleic Acids Res 2022;50:D912, doi:10.1093/nar/gkab1107), blastn with the minimum identity and coverage shown. "
+    "The coverage is of the reference gene; a hit not covering the whole reference is partial, and a partial hit at "
+    "a contig end may continue on another contig. AMRFinderPlus's own virulence genes (--plus) are listed beside "
+    "them with their source.</p>"
+)
+VIRULENCE_LIMITATIONS = [
+    "A VFDB hit is nucleotide similarity to a known virulence-factor gene; it does not show that the gene is "
+    "expressed or that the isolate is virulent. VFDB's download page states no licence for its files.",
+    "A gene split across contigs is reported only where each piece reaches the minimum coverage; below it the gene "
+    "is not reported at all.",
+]
+
+
 MLST_LIMITATIONS = [
     "MLST types a few housekeeping loci: an ST groups related strains, it does not identify a species or predict "
     "a phenotype. A scheme detected by mlst depends on its minimum score; tied schemes are reported in an arbitrary "
@@ -1757,7 +2099,10 @@ def render_html(data: dict[str, Any]) -> str:
                              else [])
                           + (ANNOTATION_LIMITATIONS if data.get("annotations") else [])
                           + (MLST_LIMITATIONS if data.get("mlst") else [])
-                          + (SPECIES_LIMITATIONS if data.get("species") else []))
+                          + (SPECIES_LIMITATIONS if data.get("species") else [])
+                          + (AMR_LIMITATIONS if data.get("amr") else [])
+                          + (MOBILE_LIMITATIONS if data.get("mobile") else [])
+                          + (VIRULENCE_LIMITATIONS if data.get("virulence") else []))
     steps = "".join(
         f"<h3>{escape(st['tool'])} {escape(st['tool_version'])}</h3>"
         f"<p class='muted'>Inputs: {escape(', '.join(st['inputs']))} · finished {escape(st['finished_at'] or '')}"
@@ -1813,6 +2158,9 @@ Generated {escape(data['generated_at'])} · ARVA {escape(data['arva_version'])}<
 {_annotation_html(data)}
 {_mlst_html(data)}
 {_species_html(data)}
+{_amr_html(data)}
+{_virulence_html(data)}
+{_mobile_html(data)}
 {('<h2>Processing and independent checks</h2>' + steps) if steps else ''}
 <h2>Methods</h2>
 <p>Each file was streamed in full by the ARVA scientific core (<code>arva-core.seqstats</code>), which
@@ -1830,6 +2178,9 @@ technology recorded for the sample.</p>
 {_ANNOTATION_METHODS if data.get("annotations") else ""}
 {_MLST_METHODS if data.get("mlst") else ""}
 {_SPECIES_METHODS if data.get("species") else ""}
+{_AMR_METHODS if data.get("amr") else ""}
+{_VIRULENCE_METHODS if data.get("virulence") else ""}
+{_MOBILE_METHODS if data.get("mobile") else ""}
 {_RESOURCES_METHODS if with_resources else ""}
 <h2>Limitations</h2><ul>{limitations}</ul>
 <footer>This report is descriptive. It contains values computed from the input files and does not

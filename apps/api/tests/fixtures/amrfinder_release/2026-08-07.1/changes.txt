@@ -1,0 +1,10 @@
+----------------------------------------------------------------------
+Changes included in 2026-08-07.1
+----------------------------------------------------------------------
+
+Overview: 
+- New beta-lactamase families  blaACES, blaBAS, and blaGUA.
+- New blaEC alleles to cover blaEC that have distinct phenotypes when
+  expressed.
+- Curator review of start sites indicated a few incorrect start sites,
+  blaCMY-20 was removed with no full-length alternative; it will be resurrected

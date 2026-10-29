@@ -1,0 +1,87 @@
+Identify AMR and virulence genes in proteins and/or contigs and print a report
+
+USAGE:   amrfinder [--update] [--force_update] [--protein PROT_FASTA] [--nucleotide NUC_FASTA] [--gff GFF_FILE] [--annotation_format ANNOTATION_FORMAT] [--database DATABASE_DIR] [--database_version] [--ident_min MIN_IDENT] [--coverage_min MIN_COV] [--organism ORGANISM] [--list_organisms] [--translation_table TRANSLATION_TABLE] [--plus] [--report_common] [--report_all_equal] [--name NAME] [--print_node] [--mutation_all MUT_ALL_FILE] [--output OUTPUT_FILE] [--protein_output PROT_FASTA_OUT] [--nucleotide_output NUC_FASTA_OUT] [--nucleotide_flank5_output NUC_FLANK5_FASTA_OUT] [--nucleotide_flank5_size NUC_FLANK5_SIZE] [--blast_bin BLAST_DIR] [--hmmer_bin HMMER_DIR] [--pgap] [--gpipe_org] [--parm PARM] [--threads THREADS] [--debug] [--log LOG] [--quiet]
+HELP:    amrfinder --help or amrfinder -h
+VERSION: amrfinder --version or amrfinder -v
+
+NAMED PARAMETERS
+-u, --update
+    Update the AMRFinder database
+-U, --force_update
+    Force updating the AMRFinder database
+-p PROT_FASTA, --protein PROT_FASTA
+    Input protein FASTA file (can be gzipped)
+-n NUC_FASTA, --nucleotide NUC_FASTA
+    Input nucleotide FASTA file (can be gzipped)
+-g GFF_FILE, --gff GFF_FILE
+    GFF file for protein locations (can be gzipped). Locations are in the --nucleotide file. Protein ids should be in the attribute 'Name=<id>' (9th field) of the rows with type 'CDS' or 'gene' (3rd field).
+-a ANNOTATION_FORMAT, --annotation_format ANNOTATION_FORMAT
+    Type of GFF file: bakta, genbank, microscope, patric, pgap, prodigal, prokka, pseudomonasdb, rast, standard
+    Default: genbank
+-d DATABASE_DIR, --database DATABASE_DIR
+    Alternative directory with AMRFinder database. Default: $AMRFINDER_DB
+-V, --database_version
+    Print database version and exit
+-i MIN_IDENT, --ident_min MIN_IDENT
+    Minimum proportion of identical amino acids in alignment for hit (0..1). -1 means use a curated threshold if it exists and 0.9 otherwise
+    Default: -1
+-c MIN_COV, --coverage_min MIN_COV
+    Minimum coverage of the reference protein (0..1)
+    Default: 0.5
+-O ORGANISM, --organism ORGANISM
+    Taxonomy group. To see all possible taxonomy groups use the --list_organisms flag
+-l, --list_organisms
+    Print the list of all possible taxonomy groups for mutations identification and exit
+-t TRANSLATION_TABLE, --translation_table TRANSLATION_TABLE
+    NCBI genetic code for translated BLAST
+    Default: 11
+--plus
+    Add the plus genes to the report
+--report_common
+    Report proteins common to a taxonomy group
+--report_all_equal
+    Report all equally-scoring BLAST and HMM matches
+--name NAME
+    Text to be added as the first column "name" to all rows of the report, for example it can be an assembly name
+--print_node
+    Print hierarchy node (family)
+--mutation_all MUT_ALL_FILE
+    File to report all mutations
+-o OUTPUT_FILE, --output OUTPUT_FILE
+    Write output to OUTPUT_FILE instead of STDOUT
+--protein_output PROT_FASTA_OUT
+    Output protein FASTA file of reported proteins
+--nucleotide_output NUC_FASTA_OUT
+    Output nucleotide FASTA file of reported nucleotide sequences
+--nucleotide_flank5_output NUC_FLANK5_FASTA_OUT
+    Output nucleotide FASTA file of reported nucleotide sequences with 5' flanking sequences
+--nucleotide_flank5_size NUC_FLANK5_SIZE
+    5' flanking sequence size for NUC_FLANK5_FASTA_OUT
+    Default: 0
+--blast_bin BLAST_DIR
+    Directory for BLAST. Deafult: $BLAST_BIN
+--hmmer_bin HMMER_DIR
+    Directory for HMMer
+--pgap
+    Input files PROT_FASTA, NUC_FASTA and GFF_FILE are created by the NCBI PGAP
+--gpipe_org
+    NCBI internal GPipe organism names
+--parm PARM
+    amr_report parameters for testing: -nosame -noblast -skip_hmm_check -bed
+--threads THREADS
+    Max. number of threads
+    Default: 4
+--debug
+    Integrity checks
+--log LOG
+    Error log file, appended, opened on application start
+-q, --quiet
+    Suppress messages to STDERR
+
+Temporary directory used is $TMPDIR or "/tmp"
+
+DOCUMENTATION
+    See https://github.com/ncbi/amr/wiki for full documentation
+
+UPDATES
+    Subscribe to the amrfinder-announce mailing list for database and software update notifications: https://www.ncbi.nlm.nih.gov/mailman/listinfo/amrfinder-announce

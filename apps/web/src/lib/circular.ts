@@ -297,6 +297,12 @@ export interface CircleModel {
   layout: CircleLayout;
   rings: Record<"forward" | "reverse" | "backbone", ArcPiece[]>;
   custom: ArcPiece[];
+  /** AMRFinderPlus's elements on the AMR ring (AMR genes, point mutations, stress) and on the virulence ring, VFDB's
+   * hits on the virulence ring beside them, and the mobile-elements ring's calls. */
+  amr: ArcPiece[];
+  virulence: ArcPiece[];
+  vfdb: ArcPiece[];
+  mobile: ArcPiece[];
   gc: Bar[];
   skew: Bar[];
   coverage: Bar[];
@@ -305,7 +311,14 @@ export interface CircleModel {
 
 /** Everything one circle draws from a map: the sequences' segments, feature arcs by ring, the custom ring's arcs,
  * GC as the difference from the drawn sequences' GC, GC skew and read depth as bars, and each value ring's scale. */
-export function circleModel(map: GenomeMap, custom: MapFeature[]): CircleModel {
+export interface ExtraRings {
+  amr: MapFeature[];
+  virulence: MapFeature[];
+  vfdb?: MapFeature[];
+  mobile?: MapFeature[];
+}
+
+export function circleModel(map: GenomeMap, custom: MapFeature[], amr: ExtraRings = { amr: [], virulence: [] }): CircleModel {
   const layout = layoutCircle(map.sequences.map((s) => ({ id: s.contig, name: s.contig_in_assembly, length: s.length })));
   const pieces = arcPieces(map.features, layout);
   const rings: CircleModel["rings"] = { forward: [], reverse: [], backbone: [] };
@@ -319,6 +332,10 @@ export function circleModel(map: GenomeMap, custom: MapFeature[]): CircleModel {
     layout,
     rings,
     custom: arcPieces(custom, layout),
+    amr: arcPieces(amr.amr, layout),
+    virulence: arcPieces(amr.virulence, layout),
+    vfdb: arcPieces(amr.vfdb ?? [], layout),
+    mobile: arcPieces(amr.mobile ?? [], layout),
     gc,
     skew,
     coverage,

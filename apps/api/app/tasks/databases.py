@@ -573,20 +573,25 @@ def _download(task: Task) -> None:
     md5 = verify_md5(task, e, part)
     staging = svc.staging_dir(r.id, root)
     shutil.rmtree(staging, ignore_errors=True)
-    estimate = e.extracted_bytes_estimate
-    since_check = [0]
+    prepared = None
+    if e.kind == "mobsuite":
+        unpacked, prepared = _prepare_mobsuite(task, e, part, staging, downloads, md5)
+        members = len(prepared["files"]) + 1
+    else:
+        estimate = e.extracted_bytes_estimate
+        since_check = [0]
 
-    def extracting(read: int, written: int) -> None:
-        if written - since_check[0] >= SPACE_CHECK_BYTES:
-            since_check[0] = written
-            task.ensure_room(max(0, estimate - written))
-        task.tick(phase="extract", bytes_done=read, bytes_total=e.archive_bytes, written_bytes=written)
+        def extracting(read: int, written: int) -> None:
+            if written - since_check[0] >= SPACE_CHECK_BYTES:
+                since_check[0] = written
+                task.ensure_room(max(0, estimate - written))
+            task.tick(phase="extract", bytes_done=read, bytes_total=e.archive_bytes, written_bytes=written)
 
-    task.log(f"Unpacking into {staging}", flush=True)
-    members = extract(part, staging / "unpacked", e.top_dir, extracting)
-    unpacked = staging / "unpacked" / e.top_dir if e.top_dir else staging / "unpacked"
-    if not unpacked.is_dir():
-        raise TaskFailure(f"the archive has no {e.top_dir}/ folder")
+        task.log(f"Unpacking into {staging}", flush=True)
+        members = extract(part, staging / "unpacked", e.top_dir, extracting)
+        unpacked = staging / "unpacked" / e.top_dir if e.top_dir else staging / "unpacked"
+        if not unpacked.is_dir():
+            raise TaskFailure(f"the archive has no {e.top_dir}/ folder")
     found = _checked(task, e.kind, unpacked, e.version, e.db_type if e.kind == "bakta" else None)
     published = published_checksums(r, unpacked, found)
     manifest, md5s = hash_files(folder_items(unpacked), lambda d, t: task.tick(phase="manifest", bytes_done=d,
@@ -623,8 +628,44 @@ def _download(task: Task) -> None:
                     "checksum_sources": list(e.checksum_sources), "deleted_after_extraction": True},
         "published_md5_checked": len(md5s), "amrfinderplus_db": amr,
     }
+    if prepared is not None:
+        r.details["prepared"] = {k: prepared[k] for k in ("plasmid_fasta", "taxonomy", "prepared_with")}
     task.set_progress(phase="done", bytes_done=size, bytes_total=size)
     svc.ensure_default(task.db, r.kind)
+
+
+def _prepare_mobsuite(task: Task, e: CatalogueEntry, part: Path, staging: Path, downloads: Path,
+                      md5: str) -> tuple[Path, dict]:
+    """MOB-suite's folder, prepared as mob_init would without running it (app.tasks.mobsuite_db): the files
+    mob_recon reads, the reference plasmids' BLAST index and Mash sketch, and taxa.sqlite from the confirmed NCBI
+    taxonomy archive. The verified archive is deleted once read."""
+    from arva_tools.registry import detect
+
+    from app.services.mobsuite_db import PLASMID_FASTA_BYTES
+    from app.services.performance import effective_resources
+    from app.tasks import mobsuite_db
+
+    d = detect("mobsuite", refresh=True)
+    if d.path is None:
+        raise TaskFailure("MOB-suite is not installed, so its database cannot be indexed (makeblastdb, mash and "
+                          "ete3 of its environment are needed)", "tool_missing", tool="MOB-suite")
+    details = task.record.details or {}
+    taxonomy = details.get("taxonomy")
+    if not taxonomy:
+        raise TaskFailure("the NCBI taxonomy archive to use was not confirmed", "mobsuite_taxonomy_missing")
+    keep = bool((details.get("options") or {}).get("keep_plasmid_fasta"))
+    threads = effective_resources(task.db).threads
+    task.ensure_room(e.extracted_bytes_estimate + (PLASMID_FASTA_BYTES if keep else 0))
+    task.log(f"Preparing the folder with MOB-suite {d.version}'s makeblastdb, mash and ete3 ({threads} threads); "
+             "mob_init is not run", flush=True)
+    unpacked = staging / "unpacked"
+    staging.mkdir(parents=True, exist_ok=True)
+    prepared = mobsuite_db.prepare(task, e, part, unpacked, d.path, threads, keep)
+    part.unlink()
+    tax = mobsuite_db.taxonomy(task, e, taxonomy, downloads, unpacked, d.path)
+    doc = mobsuite_db.write_provenance(unpacked, e, md5, prepared, tax, d.version)
+    mobsuite_db.make_read_only(unpacked)
+    return unpacked, doc
 
 
 def _download_cleanup(task: Task, _exc: BaseException) -> None:

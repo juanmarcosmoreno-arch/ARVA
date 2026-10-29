@@ -284,12 +284,10 @@ as inline SVG (escaped names), a sequence table and the charts' numbers; the JSO
 
 ### What Phase 4 leaves for later
 
-- **Bakta's CDS annotation is not validated here**: Ubuntu 24.04 lacks AMRFinderPlus ≥ 4.2.7 and has DIAMOND 2.1.9
-  (Bakta needs ≥ 2.2.0), so Bakta runs only its RNA and non-coding steps; Prokka is the validated CDS annotator. The
-  Docker image (Debian bookworm) has not been built or run in this phase.
-- **Phase 5**: AMRFinderPlus (and its database, with checksums, through the Database Manager), virulence (VFDB) and
-  mobile-element searches, which will fill the AMR, virulence and mobile-element rings of the circular map;
-  InterProScan for protein domains (MLST and species identification are done: 5C1, 5C2).
+- ~~Bakta's CDS annotation is not validated here~~: done in 5D1 (Bakta's Bioconda environment; validated on Linux
+  against NCBI's annotation of S. aureus N315). The Docker image has not been built or run.
+- **Phase 5**: InterProScan for protein domains (MLST, species identification, AMRFinderPlus with the AMR and
+  virulence rings, VFDB and the plasmid and mobile-element searches with their rings are done: 5C1, 5C2, 5D1, 5D2).
 - The circular map has no zoom (the linear view is for detail) and draws at most 50,000 features per map; contigs of a
   draft assembly on one circle are in the annotator's order, not in genome order.
 
@@ -380,9 +378,65 @@ as inline SVG (escaped names), a sequence table and the charts' numbers; the JSO
   `search` against pre-sketched databases are not offered; the linux-aarch64 environments were solved, not
   installed; the Docker image was not built.
 
-**Next** (Phase 5, as planned above): 5D — antimicrobial resistance and virulence (AMRFinderPlus with its database
-through the Database Manager; VFDB), filling the AMR and virulence rings of the circular map; 5E — plasmids and
-mobile elements (PlasmidFinder, MOB-suite, geNomad) and InterProScan domains.
+**Next**: 5E — InterProScan protein domains, BLAST searches of chosen sequences and Kraken2 read classification.
+
+## AMR genes and Bakta CDS (5D1) ✅
+
+- **AMRFinderPlus 4.2.7** from a pinned Bioconda environment (locks for linux-64 and linux-aarch64): adapter with
+  every option checked against its `--help` and passed explicitly, parsers for its report and `--mutation_all`
+  (real output on S. aureus N315 and a derived input; constructed rows for HMM, POINTN, StxTyper and protein
+  contig-end cases), the organism proposed from the species identification by the wiki's table.
+- **Database kind `amrfinderplus` downloadable**: dated releases listed from NCBI's folder for the installed minor
+  version, a plan with the files and sizes, download after confirmation with each file's SHA-256 recorded (NCBI
+  publishes no checksums), indexing with `amrfinder_index`, AMRFinderPlus's own `--database_version` check; the copy
+  inside a Bakta database detected and registered read-only only when this AMRFinderPlus reads it. Release
+  2026-08-07.1 installed here through that mechanism.
+- **Job `amr_detection`** (nucleotide or combined with a Bakta/Prokka annotation), table `amr_results` (one row
+  per element, migration `e4b7c9a2d6f8`), the Genomic analysis tab (summary by class, method badges, point
+  mutations apart, the genotype-is-not-phenotype note), the project's presence/absence matrix and CSV, report
+  sections, guide entries (`amr`, `amr_methods`, `point_mutation`, `genotype_phenotype`).
+- **Circular map and Genome Explorer**: the AMR and virulence rings are drawn from the assembly's most recent run
+  (with legend, tooltips and the link to the annotated gene); the explorer has an AMR/virulence track.
+- **Bakta with CDS**: Bakta 1.12.2 from a Bioconda environment with all its programs (AMRFinderPlus 4.2.7, DIAMOND
+  2.2.8, BLAST+ 2.17.0, a working PILER-CR 1.06, tRNAscan-SE 2.0.13); the light database's AMRFinderPlus copy is
+  too old for AMRFinderPlus 4.2.7, so ARVA gives Bakta a view of its database with an ARVA-installed AMRFinderPlus
+  release in its place. Validated on S. aureus N315: 2,592 CDS against 2,657 protein-coding CDS in NCBI's RefSeq
+  annotation. linux-aarch64 has no Bakta lock (Bioconda has no BLAST+ 2.17.0 there): arm64 images keep the PyPI
+  Bakta without CDS. The PyPI Bakta environment of the development system was removed.
+
+Not validated here: the linux-aarch64 AMRFinderPlus environment (solved, not installed); point mutations on real
+mutants (the gyrA S84L case is a constructed edit of N315); StxTyper's operon calls (no E. coli with stx was run);
+the Bakta full database.
+
+## Plasmids, mobile elements and virulence factors (5D2) ✅
+
+- **Tools from pinned Bioconda environments** (scripts/conda_locks.py; installs now hard-link files from the package
+  cache and skip the packages' post-link scripts, because MOB-suite's runs `mob_init`, a download with TLS
+  verification off): ABRicate 1.4.0 (linux-64 and linux-aarch64 locks), MOB-suite 3.1.9 with BLAST+ 2.15.0 and
+  IntegronFinder 2.0.6 (linux-64; Bioconda has no BLAST+ < 2.16 or HMMER <= 3.3.2 for linux-aarch64), ISEScan 1.7.3
+  (linux-64) and geNomad 1.13.0 (both). Adapters with every option checked against `--help` (or, for ISEScan and
+  geNomad, their source) and passed explicitly.
+- **Databases**: MOB-suite's database 3.1.8 in the download catalogue (Zenodo 10304948, MD5 checked), prepared by ARVA
+  as `mob_init` would without running it (BLAST indexes, Mash sketch, ete3's taxa.sqlite from a dated NCBI taxonomy
+  archive the user confirms, its SHA-256 recorded; the 1.6 GB reference FASTA kept only on request) and installed
+  here through that mechanism (1.41 GB); ABRicate's bundled VFDB and PlasmidFinder recorded read-only (`abricate`
+  variant of their kinds), never updated by `abricate-get_db`; geNomad's database 1.9 paired with geNomad 1.10–1.13
+  by its `releases.txt`.
+- **Jobs `mobile_elements`** (MOB-suite, PlasmidFinder, IntegronFinder, ISEScan, geNomad) and **`virulence_screen`**
+  (VFDB), tables `mobile_element_results` and `virulence_results` (migration `f5a8c3d1b7e9`), API routes, the Genomic
+  analysis tab (contig table with MOB-suite's call, replicons, relaxase, mobility, PlasmidFinder hits, integrons, IS
+  elements, viruses and the assembler's circularity side by side; run cards by category; the virulence card with VFDB
+  and AMRFinderPlus rows by source), the project's columns, report sections with methods and limitations, guide
+  entries (`plasmid`, `replicon`, `mobile_element`, `virulence_factor`, `vfdb`).
+- **Circular map and Genome Explorer**: the mobile-element ring is drawn (no longer "Phase 5"), with a VFDB ring next
+  to AMRFinderPlus's virulence ring and MOB-suite's plasmid contigs coloured on the sequence ring; VFDB and
+  mobile-element tracks in the explorer.
+- **Validated** with real runs on NCBI's S. aureus N315 and plasmid R388 and on ARVA's SYNTHETIC genome: MOB-suite,
+  PlasmidFinder and VFDB through ABRicate, IntegronFinder (results in *Scientific methods*).
+
+Not validated here: ISEScan and geNomad (their environments, and geNomad's database, did not fit the test machine's
+disk; parsers tested on constructed files and every run is labelled as not validated); the linux-aarch64
+environments of ABRicate and geNomad (solved, not installed); the Docker image (not built).
 
 ## Performance profiles (P1) ✅
 
@@ -416,7 +470,8 @@ mobile elements (PlasmidFinder, MOB-suite, geNomad) and InterProScan domains.
 | 5A, 5B ✅ | External storage; database kinds (register in place, download a chosen version to a chosen folder, reference genome collections, one default per kind) |
 | 5C1 ✅ | Pinned Bioconda environments (micromamba, checksummed locks for linux-64 and linux-aarch64); MLST with mlst and its bundled PubMLST schemes |
 | 5C2 ✅ | Species identification: FastANI and skani against reference genome collections (validated), Mash and sylph (test databases only), GTDB-Tk (not validated, memory-gated); collections from NCBI Datasets; consistency with MLST and the annotation's organism |
-| 5D, 5E | AMRFinderPlus (AMR ring) and virulence (VFDB); plasmids and mobile elements (their rings), InterProScan, BLAST; Kraken2 |
+| 5D ✅ | AMRFinderPlus (AMR and virulence rings), Bakta with CDS; VFDB (ABRicate); plasmids (MOB-suite, PlasmidFinder) and mobile elements (IntegronFinder; ISEScan and geNomad not validated) with their rings |
+| 5E | InterProScan, BLAST; Kraken2 |
 | 6 | Comparative genomics: ANI, synteny, dot plots, Genome Region Explorer |
 | 7 | Pangenome (Panaroo), alignments (MAFFT), phylogeny (IQ-TREE), Tree Explorer |
 | 8 | Workflow Builder (Nextflow DSL2), batch processing beyond QC (first step: batch QC, Phase 3), mobilome, variants, ARVA Discover, full reports, optional ARVA Assist, multi-user |

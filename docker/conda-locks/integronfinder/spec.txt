@@ -1,0 +1,3 @@
+# Pinned spec of ARVA's IntegronFinder environment; scripts/conda_locks.py update integronfinder solves it for each
+# platform. IntegronFinder 2.0.6 (Neron et al. 2022, GPL-3.0) with the intI HMMs and attC model bundled in its package.
+integron_finder=2.0.6=pyhdfd78af_0

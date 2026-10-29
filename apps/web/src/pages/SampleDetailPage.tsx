@@ -14,6 +14,9 @@ import { CopyErrorDetails } from "@/components/diagnostics/CopyErrorDetails";
 import { AnnotationDialog } from "@/components/annotation/AnnotationDialog";
 import { AnnotationTab } from "@/components/annotation/AnnotationTab";
 import { GenomicTab } from "@/components/genomic/GenomicTab";
+import { AmrDialog } from "@/components/genomic/AmrDialog";
+import { MobileDialog } from "@/components/genomic/MobileDialog";
+import { VirulenceDialog } from "@/components/genomic/Virulence";
 import { MlstDialog } from "@/components/genomic/MlstDialog";
 import { SpeciesDialog } from "@/components/genomic/SpeciesDialog";
 import { AssemblyTab } from "@/components/assembly/AssemblyTab";
@@ -99,6 +102,9 @@ export function SampleDetailPage() {
   const polishOpen = polishDraft !== undefined;
   const [annotateOpen, setAnnotateOpen] = useState(false);
   const [mlstOpen, setMlstOpen] = useState(false);
+  const [amrOpen, setAmrOpen] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const [virulenceOpen, setVirulenceOpen] = useState(false);
   const [speciesOpen, setSpeciesOpen] = useState(false);
   const assemblies = useQuery({
     queryKey: ["assemblies", sampleId],
@@ -270,7 +276,7 @@ export function SampleDetailPage() {
         />
       )}
       {tab === "annotation" && <AnnotationTab sampleId={s.id} jobs={allJobs} onNew={() => setAnnotateOpen(true)} />}
-      {tab === "genomic" && <GenomicTab sampleId={s.id} jobs={allJobs} onMlst={() => setMlstOpen(true)} onSpecies={() => setSpeciesOpen(true)} />}
+      {tab === "genomic" && <GenomicTab sampleId={s.id} jobs={allJobs} onMlst={() => setMlstOpen(true)} onSpecies={() => setSpeciesOpen(true)} onAmr={() => setAmrOpen(true)} onMobile={() => setMobileOpen(true)} onVirulence={() => setVirulenceOpen(true)} />}
       {tab === "history" && <HistoryTab jobs={jobs.data ?? []} files={files.data ?? []} openJob={params.get("job")} />}
       {tab === "metadata" && (
         <Card>
@@ -317,6 +323,9 @@ export function SampleDetailPage() {
         <AnnotationDialog open={annotateOpen} onOpenChange={setAnnotateOpen} sampleId={s.id} assemblies={assemblies.data} />
       )}
       {mlstOpen && assemblies.data && <MlstDialog open={mlstOpen} onOpenChange={setMlstOpen} sampleId={s.id} assemblies={assemblies.data} />}
+      {amrOpen && assemblies.data && <AmrDialog open={amrOpen} onOpenChange={setAmrOpen} sampleId={s.id} assemblies={assemblies.data} />}
+      {mobileOpen && assemblies.data && <MobileDialog open={mobileOpen} onOpenChange={setMobileOpen} sampleId={s.id} assemblies={assemblies.data} />}
+      {virulenceOpen && assemblies.data && <VirulenceDialog open={virulenceOpen} onOpenChange={setVirulenceOpen} sampleId={s.id} assemblies={assemblies.data} />}
       {speciesOpen && assemblies.data && <SpeciesDialog open={speciesOpen} onOpenChange={setSpeciesOpen} sampleId={s.id} assemblies={assemblies.data} />}
     </div>
   );

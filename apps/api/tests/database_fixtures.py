@@ -97,8 +97,12 @@ def plasmidfinder(root: Path) -> Path:
 
 
 def mobsuite(root: Path) -> Path:
-    for name in ("ncbi_plasmid_full_seqs.fas", "rep.dna.fas", "mob.proteins.faa", "mpf.proteins.faa", "orit.fas",
-                 "repetitive.dna.fas", "clusters.txt", "ncbi_plasmid_full_seqs.fas.msh"):
+    """A folder mob_init prepared (status.txt): the files mob_recon reads, the BLAST indexes, the Mash sketch and
+    taxa.sqlite (empty files with MOB-suite 3.1.9's names)."""
+    from arva_tools import mobsuite as mob
+
+    for name in (mob.PLASMID_FASTA, *mob.DB_FILES, *mob.PLASMID_INDEX, *mob.REPETITIVE_INDEX, mob.MASH_SKETCH,
+                 mob.TAXA, mob.TAXA_EXTRA):
         _write(root, name)
     _write(root, "status.txt", "Download date: 2026-09-01. Removing lock file.")
     return root

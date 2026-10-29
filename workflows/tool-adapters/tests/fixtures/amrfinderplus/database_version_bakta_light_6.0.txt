@@ -1,0 +1,10 @@
+Running: /env/bin/amrfinder --database /bakta-db/amrfinderplus-db/latest --database_version
+Software directory: '/env/bin/'
+Software version: 4.2.7
+WARNING: This was compiled for running under bioconda, but $CONDA_PREFIX was not found
+Reverting to hard coded directory: /env/share/amrfinderplus/data/latest
+Database directory: '/bakta-db/amrfinderplus-db/2024-12-18.1'
+Database version: 2024-12-18.1
+*** ERROR ***
+Software requires database version at least 2025-09-22.2
+To download the latest version to the default directory run: amrfinder -u

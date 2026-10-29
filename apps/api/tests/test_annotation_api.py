@@ -316,8 +316,8 @@ def test_bakta_refuses_to_run_when_its_programs_changed(client, setup, bakta_db,
     assert client.get(f"{API}/jobs/{job_id}").json()["status"] == "pending"
     real = annotation_tasks.bakta_tool.check_dependencies
 
-    def without_trnascan(exe, db_path):
-        return [{**d, "status": "missing"} if d["name"] == "tRNAscan-SE" else d for d in real(exe, db_path)]
+    def without_trnascan(exe, db_path, amr_data=None):
+        return [{**d, "status": "missing"} if d["name"] == "tRNAscan-SE" else d for d in real(exe, db_path, amr_data)]
 
     monkeypatch.setattr(annotation_tasks.bakta_tool, "check_dependencies", without_trnascan)
     assert annotation_tasks.run_bakta_job(job_id) == "failed"
@@ -429,3 +429,30 @@ def test_annotations_migration_up_and_down(monkeypatch):
         db.dispose()
         with admin.connect() as conn:
             conn.execute(text("DROP DATABASE IF EXISTS arva_migration_scratch_annotations"))
+
+
+@pytest.mark.skipif(not available("bakta") or not available("amrfinderplus"), reason="Bakta or AMRFinderPlus is not installed")
+def test_bakta_cds_reads_an_arva_amrfinderplus_database_in_place_of_its_own(client, setup, bakta_db, storage_root):
+    """The light database's AMRFinderPlus data (2024-12-18.1) are older than AMRFinderPlus 4.2.7 reads; with an
+    AMRFinderPlus database ARVA indexed (the constructed release of tests/fixtures/amrfinder_release), Bakta runs its
+    CDS step through a composed view of its database, which is removed afterwards."""
+    from test_amr_api import registered_release
+
+    _sample, assembly = setup
+    url = f"{API}/assemblies/{assembly['id']}/annotate/bakta"
+    before = client.post(f"{url}/preview", json={}).json()
+    if before["amr_data"]["bundled"]["status"] == "ok":
+        pytest.skip("this Bakta database's own AMRFinderPlus data are read by the installed AMRFinderPlus")
+    assert before["amr_data"]["used"] is None and not before["steps"]["cds"]["run"]
+    amr = registered_release(client, storage_root, "amr-for-bakta", index=True)
+    plan = client.post(f"{url}/preview", json={}).json()
+    assert plan["amr_data"]["used"] == "replacement" and plan["amr_data"]["replacement"]["id"] == amr["id"]
+    assert plan["steps"]["cds"]["run"] and "--skip-cds" not in plan["skip_options"]
+    r = client.post(url, json=bakta_request(plan))
+    job = client.get(f"{API}/jobs/{r.json()['id']}").json()
+    assert job["status"] == "completed", job["log_text"][-3000:]
+    assert "amrfinderplus-db/latest ->" in job["log_text"] and job["parameters"]["amr_data"]["used"] == "replacement"
+    (ann,) = client.get(f"{API}/assemblies/{assembly['id']}/annotations").json()
+    assert ann["steps"]["cds"]["status"] == "searched" and ann["summary"]["cds"] > 0
+    results = storage_root / Path(ann["files"]["json"]["path"]).parents[1]
+    assert not (results / "bakta-tmp").exists()

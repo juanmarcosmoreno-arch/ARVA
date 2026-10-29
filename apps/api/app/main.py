@@ -14,6 +14,7 @@ from app.api.capacity import UploadCapacityGuard, insufficient_storage_response
 from app.api.metadata_limit import MetadataUploadLimit
 from app.api.request_context import HEADER, RequestContext, route_of
 from app.api.routes import (
+    amr,
     analyses,
     annotations,
     assemblies,
@@ -25,6 +26,7 @@ from app.api.routes import (
     imports,
     metadata,
     mlst,
+    mobile_elements,
     overview,
     projects,
     reports,
@@ -136,7 +138,8 @@ def create_app() -> FastAPI:
                 "storage": storage}
 
     for module in (dashboard, projects, samples, files, imports, metadata, analyses, tools, reports, overview,
-                   assemblies, annotations, explorer, databases, mlst, species, system, diagnostics):
+                   assemblies, annotations, explorer, amr, mobile_elements, databases, mlst, species, system,
+                   diagnostics):
         app.include_router(module.router, prefix=settings.api_v1_prefix)
     return app
 

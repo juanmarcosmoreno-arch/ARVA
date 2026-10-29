@@ -65,6 +65,11 @@ class Settings(BaseSettings):
     # NCBI Datasets v2 API, for building reference genome collections (public metadata and genomes only; ARVA sends
     # no API key, e-mail or other personal data). Tests point it at a local server.
     ncbi_datasets_url: str = "https://api.ncbi.nlm.nih.gov/datasets/v2"
+    # NCBI's folder of AMRFinderPlus database releases (one subfolder per software minor version). Tests point it at
+    # a local server.
+    amrfinder_db_url: str = "https://ftp.ncbi.nlm.nih.gov/pathogen/Antimicrobial_resistance/AMRFinderPlus/database"
+    # NCBI's dated taxonomy archives, read to build MOB-suite's taxa.sqlite. Tests point it at a local server.
+    ncbi_taxonomy_url: str = "https://ftp.ncbi.nlm.nih.gov/pub/taxonomy/taxdump_archive"
 
     @property
     def raw_dir(self) -> Path:

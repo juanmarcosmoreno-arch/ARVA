@@ -1,6 +1,7 @@
 """Bakta and Prokka adapters: commands, validation, dependency planning, and parsers on real outputs (fixtures written
 by the tools on a SYNTHETIC genome; see the fixture READMEs). Real-tool tests skip when the tool or database is absent.
 """
+import hashlib
 import json
 import os
 import shutil
@@ -17,6 +18,8 @@ from arva_tools.bakta import (
     BaktaAdapter,
     BaktaParams,
     check_dependencies,
+    compose_database,
+    env_for,
     pilercr_test,
     plan_steps,
     skip_options,
@@ -40,8 +43,11 @@ GENOME = FIXTURES / "annotation_genome" / "genome.fna"
 BAKTA_HELP = help_options((BAKTA / "help_1.12.2.txt").read_text())
 PROKKA_HELP = help_options((PROKKA / "help_1.14.6.txt").read_text())
 J = Path("/job")
-BAKTA_EXE = os.environ.get("ARVA_TOOL_BAKTA") or shutil.which("bakta") or str(Path.home() / ".arva-tools/bakta/bin/bakta")
+BAKTA_EXE = os.environ.get("ARVA_TOOL_BAKTA") or shutil.which("bakta") or str(Path.home() / ".arva-tools/conda/bakta/bin/bakta")
 BAKTA_DB = Path(os.environ.get("ARVA_TEST_BAKTA_DB") or Path.home() / ".arva-db/bakta-light/6.0")
+AMRFINDER_DB = Path(os.environ.get("ARVA_TEST_AMRFINDER_DB") or Path.home() / ".arva-db/amrfinderplus/2026-08-07.1")
+N315_PLASMID = Path(os.environ.get("ARVA_TEST_N315_PLASMID") or "/nonexistent")
+N315_PLASMID_SHA256 = "68f63fcc7e1c3823bc44edfb11af8aee5e761e1106aef6aece586091eca7ac4d"
 
 
 def dep(name: str, status: str, found: str | None = None) -> dict:
@@ -293,29 +299,62 @@ def test_real_bakta_dependency_report():
               "            out[d[3]] = None\nprint(json.dumps(out))")
     python = python_of(BAKTA_EXE)
     theirs = json.loads(subprocess.run([*python, "-c", script], capture_output=True, text=True, check=True,
-                                       timeout=300).stdout.splitlines()[-1])
+                                       timeout=300, env={**os.environ, **env_for(BAKTA_EXE)}).stdout.splitlines()[-1])
     names = {"tRNAscan-SE": "tRNAscan-SE", "Aragorn": "Aragorn", "Infernal (cmscan)": "CMscan", "PILER-CR": "PilerCR",
              "Pyrodigal": "Pyrodigal", "AMRFinderPlus": "AMRFinderPlus", "PyHMMER": "Pyhmmer", "DIAMOND": "Diamond",
              "BLAST+ (blastn)": "Blastn", "pyCirclize": "pyCirclize"}
     assert {r["name"]: r["found"] for r in report} == {ours: theirs[names[ours]] for ours in names}
 
 
+def _real_bakta(tmp_path: Path, genome: Path, tag: str) -> tuple[dict, list[dict], dict]:
+    """Bakta on `genome` with the light database, through a composed view whose amrfinderplus-db/latest is the
+    AMRFinderPlus database at ARVA_TEST_AMRFINDER_DB when it exists (the light database's own copy is older than
+    AMRFinderPlus 4.2.7 reads, so without it the CDS step is skipped)."""
+    db_type = json.loads((BAKTA_DB / "version.json").read_text())["type"]
+    amr = AMRFINDER_DB if (AMRFINDER_DB / "AMRProt.fa.phr").is_file() else None
+    steps = plan_steps(check_dependencies(BAKTA_EXE, BAKTA_DB, amr), db_type, skip_plot=True)
+    db = compose_database(BAKTA_DB, amr, tmp_path / "db") if amr else BAKTA_DB
+    (tmp_path / "tmp").mkdir()
+    argv = BaktaAdapter.argv(BAKTA_EXE, BaktaParams(locus_tag=tag, threads=2), genome, db,
+                             tmp_path / "out", tmp_path / "tmp", skip_options(steps), BaktaAdapter.help_options(BAKTA_EXE))
+    proc = subprocess.run(argv, capture_output=True, text=True, timeout=1800,
+                          env={**os.environ, "PYTHONUNBUFFERED": "1", **env_for(BAKTA_EXE)})
+    assert proc.returncode == 0, proc.stdout[-2000:] + proc.stderr[-2000:]
+    _, features, _ = BaktaAdapter.parse_json(json.loads((tmp_path / "out" / "annotation.json").read_text()))
+    return steps, features, BaktaAdapter.parse_console(proc.stdout)
+
+
 @pytest.mark.skipif(not _bakta_installed() or not (BAKTA_DB / "version.json").is_file(),
                     reason="Bakta or its light database is not installed")
 def test_real_bakta_run_on_synthetic_genome(tmp_path):
-    db_type = json.loads((BAKTA_DB / "version.json").read_text())["type"]
-    steps = plan_steps(check_dependencies(BAKTA_EXE, BAKTA_DB), db_type, skip_plot=True)
-    (tmp_path / "tmp").mkdir()
-    argv = BaktaAdapter.argv(BAKTA_EXE, BaktaParams(locus_tag="SYNT", threads=2), GENOME, BAKTA_DB,
-                             tmp_path / "out", tmp_path / "tmp", skip_options(steps), BaktaAdapter.help_options(BAKTA_EXE))
-    proc = subprocess.run(argv, capture_output=True, text=True, timeout=1800, env={**os.environ, "PYTHONUNBUFFERED": "1"})
-    assert proc.returncode == 0, proc.stdout[-2000:] + proc.stderr[-2000:]
-    run = BaktaAdapter.parse_console(proc.stdout)
+    steps, features, run = _real_bakta(tmp_path, GENOME, "SYNT")
     assert run["finished"] and run["crispr_crashed"] is None
-    _, features, _ = BaktaAdapter.parse_json(json.loads((tmp_path / "out" / "annotation.json").read_text()))
     if steps["rrna"]["run"]:
         assert {f["product"] for f in features if f["type"] == "rrna"} == {"5S ribosomal RNA", "16S ribosomal RNA"}
     assert any(f["type"] == "gap" for f in features)
+    if steps["cds"]["run"]:
+        # The three back-translated Swiss-Prot proteins of the fixture (P04395, P05100, Q59087) and the planted ORFs.
+        products = {(f["start"], f["end"]): f["product"] for f in features if f["type"] == "cds"}
+        assert products[(9264, 10112)] == "DNA-3-methyladenine glycosylase II"
+        assert products[(10844, 11407)] == "DNA-3-methyladenine glycosylase I"
+        assert products[(12351, 13169)] == "Catabolic 3-dehydroquinate dehydratase"
+        assert {(233, 1267), (1800, 2339), (2619, 2936), (3437, 4333)} <= set(products)
+    if steps["crispr"]["run"]:
+        assert sum(f["type"] == "crispr" for f in features) == 1
+
+
+@pytest.mark.skipif(not _bakta_installed() or not N315_PLASMID.is_file() or not (AMRFINDER_DB / "AMRProt.fa.phr").is_file(),
+                    reason="needs Bakta, the AMRFinderPlus database and the NCBI genome at ARVA_TEST_N315_PLASMID")
+def test_real_bakta_cds_on_ncbi_plasmid_matches_refseq(tmp_path):
+    """S. aureus N315 plasmid pN315 (NCBI RefSeq NC_003140.1, the FASTA sha256 below): RefSeq's annotation
+    (GCF_000009645.1-RS_2025_03_15, PGAP 6.9) has 30 CDS, 6 of them pseudogenes; Bakta 1.12.2 with the light
+    database 6.0 calls 29 (it detects no pseudogenes with the light database) and the AMR expert system names blaZ."""
+    assert hashlib.sha256(N315_PLASMID.read_bytes()).hexdigest() == N315_PLASMID_SHA256
+    steps, features, _ = _real_bakta(tmp_path, N315_PLASMID, "PN315")
+    assert steps["cds"]["run"]
+    cds = [f for f in features if f["type"] == "cds"]
+    assert len(cds) == 29
+    assert any(f["gene"] == "blaZ" for f in cds)
 
 
 @pytest.mark.skipif(shutil.which("prokka") is None, reason="Prokka is not installed")

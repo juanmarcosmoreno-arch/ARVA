@@ -1,0 +1,4 @@
+# integron_finder 2.0.6 
+# cmd: integron_finder --cpu 4 --distance-thresh 4000 --evalue-attc 1 --calin-threshold 2 --max-attc-size 200 --min-attc-size 40 --topology-file /work/topology.txt --outdir /work/integron_finder --cmsearch /env/bin/cmsearch --hmmsearch /env/bin/hmmsearch --prodigal /env/bin/prodigal --mute --local-max /work/contigs.fna
+ID_replicon	CALIN	complete	In0	topology	size
+NC_028464.1	0	1	0	circ	33913

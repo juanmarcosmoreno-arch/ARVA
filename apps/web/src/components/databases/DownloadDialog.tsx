@@ -20,15 +20,18 @@ export function DownloadDialog({ entry, onClose }: { entry: CatalogueEntry; onCl
   const [accepted, setAccepted] = useState(false);
   const [destination, setDestination] = useState<string | null>(null);
   const [folder, setFolder] = useState<string>("");
+  const [keepFasta, setKeepFasta] = useState(false);
+  const [taxonomy, setTaxonomy] = useState<string | null>(null);
   const folderOk = folder === "" || validFolder(folder);
   const plan = useQuery({
-    queryKey: ["database-plan", entry.key, destination, folder],
-    queryFn: () => api.databasePlan(entry.key, destination, folder || null),
+    queryKey: ["database-plan", entry.key, destination, folder, keepFasta, taxonomy],
+    queryFn: () => api.databasePlan(entry.key, destination, folder || null, { keep_plasmid_fasta: keepFasta, taxonomy_archive: taxonomy }),
     enabled: folderOk,
     staleTime: 0,
   });
   const start = useMutation({
-    mutationFn: () => api.downloadDatabase(entry.key, entry.archive_bytes, accepted, destination, folder || null),
+    mutationFn: () =>
+      api.downloadDatabase(entry.key, entry.archive_bytes, accepted, destination, folder || null, p?.extras ? { keep_plasmid_fasta: keepFasta, taxonomy_archive: p.extras.taxonomy.name } : {}),
     onSuccess: () => {
       refresh();
       onClose();
@@ -115,6 +118,34 @@ export function DownloadDialog({ entry, onClose }: { entry: CatalogueEntry; onCl
                 <div className="text-muted-foreground">{t("databases.checksumSources", { sources: entry.checksum_sources.join("; ") })}</div>
               </dd>
             </dl>
+            {p.extras && (
+              <section className="space-y-2 rounded-lg border p-3 text-xs" aria-label={t("databases.mobsuite.title")}>
+                <h4 className="font-semibold">{t("databases.mobsuite.title")}</h4>
+                <label className="block space-y-1">
+                  <span className="font-medium">{t("databases.mobsuite.taxonomy")}</span>
+                  <Select value={p.extras.taxonomy.name} onChange={(e) => { setTaxonomy(e.target.value); setAccepted(false); }} aria-label={t("databases.mobsuite.taxonomy")}>
+                    {p.extras.taxonomy_archives.map((a) => (
+                      <option key={a.name} value={a.name}>
+                        {a.name}
+                      </option>
+                    ))}
+                  </Select>
+                  <span className="block text-muted-foreground">
+                    {t("databases.mobsuite.taxonomyHint", { size: fmtBytes(p.extras.taxonomy.bytes) })} <ExtLink href={p.extras.taxonomy.url}>{p.extras.taxonomy.url}</ExtLink>
+                  </span>
+                </label>
+                <label className="flex items-start gap-2">
+                  <input type="checkbox" className="mt-0.5" checked={keepFasta} onChange={(e) => { setKeepFasta(e.target.checked); setAccepted(false); }} />
+                  <span>{t("databases.mobsuite.keepFasta", { size: fmtBytes(p.extras.plasmid_fasta_bytes) })}</span>
+                </label>
+                <p className="text-muted-foreground">{t("databases.mobsuite.extra", { size: fmtBytes(p.extras.extra_bytes) })}</p>
+                <ul className="list-disc space-y-0.5 pl-4 font-mono text-[11px] text-muted-foreground">
+                  {p.extras.steps.map((s) => (
+                    <li key={s}>{s}</li>
+                  ))}
+                </ul>
+              </section>
+            )}
             <ul className="list-disc space-y-1 pl-4 text-xs text-muted-foreground">
               <li>{t("databases.step.download")}</li>
               <li>{t("databases.step.checksum")}</li>

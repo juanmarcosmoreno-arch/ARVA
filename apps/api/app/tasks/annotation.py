@@ -116,14 +116,33 @@ def _bakta_database(ctx: JobContext) -> tuple[ReferenceDatabase, str]:
     return record, info["type"]
 
 
+def _bakta_amr_data(ctx: JobContext, planned: dict | None) -> Path | None:
+    """The AMRFinderPlus database the plan put in place of the Bakta database's own copy, checked unchanged."""
+    replacement = (planned or {}).get("replacement") if (planned or {}).get("used") == "replacement" else None
+    if replacement is None:
+        return None
+    r = ctx.db.get(ReferenceDatabase, replacement["id"])
+    if r is None or r.status not in (DatabaseStatus.installed, DatabaseStatus.registered) or \
+            r.checksum != replacement["checksum"] or r.path != replacement["path"]:
+        raise JobFailure(f"The AMRFinderPlus database {replacement['name']} {replacement['version']} chosen for "
+                         "Bakta's AMR expert system changed or was removed; open the annotation dialog again",
+                         "database_changed", name=str(replacement["name"]))
+    ctx.log(f"AMRFinderPlus data for Bakta's AMR expert system: {r.name} {r.version} at {r.path} (content checksum "
+            f"{r.checksum}), because the copy inside the Bakta database "
+            f"({((planned or {}).get('bundled') or {}).get('version') or '?'}) is not read by this AMRFinderPlus: "
+            f"{((planned or {}).get('bundled') or {}).get('error') or ''}")
+    return Path(r.path or "")
+
+
 def _bakta_body(ctx: JobContext) -> None:
     exe = _resolve_tool(ctx, "bakta")
     p = ctx.job.parameters or {}
     params = BaktaParams(**{k: p[k] for k in BaktaParams.__dataclass_fields__})
     record, db_type = _bakta_database(ctx)
     a = _assembly(ctx)
+    amr_data = _bakta_amr_data(ctx, p.get("amr_data"))
     try:
-        dependencies = bakta_tool.check_dependencies(exe, Path(record.path))
+        dependencies = bakta_tool.check_dependencies(exe, Path(record.path), amr_data)
     except RuntimeError as exc:
         raise JobFailure(str(exc)) from exc
     steps = bakta_tool.plan_steps(dependencies, db_type, params.skip_plot)
@@ -139,8 +158,14 @@ def _bakta_body(ctx: JobContext) -> None:
     staged = _stage(ctx, a, results, rename=False)
     out, tmp = results / bakta_tool.OUT_DIR, results / bakta_tool.TMP_DIR
     tmp.mkdir()
+    db_dir = Path(record.path)
+    if amr_data is not None:
+        db_dir = bakta_tool.compose_database(Path(record.path), amr_data, tmp / "database")
+        ctx.log(f"Bakta reads the database through {db_dir.relative_to(results)}: links to every file of "
+                f"{record.path}, with amrfinderplus-db/latest -> {amr_data} (the copy inside the Bakta database is not "
+                "read by this AMRFinderPlus); neither database is changed")
     try:
-        argv = BaktaAdapter.argv(exe, params, results / "input" / INPUT_NAME, Path(record.path), out, tmp, skips,
+        argv = BaktaAdapter.argv(exe, params, results / "input" / INPUT_NAME, db_dir, out, tmp, skips,
                                  BaktaAdapter.help_options(exe))
     except (OSError, RuntimeError, subprocess.TimeoutExpired) as exc:
         raise JobFailure(f"Bakta's --help could not be read to check its options: {exc}",
@@ -152,7 +177,8 @@ def _bakta_body(ctx: JobContext) -> None:
     monitor = _StageMonitor(ctx, "Bakta", console, bakta_tool.STAGES, BaktaAdapter.stage)
     monitor()
     try:
-        _run(ctx, argv, results, console.name, extra_env=bakta_tool.ENVIRONMENT, monitor=monitor)
+        _run(ctx, argv, results, console.name, extra_env={**bakta_tool.ENVIRONMENT, **bakta_tool.env_for(exe)},
+             monitor=monitor)
     except ToolExecutionError as exc:
         monitor(finished=True)
         if isinstance(exc, ToolTimeoutError):

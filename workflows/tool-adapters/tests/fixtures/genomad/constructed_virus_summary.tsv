@@ -1,0 +1,3 @@
+seq_name	length	topology	coordinates	n_genes	genetic_code	virus_score	fdr	n_hallmarks	marker_enrichment	taxonomy
+contig_1|provirus_2001_42000	40000	Provirus	2001-42000	58	11	0.9712	NA	12	25.4021	Viruses;Duplodnaviria;Heunggongvirae;Uroviricota;Caudoviricetes;;
+contig_3	41255	DTR	NA	62	11	0.9905	NA	15	30.1112	Viruses;Duplodnaviria;Heunggongvirae;Uroviricota;Caudoviricetes;;

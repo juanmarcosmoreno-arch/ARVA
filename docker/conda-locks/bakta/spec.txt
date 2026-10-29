@@ -1,0 +1,6 @@
+# Pinned spec of ARVA's Bakta environment; scripts/conda_locks.py update bakta solves it for each platform.
+# Bakta 1.12.2 (Schwengers et al. 2021, GPL-3.0) reads database schema 6. Its recipe asks for AMRFinderPlus >= 4.2.7,
+# DIAMOND >= 2.2.0, BLAST+ >= 2.17.0, tRNAscan-SE >= 2.0.12, Infernal >= 1.1.5, Aragorn >= 1.2.41 and PILER-CR.
+bakta=1.12.2=pyhdfd78af_0
+# The AMRFinderPlus version of ARVA's own AMRFinderPlus environment.
+ncbi-amrfinderplus=4.2.7

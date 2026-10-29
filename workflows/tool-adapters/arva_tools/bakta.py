@@ -12,7 +12,16 @@ database 6.0 on SYNTHETIC genomes (Python 3.12.3, Ubuntu 24.04):
 * PILER-CR: when it fails during the run, Bakta prints "WARNING: PILER-CR crashed (error code=N). No CRISPR arrays
   will be reported!" and continues (features/crispr.py), so that run's CRISPR count would mean nothing. Ubuntu
   24.04's pilercr 1.06+dfsg-5 passes Bakta's version check but crashes (SIGSEGV) on every non-empty input, so ARVA
-  also runs PILER-CR on a short test sequence and skips the CRISPR step when it fails.
+  also runs PILER-CR on a short test sequence and skips the CRISPR step when it fails. Bioconda's piler-cr 1.06
+  (in ARVA's Bakta environment, docker/conda-locks/bakta/) passes that test.
+* Bakta calls every program by name from PATH (and AMRFinderPlus with TMPDIR), so ARVA puts the bin/ folder of
+  Bakta's own environment first in PATH for the checks and the run (env_for).
+* The AMR expert system runs `amrfinder --database <db>/amrfinderplus-db/latest --protein ... --plus`
+  (expert/amrfinder.py) and raises an error when amrfinder fails; Bakta's start-up check only looks for "No valid
+  AMRFinder database found". AMRFinderPlus 4.2.7 refuses data older than 2025-09-22.2, such as the 2024-12-18.1
+  copy inside the light database 6.0, so ARVA checks the copy with `amrfinder --database_version` and, when it is
+  refused, gives Bakta a view of the database (compose_database) whose amrfinderplus-db/latest is an AMRFinderPlus
+  database ARVA installed; without one the CDS step is skipped.
 * With the light database Bakta itself skips the UPS/IPS lookup and pseudogene detection (main.py).
 * Bakta reads completeness, topology and replicon type from words in FASTA descriptions ("circular=true",
   "complete", "chromosome", "plasmid"; utils.qc_sequences). ARVA passes contigs without descriptions, so only
@@ -30,8 +39,10 @@ database 6.0 on SYNTHETIC genomes (Python 3.12.3, Ubuntu 24.04):
 """
 from __future__ import annotations
 
+import os
 import random
 import re
+import shutil
 import subprocess
 import tempfile
 from dataclasses import asdict, dataclass
@@ -176,16 +187,22 @@ def _fmt(v: tuple[int, int, int] | None) -> str | None:
     return ".".join(map(str, v)) if v else None
 
 
-def _run(argv: list[str], timeout: int = 60) -> subprocess.CompletedProcess | None:
+def env_for(executable: str) -> dict[str, str]:
+    """PATH with the bin/ folder of Bakta's own environment first: Bakta runs its programs by name."""
+    return {"PATH": f"{Path(os.path.realpath(executable)).parent}{os.pathsep}{os.environ.get('PATH', '')}"}
+
+
+def _run(argv: list[str], timeout: int = 60, extra_env: dict[str, str] | None = None) -> subprocess.CompletedProcess | None:
     try:
         with isolated_home() as home:
             return subprocess.run(argv, capture_output=True, text=True, errors="replace", timeout=timeout,
-                                  env=tool_environment(home), cwd=home, stdin=subprocess.DEVNULL)
+                                  env={**tool_environment(home), **(extra_env or {})}, cwd=home,
+                                  stdin=subprocess.DEVNULL)
     except (OSError, subprocess.TimeoutExpired):
         return None
 
 
-def check_dependency(dep: Dependency, python: list[str]) -> dict[str, Any]:
+def check_dependency(dep: Dependency, python: list[str], extra_env: dict[str, str] | None = None) -> dict[str, Any]:
     """Bakta's own check of one program: found, runs with status 0, and prints a version >= the minimum."""
     argv = [part for a in dep.command for part in (python if a == _PY else [a])]
     out: dict[str, Any] = {"name": dep.name, "minimum": _fmt(dep.minimum), "steps": list(dep.steps),
@@ -196,7 +213,8 @@ def check_dependency(dep: Dependency, python: list[str]) -> dict[str, Any]:
     try:
         with isolated_home() as home:
             proc = subprocess.run(argv, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, errors="replace",
-                                  timeout=60, env=tool_environment(home), cwd=home, stdin=subprocess.DEVNULL)
+                                  timeout=60, env={**tool_environment(home), **(extra_env or {})}, cwd=home,
+                                  stdin=subprocess.DEVNULL)
     except FileNotFoundError:
         return {**out, "status": "missing"}
     except (OSError, subprocess.TimeoutExpired):
@@ -209,39 +227,76 @@ def check_dependency(dep: Dependency, python: list[str]) -> dict[str, Any]:
     return {**out, "found": _fmt(version), "status": "ok" if version >= dep.minimum else "too_old"}
 
 
-def pilercr_test(executable: str = "pilercr") -> dict[str, Any]:
+def pilercr_test(executable: str = "pilercr", extra_env: dict[str, str] | None = None) -> dict[str, Any]:
     """Runs PILER-CR as Bakta does on a random 2,000 bp sequence: a working PILER-CR exits with status 0 and writes
     its report (finding nothing)."""
     rng = random.Random(0)
     with tempfile.TemporaryDirectory(prefix="arva-pilercr-") as tmp:
         fasta, report = Path(tmp) / "test.fasta", Path(tmp) / "test.txt"
         fasta.write_text(">arva_test\n" + "".join(rng.choice("ACGT") for _ in range(2000)) + "\n")
-        proc = _run([executable, "-in", str(fasta), "-out", str(report), "-noinfo", "-quiet"])
+        proc = _run([executable, "-in", str(fasta), "-out", str(report), "-noinfo", "-quiet"], extra_env=extra_env)
         if proc is None:
             return {"works": False, "returncode": None}
         return {"works": proc.returncode == 0 and report.is_file(), "returncode": proc.returncode}
 
 
-def amrfinder_database_ok(db_path: Path) -> bool:
-    """Bakta's check (utils.test_dependencies) that AMRFinderPlus finds its database in <db>/amrfinderplus-db/latest."""
-    proc = _run(["amrfinder", "--debug", "--database", str(db_path / "amrfinderplus-db" / "latest")], timeout=300)
-    return proc is not None and _AMRFINDER_NO_DB not in proc.stderr
+def amrfinder_data(db_path: Path) -> Path:
+    """The AMRFinderPlus database Bakta's AMR expert system reads."""
+    return db_path / "amrfinderplus-db" / "latest"
 
 
-def check_dependencies(executable: str, db_path: Path | None) -> list[dict[str, Any]]:
+def amrfinder_database_check(folder: Path, extra_env: dict[str, str] | None = None) -> dict[str, Any]:
+    """amrfinder's own check of the AMRFinderPlus data Bakta would read (`--database_version`): missing (Bakta's
+    "No valid AMRFinder database found"), refused (data too old for this AMRFinderPlus, or not indexed) or ok."""
+    from arva_tools.amrfinderplus import failure
+
+    proc = _run(["amrfinder", "--database", str(folder), "--database_version"], timeout=300, extra_env=extra_env)
+    if proc is None:
+        return {"status": "failed", "version": None, "error": None}
+    text = proc.stdout + "\n" + proc.stderr
+    version = re.search(r"^Database version:\s*(\S+)", text, re.M)
+    if proc.returncode == 0:
+        return {"status": "ok", "version": version.group(1) if version else None, "error": None}
+    if _AMRFINDER_NO_DB in text:
+        return {"status": "database_missing", "version": None, "error": failure(text)}
+    return {"status": "database_refused", "version": version.group(1) if version else None, "error": failure(text)}
+
+
+def check_dependencies(executable: str, db_path: Path | None, amr_data: Path | None = None) -> list[dict[str, Any]]:
+    """Bakta's start-up checks with the programs of Bakta's environment; the AMRFinderPlus data checked are those of
+    the database (amrfinderplus-db/latest) unless `amr_data` names the folder ARVA will put there instead."""
     python = python_of(executable)
     if python is None:
         raise RuntimeError(f"{executable} is not a Python entry point, so its Python packages cannot be checked")
-    report = [check_dependency(d, python) for d in DEPENDENCIES]
+    env = env_for(executable)
+    report = [check_dependency(d, python, env) for d in DEPENDENCIES]
     for r in report:
         if r["name"] == "PILER-CR" and r["status"] == "ok":
-            test = pilercr_test()
+            test = pilercr_test(shutil.which("pilercr", path=env["PATH"]) or "pilercr", env)
             if not test["works"]:
                 r.update(status="crashed", returncode=test["returncode"])
-        if r["name"] == "AMRFinderPlus" and r["status"] == "ok" and db_path is not None \
-                and not amrfinder_database_ok(db_path):
-            r["status"] = "database_missing"
+        if r["name"] == "AMRFinderPlus" and r["status"] == "ok" and db_path is not None:
+            check = amrfinder_database_check(amr_data or amrfinder_data(db_path), env)
+            r["database"] = {**check, "path": str(amr_data or amrfinder_data(db_path)), "replaced": amr_data is not None}
+            if check["status"] != "ok":
+                r["status"] = check["status"]
     return report
+
+
+def compose_database(db_path: Path, amr_data: Path, dest: Path) -> Path:
+    """A folder Bakta reads as its database: a link to every entry of `db_path` but amrfinderplus-db, and
+    amrfinderplus-db/<version> linking to `amr_data` with latest -> <version>. Nothing in either database changes."""
+    version = (amr_data / "version.txt").read_text(errors="replace").strip()
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}\.\d+", version):
+        raise ValueError(f"{amr_data} has no AMRFinderPlus version.txt")
+    dest.mkdir(parents=True)
+    for entry in sorted(db_path.iterdir()):
+        if entry.name != "amrfinderplus-db":
+            os.symlink(entry, dest / entry.name)
+    (dest / "amrfinderplus-db").mkdir()
+    os.symlink(amr_data, dest / "amrfinderplus-db" / version)
+    os.symlink(version, dest / "amrfinderplus-db" / "latest")
+    return dest
 
 
 def plan_steps(dependencies: list[dict[str, Any]], db_type: str | None, skip_plot: bool) -> dict[str, dict[str, Any]]:
@@ -296,14 +351,14 @@ class BaktaAdapter(ToolAdapter):
         output_formats=("gff3", "genbank", "embl", "fasta", "tsv", "json"),
         min_version="1.12.2",
         tested_versions=("1.12.2",),
-        install={
-            "pip": 'python3 -m venv ~/.arva-tools/bakta && ~/.arva-tools/bakta/bin/pip install "bakta==1.12.2" '
-            '"pyrodigal==3.7.1" "pyhmmer==0.12.3" "biopython==1.88" "pycirclize==1.10.1" "xopen==2.1.0"\n'
-            "export ARVA_TOOL_BAKTA=~/.arva-tools/bakta/bin/bakta\n"
-            "sudo apt install trnascan-se aragorn infernal pilercr diamond-aligner ncbi-blast+  # Bakta's programs",
-        },
+        install={"conda_lock": "python3 scripts/conda_locks.py install bakta ~/.arva-tools/conda/bakta  # then "
+                               "ARVA_TOOL_BAKTA=~/.arva-tools/conda/bakta/bin/bakta (Bakta and every program it runs)"},
+        conda_platforms=("linux-64",),
     )
     version_pattern = re.compile(r"bakta (\d+\.\d+\.\d+)")
+
+    def environment(self, executable: str) -> dict[str, str]:
+        return env_for(executable)
 
     def detect(self) -> DetectedTool:
         d = super().detect()

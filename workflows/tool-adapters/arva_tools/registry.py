@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import time
 
+from arva_tools.abricate import AbricateAdapter
+from arva_tools.amrfinderplus import AmrfinderplusAdapter
 from arva_tools.bakta import BaktaAdapter
 from arva_tools.base import DetectedTool, ToolAdapter
 from arva_tools.dnadiff import DnadiffAdapter
@@ -11,10 +13,14 @@ from arva_tools.fastp import FastpAdapter
 from arva_tools.fastqc import FastqcAdapter
 from arva_tools.filtlong import FiltlongAdapter
 from arva_tools.flye import FlyeAdapter
+from arva_tools.genomad import GenomadAdapter
 from arva_tools.gtdbtk import GtdbtkAdapter
+from arva_tools.integronfinder import IntegronfinderAdapter
+from arva_tools.isescan import IsescanAdapter
 from arva_tools.mapping import BwaAdapter, Minimap2Adapter, SamtoolsAdapter
 from arva_tools.mash import MashAdapter
 from arva_tools.mlst import MlstAdapter
+from arva_tools.mobsuite import MobsuiteAdapter
 from arva_tools.multiqc import MultiqcAdapter
 from arva_tools.nanoplot import NanoplotAdapter
 from arva_tools.pilon import PilonAdapter
@@ -32,7 +38,9 @@ ADAPTERS: dict[str, ToolAdapter] = {
     for a in (SeqkitAdapter(), FastqcAdapter(), FastpAdapter(), FiltlongAdapter(), MultiqcAdapter(), NanoplotAdapter(),
               FlyeAdapter(), SpadesAdapter(), UnicyclerAdapter(), QuastAdapter(), RaconAdapter(), PilonAdapter(),
               Minimap2Adapter(), BwaAdapter(), SamtoolsAdapter(), DnadiffAdapter(), BaktaAdapter(), ProkkaAdapter(),
-              MlstAdapter(), FastaniAdapter(), SkaniAdapter(), MashAdapter(), SylphAdapter(), GtdbtkAdapter())
+              MlstAdapter(), FastaniAdapter(), SkaniAdapter(), MashAdapter(), SylphAdapter(), GtdbtkAdapter(),
+              AmrfinderplusAdapter(), AbricateAdapter(), MobsuiteAdapter(), IntegronfinderAdapter(), IsescanAdapter(),
+              GenomadAdapter())
 }
 
 _CACHE: dict[str, tuple[float, DetectedTool]] = {}

@@ -171,10 +171,16 @@ def _bakta(root: Path) -> Detection | None:
 _AMR_VERSION = re.compile(r"\d{4}-\d{2}-\d{2}\.\d+")
 _AMR_FILES = ("AMRProt.fa", "AMR.LIB", "AMR_CDS.fa", "fam.tsv", "taxgroup.tsv", "AMRProt-mutation.tsv",
               "AMRProt-susceptible.tsv", "AMRProt-suppress.tsv")
+# What Bakta's archives keep of a release (seen in the light database 6.0's amrfinderplus-db/2024-12-18.1): the
+# protein BLAST index, the pressed HMMs and the tables, without the FASTA files.
+_AMR_BAKTA_FILES = ("AMRProt.fa.phr", "AMRProt.fa.pin", "AMRProt.fa.psq", "AMR.LIB.h3f", "AMR.LIB.h3i",
+                    "AMR.LIB.h3m", "AMR.LIB.h3p", "fam.tsv", "taxgroup.tsv", "AMRProt-mutation.tsv",
+                    "AMRProt-susceptible.tsv", "AMRProt-suppress.tsv")
 
 
 def _amrfinderplus(root: Path) -> Detection | None:
-    if not _exists(root, "version.txt", "database_format_version.txt", "AMRProt.fa"):
+    if not _exists(root, "version.txt", "database_format_version.txt") or not (
+            _exists(root, "AMRProt.fa") or _exists(root, "AMRProt.fa.phr")):
         return None
     d = Detection("amrfinderplus", str(root), "folder")
     version = read_text(root / "version.txt", 200).strip()
@@ -186,10 +192,14 @@ def _amrfinderplus(root: Path) -> Detection | None:
         return d
     d.version, d.version_file, d.version_detail = version, "version.txt", "data version"
     d.facts = {"database_format_version": fmt}
+    if not _exists(root, "AMRProt.fa"):
+        d.variant = "bakta_copy"
+        d.require(root, *_AMR_BAKTA_FILES)
+        return d
+    d.variant = "release"
     d.require(root, *_AMR_FILES)
     if d.require(root, "AMRProt.fa.phr", role="optional"):
-        d.problems.append(Problem("not_indexed", {"file": "AMRProt.fa.phr", "how": "amrfinder_update or "
-                                                  "amrfinder_index builds it"}))
+        d.problems.append(Problem("not_indexed", {"file": "AMRProt.fa.phr", "how": "amrfinder_index builds it"}))
     return d
 
 
@@ -375,23 +385,32 @@ def _plasmidfinder(root: Path) -> Detection | None:
     return d
 
 
-_MOB_FILES = ("ncbi_plasmid_full_seqs.fas", "rep.dna.fas", "mob.proteins.faa", "mpf.proteins.faa", "orit.fas",
-              "repetitive.dna.fas", "clusters.txt")
-
-
 def _mobsuite(root: Path) -> Detection | None:
-    if not _exists(root, "ncbi_plasmid_full_seqs.fas", "clusters.txt"):
+    """A MOB-suite folder: mob_init's (status.txt) or ARVA's (ARVA_DATABASE.json, written when it prepared the
+    folder; the reference plasmids' FASTA may be absent, since mob_recon searches only its BLAST index)."""
+    from arva_tools import mobsuite as mob
+
+    from app.tasks.mobsuite_db import PROVENANCE, read_provenance
+
+    if not _exists(root, "clusters.txt", "rep.dna.fas"):
         return None
     d = Detection("mobsuite", str(root), "folder")
-    d.require(root, *_MOB_FILES)
-    for name, tool_step in (("status.txt", "mob_init"), ("ncbi_plasmid_full_seqs.fas.msh", "mob_init")):
-        if not (root / name).is_file():
-            d.problems.append(Problem("unfinished", {"file": name, "tool": tool_step}))
-        else:
-            d.files.append(_check(root, name, "optional"))
-    if (root / "status.txt").is_file():
+    d.require(root, *mob.DB_FILES)
+    state = mob.database_state(root)
+    if unfinished := [n for n in state["missing"] if n not in mob.DB_FILES]:
+        d.problems.append(Problem("unfinished", {"file": ", ".join(unfinished[:6]), "tool": "mob_init"}))
+    d.facts["plasmid_fasta"] = state["plasmid_fasta"]
+    provenance = read_provenance(root)
+    if provenance is not None:
+        d.files.append(_check(root, PROVENANCE, "version"))
+        d.version, d.version_file, d.version_detail = str(provenance.get("version")), PROVENANCE, "version"
+        d.facts["taxonomy"] = (provenance.get("taxonomy") or {}).get("archive")
+        d.facts["prepared_by"] = "ARVA"
+    elif (root / "status.txt").is_file():
+        d.files.append(_check(root, "status.txt", "optional"))
         m = re.search(r"Download date: (\d{4}-\d{2}-\d{2})", read_text(root / "status.txt", 1000))
         d.facts["download_date"] = m.group(1) if m else None
+        d.facts["prepared_by"] = "mob_init"
     return d
 
 
@@ -501,6 +520,25 @@ def _vfdb_file(path: Path) -> Detection | None:
     return d
 
 
+def _abricate_db(root: Path) -> Detection | None:
+    """One of the databases ABRicate bundles (db/vfdb, db/plasmidfinder): the sequences file and its BLAST index,
+    whose .njs states the day the package indexed it (the only date the files hold)."""
+    from arva_tools.abricate import DATABASES, database_info
+
+    if root.name not in DATABASES or not (root / "sequences.njs").is_file():
+        return None
+    info = database_info(root)
+    if info["description"] != root.name:
+        return None
+    d = Detection(root.name, str(root), "folder", variant="abricate")
+    d.require(root, "sequences", *info["index_files"])
+    day = (info["indexed"] or "")[:10]
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", day):
+        d.version, d.version_file, d.version_detail = day, "sequences.njs", "last-updated"
+    d.facts["abricate"] = {k: info[k] for k in ("sequences", "letters", "indexed", "dbtype")}
+    return d
+
+
 def _mlst_schemes(root: Path) -> Detection | None:
     from arva_tools.mlst import database_info, database_version
 
@@ -518,7 +556,7 @@ def _mlst_schemes(root: Path) -> Detection | None:
 
 
 FOLDER_DETECTORS = (_bakta, _amrfinderplus, _gtdbtk, _skani, _kraken2, _checkm2, _busco, _plasmidfinder, _mobsuite,
-                    _genomad, _interproscan, _spa_types, _vfdb, _mlst_schemes)
+                    _genomad, _interproscan, _spa_types, _vfdb, _mlst_schemes, _abricate_db)
 FILE_DETECTORS = (_sylph, _mash, _vfdb_file)
 
 

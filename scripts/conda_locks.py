@@ -187,9 +187,13 @@ def cmd_install(args: argparse.Namespace) -> None:
     prefix = Path(args.prefix).resolve()
     if prefix.exists():
         raise SystemExit(f"{prefix} already exists; remove it first to recreate the environment from the lock")
+    # The environment's files are hard links to the packages micromamba unpacks in the temporary cache (on the same
+    # disk), so the install needs the environment's size once, not twice; they stay when the cache is removed.
+    # Packages' link scripts do not run: mob_suite's post-link script runs mob_init, which downloads databases into
+    # the environment with TLS verification turned off.
     with tempfile.TemporaryDirectory(prefix="arva-conda-pkgs-") as root:
-        proc = run(mm, ["create", "--yes", "--no-rc", "--always-copy", "--prefix", str(prefix), "--file", str(lock)],
-                   Path(root))
+        proc = run(mm, ["create", "--yes", "--no-rc", "--skip-run-link-scripts", "--prefix", str(prefix), "--file",
+                        str(lock)], Path(root))
     if proc.returncode != 0:
         shutil.rmtree(prefix, ignore_errors=True)
         raise SystemExit(f"micromamba could not create {prefix}:\n{proc.stdout[-3000:]}\n{proc.stderr[-3000:]}")

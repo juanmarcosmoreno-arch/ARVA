@@ -281,6 +281,41 @@ CATALOGUE: tuple[CatalogueEntry, ...] = (
                  "Biotechnology, doi:10.1038/s41587-023-01953-y.",
         compatibility="geNomad 1.10 to 1.13 (releases.txt on portal.nersc.gov/genomad).",
     ),
+    CatalogueEntry(
+        key="mobsuite-3.1.8",
+        name="MOB-suite database 3.1.8",
+        kind="mobsuite",
+        tool="mobsuite",
+        description="MOB-suite's reference plasmids (with their MOB-cluster assignments), replicon, relaxase, MPF and "
+                    "oriT sequences and repetitive elements, read by mob_recon and mob_typer. ARVA prepares the folder as "
+                    "mob_init would (BLAST indexes, Mash sketch, NCBI taxonomy) without running mob_init.",
+        version="3.1.8",
+        release_date="2023-12-08",
+        source_url="https://zenodo.org/records/10304948",
+        doi="10.5281/zenodo.10304948",
+        download_url="https://zenodo.org/api/records/10304948/files/data.tar.gz/content",
+        filename="data.tar.gz",
+        archive_bytes=472_851_578,
+        checksum="670e293e4ff1918db5b654278a60bea8",
+        checksum_sources=("Zenodo record 10304948 (file checksum)",),
+        extracted_size_note="1,656,164,567 bytes unpacked, of which ncbi_plasmid_full_seqs.fas is 1,641,486,485 "
+                            "(listing of the archive, 2026-10-29); prepared by ARVA without that FASTA, the folder holds "
+                            "1,413,260,939 bytes (BLAST index, Mash sketch, taxa.sqlite of taxdmp_2026-10-01)",
+        extracted_bytes_estimate=1_413_260_939,
+        top_dir="data",
+        licence="CC BY 4.0",
+        licence_url=_CC_BY,
+        terms="Licence of the Zenodo record: Creative Commons Attribution 4.0. Cite MOB-suite. The NCBI taxonomy ARVA adds "
+              "for host-range predictions is NCBI data (public domain).",
+        citation="Robertson J., Nash J.H.E. (2018) MOB-suite: software tools for clustering, reconstruction and typing of "
+                 "plasmids from draft assemblies. Microbial Genomics 4(8), doi:10.1099/mgen.0.000206.",
+        compatibility="The database mob_init of MOB-suite 3.1.9 downloads (mob_suite/config.json: Zenodo 10304948).",
+        notes=("mob_init downloads this archive with TLS verification turned off and then the latest NCBI taxonomy over "
+               "plain HTTP (ete3); ARVA downloads the archive over HTTPS, compares its MD5 with Zenodo's, and builds "
+               "taxa.sqlite from the dated NCBI taxonomy archive you confirm.",
+               "The reference plasmids' FASTA (1.6 GB) is only searched through its BLAST index by mob_recon 3.1.9; ARVA "
+               "keeps it only when you ask, and records its SHA-256 either way."),
+    ),
 )
 
 BY_KEY = {e.key: e for e in CATALOGUE}

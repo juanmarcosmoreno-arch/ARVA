@@ -1,0 +1,12 @@
+Running: /env/bin/amrfinder --nucleotide /input/n315_edited.fna --database /db/2026-08-07.1 --output /work/amrfinder.tsv --nucleotide_output /work/nucleotide_hits.fna --ident_min -1 --coverage_min 0.5 --translation_table 11 --threads 4 --blast_bin /env/bin --hmmer_bin /env/bin --print_node --organism Staphylococcus_aureus --mutation_all /work/mutation_all.tsv --plus
+Software directory: /env/bin/
+Software version: 4.2.7
+WARNING: This was compiled for running under bioconda, but $CONDA_PREFIX was not found
+Reverting to hard coded directory: /env/share/amrfinderplus/data/latest
+Database directory: /db/2026-08-07.1
+Database version: 2026-08-07.1
+AMRFinder translated nucleotide and mutation search
+Running tblastn
+Running blastn
+Making report
+amrfinder took 35 seconds to complete

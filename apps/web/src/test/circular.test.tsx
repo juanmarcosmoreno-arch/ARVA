@@ -275,16 +275,21 @@ describe("Circular map", () => {
   } as unknown as Annotation;
   const contigs = [{ id: "c", name: "SYNTHETIC_chromosome", length: 1_000, circular: true, circularSource: "Flye" }];
 
-  it("draws the rings, explains the Phase 5 rings and missing coverage, escapes text, and opens a gene on click", async () => {
+  it("draws the rings, explains the rings not searched and missing coverage, escapes text, and opens a gene on click", async () => {
     const features = [f(1, "c", 1, 250, "+", { product: hostile, hypothetical: false })];
     const map = { ...genomeMap(features), total_length: 1_000, sequences: [genomeMap(features).sequences[0]] };
     vi.spyOn(api, "annotationMap").mockResolvedValue(map);
+    vi.spyOn(api, "annotationAmr").mockResolvedValue({ run: null, hits: [] });
+    vi.spyOn(api, "annotationVirulence").mockResolvedValue({ run: null, hits: [] });
+    vi.spyOn(api, "annotationMobile").mockResolvedValue({ runs: {}, contigs: [], elements: [] });
     const onSelect = vi.fn();
     const { container } = renderWith(<CircularExplorer annotation={annotation} contigs={contigs} sampleCode="SYN-1" selected={null} onSelect={onSelect} onShowLinear={() => {}} />);
     expect(await screen.findByRole("img", { name: /Circular map of SYNTHETIC_chromosome/ })).toBeInTheDocument();
     expect(api.annotationMap).toHaveBeenCalledWith("ann", { contigs: [], points: 1440 });
-    expect(screen.getAllByText(/Available after Phase 5/)).toHaveLength(3);
-    for (const name of ["Antimicrobial resistance", "Virulence factors", "Mobile genetic elements"]) expect(screen.getByLabelText(new RegExp(name))).toBeDisabled();
+    expect(await screen.findAllByText(/No AMRFinderPlus run on this assembly yet/)).toHaveLength(2);
+    expect(await screen.findByText(/No VFDB search on this assembly yet/)).toBeInTheDocument();
+    expect(await screen.findByText(/No plasmid or mobile-element search on this assembly yet/)).toBeInTheDocument();
+    for (const name of ["Antimicrobial resistance", "Virulence factors(?! \\(VFDB)", "Virulence factors \\(VFDB\\)", "Mobile genetic elements"]) expect(screen.getByLabelText(new RegExp(`^${name}`))).toBeDisabled();
     expect(screen.getByLabelText(/Read coverage/)).toBeDisabled();
     expect(screen.getByText(/no reads were aligned to this assembly/)).toBeInTheDocument();
     expect(screen.getByText(/SYNTHETIC test data/)).toBeInTheDocument();

@@ -1673,7 +1673,7 @@ export interface DatabaseKind {
   recognise: string;
   version_from: string;
   typical_size: string;
-  download: "catalogue" | "register" | "bundled";
+  download: "catalogue" | "register" | "bundled" | "release";
   download_note: string;
   sources: string[];
   unconfirmed: string[];
@@ -1869,6 +1869,17 @@ export interface DownloadPlan {
   blocked_code: string | null;
   compatibility: Compatibility;
   destinations: DatabaseLocation[];
+  /** MOB-suite: what ARVA adds to prepare the folder as mob_init would. */
+  extras?: DownloadExtras | null;
+}
+
+export interface DownloadExtras {
+  taxonomy: { name: string; date: string; url: string; bytes: number };
+  taxonomy_archives: { name: string; date: string }[];
+  keep_plasmid_fasta: boolean;
+  plasmid_fasta_bytes: number;
+  extra_bytes: number;
+  steps: string[];
 }
 
 export interface ExtractPlan {
@@ -1907,8 +1918,10 @@ export type TranslationTable = 11 | 4 | 25;
 
 export interface AnnotationDependency {
   name: string;
-  /** ok, missing, failed, unreadable, too_old, crashed (PILER-CR's test run), database_missing (AMRFinderPlus). */
+  /** ok, missing, failed, unreadable, too_old, crashed (PILER-CR's test run), database_missing or database_refused
+   * (AMRFinderPlus: no data, or data it does not read). */
   status: string;
+  database?: { status: string; version: string | null; error: string | null; path: string; replaced: boolean } | null;
   found?: string | null;
   minimum?: string | null;
   returncode?: number | null;
@@ -2002,6 +2015,13 @@ export interface AnnotationPlan {
   problems: { code: string; message: string }[];
   dependencies: AnnotationDependency[];
   skip_options: string[];
+  /** Bakta: the AMRFinderPlus data its AMR expert system reads (the database's own copy, or an ARVA AMRFinderPlus
+   * database in its place when AMRFinderPlus refuses the copy). */
+  amr_data?: {
+    used: "bundled" | "replacement" | null;
+    bundled: { status: string; version: string | null; error: string | null; path: string };
+    replacement: { id: string; name: string; version: string | null; checksum: string | null; path: string } | null;
+  } | null;
   databases: BaktaDatabaseOption[];
   database_id: string | null;
   database: ProkkaDatabase | null;
@@ -2301,6 +2321,12 @@ export interface FeatureQuery {
 
 export interface MapFeature extends FeatureLayoutItem {
   contig: string;
+  /** Set on the arcs of the AMR and virulence rings: the AMRFinderPlus element the arc shows. */
+  amr?: AmrMapHit;
+  /** Set on the arcs of the virulence ring that come from VFDB (ABRicate), not AMRFinderPlus. */
+  vfdb?: VirulenceMapHit;
+  /** Set on the arcs of the mobile-elements ring: the call the arc shows. */
+  mobile?: MobileMapElement;
 }
 
 export interface MapSequence {
@@ -2783,4 +2809,518 @@ export interface NcbiPlan {
   available_bytes: number | null;
   enough: boolean | null;
   target_exists: boolean | null;
+}
+
+// --- AMR detection (AMRFinderPlus) -----------------------------------------------------------------------------
+
+export interface AmrCompatibility {
+  status: "compatible" | "incompatible" | "unknown";
+  code: string;
+  params: Record<string, string | number>;
+}
+
+export interface AmrDatabase {
+  id: string;
+  key: string;
+  name: string;
+  version: string | null;
+  version_source: string | null;
+  checksum: string | null;
+  path: string | null;
+  host_path: string;
+  is_default: boolean;
+  status: string;
+  available: boolean;
+  unavailable_reason: string | null;
+  database_format: string | null;
+  variant: "release" | "bakta_copy" | null;
+  inside_bakta: { id: string; name: string; version: string | null } | null;
+  compatibility: AmrCompatibility;
+}
+
+export interface AmrBaktaCopy {
+  bakta_id: string;
+  bakta_name: string;
+  bakta_version: string | null;
+  path: string;
+  host_path: string;
+  version: string;
+  variant: string | null;
+  database_format: string | null;
+  /** The files ARVA's searches read are there (Bakta's archives keep only the protein index and HMMs). */
+  complete: boolean;
+  compatibility: AmrCompatibility;
+  record_id: string | null;
+}
+
+export interface AmrAnnotationOption {
+  id: string;
+  tool: string;
+  tool_version: string;
+  created_at: string;
+  annotation_format: "bakta" | "prokka" | null;
+  cds_status: string | null;
+  usable: boolean;
+  cds: number | null;
+}
+
+export interface AmrOrganismChoice {
+  organism: string | null;
+  /** species, wiki_note, genus, not_curated, no_species, not_a_species_name */
+  rule: string;
+  complex_note: string | null;
+  complex_option?: string | null;
+  species: { id: string; species: string; method: string; tool: string; tool_version: string; status: string; created_at: string } | null;
+}
+
+export interface AmrPlan {
+  tool: AnnotationPlan["tool"];
+  database: AmrDatabase | null;
+  databases: AmrDatabase[];
+  bakta_copies: AmrBaktaCopy[];
+  database_check: { ok: boolean; version: string | null; software: string | null; error: string | null } | null;
+  organisms: string[];
+  organism: AmrOrganismChoice;
+  annotations: AmrAnnotationOption[];
+  defaults: Record<string, string>;
+  tool_defaults: Record<string, string>;
+  defaults_match: boolean | null;
+  assembly: MlstPlan["assembly"];
+  problems: { code: string; message: string; params: Record<string, string | number> }[];
+}
+
+export interface AmrSettings {
+  mode: "nucleotide" | "combined";
+  organism: string | null;
+  plus: boolean;
+  ident_min: number;
+  coverage_min: number;
+  translation_table: number;
+}
+
+export interface AmrRequest {
+  settings: AmrSettings;
+  database_id: string | null;
+  annotation_id: string | null;
+  threads: number | null;
+  confirmed: boolean;
+}
+
+export interface AmrLinkedFeature {
+  annotation_id: string;
+  feature_id: number;
+  locus_tag: string | null;
+  gene: string | null;
+  product: string | null;
+  how: "protein_id" | "overlap";
+  overlap: number | null;
+}
+
+export interface AmrHit {
+  id: string;
+  job_id: string;
+  annotation_id: string | null;
+  element_symbol: string;
+  element_name: string | null;
+  scope: string | null;
+  type: string;
+  subtype: string | null;
+  amr_class: string | null;
+  amr_subclass: string | null;
+  method: string;
+  /** complete, partial, contig_end, internal_stop, point, hmm, frameshift, extended, ambiguous, other */
+  method_kind: string;
+  identity: number | null;
+  coverage: number | null;
+  target_length: number | null;
+  reference_length: number | null;
+  alignment_length: number | null;
+  contig: string | null;
+  assembly_contig: string | null;
+  start: number | null;
+  stop: number | null;
+  strand: string | null;
+  protein_id: string | null;
+  closest_accession: string | null;
+  closest_name: string | null;
+  hmm_accession: string | null;
+  hmm_description: string | null;
+  hierarchy_node: string | null;
+  feature: AmrLinkedFeature | null;
+}
+
+export interface AmrWarning {
+  code: string;
+  params: Record<string, string | number>;
+}
+
+export interface AmrRun {
+  job_id: string;
+  sample_id: string | null;
+  assembly_id: string | null;
+  annotation_id: string | null;
+  status: string;
+  created_at: string;
+  finished_at: string | null;
+  tool: string;
+  tool_version: string;
+  database_name: string | null;
+  database_version: string | null;
+  database_checksum: string | null;
+  database_path: string | null;
+  parameters: Partial<AmrSettings> & { annotation_format?: string | null; threads?: number };
+  organism_choice: { proposed: string | null; rule: string | null; chosen: string | null; changed_by_user: boolean; species: AmrOrganismChoice["species"] } | null;
+  mode: string | null;
+  warnings: AmrWarning[];
+  counts: Record<string, number>;
+  point_mutation_screen: { rows: number; genes: string[]; wildtype_positions: number; unknown_changes: number; mutations: number } | null;
+  files: Record<string, { path: string; sha256: string; size_bytes: number }>;
+  log: { software_version?: string | null; database_version?: string | null; search?: string | null; warnings?: string[] };
+  hits: AmrHit[];
+  by_class: { class: string; elements: string[]; count: number }[];
+}
+
+export interface AmrProjectOverview {
+  project_id: string;
+  project_name: string;
+  is_demo: boolean;
+  samples: {
+    sample_id: string;
+    sample_code: string;
+    runs: number;
+    latest: { job_id: string; created_at: string; tool_version: string; database_version: string | null; parameters: AmrRun["parameters"]; counts: Record<string, number>; warnings: AmrWarning[] } | null;
+    present: Record<string, string[]>;
+  }[];
+  elements: { element_symbol: string; type: string; subtype: string | null; class: string | null }[];
+  searched: number;
+  versions: string[];
+}
+
+export interface AmrMapHit extends AmrHit {
+  contig: string;
+  end: number;
+}
+
+export interface AmrAnnotationHits {
+  run: { job_id: string; tool_version: string; database_version: string | null; organism: string | null; plus: boolean; mode: string; created_at: string } | null;
+  hits: AmrMapHit[];
+}
+
+export interface AmrReleases {
+  tool_version: string;
+  minor: string;
+  url: string;
+  releases: { version: string; modified: string; compatibility: string }[];
+}
+
+export interface AmrReleasePlan {
+  version: string;
+  minor: string;
+  tool_version: string;
+  url: string;
+  files: { name: string; approx_bytes: number | null; modified: string }[];
+  missing: string[];
+  download_bytes: number;
+  required_bytes: number;
+  db_dir: string;
+  folder: string;
+  target_path: string;
+  host_target_path: string;
+  free_bytes: number;
+  available_bytes: number;
+  enough: boolean;
+  blocked_by: string | null;
+  blocked_code: string | null;
+  compatibility: string;
+  needs_data: string | null;
+  licence: string;
+  checksums_published: boolean;
+  index_command: string;
+}
+
+// --- Plasmids and mobile elements, VFDB -----------------------------------------------------------------------------
+
+export type MobileMethod = "mobsuite" | "plasmidfinder" | "integronfinder" | "isescan" | "genomad";
+
+export interface MobileWarning {
+  code: string;
+  params: Record<string, string | number>;
+}
+
+export interface MobileDatabase {
+  id: string;
+  key: string;
+  kind: string;
+  name: string;
+  version: string | null;
+  version_source: string | null;
+  checksum: string | null;
+  path: string | null;
+  host_path: string;
+  is_default: boolean;
+  status: string;
+  available: boolean;
+  unavailable_reason: string | null;
+  bundled: boolean;
+  licence: string;
+  licence_url: string | null;
+  citation: string;
+  unconfirmed: string[];
+  compatibility: Compatibility;
+}
+
+export interface MobilePlan {
+  method: MobileMethod;
+  tool: AnnotationPlan["tool"] & { id: string; name: string };
+  database: MobileDatabase | null;
+  databases: MobileDatabase[];
+  models: { kind: string; name: string; files: string[]; checksum: string; path: string } | null;
+  defaults: Record<string, string>;
+  tool_defaults: Record<string, string>;
+  defaults_match: boolean | null;
+  assembly: MlstPlan["assembly"];
+  circularity: Record<string, { circular: boolean | null; source: string | null }>;
+  problems: { code: string; message: string; params: Record<string, string | number> }[];
+}
+
+export interface MobileRequest {
+  method: MobileMethod;
+  settings: Record<string, number | boolean>;
+  database_id: string | null;
+  threads: number | null;
+  confirmed: boolean;
+}
+
+export interface MobileRow {
+  id: string;
+  job_id: string;
+  tool: string;
+  category: string;
+  element: string | null;
+  element_type: string | null;
+  contig: string | null;
+  start: number | null;
+  end: number | null;
+  strand: string | null;
+  identity: number | null;
+  coverage: number | null;
+  score: number | null;
+  completeness: string | null;
+  details: Record<string, unknown> | null;
+  feature: AmrHit["feature"];
+}
+
+export interface MobileRun {
+  job_id: string;
+  sample_id: string | null;
+  assembly_id: string | null;
+  method: MobileMethod;
+  status: string;
+  created_at: string;
+  finished_at: string | null;
+  tool: string;
+  tool_version: string;
+  database_kind: string | null;
+  database_name: string | null;
+  database_version: string | null;
+  database_checksum: string | null;
+  database_path: string | null;
+  parameters: Record<string, number | boolean | string>;
+  warnings: MobileWarning[];
+  counts: Record<string, number | string[] | Record<string, number>>;
+  files: Record<string, { path: string; sha256: string; size_bytes: number }>;
+  searched_contigs: string[];
+  rows: MobileRow[];
+}
+
+export interface MobileContigCall {
+  molecule_type: string | null;
+  primary_cluster_id?: string | null;
+  secondary_cluster_id?: string | null;
+  rep_types?: string[];
+  relaxase_types?: string[];
+  mpf_types?: string[];
+  orit_types?: string[];
+  circularity_status?: string | null;
+  predicted_mobility?: string | null;
+  mash_nearest_neighbor?: string | null;
+  mash_neighbor_distance?: number | null;
+  mash_neighbor_identification?: string | null;
+  filtering_reason?: string | null;
+}
+
+export interface MobileContig {
+  contig: string;
+  length: number | null;
+  circular: boolean | null;
+  circular_source: string | null;
+  /** null: MOB-suite was not run on this assembly. */
+  mobsuite: MobileContigCall | null;
+  /** null: PlasmidFinder was not run; []: none found. */
+  replicons: { name: string; type: string | null; identity: number | null; coverage: number | null; start: number | null; end: number | null; completeness: string | null }[] | null;
+  integrons: number | null;
+  insertion_sequences: number | null;
+  genomad: { plasmid_score: number | null; viruses: number } | null;
+}
+
+export interface MobileContigTable {
+  assembly_id: string;
+  assembler: string;
+  assembler_version: string;
+  runs: Record<MobileMethod, string | null>;
+  contigs: MobileContig[];
+}
+
+export interface MobileSample {
+  runs: MobileRun[];
+  assemblies: MobileContigTable[];
+}
+
+export interface MobileRunSummary {
+  job_id: string;
+  created_at: string;
+  tool: string;
+  tool_version: string;
+  database_version: string | null;
+  counts: Record<string, number | string[] | Record<string, number>>;
+}
+
+export interface MobileProjectOverview {
+  project_id: string;
+  project_name: string;
+  is_demo: boolean;
+  samples: {
+    sample_id: string;
+    sample_code: string;
+    methods: Record<MobileMethod, MobileRunSummary | null>;
+    replicon_types: string[];
+    virulence: { vfdb: number | null; amrfinderplus: number | null };
+  }[];
+  searched: Record<MobileMethod, number>;
+}
+
+export interface MobileMapElement extends MobileRow {
+  method: MobileMethod;
+  assembly_contig: string | null;
+  contig: string;
+  start: number;
+  end: number;
+}
+
+export interface MobileAnnotationElements {
+  runs: Partial<Record<MobileMethod, MobileRunSummary | null>>;
+  contigs: { contig: string; molecule_type: string | null; primary_cluster_id: string | null; job_id: string }[];
+  elements: MobileMapElement[];
+}
+
+export interface VirulencePlan {
+  tool: AnnotationPlan["tool"];
+  database: MobileDatabase | null;
+  defaults: Record<string, string>;
+  tool_defaults: Record<string, string>;
+  defaults_match: boolean | null;
+  assembly: MlstPlan["assembly"];
+  problems: { code: string; message: string; params: Record<string, string | number> }[];
+}
+
+export interface VirulenceRequest {
+  settings: { minid: number; mincov: number };
+  threads: number | null;
+  confirmed: boolean;
+}
+
+export interface VirulenceHit {
+  id: string;
+  job_id: string;
+  source: string;
+  gene: string;
+  contig: string | null;
+  start: number | null;
+  end: number | null;
+  strand: string | null;
+  identity: number | null;
+  coverage: number | null;
+  ref_start: number | null;
+  ref_end: number | null;
+  ref_length: number | null;
+  gap_openings: number | null;
+  gap_positions: number | null;
+  coverage_map: string | null;
+  accession: string | null;
+  product: string | null;
+  vf_name: string | null;
+  vf_id: string | null;
+  vf_category: string | null;
+  vfc_id: string | null;
+  organism: string | null;
+  hit_kind: string;
+  pieces: number | null;
+  feature: AmrHit["feature"];
+}
+
+export interface VirulenceRun {
+  job_id: string;
+  sample_id: string | null;
+  assembly_id: string | null;
+  status: string;
+  created_at: string;
+  finished_at: string | null;
+  tool: string;
+  tool_version: string;
+  database_name: string | null;
+  database_version: string | null;
+  database_checksum: string | null;
+  database_path: string | null;
+  parameters: Record<string, number | boolean | string>;
+  database_terms: { licence?: string; licence_url?: string | null; citation?: string; unconfirmed?: string[] };
+  warnings: MobileWarning[];
+  counts: Record<string, number | string[]>;
+  files: Record<string, { path: string; sha256: string; size_bytes: number }>;
+  hits: VirulenceHit[];
+}
+
+export interface VirulenceSourceStatus {
+  status: "searched" | "not_searched" | "plus_off";
+  job_id: string | null;
+  tool_version: string | null;
+  database_version: string | null;
+  hits: number;
+}
+
+export interface VirulenceRow {
+  source: "vfdb" | "amrfinderplus";
+  gene: string;
+  contig: string | null;
+  start: number | null;
+  end: number | null;
+  strand: string | null;
+  identity: number | null;
+  coverage: number | null;
+  kind: string;
+  method: string;
+  description: string | null;
+  vf_name: string | null;
+  vf_id: string | null;
+  vf_category: string | null;
+  reference: string | null;
+  pieces: number | null;
+  id: string;
+  also_found_by: string[];
+}
+
+export interface VirulenceSample {
+  runs: VirulenceRun[];
+  assemblies: { assembly_id: string; sources: Record<"vfdb" | "amrfinderplus", VirulenceSourceStatus>; rows: VirulenceRow[] }[];
+}
+
+export interface VirulenceMapHit extends VirulenceHit {
+  contig: string;
+  assembly_contig: string | null;
+  start: number;
+  end: number;
+}
+
+export interface VirulenceAnnotationHits {
+  run: { job_id: string; tool_version: string; database_version: string | null; created_at: string } | null;
+  hits: VirulenceMapHit[];
 }

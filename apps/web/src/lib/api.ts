@@ -3,6 +3,23 @@ import { reportApiFailure } from "@/lib/errorReporting";
 import { messageText } from "@/lib/messages";
 import { useSettings } from "@/store/settings";
 import type {
+  AmrAnnotationHits,
+  AmrPlan,
+  AmrProjectOverview,
+  AmrReleasePlan,
+  AmrReleases,
+  AmrRequest,
+  AmrRun,
+  MobileAnnotationElements,
+  MobileMethod,
+  MobilePlan,
+  MobileProjectOverview,
+  MobileRequest,
+  MobileSample,
+  VirulenceAnnotationHits,
+  VirulencePlan,
+  VirulenceRequest,
+  VirulenceSample,
   MlstOverview,
   MlstPlan,
   MlstProjectOverview,
@@ -177,6 +194,12 @@ const json = (method: string, body: unknown): RequestInit => ({
   body: JSON.stringify(body),
 });
 
+/** MOB-suite's download: whether the reference plasmids' FASTA is kept, and the NCBI taxonomy archive shown. */
+export interface DownloadOptions {
+  keep_plasmid_fasta?: boolean;
+  taxonomy_archive?: string | null;
+}
+
 export interface UploadProgress {
   loaded: number;
   total: number;
@@ -278,9 +301,14 @@ export const api = {
   databaseLocations: () => request<DatabaseLocations>("/databases/locations"),
   browseDatabases: (root: string, path: string) => request<BrowseListing>(`/databases/browse?${new URLSearchParams({ root, path })}`),
   detectDatabase: (path: string) => request<DetectResult>(`/databases/detect?${new URLSearchParams({ path })}`),
-  databasePlan: (key: string, destination?: string | null, folder?: string | null) =>
+  databasePlan: (key: string, destination?: string | null, folder?: string | null, extras: DownloadOptions = {}) =>
     request<DownloadPlan>(
-      `/databases/catalogue/${encodeURIComponent(key)}/plan?${new URLSearchParams({ ...(destination ? { destination } : {}), ...(folder ? { folder } : {}) })}`,
+      `/databases/catalogue/${encodeURIComponent(key)}/plan?${new URLSearchParams({
+        ...(destination ? { destination } : {}),
+        ...(folder ? { folder } : {}),
+        ...(extras.keep_plasmid_fasta ? { keep_plasmid_fasta: "true" } : {}),
+        ...(extras.taxonomy_archive ? { taxonomy_archive: extras.taxonomy_archive } : {}),
+      })}`,
     ),
   extractPlan: (path: string, destination?: string | null, folder?: string | null) =>
     request<ExtractPlan>(`/databases/extract/plan?${new URLSearchParams({ path, ...(destination ? { destination } : {}), ...(folder ? { folder } : {}) })}`),
@@ -288,10 +316,10 @@ export const api = {
     request<ReferenceDatabase>("/databases/extract", json("POST", body)),
   setDefaultDatabase: (id: string) => request<ReferenceDatabase>(`/databases/${id}/default`, { method: "POST" }),
   /** `confirmBytes` repeats the archive size shown to the user; the licence must have been accepted. */
-  downloadDatabase: (key: string, confirmBytes: number, acceptLicence: boolean, destination?: string | null, folder?: string | null) =>
+  downloadDatabase: (key: string, confirmBytes: number, acceptLicence: boolean, destination?: string | null, folder?: string | null, extras: DownloadOptions = {}) =>
     request<ReferenceDatabase>(
       "/databases/downloads",
-      json("POST", { key, confirm_bytes: confirmBytes, accept_licence: acceptLicence, destination: destination ?? null, folder: folder ?? null }),
+      json("POST", { key, confirm_bytes: confirmBytes, accept_licence: acceptLicence, destination: destination ?? null, folder: folder ?? null, ...extras }),
     ),
   registerDatabase: (body: { path: string; kind?: string | null; declared_version?: string | null; collection_date?: string | null; full_checksum?: boolean }) =>
     request<ReferenceDatabase>("/databases/register", json("POST", body)),
@@ -367,6 +395,31 @@ export const api = {
   mlstProjectCsvUrl: (projectId: string) => `${BASE}/projects/${projectId}/mlst.csv`,
   mlstOverview: () => request<MlstOverview>("/mlst"),
   mlstFileUrl: (id: string, kind: string) => `${BASE}/mlst/${id}/files/${encodeURIComponent(kind)}`,
+  amrPreview: (assemblyId: string, databaseId: string | null, annotationId: string | null) =>
+    request<AmrPlan>(`/assemblies/${assemblyId}/amr/preview`, json("POST", { database_id: databaseId, annotation_id: annotationId })),
+  runAmr: (assemblyId: string, body: AmrRequest) => request<AnalysisJob>(`/assemblies/${assemblyId}/amr`, json("POST", body)),
+  amrRuns: (sampleId: string) => request<AmrRun[]>(`/samples/${sampleId}/amr`),
+  amrProject: (projectId: string) => request<AmrProjectOverview>(`/projects/${projectId}/amr`),
+  amrProjectCsvUrl: (projectId: string) => `${BASE}/projects/${projectId}/amr.csv`,
+  amrMatrixCsvUrl: (projectId: string) => `${BASE}/projects/${projectId}/amr_matrix.csv`,
+  amrFileUrl: (jobId: string, kind: string) => `${BASE}/amr/runs/${jobId}/files/${encodeURIComponent(kind)}`,
+  annotationAmr: (annotationId: string) => request<AmrAnnotationHits>(`/annotations/${annotationId}/amr`),
+  mobilePreview: (assemblyId: string, method: MobileMethod, databaseId: string | null) =>
+    request<MobilePlan>(`/assemblies/${assemblyId}/mobile-elements/preview`, json("POST", { method, database_id: databaseId })),
+  runMobile: (assemblyId: string, body: MobileRequest) => request<AnalysisJob>(`/assemblies/${assemblyId}/mobile-elements`, json("POST", body)),
+  mobileSample: (sampleId: string) => request<MobileSample>(`/samples/${sampleId}/mobile-elements`),
+  mobileProject: (projectId: string) => request<MobileProjectOverview>(`/projects/${projectId}/mobile-elements`),
+  mobileFileUrl: (jobId: string, kind: string) => `${BASE}/mobile-elements/runs/${jobId}/files/${encodeURIComponent(kind)}`,
+  annotationMobile: (annotationId: string) => request<MobileAnnotationElements>(`/annotations/${annotationId}/mobile-elements`),
+  virulencePreview: (assemblyId: string) => request<VirulencePlan>(`/assemblies/${assemblyId}/virulence/preview`, json("POST", {})),
+  runVirulence: (assemblyId: string, body: VirulenceRequest) => request<AnalysisJob>(`/assemblies/${assemblyId}/virulence`, json("POST", body)),
+  virulenceSample: (sampleId: string) => request<VirulenceSample>(`/samples/${sampleId}/virulence`),
+  virulenceFileUrl: (jobId: string, kind: string) => `${BASE}/virulence/runs/${jobId}/files/${encodeURIComponent(kind)}`,
+  annotationVirulence: (annotationId: string) => request<VirulenceAnnotationHits>(`/annotations/${annotationId}/virulence`),
+  amrReleases: () => request<AmrReleases>("/databases/amrfinderplus/releases"),
+  amrReleasePlan: (version: string) => request<AmrReleasePlan>("/databases/amrfinderplus/plan", json("POST", { version })),
+  amrReleaseDownload: (version: string, confirmBytes: number) =>
+    request<ReferenceDatabase>("/databases/amrfinderplus/download", json("POST", { version, confirm_bytes: confirmBytes, accept_terms: true })),
   speciesPreview: (assemblyId: string, method: SpeciesMethod, databaseId: string | null) =>
     request<SpeciesPlan>(`/assemblies/${assemblyId}/species/preview`, json("POST", { method, database_id: databaseId })),
   runSpecies: (assemblyId: string, body: SpeciesRequest) => request<AnalysisJob>(`/assemblies/${assemblyId}/species`, json("POST", body)),

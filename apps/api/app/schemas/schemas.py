@@ -1670,7 +1670,7 @@ class DatabaseKindRead(BaseModel):
     recognise: str
     version_from: str
     typical_size: str
-    download: Literal["catalogue", "register", "bundled"]
+    download: Literal["catalogue", "register", "bundled", "release"]
     download_note: str
     sources: list[str]
     unconfirmed: list[str] = []
@@ -1797,8 +1797,9 @@ class ReferenceDatabaseRead(ORMModel):
     collection: dict[str, Any] | None = Field(default=None, description="A reference collection's coverage")
     files: int | None = Field(default=None, description="Files in the recorded manifest")
     published_md5_checked: int | None = None
-    amrfinderplus_db: dict[str, str | None] | None = Field(
-        default=None, description="The AMRFinderPlus data in amrfinderplus-db/latest: link target, version, format")
+    amrfinderplus_db: dict[str, Any] | None = Field(
+        default=None, description="The AMRFinderPlus data in amrfinderplus-db/latest: link target, version, format, "
+                                  "and whether the installed AMRFinderPlus reads them")
     archive: dict[str, Any] | None = None
     catalogue_version: str | None = Field(default=None, description="The catalogue's version of this database")
     compatibility: CompatibilityRead | None = None
@@ -1869,6 +1870,9 @@ class DownloadPlanRead(BaseModel):
     blocked_code: str | None = None
     compatibility: CompatibilityRead
     destinations: list[DatabaseLocationRead] = []
+    extras: dict[str, Any] | None = Field(default=None, description="MOB-suite: the NCBI taxonomy archive it also "
+                                          "needs, the archives NCBI lists, whether the FASTA is kept, the extra bytes "
+                                          "and the preparation steps")
 
 
 class ExtractPlanRead(BaseModel):
@@ -1895,6 +1899,11 @@ class DatabaseDownloadRequest(BaseModel):
     destination: str | None = Field(default=None, max_length=4096, description="A writable database folder "
                                     "(default: the database folder)")
     folder: str | None = Field(default=None, max_length=400, description="Relative folder inside it")
+    keep_plasmid_fasta: bool = Field(default=False, description="MOB-suite: keep the reference plasmids' FASTA "
+                                     "(mob_recon searches only its BLAST index)")
+    taxonomy_archive: str | None = Field(default=None, pattern=r"^taxdmp_\d{4}-\d{2}-\d{2}\.zip$",
+                                         description="MOB-suite: the dated NCBI taxonomy archive shown in the plan, "
+                                         "repeated as confirmation")
 
 
 class DatabaseRegisterRequest(BaseModel):
@@ -2010,12 +2019,13 @@ class ProkkaRequest(BaseModel):
 class AnnotationDependencyRead(BaseModel):
     name: str
     status: str = Field(description="ok, missing, failed, unreadable, too_old, crashed (PILER-CR's test run), "
-                        "database_missing (AMRFinderPlus)")
+                        "database_missing or database_refused (AMRFinderPlus: no data, or data it does not read)")
     found: str | None = None
     minimum: str | None = None
     returncode: int | None = None
     steps: list[str] = []
     command: list[str] = []
+    database: dict[str, Any] | None = Field(default=None, description="AMRFinderPlus: the data checked and the result")
 
 
 class AnnotationStepRead(BaseModel):
@@ -2117,6 +2127,9 @@ class AnnotationPlanRead(BaseModel):
     database_id: str | None = None
     database: ProkkaDatabaseRead | None = None
     programs: dict[str, str | None] = Field(default={}, description="Prokka: each program and where it was found")
+    amr_data: dict[str, Any] | None = Field(default=None, description="Bakta: the AMRFinderPlus data its AMR expert "
+                                            "system reads (the database's own copy, or an ARVA AMRFinderPlus database "
+                                            "in its place when AMRFinderPlus refuses the copy)")
 
 
 class AnnotationFileRead(BaseModel):
@@ -2953,3 +2966,418 @@ class ClientErrorReport(BaseModel):
 class ClientErrorLogged(BaseModel):
     id: str
     duplicate: bool = False
+
+
+# --- AMR detection (AMRFinderPlus) -------------------------------------------------------------------------------
+
+_ORGANISM = r"^[A-Z][a-z]+(?:_[a-z]+)?$"
+
+
+class AmrPreviewRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    database_id: str | None = Field(default=None, max_length=36, description="An AMRFinderPlus database; default: the "
+                                    "default one this AMRFinderPlus reads")
+    annotation_id: str | None = Field(default=None, max_length=36, description="For a combined search: one of the "
+                                      "assembly's annotations (Bakta or Prokka, with CDS)")
+
+
+class AmrSettingsIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    mode: Literal["nucleotide", "combined"] = Field(default="nucleotide", description="nucleotide: the contigs "
+                                                    "(--nucleotide); combined: the contigs, proteins and GFF of an "
+                                                    "annotation (--nucleotide --protein --gff --annotation_format)")
+    organism: str | None = Field(default=None, pattern=_ORGANISM, description="--organism, one of the database's "
+                                 "options (amrfinder --list_organisms): point mutations and organism-specific "
+                                 "filtering; none: point mutations are not searched")
+    plus: bool = Field(default=True, description="--plus: also stress response and virulence genes")
+    ident_min: float = Field(default=-1, description="--ident_min; -1 (the default) uses the curated thresholds")
+    coverage_min: float = Field(default=0.5, gt=0, le=1, description="--coverage_min, AMRFinderPlus's default 0.5")
+    translation_table: int = Field(default=11, ge=1, le=33, description="--translation_table, default 11")
+
+
+class AmrRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    settings: AmrSettingsIn = AmrSettingsIn()
+    database_id: str | None = Field(default=None, max_length=36)
+    annotation_id: str | None = Field(default=None, max_length=36)
+    threads: int | None = Field(default=None, ge=1, le=256)
+    confirmed: bool
+
+
+class AmrProblem(BaseModel):
+    code: str
+    message: str
+    params: dict[str, Any] = {}
+
+
+class AmrPlanRead(BaseModel):
+    tool: AnnotationToolRead
+    database: dict[str, Any] | None
+    databases: list[dict[str, Any]]
+    bakta_copies: list[dict[str, Any]] = Field(description="AMRFinderPlus data inside Bakta databases and whether "
+                                               "this AMRFinderPlus reads them")
+    database_check: dict[str, Any] | None
+    organisms: list[str] = Field(description="amrfinder --list_organisms for the chosen database")
+    organism: dict[str, Any] = Field(description="The organism ARVA proposes from the species identification, the "
+                                     "rule it used (species, wiki_note, genus) and the species result")
+    annotations: list[dict[str, Any]]
+    defaults: dict[str, str] = Field(description="AMRFinderPlus 4.2.7's defaults, as ARVA passes them")
+    tool_defaults: dict[str, str]
+    defaults_match: bool | None
+    assembly: dict[str, Any]
+    problems: list[AmrProblem]
+
+
+class AmrHitRead(BaseModel):
+    id: str
+    job_id: str
+    annotation_id: str | None
+    element_symbol: str
+    element_name: str | None
+    scope: str | None
+    type: str
+    subtype: str | None
+    amr_class: str | None
+    amr_subclass: str | None
+    method: str
+    method_kind: str
+    identity: float | None
+    coverage: float | None
+    target_length: int | None
+    reference_length: int | None
+    alignment_length: int | None
+    contig: str | None
+    assembly_contig: str | None
+    start: int | None
+    stop: int | None
+    strand: str | None
+    protein_id: str | None
+    closest_accession: str | None
+    closest_name: str | None
+    hmm_accession: str | None
+    hmm_description: str | None
+    hierarchy_node: str | None
+    feature: dict[str, Any] | None
+
+
+class AmrRunRead(BaseModel):
+    job_id: str
+    sample_id: str | None
+    assembly_id: str | None
+    annotation_id: str | None
+    status: str
+    created_at: dt.datetime
+    finished_at: dt.datetime | None
+    tool: str
+    tool_version: str
+    database_name: str | None
+    database_version: str | None
+    database_checksum: str | None
+    database_path: str | None
+    parameters: dict[str, Any]
+    organism_choice: dict[str, Any] | None
+    mode: str | None
+    warnings: list[dict[str, Any]]
+    counts: dict[str, int]
+    point_mutation_screen: dict[str, Any] | None
+    files: dict[str, Any]
+    log: dict[str, Any]
+    hits: list[AmrHitRead]
+    by_class: list[dict[str, Any]]
+
+
+class AmrProjectOverviewRead(BaseModel):
+    project_id: str
+    project_name: str
+    is_demo: bool
+    samples: list[dict[str, Any]]
+    elements: list[dict[str, Any]]
+    searched: int
+    versions: list[str]
+
+
+class AmrMapHitRead(AmrHitRead):
+    end: int | None
+
+
+class AmrAnnotationHitsRead(BaseModel):
+    run: dict[str, Any] | None
+    hits: list[AmrMapHitRead]
+
+
+class AmrReleaseRead(BaseModel):
+    version: str
+    modified: str
+    compatibility: str
+
+
+class AmrReleasesRead(BaseModel):
+    tool_version: str
+    minor: str
+    url: str
+    releases: list[AmrReleaseRead]
+
+
+class AmrReleasePlanRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    version: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}\.\d+$")
+    destination: str | None = Field(default=None, max_length=4096)
+    folder: str | None = Field(default=None, max_length=400)
+
+
+class AmrReleaseStartRequest(AmrReleasePlanRequest):
+    confirm_bytes: int = Field(ge=0, description="The download size the plan showed (from NCBI's listing)")
+    accept_terms: bool
+
+
+class AmrReleasePlanRead(BaseModel):
+    version: str
+    minor: str
+    tool_version: str
+    url: str
+    files: list[dict[str, Any]]
+    missing: list[str]
+    download_bytes: int
+    required_bytes: int
+    db_dir: str
+    folder: str
+    target_path: str
+    host_target_path: str
+    free_bytes: int
+    available_bytes: int
+    enough: bool
+    blocked_by: str | None
+    blocked_code: str | None
+    compatibility: str
+    needs_data: str | None
+    licence: str
+    checksums_published: bool
+    index_command: str
+
+
+# --- Plasmids and mobile elements (MOB-suite, PlasmidFinder, IntegronFinder, ISEScan, geNomad), VFDB --------------
+
+MobileMethod = Literal["mobsuite", "plasmidfinder", "integronfinder", "isescan", "genomad"]
+
+
+class MobSettingsIn(BaseModel):
+    """mob_recon's thresholds (each passed explicitly; MOB-suite 3.1.9's defaults)."""
+    model_config = ConfigDict(extra="forbid")
+
+    min_length: int = Field(default=1000, ge=1, le=1_000_000, description="--min_length: shortest BLAST alignment kept")
+    min_rep_ident: int = Field(default=80, ge=1, le=100)
+    min_mob_ident: int = Field(default=80, ge=1, le=100)
+    min_con_ident: int = Field(default=80, ge=1, le=100)
+    min_rpp_ident: int = Field(default=80, ge=1, le=100)
+    min_rep_cov: int = Field(default=80, ge=1, le=100)
+    min_mob_cov: int = Field(default=80, ge=1, le=100)
+    min_con_cov: int = Field(default=60, ge=1, le=100)
+    min_rpp_cov: int = Field(default=80, ge=1, le=100)
+    min_rep_evalue: float = Field(default=1e-05, gt=0, le=10)
+    min_mob_evalue: float = Field(default=1e-05, gt=0, le=10)
+    min_con_evalue: float = Field(default=1e-05, gt=0, le=10)
+    min_rpp_evalue: float = Field(default=1e-05, gt=0, le=10)
+    min_overlap: int = Field(default=10, ge=0, le=10_000)
+    max_contig_size: int = Field(default=450000, ge=1000, le=10_000_000)
+    max_plasmid_size: int = Field(default=450000, ge=1000, le=10_000_000)
+    primary_cluster_dist: float = Field(default=0.06, ge=0, le=1)
+    secondary_cluster_dist: float = Field(default=0.025, ge=0, le=1)
+
+
+class AbricateSettingsIn(BaseModel):
+    """ABRicate's thresholds (--minid, --mincov; its defaults 80 and 80)."""
+    model_config = ConfigDict(extra="forbid")
+
+    minid: float = Field(default=80, gt=0, le=100)
+    mincov: float = Field(default=80, ge=0, le=100)
+
+
+class IntegronSettingsIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    local_max: bool = Field(default=True, description="--local-max: thorough local search for attC sites (slower)")
+    promoter_attI: bool = Field(default=False, description="--promoter-attI: also the Pc promoter and attI site")
+    distance_thresh: int = Field(default=4000, ge=1, le=100_000)
+    evalue_attc: float = Field(default=1.0, gt=0, le=10)
+    calin_threshold: int = Field(default=2, ge=1, le=100)
+    max_attc_size: int = Field(default=200, ge=2, le=1000)
+    min_attc_size: int = Field(default=40, ge=1, le=999)
+
+
+class IsescanSettingsIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    remove_short_is: bool = Field(default=False, description="--removeShortIS: report only complete IS elements")
+
+
+class GenomadSettingsIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    min_score: float = Field(default=0.7, ge=0, le=1)
+    min_number_genes: int = Field(default=1, ge=0, le=1000)
+    min_plasmid_marker_enrichment: float = Field(default=0.1, ge=-100, le=100)
+    min_virus_marker_enrichment: float = Field(default=0.0, ge=-100, le=100)
+    min_plasmid_hallmarks: int = Field(default=0, ge=0, le=1000)
+    min_plasmid_hallmarks_short_seqs: int = Field(default=1, ge=0, le=1000)
+    min_virus_hallmarks: int = Field(default=0, ge=0, le=1000)
+    min_virus_hallmarks_short_seqs: int = Field(default=1, ge=0, le=1000)
+    max_uscg: int = Field(default=4, ge=0, le=1000)
+    sensitivity: float = Field(default=4.2, gt=0, le=7.5)
+    splits: int = Field(default=0, ge=0, le=1000)
+
+
+MOBILE_SETTINGS = {"mobsuite": MobSettingsIn, "plasmidfinder": AbricateSettingsIn, "integronfinder": IntegronSettingsIn,
+                   "isescan": IsescanSettingsIn, "genomad": GenomadSettingsIn}
+
+
+class MobilePreviewRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    method: MobileMethod
+    database_id: str | None = Field(default=None, max_length=36)
+
+
+class MobileRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    method: MobileMethod
+    settings: dict[str, bool | int | float] = Field(default={}, description="The method's settings (validated against "
+                                                    "its own model: MobSettingsIn, AbricateSettingsIn, ...)")
+    database_id: str | None = Field(default=None, max_length=36)
+    threads: int | None = Field(default=None, ge=1, le=256)
+    confirmed: bool
+
+
+class MobileToolRead(AnnotationToolRead):
+    id: str
+    name: str
+
+
+class MobilePlanRead(BaseModel):
+    method: str
+    tool: MobileToolRead
+    database: dict[str, Any] | None
+    databases: list[dict[str, Any]]
+    models: dict[str, Any] | None = Field(description="The models the tool bundles, when it reads no database")
+    defaults: dict[str, str] = Field(description="ARVA's settings, each passed explicitly")
+    tool_defaults: dict[str, str]
+    defaults_match: bool | None
+    assembly: dict[str, Any]
+    circularity: dict[str, dict[str, Any]] = Field(description="The assembler's circularity flag of each contig")
+    problems: list[AmrProblem]
+
+
+class MobileRowRead(BaseModel):
+    id: str
+    job_id: str
+    tool: str
+    category: str
+    element: str | None
+    element_type: str | None
+    contig: str | None
+    start: int | None
+    end: int | None
+    strand: str | None
+    identity: float | None
+    coverage: float | None
+    score: float | None
+    completeness: str | None
+    details: dict[str, Any] | None
+    feature: dict[str, Any] | None
+
+
+class MobileRunRead(BaseModel):
+    job_id: str
+    sample_id: str | None
+    assembly_id: str | None
+    method: str | None
+    status: str
+    created_at: dt.datetime
+    finished_at: dt.datetime | None
+    tool: str
+    tool_version: str
+    database_kind: str | None
+    database_name: str | None
+    database_version: str | None
+    database_checksum: str | None
+    database_path: str | None
+    parameters: dict[str, Any]
+    warnings: list[dict[str, Any]]
+    counts: dict[str, Any]
+    files: dict[str, Any]
+    searched_contigs: list[str]
+    rows: list[MobileRowRead]
+
+
+class MobileSampleRead(BaseModel):
+    runs: list[MobileRunRead]
+    assemblies: list[dict[str, Any]] = Field(description="Per assembly: each contig with MOB-suite's call, the "
+                                             "replicons, element counts and the assembler's circularity")
+
+
+class MobileProjectRead(BaseModel):
+    project_id: str
+    project_name: str
+    is_demo: bool
+    samples: list[dict[str, Any]]
+    searched: dict[str, int]
+
+
+class MobileAnnotationRead(BaseModel):
+    runs: dict[str, Any]
+    contigs: list[dict[str, Any]]
+    elements: list[dict[str, Any]]
+
+
+class VirulenceRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    settings: AbricateSettingsIn = AbricateSettingsIn()
+    threads: int | None = Field(default=None, ge=1, le=256)
+    confirmed: bool
+
+
+class VirulencePlanRead(BaseModel):
+    tool: AnnotationToolRead
+    database: dict[str, Any] | None
+    defaults: dict[str, str]
+    tool_defaults: dict[str, str]
+    defaults_match: bool | None
+    assembly: dict[str, Any]
+    problems: list[AmrProblem]
+
+
+class VirulenceRunRead(BaseModel):
+    job_id: str
+    sample_id: str | None
+    assembly_id: str | None
+    status: str
+    created_at: dt.datetime
+    finished_at: dt.datetime | None
+    tool: str
+    tool_version: str
+    database_name: str | None
+    database_version: str | None
+    database_checksum: str | None
+    database_path: str | None
+    parameters: dict[str, Any]
+    database_terms: dict[str, Any]
+    warnings: list[dict[str, Any]]
+    counts: dict[str, Any]
+    files: dict[str, Any]
+    hits: list[dict[str, Any]]
+
+
+class VirulenceSampleRead(BaseModel):
+    runs: list[VirulenceRunRead]
+    assemblies: list[dict[str, Any]] = Field(description="Per assembly: VFDB and AMRFinderPlus virulence rows side by "
+                                             "side, each with its source")
+
+
+class VirulenceAnnotationRead(BaseModel):
+    run: dict[str, Any] | None
+    hits: list[dict[str, Any]]

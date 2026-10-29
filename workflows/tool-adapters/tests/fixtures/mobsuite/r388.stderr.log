@@ -1,0 +1,42 @@
+2026-10-29 21:53:42,220 mob_suite.mob_recon INFO: MOB-recon version 3.1.9  [in /env/lib/python3.11/site-packages/mob_suite/mob_recon.py:984]
+2026-10-29 21:53:42,220 mob_suite.mob_recon INFO: SUCCESS: Found program blastn at /env/bin/blastn [in /env/lib/python3.11/site-packages/mob_suite/utils.py:597]
+2026-10-29 21:53:42,220 mob_suite.mob_recon INFO: SUCCESS: Found program makeblastdb at /env/bin/makeblastdb [in /env/lib/python3.11/site-packages/mob_suite/utils.py:597]
+2026-10-29 21:53:42,220 mob_suite.mob_recon INFO: SUCCESS: Found program tblastn at /env/bin/tblastn [in /env/lib/python3.11/site-packages/mob_suite/utils.py:597]
+2026-10-29 21:53:42,220 mob_suite.mob_recon INFO: Processing fasta file /input/r388.fna [in /env/lib/python3.11/site-packages/mob_suite/mob_recon.py:1011]
+2026-10-29 21:53:42,220 mob_suite.mob_recon INFO: Analysis directory /work/mob_recon [in /env/lib/python3.11/site-packages/mob_suite/mob_recon.py:1012]
+2026-10-29 21:53:44,123 mob_suite.mob_recon INFO: Writing cleaned header input fasta file from /input/r388.fna to /work/mob_recon/__tmp/fixed.input.fasta [in /env/lib/python3.11/site-packages/mob_suite/mob_recon.py:1107]
+2026-10-29 21:53:44,217 root INFO: Blasting replicon sequences /db/rep.dna.fas against /work/mob_recon/__tmp/fixed.input.fasta [in /env/lib/python3.11/site-packages/mob_suite/utils.py:1163]
+/env/lib/python3.11/site-packages/mob_suite/utils.py:338: FutureWarning: the 'line_terminator'' keyword is deprecated, use 'lineterminator' instead.
+  blast_df.to_csv(blast_results_file, sep='\t', header=True, line_terminator='\n', index=False)
+2026-10-29 21:53:44,894 root INFO: Filtering replicon blast results /work/mob_recon/__tmp/replicon_blast_results.txt  [in /env/lib/python3.11/site-packages/mob_suite/utils.py:1168]
+2026-10-29 21:53:44,911 root INFO: Blasting relaxase sequences /db/mob.proteins.faa against /work/mob_recon/__tmp/fixed.input.fasta [in /env/lib/python3.11/site-packages/mob_suite/utils.py:1186]
+/env/lib/python3.11/site-packages/mob_suite/utils.py:365: FutureWarning: the 'line_terminator'' keyword is deprecated, use 'lineterminator' instead.
+  blast_df.to_csv(blast_results_file, sep='\t', header=True, line_terminator='\n', index=False)
+2026-10-29 21:53:45,988 root INFO: Filtering relaxase blast results /work/mob_recon/__tmp/mob_blast_results.txt  [in /env/lib/python3.11/site-packages/mob_suite/utils.py:1191]
+2026-10-29 21:53:45,999 root INFO: Blasting MPF sequences /db/mpf.proteins.faa against /work/mob_recon/__tmp/fixed.input.fasta [in /env/lib/python3.11/site-packages/mob_suite/utils.py:1210]
+/env/lib/python3.11/site-packages/mob_suite/utils.py:365: FutureWarning: the 'line_terminator'' keyword is deprecated, use 'lineterminator' instead.
+  blast_df.to_csv(blast_results_file, sep='\t', header=True, line_terminator='\n', index=False)
+2026-10-29 21:53:46,896 root INFO: Filtering MPF blast results /work/mob_recon/__tmp/mpf_blast_results.txt  [in /env/lib/python3.11/site-packages/mob_suite/utils.py:1225]
+2026-10-29 21:53:46,897 root INFO: Blasting orit sequences /db/orit.fas against /work/mob_recon/__tmp/fixed.input.fasta [in /env/lib/python3.11/site-packages/mob_suite/utils.py:1234]
+/env/lib/python3.11/site-packages/mob_suite/utils.py:338: FutureWarning: the 'line_terminator'' keyword is deprecated, use 'lineterminator' instead.
+  blast_df.to_csv(blast_results_file, sep='\t', header=True, line_terminator='\n', index=False)
+2026-10-29 21:53:47,067 root INFO: Filtering orit blast results /work/mob_recon/__tmp/orit_blast_results.txt  [in /env/lib/python3.11/site-packages/mob_suite/utils.py:1239]
+2026-10-29 21:53:47,079 root INFO: Blasting contigs against repetitive sequences db: /db/repetitive.dna.fas [in /env/lib/python3.11/site-packages/mob_suite/utils.py:1256]
+/env/lib/python3.11/site-packages/mob_suite/utils.py:338: FutureWarning: the 'line_terminator'' keyword is deprecated, use 'lineterminator' instead.
+  blast_df.to_csv(blast_results_file, sep='\t', header=True, line_terminator='\n', index=False)
+2026-10-29 21:53:47,206 root INFO: Filtering repetitive blast results /work/mob_recon/__tmp/repetitive_blast_results.txt  [in /env/lib/python3.11/site-packages/mob_suite/utils.py:1260]
+2026-10-29 21:53:47,212 root INFO: Blasting contigs against reference sequence db: /db/ncbi_plasmid_full_seqs.fas [in /env/lib/python3.11/site-packages/mob_suite/mob_recon.py:1264]
+/env/lib/python3.11/site-packages/mob_suite/utils.py:338: FutureWarning: the 'line_terminator'' keyword is deprecated, use 'lineterminator' instead.
+  blast_df.to_csv(blast_results_file, sep='\t', header=True, line_terminator='\n', index=False)
+2026-10-29 21:53:48,291 root INFO: Filtering contig blast results: /work/mob_recon/__tmp/contig_blast_results.txt [in /env/lib/python3.11/site-packages/mob_suite/mob_recon.py:1269]
+2026-10-29 21:53:48,308 root INFO: Assigning contigs to plasmid groups [in /env/lib/python3.11/site-packages/mob_suite/mob_recon.py:1284]
+Not 0_14de955919ba7b4f2dcfcec2870f8532_circular=false_33913 to cluster AD768 assigned as already present in cluster AD768
+2026-10-29 21:53:49,273 root INFO: Writting contig results to /work/mob_recon/contig_report.txt [in /env/lib/python3.11/site-packages/mob_suite/mob_recon.py:1387]
+2026-10-29 21:53:50,630 root INFO: Writting plasmid sequences to /work/mob_recon/plasmid_AD768.fasta [in /env/lib/python3.11/site-packages/mob_suite/utils.py:971]
+2026-10-29 21:53:50,652 root INFO: Writting chromosome sequences to /work/mob_recon/chromosome.fasta [in /env/lib/python3.11/site-packages/mob_suite/mob_recon.py:1404]
+/env/lib/python3.11/site-packages/mob_suite/utils.py:338: FutureWarning: the 'line_terminator'' keyword is deprecated, use 'lineterminator' instead.
+  blast_df.to_csv(blast_results_file, sep='\t', header=True, line_terminator='\n', index=False)
+2026-10-29 21:53:51,616 root INFO: Creating plasmid biomarkers report ... [in /env/lib/python3.11/site-packages/mob_suite/utils.py:1382]
+2026-10-29 21:53:51,660 root INFO: Writting plasmid biomarkers report contaning 8 biomarkers [in /env/lib/python3.11/site-packages/mob_suite/mob_recon.py:1478]
+2026-10-29 21:53:51,661 root INFO: Cleaning up temporary files /work/mob_recon/__tmp [in /env/lib/python3.11/site-packages/mob_suite/mob_recon.py:1484]
+2026-10-29 21:53:51,664 mob_suite.mob_recon INFO: MOB-recon completed and results written to /work/mob_recon [in /env/lib/python3.11/site-packages/mob_suite/mob_recon.py:1486]

@@ -1116,8 +1116,8 @@ reports say that the results describe the tools on test data, not an organism.
 
 ### Bakta
 
-Bakta 1.12.2 (PyPI wheel, in its own virtual environment) with a database from the Database Manager, whose status
-and content checksum ARVA re-checks, together with Bakta's folder check, when the job starts.
+Bakta 1.12.2 (Bioconda, in its own pinned environment with every program it runs) with a database from the Database
+Manager, whose status and content checksum ARVA re-checks, together with Bakta's folder check, when the job starts.
 
 - **Dependencies and skipped steps.** At start-up Bakta checks a program for each step that will run
   (`bakta/utils.py`, `test_dependencies`) and exits when one is missing, fails or is older than it requires. ARVA
@@ -1145,7 +1145,18 @@ and content checksum ARVA re-checks, together with Bakta's folder check, when th
   CRISPR arrays will be reported!` and continues (`features/crispr.py`). ARVA therefore runs PILER-CR on a short
   random test sequence before each run, skips the CRISPR step when it fails, and marks the step *failed* (not 0
   arrays) when the warning appears in a run. Ubuntu 24.04's `pilercr 1.06+dfsg-5` passes Bakta's version check but
-  crashes (SIGSEGV) on every non-empty input, so the CRISPR step is skipped on that system.
+  crashes (SIGSEGV) on every non-empty input; Bioconda's `piler-cr 1.06` in Bakta's environment passes the test.
+- **AMRFinderPlus data for the CDS step.** Bakta's AMR expert system runs `amrfinder --database
+  <db>/amrfinderplus-db/latest --protein ... --plus` and stops the run when amrfinder fails
+  (`bakta/expert/amrfinder.py`); Bakta's start-up check only looks for "No valid AMRFinder database found". The
+  light database 6.0 ships AMRFinderPlus data 2024-12-18.1 (format 4.0.1), which AMRFinderPlus 4.2.7 refuses
+  ("Software requires database version at least 2025-09-22.2"). ARVA checks the copy with `amrfinder
+  --database_version` (the AMRFinderPlus of Bakta's environment); when it is refused and an AMRFinderPlus database
+  ARVA installed is read, Bakta reads its database through a view made in the job's temporary folder: a link to
+  every entry of the Bakta database except `amrfinderplus-db`, and `amrfinderplus-db/<version>` linking to the
+  AMRFinderPlus database with `latest` → `<version>`. Neither database changes; the job records the Bakta database
+  and the AMRFinderPlus database used (name, version, checksum, path) and why. Without one, the CDS step is
+  skipped (status `database_refused`) and the dialog says how to fix it.
 - **Options.** Always passed: `--db`, `--output`, `--prefix annotation`, `--tmp-dir` (inside the job folder),
   `--threads`, `--min-contig-length`, `--translation-table` (11, 4 or 25, the tables Bakta offers),
   `--locus-tag` (suggested from the sample code, editable; 3–12 capital letters and digits, starting with a
@@ -1217,20 +1228,31 @@ states that its author can no longer maintain it and recommends Bakta; ARVA says
 
 ### Validation on this system
 
-Ubuntu 24.04, Bakta 1.12.2 with the light database 6.0 and Prokka 1.14.6+dfsg-6, on the SYNTHETIC annotation genome
-(`scripts/make_synthetic_annotation_genome.py`; 18,960 bp with planted random ORFs, three back-translated Swiss-Prot
-proteins, RNA sequences sampled from covariance models with Infernal's `cmemit`, a CRISPR-like array and 100 N):
+Ubuntu 24.04 (4 CPUs), Bakta 1.12.2 from its Bioconda environment with the light database 6.0 and the AMRFinderPlus
+database 2026-08-07.1 in place of the database's own copy, and Prokka 1.14.6+dfsg-6:
 
-- Bakta ran tRNA, tmRNA, rRNA, ncRNA, ncRNA-region and gap detection and the plot; it skipped CDS and sORF
-  (AMRFinderPlus not installed; Ubuntu's DIAMOND 2.1.9 older than 2.2.0), oriC/oriT (BLAST+ 2.12.0 older than
-  2.17.0) and CRISPR (PILER-CR crash). It found the two sampled tRNAs (as `tRNA-Xxx`), the 5S and 16S rRNA, the
-  RNase P RNA and the gap. ARVA's dependency versions were checked to equal Bakta's own `read_tool_output` for
-  every installed program.
-- Prokka found 18 CDS: the three back-translated proteins named after their Swiss-Prot entries (alkA, tag, quiB)
-  and 15 hypothetical proteins, a tRNA (`tRNA-SeC(tca)`) and the 16S rRNA.
+- **SYNTHETIC annotation genome** (`scripts/make_synthetic_annotation_genome.py`; 18,960 bp with planted random
+  ORFs, three back-translated Swiss-Prot proteins, RNA sequences sampled from covariance models with Infernal's
+  `cmemit`, a CRISPR-like array and 100 N): every step ran. Bakta called 18 CDS — the three back-translated
+  proteins with their names (DNA-3-methyladenine glycosylase II and I, catabolic 3-dehydroquinate dehydratase, from
+  UniRef50 clusters) and the planted ORFs as hypothetical proteins — 2 tRNAs, the 5S and 16S rRNA, the RNase P RNA,
+  the CRISPR-like array (Bioconda's PILER-CR) and the gap. Prokka found 18 CDS (alkA, tag, quiB and 15 hypothetical
+  proteins), a tRNA (`tRNA-SeC(tca)`) and the 16S rRNA. ARVA's dependency versions equal Bakta's own
+  `read_tool_output` for every program.
+- **A real genome**: *Staphylococcus aureus* N315, NCBI RefSeq NC_002745.2 (chromosome, 2,814,816 bp, FASTA sha256
+  `d662a3eaad8dffa393e1686a1cbfe3361b7a959669045824b9ebbc28ba1522f4`) and NC_003140.1 (plasmid pN315, 24,653 bp,
+  `68f63fcc7e1c3823bc44edfb11af8aee5e761e1106aef6aece586091eca7ac4d`), downloaded from NCBI E-utilities and deleted
+  after the runs. Bakta called **2,592 CDS** (plus 4 sORFs, 63 tRNAs, 1 tmRNA, 16 rRNAs, 0 CRISPR arrays; 179
+  hypothetical) in 5 min 12 s with 4 threads. NCBI's RefSeq annotation of the same assembly (GCF_000009645.1,
+  annotation GCF_000009645.1-RS_2025_03_15, PGAP 6.9) lists 2,735 CDS, 2,657 of them with a protein and 78
+  pseudogenes: Bakta's count is 65 (2.4 %) below PGAP's protein-coding CDS. Bakta detects no pseudogenes with the
+  light database and the two pipelines use different gene finders (Pyrodigal; GeneMarkS-2+), so a few percent
+  difference is expected; the counts are not a measure of which is right. On the plasmid alone Bakta called 29 CDS
+  (RefSeq: 30 CDS, 6 of them pseudogenes; `test_real_bakta_cds_on_ncbi_plasmid_matches_refseq`). Bakta's AMR expert
+  system reported 49 AMRFinderPlus hits on the genome.
 
-These results show that the tools ran and that ARVA reads them correctly; they say nothing about any organism.
-Bakta's CDS annotation could not be validated here.
+These results show that the tools ran and that ARVA reads them correctly; the synthetic genome says nothing about
+any organism.
 
 ## Genome Explorer (Phase 4C)
 
@@ -1546,6 +1568,157 @@ databases; they were **not** checked against the published RefSeq sketches or GT
 **GTDB-Tk was not validated**: its environment was installed from the lock only to record `--version` and
 `classify_wf -h`; no classification ran (no reference data, not enough memory).
 
+## Antimicrobial resistance and virulence genes (Phase 5D1)
+
+ARVA runs AMRFinderPlus 4.2.7 (Feldgarden et al. 2021; NCBI, public domain) on one assembly of the sample's lineage
+against a dated release of NCBI's AMRFinderPlus database. What AMRFinderPlus does was read in its `--help`, its
+source at tag `amrfinder_v4.2.7` (`amrfinder.cpp`, `amr_report.cpp`, `dna_mutation.cpp`, `amrfinder_index.cpp`,
+`amrfinder_update.cpp`, `columns.hpp`) and its wiki (*Running AMRFinderPlus*, *Interpreting results*, *Curated
+organisms*):
+
+- **Search.** *Nucleotide*: the contigs as `input/genome.fna` (`--nucleotide`; translated search with tblastn/
+  blastx, and blastn for nucleotide point mutations). *Combined*: the contigs, proteins and GFF3 of one of the
+  assembly's Bakta or Prokka annotations (`--nucleotide --protein --gff --annotation_format bakta|prokka`), checked
+  unchanged by their recorded SHA-256; hits then carry the annotated protein's id. AMRFinderPlus requires the GFF
+  whenever both sequence files are given.
+- **Options, all passed explicitly**: `--ident_min -1` (the curated identity threshold of each family, 0.9 where
+  none is curated; a value overrides them all and ARVA warns), `--coverage_min 0.5`, `--translation_table 11`,
+  `--plus` (stress response and virulence genes; on by default), `--threads`, `--database <release folder>`,
+  `--blast_bin`/`--hmmer_bin` (the environment's BLAST+ 2.16.0 and HMMER 3.4), `--print_node`, `--output`,
+  `--nucleotide_output` (and `--protein_output`), and with an organism `--organism` and `--mutation_all`. The
+  defaults stated by the installed `--help` are recorded and compared.
+- **Organism.** Point mutations are searched only with `--organism`, and only for the options the database lists
+  (`amrfinder --list_organisms`; 32 for release 2026-08-07.1). ARVA proposes one from the assembly's most recent
+  species identification that named a species, by the wiki's organism table: the species itself
+  (`Staphylococcus aureus` → `Staphylococcus_aureus`), a species its notes name (*K. aerogenes* →
+  `Klebsiella_pneumoniae`, *E. hirae* → `Enterococcus_faecium`, *S. mitis* → `Streptococcus_pneumoniae`, *C. coli*
+  and *C. jejuni* → `Campylobacter`) or a genus option (*Escherichia* and *Shigella* → `Escherichia`,
+  *Salmonella*). Members of the species complexes the table mentions (A. baumannii-calcoaceticus, B. cepacia,
+  B. pseudomallei, K. pneumoniae) are not assigned automatically; the dialog names the option and leaves the choice
+  to the user. The proposal, its rule and the user's change are recorded with the job.
+- **Database.** A release downloaded from NCBI's folder for the software minor version (`database/4.2/<YYYY-MM-
+  DD.N>/`) with the files `amrfinder_update` fetches, indexed with `amrfinder_index` (see *Installation*); NCBI
+  publishes no checksums, so ARVA records each file's size and SHA-256 and the folder's content checksum. Before a
+  run the worker checks the record, its checksum and `amrfinder --database_version` again, and after it that the
+  report names the same release. The copy inside a Bakta database is used only when the installed AMRFinderPlus
+  accepts it and it holds `AMRProt.fa`, `AMR_CDS.fa` and `AMR.LIB` (Bakta's archives keep only the protein index
+  and HMMs, enough for Bakta's protein search but not for AMRFinderPlus's tblastn search of contigs).
+- **Results.** Every row of AMRFinderPlus's report is stored as it was written — element symbol and name, scope,
+  type (AMR, STRESS, VIRULENCE) and subtype (AMR, POINT, POINT_DISRUPT, BIOCIDE, METAL, …), class and subclass,
+  method, target and reference lengths, % coverage and % identity of the closest reference, its accession and name,
+  the HMM, the hierarchy node, the contig, coordinates and strand — with the assembly's own contig name and, when
+  possible, the annotated feature it belongs to (by protein id in a combined search; otherwise the CDS of the most
+  recent annotation that overlaps the hit most on the same strand, with the overlap recorded). ARVA's reading of the
+  method: EXACT/ALLELE/BLAST → *complete*; PARTIAL (50–90 % of the reference) → *partial*; PARTIAL_CONTIG_END →
+  *partial, at contig end*; INTERNAL_STOP; HMM → *HMM only*; POINT → *point mutation*; StxTyper's operon statuses
+  (`--organism Escherichia`) kept as reported. `--mutation_all` lists every curated position checked, so a run that
+  found no point mutation is told apart from one that did not search.
+- **Wording.** Results are genes and mutations found, never "resistant" or "susceptible" (the wiki: "AMRFinderPlus
+  does not predict phenotypic resistance"). A sample without a completed run is *not searched*; a run without rows
+  found nothing with those settings and that database; without an organism point mutations are *not searched*;
+  without `--plus` stress and virulence genes are *not searched*. ARVA's coded warnings name partial, contig-end,
+  internal-stop and HMM-only hits.
+- **Views.** The sample's Genomic analysis tab (summary by class, the elements with method badges, point mutations
+  apart, the files), the project's presence/absence matrix (found, found only partly, searched and not found, not
+  searched; CSV), the AMR and virulence rings of the circular map and an AMR/virulence track in the Genome
+  Explorer (hollow for incomplete hits), and the report's section with methods and limitations.
+
+Validation on this system (AMRFinderPlus 4.2.7, database 2026-08-07.1; fixtures in
+`workflows/tool-adapters/tests/fixtures/amrfinderplus`): *S. aureus* N315 (accessions and checksums above), with
+`--organism Staphylococcus_aureus --plus`, gives 49 elements in 36 s with 4 threads: 21 AMR (mecA, mecR1, mecI,
+aadD1, bleO, fosB, tet(38), mepA, five erm(A) and five ant(9)-Ia copies on the chromosome; blaZ, blaR1, blaI on
+pN315), 5 stress (cadD, arsR, arsB, arsC, lmrS) and 23 virulence genes (tst, sec3, sel, seo, sep, hlgABC, lukDE,
+…), and no point mutation. These match the genes NCBI's RefSeq annotation of N315 names (mecA, erm(A), aadD1, fosB,
+tet(38), mepA, blaZ, blaI, blaR1, cadD, tst, sec3, sel, hlgABC). One enterotoxin is INTERNAL_STOP (sen) and two
+hits are partial (seu, sasG). A derived input (`derive_inputs.py`: gyrA codon 84 TCA→TTA, the chromosome cut inside
+mecA, a stop codon in blaZ; a test construct) gives gyrA_S84L (POINTX), mecA as PARTIAL_CONTIG_ENDX (59.88 %
+coverage) and blaZ as INTERNAL_STOP. The combined search with Bakta's proteins and GFF3 of N315 gives 50 elements
+(EXACTP/BLASTP for annotated proteins, EXACTX where the annotation lacks the protein, an HMM-only arsB). ARVA's
+SYNTHETIC genome gives no element. A constructed release (subsets of the real files; `apps/api/tests/fixtures/
+amrfinder_release`) is downloaded from a local stand-in of NCBI's folder, indexed with the real `amrfinder_index`
+and searched in the API tests.
+
+## Plasmids, mobile elements and virulence factors (Phase 5D2)
+
+ARVA runs each method on one assembly of the sample's lineage, as its own job (`mobile_elements` for plasmids and
+mobile elements, `virulence_screen` for VFDB), with the tool, its version, every result-changing option, the
+database (kind, version, how the version is known, checksum, path) or the bundled models (file names and content
+checksum), and the SHA-256 of the input contigs and of every output file. Every option is passed explicitly and the
+defaults stated by the installed `--help` are recorded and compared with ARVA's. What each tool does was read in its
+`--help`, its source and real runs (module docstrings in `workflows/tool-adapters/arva_tools/`).
+
+- **MOB-suite 3.1.9** (Robertson & Nash 2018; Apache-2.0). `mob_recon` assigns each contig to a known plasmid
+  cluster (MOB-cluster, by Mash distance to the reference plasmids and BLAST of the contigs) or leaves it as
+  'chromosome', reconstructs each plasmid and types it with `mob_typer`: replicon (rep_cluster or Inc type),
+  relaxase (MOB family), mating-pair formation (MPF), oriT, predicted mobility (*conjugative*: relaxase and MPF;
+  *mobilizable*: relaxase or oriT without MPF; *non-mobilizable*), the nearest reference plasmid and the predicted
+  host range. ARVA passes `--database_directory` with every threshold (`--min_length` is the shortest BLAST
+  alignment kept, not a contig filter) and stores each contig's call, each plasmid, each biomarker hit and MOB-suite's
+  repetitive elements (`mge.report.txt`). 'chromosome' means *not assigned to a plasmid*: a contig that carries a
+  replicon or relaxase without being assigned (an integrated plasmid, or a plasmid missing from the database) is
+  named in a warning. The host range is a prediction from the reference plasmids and the literature.
+- **MOB-suite's database 3.1.8** (Zenodo record 10304948, the one `mob_init` of 3.1.9 downloads; CC BY 4.0) is
+  downloaded by the Database Manager over HTTPS and its MD5 compared with Zenodo's. ARVA never runs `mob_init` (it
+  downloads with TLS verification turned off and then the latest NCBI taxonomy over plain HTTP): it streams the
+  reference plasmids from the verified archive into `makeblastdb -parse_seqids` and `mash sketch -k 21 -s 1000`
+  (mob_init's commands), indexes `repetitive.dna.fas`, and builds `taxa.sqlite` with ete3 from a dated NCBI
+  taxonomy archive (`taxdmp_YYYY-MM-DD.zip`) that the user confirms; NCBI publishes no checksum for it, so its
+  SHA-256 is recorded. The 1.6 GB FASTA of the reference plasmids is kept only on request (mob_recon 3.1.9 searches
+  its BLAST index only). The folder is then read-only, and `ARVA_DATABASE.json` records all of this.
+- **PlasmidFinder replicons through ABRicate 1.4.0** (Seemann; GPL-2.0) and **VFDB through ABRicate**. ABRicate's
+  bundled copies are recorded read-only in the Database Manager (kinds *PlasmidFinder* and *VFDB*, variant
+  `abricate`), with the SHA-256 of their files; their version is the day ABRicate's package indexed them
+  (`sequences.njs`, 2026-04-03 in 1.4.0), because the files name no PlasmidFinder commit or VFDB release. ARVA never
+  runs `abricate-get_db` (it fetches unpinned data, VFDB over plain HTTP). Search: `abricate --datadir <db> --db
+  plasmidfinder|vfdb --minid 80 --mincov 80 --threads <n> --nopath` (ABRicate's defaults, passed explicitly; a lower
+  threshold is named in a warning). ABRicate runs `blastn -task blastn -dust no -evalue 1E-20 -culling_limit 1`,
+  so it is nucleotide similarity only. Each hit keeps its reference coordinates, coverage map, gaps, identity and
+  coverage; ARVA reads it as *complete*, *complete with gaps*, *partial* or *partial at a contig end* (within 10 bp
+  of the end), and names references found in several partial pieces. A gene split across contigs is reported only
+  where each piece reaches `--mincov`. VFDB's download page states no licence for its files: ARVA says so and asks
+  for VFDB's citation (Liu B. et al. 2022). A replicon found is not a plasmid call (replicons lie in chromosomes too,
+  and small plasmids may carry none); a virulence-factor gene found is not evidence of virulence.
+- **IntegronFinder 2.0.6** (Néron et al. 2022; GPL-3.0) with the models it bundles (their content checksum is
+  recorded): integron integrases (HMMER), attC sites (Infernal), complete integrons, In0 (integrase without attC)
+  and CALIN (attC sites without integrase). ARVA passes `--local-max` (on), `--distance-thresh 4000`,
+  `--evalue-attc 1`, `--calin-threshold 2`, `--max-attc-size 200`, `--min-attc-size 40`, the environment's
+  cmsearch, hmmsearch and prodigal, and a topology file: contigs the assembler reported circular (Flye, Unicycler)
+  are searched as circular, all others as linear.
+- **ISEScan 1.7.3** and **geNomad 1.13.0** (database 1.9): adapters and locks are in ARVA, written from their source
+  code, but **not validated here**: neither environment (nor geNomad's database) fitted the test machine's disk, so
+  their parsers are tested on constructed files only and every run says that the tool was not validated with ARVA.
+  ISEScan's partial elements (type p) are named; geNomad's scores are classifier outputs, not proof.
+- **Not searched is not none found.** A method that has not run on an assembly is *not searched* in the contig
+  table, the project's columns, the circular map and the reports; a run without rows found nothing with those
+  settings and that database. A contig's size is never taken as evidence that it is a plasmid.
+- **Virulence from two sources.** VFDB hits (ABRicate) and AMRFinderPlus's virulence genes (`--plus`) are shown side
+  by side, each row with its source and that source's own method, never merged into one call; a row found by both
+  names the other source. A source that did not run (or AMRFinderPlus without `--plus`) is *not searched*.
+- **Views.** The sample's Genomic analysis tab (a contig table with MOB-suite's call, replicons, relaxase, mobility,
+  PlasmidFinder's replicons with identity and coverage, integrons, IS elements and viruses, and the assembler's
+  circularity side by side; each run's calls by category; the virulence card), the project's columns, the circular
+  map's VFDB and mobile-element rings (filled when complete, hollow when partial) with MOB-suite's plasmid contigs
+  coloured on the sequence ring, VFDB and mobile-element tracks in the Genome Explorer, and the report's sections
+  with methods and limitations.
+
+Validation on this system (fixtures and their READMEs in `workflows/tool-adapters/tests/fixtures/abricate`,
+`mobsuite`, `integronfinder`): NCBI RefSeq *S. aureus* N315 (NC_002745.2 and NC_003140.1, the genome of the AMR
+validation above) and *E. coli* plasmid R388 (NC_028464.1, sha256 of the staged FASTA in the README), plus ARVA's
+SYNTHETIC genome; the downloaded genomes were deleted afterwards.
+
+- MOB-suite with database 3.1.8 as ARVA prepared it: pN315 a plasmid (cluster AA409, rep_cluster_1017/1733/2214,
+  MOBV, mobilizable, host range genus *Staphylococcus*); the N315 chromosome 'chromosome' although it carries a
+  replicon (rep_cluster_1018) and a MOBV relaxase (pUB110 integrated in SCCmec), which ARVA's warning names;
+  eight repetitive elements (IS1181, ...). R388: a plasmid (AD768, IncW, MOBF, MPF_T, conjugative).
+- PlasmidFinder: rep19, rep5a and rep16 on pN315 and rep22 on the chromosome (the same integrated pUB110).
+- VFDB: 86 hits on N315 (59 complete, 14 complete with gaps, 13 partial, e.g. hlb 170–993 of 993, the
+  β-haemolysin gene, which a prophage interrupts in N315). A derived input (`derive_inputs.py`, a test construct:
+  the chromosome cut 10 % into adsA and halfway into cap8D) gives adsA at a contig start (90.04 % coverage) and no
+  cap8D at all at `--mincov 80` (each half covers 50 %), and the two cap8D halves as a split gene at `--mincov 40`:
+  the reason for the split-gene warning.
+- IntegronFinder: R388's class 1 integron, complete, 29,666–32,156 with two attC sites; none in N315.
+- ARVA's SYNTHETIC genome: nothing from any of them (MOB-suite calls both sequences 'chromosome').
+
 ## What ARVA does not do yet
 
 - No pass/fail thresholds: suitability depends on technology, chemistry and purpose.
@@ -1553,6 +1726,9 @@ databases; they were **not** checked against the published RefSeq sketches or GT
 - No functional annotation of its own (names and products are the annotators'), and no taxonomic call beyond ARVA's
   reading of ANI hits against the collection you chose (above).
 - No basecalling: POD5 raw signal must be basecalled outside ARVA (Dorado or MinKNOW).
+- No resistance or virulence phenotype: AMR and virulence results are genes and mutations found, not a prediction
+  of resistance, susceptibility or virulence; plasmid and mobile-element calls are the tools' (MOB-suite,
+  PlasmidFinder, IntegronFinder; ISEScan and geNomad not validated here), never inferred from contig size.
 
 ## Validation
 

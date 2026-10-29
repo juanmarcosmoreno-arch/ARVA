@@ -1,4 +1,4 @@
-import { type QueryObserverResult, useQueries } from "@tanstack/react-query";
+import { type QueryObserverResult, useQueries, useQuery } from "@tanstack/react-query";
 import { Download, Loader2 } from "lucide-react";
 import { memo, type MouseEvent as ReactMouseEvent, useEffect, useMemo, useRef, useState } from "react";
 import { Segmented } from "@/components/charts/ChartCard";
@@ -31,18 +31,24 @@ import {
   stepFeature,
   windowAt,
 } from "@/lib/circular";
+import { amrFeatures, kindText } from "@/lib/amr";
+import { categoryKey, isWholeElement, mobileFeatures, vfdbFeatures } from "@/lib/mobile";
 import { type ContigOption, featureLabel, formatPosition } from "@/lib/explorer";
 import { fmtBases, fmtBp, fmtInt, fmtNum, fmtPct } from "@/lib/format";
-import type { Annotation, GenomeMap, MapFeature } from "@/lib/types";
+import type { AmrAnnotationHits, Annotation, GenomeMap, MapFeature, MobileAnnotationElements, VirulenceAnnotationHits } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { groupColour, SKEW } from "./GenomeBrowser";
+import { amrColour, groupColour, SKEW } from "./GenomeBrowser";
 
-export type RingId = "backbone" | "forward" | "reverse" | "custom" | "amr" | "virulence" | "mobile" | "coverage" | "gc" | "skew";
+export type RingId = "backbone" | "forward" | "reverse" | "custom" | "amr" | "virulence" | "vfdb" | "mobile" | "coverage" | "gc" | "skew";
 
-/** Rings from the outside in. AMR, virulence and mobile elements need searches ARVA does not run before Phase 5. */
-const RINGS: RingId[] = ["backbone", "forward", "reverse", "custom", "amr", "virulence", "mobile", "coverage", "gc", "skew"];
-export const PHASE5_RINGS = new Set<RingId>(["amr", "virulence", "mobile"]);
-const THICKNESS: Partial<Record<RingId, number>> = { backbone: 8, forward: 24, reverse: 24, custom: 10, coverage: 26, gc: 30, skew: 30 };
+/** Rings from the outside in. AMR and virulence come from the assembly's most recent AMRFinderPlus run, the VFDB ring
+ * from its most recent VFDB screen (a ring of its own: the two sources are never merged), the mobile-elements ring
+ * from the most recent run of each plasmid and mobile-element method. */
+const RINGS: RingId[] = ["backbone", "forward", "reverse", "custom", "amr", "virulence", "vfdb", "mobile", "coverage", "gc", "skew"];
+const THICKNESS: Partial<Record<RingId, number>> = { backbone: 8, forward: 24, reverse: 24, custom: 10, amr: 12, virulence: 12, vfdb: 12, mobile: 12, coverage: 26, gc: 30, skew: 30 };
+/** The mobile-elements ring and the backbone of the contigs MOB-suite calls plasmids. */
+const mobileColour = (theme: ChartTheme) => theme.series[1];
+const plasmidContigColour = (theme: ChartTheme) => theme.series[2];
 const MAX_CIRCLES = 6;
 const OFFERED = 24;
 const MARGIN = 58;
@@ -97,7 +103,7 @@ export function CircularExplorer({ annotation, contigs, sampleCode, selected, on
   const byLength = useMemo(() => [...contigs].sort((a, b) => b.length - a.length), [contigs]);
   const [chosen, setChosen] = useState<string[]>(() => byLength.slice(0, 4).map((c) => c.id));
   const [enabled, setEnabled] = useState<Record<RingId, boolean>>({
-    backbone: true, forward: true, reverse: true, custom: true, amr: false, virulence: false, mobile: false, coverage: true, gc: true, skew: true,
+    backbone: true, forward: true, reverse: true, custom: true, amr: false, virulence: false, vfdb: false, mobile: false, coverage: true, gc: true, skew: true,
   });
   const [customKind, setCustomKind] = useState("");
   const [customText, setCustomText] = useState("");
@@ -124,15 +130,49 @@ export function CircularExplorer({ annotation, contigs, sampleCode, selected, on
   );
   const customLabel =
     customKind === "text" ? `“${query.trim()}”` : customKind === "pseudo" ? t("circular.custom.pseudo") : customKind ? t(`annotation.type.${customKind}` as TranslationKey) : "";
+  const amrQuery = useQuery({ queryKey: ["annotationAmr", annotation.id], queryFn: () => api.annotationAmr(annotation.id), staleTime: 60_000 });
+  const amr = amrQuery.data;
+  const vfdbQuery = useQuery({ queryKey: ["annotationVirulence", annotation.id], queryFn: () => api.annotationVirulence(annotation.id), staleTime: 60_000 });
+  const mobileQuery = useQuery({ queryKey: ["annotationMobile", annotation.id], queryFn: () => api.annotationMobile(annotation.id), staleTime: 60_000 });
+  const vfdb = vfdbQuery.data;
+  const mobile = mobileQuery.data;
+  const amrRings = useMemo(
+    () => ({
+      amr: amrFeatures(amr?.hits ?? [], "amr"),
+      virulence: amrFeatures(amr?.hits ?? [], "virulence"),
+      vfdb: vfdbFeatures(vfdb?.hits ?? []),
+      mobile: mobileFeatures(mobile?.elements ?? []),
+    }),
+    [amr, vfdb, mobile],
+  );
+  const plasmidContigs = useMemo(() => new Set((mobile?.contigs ?? []).filter((c) => c.molecule_type === "plasmid").map((c) => c.contig)), [mobile]);
+  const mobileRun = Object.values(mobile?.runs ?? {}).some(Boolean);
+  const amrState = { run: Boolean(amr?.run), plus: Boolean(amr?.run?.plus), vfdb: Boolean(vfdb?.run), mobile: mobileRun };
   const coverageAvailable = loaded.some((m) => m.coverage.available);
   const coverageReason = loaded.find((m) => !m.coverage.available)?.coverage.reason ?? "no_alignment";
   const types = useMemo(() => [...new Set(allFeatures.map((f) => f.type))], [allFeatures]);
   const hasPseudo = allFeatures.some((f) => f.pseudo);
   const synthetic = (annotation.summary.synthetic_evidence ?? []).length > 0;
   const rings = useMemo(
-    () => RINGS.filter((r) => enabled[r] && !PHASE5_RINGS.has(r) && (r !== "coverage" || coverageAvailable) && (r !== "custom" || criterion != null)),
-    [enabled, coverageAvailable, criterion],
+    () =>
+      RINGS.filter(
+        (r) =>
+          enabled[r] &&
+          (r !== "coverage" || coverageAvailable) &&
+          (r !== "custom" || criterion != null) &&
+          (r !== "amr" || amrState.run) &&
+          (r !== "virulence" || amrState.plus) &&
+          (r !== "vfdb" || amrState.vfdb) &&
+          (r !== "mobile" || amrState.mobile),
+      ),
+    [enabled, coverageAvailable, criterion, amrState.run, amrState.plus, amrState.vfdb, amrState.mobile],
   );
+  useEffect(() => {
+    if (amrState.run) setEnabled((e) => ({ ...e, amr: true, virulence: amrState.plus }));
+  }, [amrState.run, amrState.plus]);
+  useEffect(() => {
+    if (amrState.vfdb || amrState.mobile) setEnabled((e) => ({ ...e, vfdb: e.vfdb || amrState.vfdb, mobile: e.mobile || amrState.mobile }));
+  }, [amrState.vfdb, amrState.mobile]);
   const order = contigs.map((c) => c.id);
   const step = (dir: 1 | -1) => {
     const f = stepFeature(allFeatures, order, selected, dir);
@@ -217,6 +257,11 @@ export function CircularExplorer({ annotation, contigs, sampleCode, selected, on
           {loaded.length > 0 && (
             <CircularMap
               maps={loaded}
+              amr={amrRings}
+              amrRun={amr?.run ?? null}
+              vfdbRun={vfdb?.run ?? null}
+              mobileRuns={mobile?.runs ?? {}}
+              plasmidContigs={plasmidContigs}
               mode={mode === "each" && several ? "each" : "concatenated"}
               contigs={contigs}
               rings={rings}
@@ -250,33 +295,42 @@ export function CircularExplorer({ annotation, contigs, sampleCode, selected, on
           </div>
           <p className="text-[11px] text-muted-foreground">{t("circular.note")}</p>
         </div>
-        <RingList enabled={enabled} setEnabled={setEnabled} coverageAvailable={coverageAvailable} coverageReason={coverageReason} hasCustom={criterion != null} />
+        <RingList enabled={enabled} setEnabled={setEnabled} coverageAvailable={coverageAvailable} coverageReason={coverageReason} hasCustom={criterion != null} amr={amr} vfdb={vfdb} mobile={mobile} />
       </div>
     </div>
   );
 }
 
-function RingList({ enabled, setEnabled, coverageAvailable, coverageReason, hasCustom }: {
+function RingList({ enabled, setEnabled, coverageAvailable, coverageReason, hasCustom, amr, vfdb, mobile }: {
   enabled: Record<RingId, boolean>;
   setEnabled: (fn: (e: Record<RingId, boolean>) => Record<RingId, boolean>) => void;
   coverageAvailable: boolean;
   coverageReason: string;
   hasCustom: boolean;
+  amr: AmrAnnotationHits | undefined;
+  vfdb: VirulenceAnnotationHits | undefined;
+  mobile: MobileAnnotationElements | undefined;
 }) {
   const t = useT();
+  const mobileMethods = Object.entries(mobile?.runs ?? {}).filter(([, v]) => v).map(([k]) => t(`mobile.method.${k}` as TranslationKey));
+  const amrNote = (r: RingId): string | null => {
+    if (r === "vfdb") return vfdb?.run ? t("circular.ring.vfdbRun", { n: fmtInt(vfdb.hits.length), version: vfdb.run.tool_version, db: vfdb.run.database_version ?? "?" }) : t("circular.ring.vfdbNotRun");
+    if (r === "mobile") return mobileMethods.length ? t("circular.ring.mobileRun", { n: fmtInt(mobile?.elements.length ?? 0), methods: mobileMethods.join(", ") }) : t("circular.ring.mobileNotRun");
+    if (r !== "amr" && r !== "virulence") return null;
+    if (!amr?.run) return t("circular.ring.amrNotRun");
+    if (r === "virulence" && !amr.run.plus) return t("circular.ring.plusOff");
+    const n = amr.hits.filter((h) => (r === "virulence") === (h.type === "VIRULENCE")).length;
+    return t("circular.ring.amrRun", { n: fmtInt(n), version: amr.run.tool_version, db: amr.run.database_version ?? "?" });
+  };
   return (
     <fieldset className="space-y-1.5 self-start rounded-lg border p-3 text-xs">
       <legend className="px-1 font-medium">{t("circular.rings")}</legend>
       {RINGS.map((r) => {
-        const phase5 = PHASE5_RINGS.has(r);
-        const unavailable = phase5 || (r === "coverage" && !coverageAvailable);
-        const note = phase5
-          ? t("circular.ring.phase5")
-          : r === "coverage" && !coverageAvailable
-            ? t(`explorer.coverage.${coverageReason}` as TranslationKey)
-            : r === "custom" && !hasCustom
-              ? t("circular.ring.customHint")
-              : null;
+        const unavailable =
+          (r === "coverage" && !coverageAvailable) || (r === "amr" && !amr?.run) || (r === "virulence" && !amr?.run?.plus) || (r === "vfdb" && !vfdb?.run) || (r === "mobile" && !mobileMethods.length);
+        const note =
+          amrNote(r) ??
+          (r === "coverage" && !coverageAvailable ? t(`explorer.coverage.${coverageReason}` as TranslationKey) : r === "custom" && !hasCustom ? t("circular.ring.customHint") : null);
         return (
           <label key={r} className={cn("flex items-start gap-2", unavailable && "text-muted-foreground")}>
             <input
@@ -288,7 +342,6 @@ function RingList({ enabled, setEnabled, coverageAvailable, coverageReason, hasC
             />
             <span>
               {t(`circular.ring.${r}` as TranslationKey)}
-              {phase5 && <span className="ml-1 rounded bg-muted px-1 py-px text-[10px]">{t("circular.ring.phase5Badge")}</span>}
               {note && <span className="block text-[11px] text-muted-foreground">{note}</span>}
             </span>
           </label>
@@ -300,6 +353,13 @@ function RingList({ enabled, setEnabled, coverageAvailable, coverageReason, hasC
 
 interface MapProps {
   maps: GenomeMap[];
+  /** AMRFinderPlus's elements of the assembly's most recent run, as map features (empty without a run). */
+  amr?: { amr: MapFeature[]; virulence: MapFeature[]; vfdb?: MapFeature[]; mobile?: MapFeature[] };
+  amrRun?: AmrAnnotationHits["run"];
+  vfdbRun?: VirulenceAnnotationHits["run"];
+  mobileRuns?: MobileAnnotationElements["runs"];
+  /** The sequences MOB-suite calls plasmids: their backbone is coloured. */
+  plasmidContigs?: Set<string>;
   mode: "concatenated" | "each";
   contigs: ContigOption[];
   /** The rings drawn, from the outside in. */
@@ -338,7 +398,10 @@ export function CircularMap(p: MapProps) {
   const features = useMemo(() => p.maps.flatMap((m) => m.features), [p.maps]);
   const custom = useMemo(() => matchFeatures(features, p.criterion), [features, p.criterion]);
   const customIds = useMemo(() => new Set(custom.map((f) => f.id)), [custom]);
-  const models = useMemo(() => p.maps.map((m) => circleModel(m, m.features.filter((f) => customIds.has(f.id)))), [p.maps, customIds]);
+  const models = useMemo(
+    () => p.maps.map((m) => circleModel(m, m.features.filter((f) => customIds.has(f.id)), p.amr)),
+    [p.maps, customIds, p.amr],
+  );
 
   const n = models.length;
   const cols = n === 1 ? 1 : width >= 980 ? Math.min(3, n) : Math.min(2, n);
@@ -364,7 +427,14 @@ export function CircularMap(p: MapProps) {
   };
   const onClick = (e: ReactMouseEvent<SVGSVGElement>) => {
     const h = at(e);
-    if (h?.piece) p.onSelect(h.piece.feature);
+    if (!h?.piece) return;
+    const f = h.piece.feature;
+    const link = f.amr?.feature ?? f.vfdb?.feature ?? f.mobile?.feature;
+    if (!f.amr && !f.vfdb && !f.mobile) p.onSelect(f);
+    else if (link) {
+      const linked = features.find((x) => x.id === link.feature_id);
+      if (linked) p.onSelect(linked);
+    }
   };
   const onKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "]" || e.key === "[") {
@@ -438,7 +508,7 @@ export function CircularMap(p: MapProps) {
         >
           <rect x={0} y={0} width={width} height={height} fill={p.theme.surface} />
           {placed.map((c, i) => (
-            <CircleArt key={i} c={c} theme={p.theme} rings={p.rings} showNames={p.mode === "concatenated"} contigs={p.contigs} />
+            <CircleArt key={i} c={c} theme={p.theme} rings={p.rings} showNames={p.mode === "concatenated"} contigs={p.contigs} plasmidContigs={p.plasmidContigs} />
           ))}
           {placed.map((c, i) => (
             <Highlight key={`h${i}`} c={c} theme={p.theme} id={p.selected} strong />
@@ -482,18 +552,20 @@ function hitTest(placed: Placed[], x: number, y: number): Hit | null {
     const tolerance = 3 / Math.max(r, 1);
     if (ring && (GENE_RINGS as string[]).includes(ring)) piece = pieceAt(c.model.rings[ring as GeneRing], angle, tolerance);
     else if (ring === "custom") piece = pieceAt(c.model.custom, angle, tolerance);
+    else if (ring === "amr" || ring === "virulence" || ring === "vfdb" || ring === "mobile") piece = pieceAt(c.model[ring], angle, tolerance);
     return { circle: i, ring, seq: at?.index ?? null, position: at ? Math.floor(at.pos) + 1 : null, piece, x, y };
   }
   return null;
 }
 
 /** The rings of one circle: memoised, so moving the pointer only redraws the highlight and the tooltip. */
-const CircleArt = memo(function CircleArt({ c, theme, rings, showNames, contigs }: {
+const CircleArt = memo(function CircleArt({ c, theme, rings, showNames, contigs, plasmidContigs }: {
   c: Placed;
   theme: ChartTheme;
   rings: RingId[];
   showNames: boolean;
   contigs: ContigOption[];
+  plasmidContigs?: Set<string>;
 }) {
   const t = useT();
   const { model, cx, cy, R, radii } = c;
@@ -542,8 +614,8 @@ const CircleArt = memo(function CircleArt({ c, theme, rings, showNames, contigs 
     <g>
       {bb &&
         layout.segments.map((seg, i) => (
-          <path key={seg.id} d={sectorPath(cx, cy, bb.r0, bb.r1, seg.a0, seg.a1)} fill={i % 2 ? theme.grid : theme.axis}>
-            <title>{`${seg.name} · ${fmtBp(seg.length)}`}</title>
+          <path key={seg.id} d={sectorPath(cx, cy, bb.r0, bb.r1, seg.a0, seg.a1)} fill={plasmidContigs?.has(seg.id) ? plasmidContigColour(theme) : i % 2 ? theme.grid : theme.axis} data-plasmid={plasmidContigs?.has(seg.id) ? "" : undefined}>
+            <title>{`${seg.name} · ${fmtBp(seg.length)}${plasmidContigs?.has(seg.id) ? ` · ${t("circular.tooltip.plasmidContig")}` : ""}`}</title>
           </path>
         ))}
       {bb && geneRing("backbone")}
@@ -583,6 +655,24 @@ const CircleArt = memo(function CircleArt({ c, theme, rings, showNames, contigs 
           />
         </g>
       )}
+      {(["amr", "virulence", "vfdb", "mobile"] as const).map((ring) => {
+        const rr = radii[ring];
+        if (!rr) return null;
+        const colour = ring === "mobile" ? mobileColour(theme) : amrColour(theme, ring === "vfdb" ? "virulence" : ring);
+        const whole = model[ring].filter((piece) => isWhole(piece));
+        const part = model[ring].filter((piece) => !isWhole(piece));
+        const path = (pieces: ArcPiece[]) =>
+          mergeArcs(pieces, layout, 0.6 / rr.r0, 2 / rr.r0)
+            .map(([a0, a1]) => sectorPath(cx, cy, rr.r0, rr.r1, a0, a1))
+            .join("");
+        return (
+          <g key={ring} data-ring={ring}>
+            <circle cx={cx} cy={cy} r={(rr.r0 + rr.r1) / 2} fill="none" stroke={theme.grid} />
+            {whole.length > 0 && <path d={path(whole)} fill={colour} />}
+            {part.length > 0 && <path d={path(part)} fill={theme.surface} stroke={colour} strokeWidth={1.2} />}
+          </g>
+        );
+      })}
       {values("coverage")}
       {values("gc")}
       {values("skew")}
@@ -650,8 +740,17 @@ function Highlight({ c, theme, id, strong }: { c: Placed; theme: ChartTheme; id:
   );
 }
 
+/** A complete match (or a point mutation) is drawn filled; partial, contig-end and internal-stop hits hollow (for
+ * VFDB, hits short of the whole reference; for mobile elements, partial elements). */
+const isWhole = (piece: ArcPiece) => {
+  const f = piece.feature;
+  if (f.vfdb) return f.vfdb.hit_kind === "complete" || f.vfdb.hit_kind === "complete_gaps";
+  if (f.mobile) return isWholeElement(f.mobile);
+  return ["complete", "point"].includes(f.amr?.method_kind ?? "");
+};
+
 interface LegendItem {
-  swatches: { fill: string; opacity?: number }[];
+  swatches: { fill: string; opacity?: number; stroke?: string }[];
   text: string;
 }
 
@@ -673,7 +772,23 @@ function legendItems(t: ReturnType<typeof useT>, p: MapProps, models: CircleMode
     if (r === "backbone") items.push({ swatches: [{ fill: th.axis }, { fill: th.grid }, { fill: classColour(th, "gap") }], text: t("circular.legend.backbone") });
     else if (r === "forward" || r === "reverse") items.push({ swatches: genes, text: t(`circular.legend.${r}`) });
     else if (r === "custom") items.push({ swatches: [{ fill: th.series[3] }], text: t("circular.legend.custom", { label: p.customLabel, n: fmtInt(customCount) }) });
-    else if (r === "coverage") items.push({ swatches: [{ fill: th.series[0], opacity: 0.85 }], text: t("circular.legend.coverage", { max: fmtNum(max("coverage"), 0) }) });
+    else if (r === "amr" || r === "virulence") {
+      const n = models.reduce((sum, m) => sum + m[r].length, 0);
+      items.push({
+        swatches: [{ fill: amrColour(th, r) }, { fill: th.surface, stroke: amrColour(th, r) }],
+        text: t(`circular.legend.${r}`, { n: fmtInt(n), version: p.amrRun?.tool_version ?? "?", db: p.amrRun?.database_version ?? "?" }),
+      });
+    } else if (r === "vfdb") {
+      const n = models.reduce((sum, m) => sum + m.vfdb.length, 0);
+      items.push({
+        swatches: [{ fill: amrColour(th, "virulence") }, { fill: th.surface, stroke: amrColour(th, "virulence") }],
+        text: t("circular.legend.vfdb", { n: fmtInt(n), version: p.vfdbRun?.tool_version ?? "?", db: p.vfdbRun?.database_version ?? "?" }),
+      });
+    } else if (r === "mobile") {
+      const n = models.reduce((sum, m) => sum + m.mobile.length, 0);
+      const methods = Object.entries(p.mobileRuns ?? {}).filter(([, v]) => v).map(([k]) => t(`mobile.method.${k}` as TranslationKey));
+      items.push({ swatches: [{ fill: mobileColour(th) }, { fill: th.surface, stroke: mobileColour(th) }], text: t("circular.legend.mobile", { n: fmtInt(n), methods: methods.join(", ") }) });
+    } else if (r === "coverage") items.push({ swatches: [{ fill: th.series[0], opacity: 0.85 }], text: t("circular.legend.coverage", { max: fmtNum(max("coverage"), 0) }) });
     else if (r === "gc")
       items.push({
         swatches: [{ fill: th.text, opacity: 0.7 }],
@@ -681,7 +796,10 @@ function legendItems(t: ReturnType<typeof useT>, p: MapProps, models: CircleMode
       });
     else if (r === "skew") items.push({ swatches: [{ fill: skew.pos }, { fill: skew.neg }], text: t("circular.legend.skew", { max: fmtNum(max("skew"), 2), w: fmtInt(window) }) });
   }
+  if (rings.includes("backbone") && (p.plasmidContigs?.size ?? 0) > 0) items.push({ swatches: [{ fill: plasmidContigColour(th) }], text: t("circular.legend.plasmidContigs", { n: fmtInt(p.plasmidContigs?.size ?? 0) }) });
   if (rings.includes("forward") || rings.includes("reverse")) items.push({ swatches: [], text: t("circular.legend.genesKey") });
+  if (rings.includes("amr") || rings.includes("virulence") || rings.includes("vfdb")) items.push({ swatches: [], text: t("circular.legend.amrKey") });
+  if (rings.includes("mobile")) items.push({ swatches: [], text: t("circular.legend.mobileKey") });
   return items;
 }
 
@@ -691,7 +809,7 @@ function Legend({ items, top, theme, caption, synthetic }: { items: LegendItem[]
       {items.map((item, i) => (
         <g key={i} transform={`translate(16 ${top + i * LEGEND_LINE})`}>
           {item.swatches.map((s, j) => (
-            <rect key={j} x={j * 14} y={0} width={11} height={11} rx={2} fill={s.fill} fillOpacity={s.opacity ?? 1} />
+            <rect key={j} x={j * 14} y={0} width={11} height={11} rx={2} fill={s.fill} fillOpacity={s.opacity ?? 1} stroke={s.stroke} strokeWidth={s.stroke ? 1.5 : 0} />
           ))}
           <text x={Math.max(1, item.swatches.length) * 14 + 6} y={9.5} fill={theme.text}>
             {item.text}
@@ -735,7 +853,56 @@ function Tooltip({ hit, placed, width, t }: { hit: Hit; placed: Placed[]; width:
   return (
     <div className="pointer-events-none absolute z-20 max-w-[290px] rounded-lg border bg-surface px-2.5 py-1.5 text-xs shadow-lg" style={{ left: Math.max(4, left), top: hit.y + 14 }} role="tooltip">
       {hit.ring && <div className="text-[10px] uppercase tracking-wide text-muted-foreground">{t(`circular.ring.${hit.ring}` as TranslationKey)}</div>}
-      {f && (
+      {f?.amr && (
+        <div>
+          <span className="font-medium">{f.amr.element_symbol}</span>
+          <span className="text-muted-foreground">
+            {" "}
+            · {f.amr.type}
+            {f.amr.amr_class ? ` · ${f.amr.amr_class}` : ""}
+          </span>
+          {f.amr.element_name && <div className="break-words">{f.amr.element_name}</div>}
+          <div className="text-muted-foreground">
+            {kindText(t, f.amr.method_kind)} ({f.amr.method})
+            {f.amr.identity != null ? ` · ${t("amr.col.identity")} ${fmtNum(f.amr.identity, 2)}` : ""}
+            {f.amr.coverage != null ? ` · ${t("amr.col.coverage")} ${fmtNum(f.amr.coverage, 2)}` : ""}
+          </div>
+          <div className="text-muted-foreground">
+            {fmtInt(f.start)}–{fmtInt(f.end)} ({f.strand}){f.amr.feature?.locus_tag ? ` · ${f.amr.feature.locus_tag}` : ""}
+          </div>
+          <div className="text-[10px] text-muted-foreground">{t("amr.notPhenotype")}</div>
+        </div>
+      )}
+      {f?.vfdb && (
+        <div>
+          <span className="font-medium">{f.vfdb.gene}</span>
+          <span className="text-muted-foreground"> · {t("virulence.sourceName.vfdb")}</span>
+          {(f.vfdb.vf_name || f.vfdb.product) && <div className="break-words">{f.vfdb.vf_name ?? f.vfdb.product}</div>}
+          {f.vfdb.vf_category && <div className="text-muted-foreground">{f.vfdb.vf_category}</div>}
+          <div className="text-muted-foreground">
+            {t(`mobile.completeness.${["complete", "complete_gaps", "partial", "contig_end"].includes(f.vfdb.hit_kind) ? f.vfdb.hit_kind : "unknown"}` as TranslationKey)} · {t("amr.col.identity")} {fmtNum(f.vfdb.identity ?? 0, 2)} · {t("amr.col.coverage")} {fmtNum(f.vfdb.coverage ?? 0, 2)}
+          </div>
+          <div className="text-muted-foreground">
+            {fmtInt(f.start)}–{fmtInt(f.end)} ({f.strand}){f.vfdb.feature?.locus_tag ? ` · ${f.vfdb.feature.locus_tag}` : ""}
+          </div>
+          <div className="text-[10px] text-muted-foreground">{t("virulence.notPhenotype")}</div>
+        </div>
+      )}
+      {f?.mobile && (
+        <div>
+          <span className="font-medium">{f.mobile.element ?? "?"}</span>
+          <span className="text-muted-foreground">
+            {" "}
+            · {t(categoryKey(f.mobile.category))} · {t(`mobile.method.${f.mobile.method}` as TranslationKey)}
+          </span>
+          {f.mobile.element_type && <div className="break-words">{f.mobile.element_type}</div>}
+          <div className="text-muted-foreground">
+            {f.mobile.completeness ? `${t(`mobile.completeness.${f.mobile.completeness}` as TranslationKey)} · ` : ""}
+            {fmtInt(f.start)}–{fmtInt(f.end)} ({f.strand}){f.mobile.feature?.locus_tag ? ` · ${f.mobile.feature.locus_tag}` : ""}
+          </div>
+        </div>
+      )}
+      {f && !f.amr && !f.vfdb && !f.mobile && (
         <div>
           <span className="font-medium">{featureLabel(f)}</span>
           <span className="text-muted-foreground"> · {t(`annotation.type.${f.type}` as TranslationKey)}</span>

@@ -50,6 +50,7 @@ export const TECHNICAL_WORDS = new Set([
   "Pfam", "Zenodo", "MD5", "SHA", "sha256", "SHA256", "ID", "IDs", "UTF", "CPU", "GB", "MB", "KB", "TB", "aa", "kbp",
   "Mbp", "Gbp", "pb", "kpb", "Mpb", "Gpb", "contig", "contigs", "English", "Español", "DEMO", "TXT", "EC", "GO", "doi",
   "VFDB", "mlst", "MLST", "PubMLST", "ST", "BLAST", "FastANI", "skani", "Mash", "sylph", "GTDB", "Tk", "ANI",
+  "AMRFinderPlus", "AMR", "HMM", "StxTyper", "ABRicate", "MPF", "oriT", "MOB-suite", "PlasmidFinder", "IntegronFinder", "ISEScan", "geNomad",
 ]);
 
 const LETTER = /\p{L}/u;

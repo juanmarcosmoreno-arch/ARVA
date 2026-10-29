@@ -1,0 +1,12 @@
+Running: /env/bin/amrfinder --nucleotide /input/reference.fasta --database /db/2026-08-07.1 --output /work/amrfinder.tsv --nucleotide_output /work/nucleotide_hits.fna --ident_min -1 --coverage_min 0.5 --translation_table 11 --threads 4 --blast_bin /env/bin --hmmer_bin /env/bin --print_node --plus
+Software directory: /env/bin/
+Software version: 4.2.7
+WARNING: This was compiled for running under bioconda, but $CONDA_PREFIX was not found
+Reverting to hard coded directory: /env/share/amrfinderplus/data/latest
+Database directory: /db/2026-08-07.1
+Database version: 2026-08-07.1
+AMRFinder translated nucleotide search
+  - include -O ORGANISM, --organism ORGANISM option to add mutation searches and suppress common proteins
+Running tblastn
+Making report
+amrfinder took 2 seconds to complete

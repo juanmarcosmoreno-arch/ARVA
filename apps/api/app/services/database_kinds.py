@@ -76,7 +76,7 @@ KINDS: tuple[DatabaseKind, ...] = (
                     "virulence genes and point mutations, read by AMRFinderPlus (and by Bakta's AMR expert system "
                     "from amrfinderplus-db/latest inside a Bakta database).",
         tools=(ToolUse("AMRFinderPlus", "the software version must be at least database_format_version.txt; "
-                                        "AMRFinderPlus 4.2.7 needs data 2025-09-22.2 or later"),),
+                                        "AMRFinderPlus 4.2.7 needs data 2025-09-22.2 or later", integrated=True),),
         source_url="https://ftp.ncbi.nlm.nih.gov/pathogen/Antimicrobial_resistance/AMRFinderPlus/database/",
         licence="Public domain (United States Government Work; NCBI notice in the AMRFinderPlus sources)",
         citation="Feldgarden M. et al. (2021) AMRFinderPlus and the Reference Gene Catalog facilitate examination of "
@@ -84,18 +84,26 @@ KINDS: tuple[DatabaseKind, ...] = (
                  "Reports 11:12728, doi:10.1038/s41598-021-91456-0.",
         recognise="version.txt, database_format_version.txt and the data files amrfinder reads (AMRProt.fa, AMR.LIB, "
                   "AMR_CDS.fa, fam.tsv, taxgroup.tsv, AMRProt-mutation.tsv, AMRProt-susceptible.tsv, "
-                  "AMRProt-suppress.tsv); AMRProt.fa.phr shows that the BLAST indexes were built.",
+                  "AMRProt-suppress.tsv); AMRProt.fa.phr shows that the BLAST indexes were built. The copy inside a "
+                  "Bakta database (amrfinderplus-db/<version>) keeps only the indexes and tables Bakta's protein "
+                  "search reads (no AMRProt.fa, AMR_CDS.fa or AMR_DNA files).",
         version_from="version.txt (for example 2026-08-07.1); database_format_version.txt gives the minimum "
                      "AMRFinderPlus version.",
-        typical_size="About 140 MB of release files (release 2026-08-07.1 on NCBI's FTP), plus the BLAST and HMM "
-                     "indexes amrfinder_update builds.",
-        download="register",
-        download_note="NCBI publishes each release as a folder of separate files without checksums, and "
-                      "amrfinder_update then builds indexes with BLAST and HMMER: register a folder prepared by "
-                      "amrfinder_update.",
+        typical_size="Release 2026-08-07.1: 128 MB of release files from NCBI's FTP, 241 MB once indexed "
+                     "(measured by ARVA on 2026-10-29).",
+        download="release",
+        download_note="NCBI publishes each release as a folder of separate files, one folder per software minor "
+                      "version (database/4.2/2026-08-07.1/), without checksums. ARVA lists the dated releases for "
+                      "the installed AMRFinderPlus, downloads the files amrfinder_update would fetch over HTTPS from "
+                      "NCBI after you confirm, records the size and SHA-256 of each one, and indexes them with "
+                      "amrfinder_index. It never runs amrfinder -u or amrfinder_update (they fetch the latest "
+                      "release, unpinned).",
         sources=("ncbi/amr amrfinder.cpp (4.2.7): database checks, dataVer_min 2025-09-22.2",
-                 "NCBI FTP .../AMRFinderPlus/database/latest/ (listing of 2026-10-29)"),
-        unconfirmed=("The size of the indexes amrfinder_update adds was not measured.",),
+                 "ncbi/amr amrfinder_update.cpp and amrfinder_index.cpp (4.2.7): release folder layout, file list, "
+                 "indexing commands",
+                 "NCBI FTP .../AMRFinderPlus/database/4.2/ (listing of 2026-10-29: 2025-12-03.1 to 2026-08-07.1)"),
+        unconfirmed=("NCBI publishes no checksums for the release files; ARVA can only record the SHA-256 of what it "
+                     "downloaded and compare each file's size with the server's Content-Length.",),
     ),
     DatabaseKind(
         key="gtdbtk",
@@ -258,70 +266,99 @@ KINDS: tuple[DatabaseKind, ...] = (
         key="plasmidfinder",
         name="PlasmidFinder database",
         description="Replicon sequences PlasmidFinder searches to detect and type plasmids (Enterobacterales and "
-                    "Gram-positive replicons).",
-        tools=(ToolUse("PlasmidFinder", "no version requirement is stated in the database repository"),),
+                    "Gram-positive replicons). ARVA searches the copy ABRicate bundles (db/plasmidfinder), recorded "
+                    "read-only when ABRicate is installed.",
+        tools=(ToolUse("ABRicate", "ABRicate 1.4.0 reads its bundled copy (db/plasmidfinder: sequences and its BLAST "
+                                   "index)", integrated=True),
+               ToolUse("PlasmidFinder", "no version requirement is stated in the database repository")),
         source_url="https://bitbucket.org/genomicepidemiology/plasmidfinder_db",
         licence="Not stated in the database repository",
         citation="Carattoli A. et al. (2014) In silico detection and typing of plasmids using PlasmidFinder and "
                  "plasmid multilocus sequence typing. Antimicrobial Agents and Chemotherapy 58(7), "
                  "doi:10.1128/AAC.02412-14.",
         recognise="config (\"# Database configuration file\", one database per line) and the .fsa file of every "
-                  "database it lists.",
-        version_from="VERSION (2.2.0 in the repository on 2026-10-29).",
-        typical_size="A few megabytes of FASTA.",
+                  "database it lists; ABRicate's copy: db/plasmidfinder/sequences with its BLAST index "
+                  "(sequences.njs description \"plasmidfinder\").",
+        version_from="VERSION (2.2.0 in the repository on 2026-10-29); ABRicate's copy states only the day the "
+                     "package indexed it (sequences.njs last-updated, 2026-04-03 in ABRicate 1.4.0).",
+        typical_size="A few megabytes of FASTA (ABRicate 1.4.0's copy: 488 sequences).",
         download="register",
-        download_note="Distributed as a git repository, without versioned archives or checksums.",
-        sources=("plasmidfinder_db repository (master, 2026-10-29): config, VERSION, INSTALL.py",),
-        unconfirmed=("The KMA or BLAST index files PlasmidFinder builds are not checked.",),
+        download_note="Distributed as a git repository, without versioned archives or checksums; ABRicate's copy "
+                      "comes with its package (abricate-get_db fetches the repository's HEAD, so ARVA never runs it).",
+        sources=("plasmidfinder_db repository (master, 2026-10-29): config, VERSION, INSTALL.py",
+                 "ABRicate 1.4.0 package: bin/abricate-get_db (get_plasmidfinder), db/plasmidfinder/sequences.njs"),
+        unconfirmed=("The KMA or BLAST index files PlasmidFinder builds are not checked.",
+                     "Which plasmidfinder_db commit ABRicate 1.4.0's copy was taken from: its files do not say."),
     ),
     DatabaseKind(
         key="mobsuite",
         name="MOB-suite databases",
         description="The plasmid and biomarker databases MOB-suite (mob_recon, mob_typer) uses to reconstruct and "
                     "type plasmids.",
-        tools=(ToolUse("MOB-suite", "mob_suite 3.1.9's mob_init downloads database v. 3.1.8 (Zenodo 10304948)"),),
+        tools=(ToolUse("MOB-suite", "mob_suite 3.1.9's mob_init downloads database v. 3.1.8 (Zenodo 10304948)",
+                       integrated=True),),
         source_url="https://doi.org/10.5281/zenodo.10304948",
         licence="CC BY 4.0 (Zenodo record 10304948)",
         licence_url=_CC_BY,
-        citation="Robertson J., Nash J.H.E. (2018) MOB-suite: software tools for clustering, reconstruction and "
-                 "typing of plasmids from draft assemblies. Microbial Genomics 4(8), doi:10.1099/mgen.0.000206.",
-        recognise="ncbi_plasmid_full_seqs.fas, rep.dna.fas, mob.proteins.faa, mpf.proteins.faa, orit.fas, "
-                  "repetitive.dna.fas and clusters.txt; status.txt and ncbi_plasmid_full_seqs.fas.msh show that "
-                  "mob_init finished.",
-        version_from="Not stated: status.txt records only the download date. Declared by you.",
-        typical_size="The v. 3.1.8 archive is 472,851,578 bytes; mob_init then adds BLAST and Mash indexes and an "
-                     "NCBI taxonomy database.",
-        download="register",
-        download_note="The archive needs mob_init (makeblastdb, mash sketch, NCBI taxonomy) before MOB-suite can use "
-                      "it: register a folder mob_init prepared.",
-        sources=("mob_suite 3.1.9 wheel: mob_suite/mob_init.py, mob_suite/config.json", "Zenodo record 10304948"),
+        citation="Robertson J., Nash J.H.E. (2018) MOB-suite: software tools for clustering, reconstruction and typing of "
+                 "plasmids from draft assemblies. Microbial Genomics 4(8), doi:10.1099/mgen.0.000206.",
+        recognise="clusters.txt, rep.dna.fas, mob.proteins.faa, mpf.proteins.faa, orit.fas, repetitive.dna.fas and "
+                  "host_range_literature_plasmidDB.txt; the BLAST indexes of ncbi_plasmid_full_seqs.fas (with "
+                  "-parse_seqids) and repetitive.dna.fas, ncbi_plasmid_full_seqs.fas.msh and taxa.sqlite show that "
+                  "the folder was prepared (by mob_init, with status.txt, or by ARVA, with ARVA_DATABASE.json). The "
+                  "FASTA ncbi_plasmid_full_seqs.fas itself is optional: mob_recon 3.1.9 searches only its BLAST "
+                  "index.",
+        version_from="ARVA_DATABASE.json, written when ARVA prepared the folder (3.1.8); a folder mob_init prepared "
+                     "states only its download date (status.txt): declared by you.",
+        typical_size="The v. 3.1.8 archive is 472,851,578 bytes; prepared by ARVA without the reference FASTA, "
+                     "1.4 GB (2.9 GB with it).",
+        download="catalogue",
+        download_note="Zenodo record 10304948 (database 3.1.8) with its published MD5. ARVA prepares the folder as "
+                      "mob_init would (makeblastdb, mash sketch, ete3's taxa.sqlite from a dated NCBI taxonomy "
+                      "archive you confirm) without running mob_init, which downloads with TLS verification off.",
+        sources=("mob_suite 3.1.9: mob_suite/mob_init.py, mob_recon.py, utils.py, blast/, wrappers/, config.json",
+                 "Zenodo record 10304948", "ete3 3.1.3: ncbi_taxonomy/ncbiquery.py (update_db)",
+                 "NCBI pub/taxonomy/taxdump_archive/ listing (2026-10-29)"),
+        unconfirmed=("NCBI publishes no checksum for the dated taxonomy archives; ARVA records the SHA-256 of the "
+                     "one it downloaded.",),
     ),
     DatabaseKind(
         key="vfdb",
         name="VFDB",
-        description="The Virulence Factor Database's protein and nucleotide sequence sets.",
-        tools=(ToolUse("BLAST, DIAMOND, ABRicate and similar", "VFDB's download page states no requirement"),),
+        description="The Virulence Factor Database's protein and nucleotide sequence sets. ARVA searches the copy of "
+                    "the core set A nucleotides ABRicate bundles (db/vfdb), recorded read-only when ABRicate is "
+                    "installed.",
+        tools=(ToolUse("ABRicate", "ABRicate 1.4.0 reads its bundled copy (db/vfdb: VFDB_setA_nt, sequences and its "
+                                   "BLAST index)", integrated=True),
+               ToolUse("BLAST, DIAMOND and similar", "VFDB's download page states no requirement")),
         source_url="http://www.mgc.ac.cn/VFs/download.htm",
         licence="Not stated on the download page",
         citation="Liu B. et al. (2022) VFDB 2022: a general classification scheme for bacterial virulence factors. "
                  "Nucleic Acids Research 50(D1), doi:10.1093/nar/gkab1107.",
         recognise="One or more of VFDB_setA_pro.fas, VFDB_setA_nt.fas, VFDB_setB_pro.fas and VFDB_setB_nt.fas "
-                  "(also .gz).",
+                  "(also .gz); ABRicate's copy: db/vfdb/sequences with its BLAST index (sequences.njs description "
+                  "\"vfdb\").",
         version_from="Not stated in the files: declared by you (VFDB shows only a \"Last update\" date on its download "
-                     "page).",
-        typical_size="setB nucleotides: 10.19 MB zipped; setA proteins: 1276 kB zipped (download page).",
+                     "page). ABRicate's copy states only the day the package indexed it (sequences.njs last-updated, "
+                     "2026-04-03 in ABRicate 1.4.0).",
+        typical_size="setB nucleotides: 10.19 MB zipped; setA proteins: 1276 kB zipped (download page); ABRicate "
+                     "1.4.0's copy: 4,592 sequences.",
         download="register",
-        download_note="Undated files over plain HTTP without checksums.",
+        download_note="Undated files over plain HTTP without checksums; ABRicate's copy comes with its package "
+                      "(abricate-get_db fetches VFDB_setA_nt.fas.gz over plain HTTP, so ARVA never runs it).",
         accepts=("folder", "file"),
-        sources=("VFDB download page (www.mgc.ac.cn/VFs/download.htm, last update 2026-10-23)",),
+        sources=("VFDB download page (www.mgc.ac.cn/VFs/download.htm, last update 2026-10-23)",
+                 "ABRicate 1.4.0 package: bin/abricate-get_db (get_vfdb), db/vfdb/sequences.njs"),
         unconfirmed=("The download page does not say which set is the core and which the full dataset.",
-                     "The citation VFDB requests is not stated on the download page."),
+                     "The citation VFDB requests is not stated on the download page.",
+                     "Which VFDB release ABRicate 1.4.0's copy was taken from: its files do not say."),
     ),
     DatabaseKind(
         key="genomad",
         name="geNomad database",
         description="The marker and taxonomy database geNomad uses to identify plasmids and viruses.",
-        tools=(ToolUse("geNomad", "database 1.9 with geNomad 1.10 to 1.13 (releases.txt on portal.nersc.gov)"),),
+        tools=(ToolUse("geNomad", "database 1.9 with geNomad 1.10 to 1.13 (releases.txt on portal.nersc.gov)",
+                       integrated=True),),
         source_url="https://doi.org/10.5281/zenodo.14886553",
         licence="CC BY 4.0 (Zenodo record 14886553)",
         licence_url=_CC_BY,
@@ -335,6 +372,8 @@ KINDS: tuple[DatabaseKind, ...] = (
         download_note="Versioned Zenodo record with an MD5.",
         sources=("geNomad source: genomad/database.py, genomad/modules/download.py",
                  "portal.nersc.gov/genomad/__data__/releases.txt", "Zenodo record 14886553"),
+        unconfirmed=("geNomad and this database were not installed on ARVA's test machine (disk): the integration "
+                     "is written from geNomad 1.13.0's source and not validated with a real run.",),
     ),
     DatabaseKind(
         key="interproscan",
@@ -474,9 +513,10 @@ _NO_REQUIREMENT = {"reference_genomes": "FastANI and skani", "mash": "Mash", "sy
 def compatibility(kind_key: str, version_json: dict | None = None, installed: str | None = None,
                   version: str | None = None) -> Compatibility:
     """Whether the tool version ARVA runs can read a database of this kind: Bakta by its schema, GTDB-Tk by the GTDB
-    release (VERSION_DATA), mlst's bundled schemes always; the kinds species identification reads without a stated
-    requirement are compatible; for the other kinds the tool is not integrated and compatibility is unknown (the
-    kind lists what its docs require)."""
+    release (VERSION_DATA), mlst's and ABRicate's bundled databases always, MOB-suite and geNomad by the database
+    versions their sources pair with them; the kinds species identification reads without a stated requirement are
+    compatible; for the other kinds the tool is not integrated and compatibility is unknown (the kind lists what its
+    docs require)."""
     if kind_key == "mlst_schemes":
         return Compatibility("compatible", "bundled_with_tool", {"tool": "mlst"})
     if kind_key in _NO_REQUIREMENT:
@@ -490,6 +530,14 @@ def compatibility(kind_key: str, version_json: dict | None = None, installed: st
             return Compatibility("unknown", "release_unknown", params)
         return Compatibility("compatible" if version in COMPATIBLE_DATA else "incompatible",
                              "release_ok" if version in COMPATIBLE_DATA else "release_mismatch", params)
+    if kind_key == "amrfinderplus":
+        return _amrfinderplus(version, (version_json or {}).get("database_format_version"), installed)
+    if kind_key in ("vfdb", "plasmidfinder"):
+        if (version_json or {}).get("variant") == "abricate":
+            return Compatibility("compatible", "bundled_with_tool", {"tool": "ABRicate"})
+        return Compatibility("unknown", "tool_not_integrated", {"tool": BY_KEY[kind_key].tools[-1].tool})
+    if kind_key in TESTED_DATA:
+        return _tested(kind_key, version, installed)
     if kind_key != "bakta":
         return Compatibility("unknown", "tool_not_integrated", {"tool": BY_KEY[kind_key].tools[0].tool})
     installed = installed if installed is not None else bakta_version()
@@ -505,3 +553,51 @@ def compatibility(kind_key: str, version_json: dict | None = None, installed: st
         return Compatibility("compatible", "schema_ok", {"tool": "Bakta", "version": installed, "schema": schema})
     return Compatibility("incompatible", "schema_mismatch", {"tool": "Bakta", "version": installed, "schema": schema,
                                                              "found": major})
+
+
+# The database versions checked with the tool versions ARVA runs: MOB-suite 3.1.9's mob_init downloads database
+# 3.1.8 (mob_suite/config.json); geNomad's releases.txt pairs database 1.9 with geNomad 1.10 to 1.13.
+TESTED_DATA = {"mobsuite": ("MOB-suite", "mobsuite", {"3.1.8": ("3.1.9",)}),
+               "genomad": ("geNomad", "genomad", {"1.9": ("1.10", "1.11", "1.12", "1.13")})}
+
+
+def _tested(kind_key: str, version: str | None, installed: str | None) -> Compatibility:
+    from arva_tools.registry import detect
+
+    tool, tool_id, pairs = TESTED_DATA[kind_key]
+    if installed is None:
+        d = detect(tool_id)
+        installed = d.version if d.path else None
+    if not installed:
+        return Compatibility("unknown", "tool_not_installed", {"tool": tool})
+    params: dict[str, str | int] = {"tool": tool, "version": installed, "data": version or "?"}
+    accepted = pairs.get(version or "")
+    if accepted is None:
+        return Compatibility("unknown", "data_unpaired", {**params, "needs": ", ".join(pairs)})
+    if any(installed == v or installed.startswith(v + ".") for v in accepted):
+        return Compatibility("compatible", "data_paired", params)
+    return Compatibility("unknown", "tool_version_unchecked", params)
+
+
+def amrfinderplus_version() -> str | None:
+    from arva_tools.registry import detect
+
+    d = detect("amrfinderplus")
+    return d.version if d.path else None
+
+
+def _amrfinderplus(version: str | None, data_format: str | None, installed: str | None) -> Compatibility:
+    """AMRFinderPlus's two rules (amrfinder.cpp): data at least the version the software needs, software at least the
+    database's format version."""
+    from arva_tools.amrfinderplus import data_compatible
+
+    installed = installed if installed is not None else amrfinderplus_version()
+    if not installed:
+        return Compatibility("unknown", "tool_not_installed", {"tool": "AMRFinderPlus"})
+    check = data_compatible(installed, version, data_format)
+    params: dict[str, str | int] = {"tool": "AMRFinderPlus", "version": installed, "data": version or "?",
+                                    "needs": check["needs_data"] or "?", "format": data_format or "?"}
+    code = {"compatible": "data_ok", "data_too_old": "data_too_old", "software_too_old": "software_too_old",
+            "unknown": "tool_version_unchecked" if check["needs_data"] is None else "data_unknown"}[check["status"]]
+    status = {"compatible": "compatible", "unknown": "unknown"}.get(check["status"], "incompatible")
+    return Compatibility(status, code, params)

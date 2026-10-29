@@ -84,6 +84,10 @@ MESSAGES = {
                     "listed by itself when {tool} is installed.",
     "bundled_read_only": "{name} is part of {tool}'s own package: ARVA reads it where it is and cannot remove it (it "
                          "goes with the tool's environment).",
+    "mobsuite_taxonomy_unreachable": "NCBI's dated taxonomy archives could not be read ({detail}).",
+    "mobsuite_taxonomy_unknown": "NCBI lists no taxonomy archive {name}.",
+    "mobsuite_taxonomy_confirm": "Confirm the NCBI taxonomy archive ({name}) MOB-suite's host-range predictions will "
+                                 "use.",
 }
 
 
@@ -404,6 +408,8 @@ def register(db: Session, raw_path: str, kind: str | None = None, declared_versi
     d = _choose(path, found, kind, raw_path)
     if kinds.BY_KEY.get(d.kind) and kinds.BY_KEY[d.kind].download == "bundled":
         raise refusal("bundled_only", path=raw_path, kind=kinds.BY_KEY[d.kind].name, tool=kinds.BY_KEY[d.kind].tools[0].tool)
+    if d.variant == "abricate":
+        raise refusal("bundled_only", path=raw_path, kind=kinds.BY_KEY[d.kind].name, tool="ABRicate")
     if d.path_type == "zip":
         raise refusal("zip_needs_extraction", path=raw_path)
     if not d.ok:
@@ -531,13 +537,19 @@ class DownloadPlan:
     blocked_by: str | None
     blocked_code: str | None
     compatibility: kinds.Compatibility
+    # MOB-suite: the NCBI taxonomy archive it also needs and whether the reference plasmids' FASTA is kept.
+    extras: dict | None = None
 
 
-def plan_download(db: Session, key: str, destination: str | None = None, folder: str | None = None) -> DownloadPlan:
+def plan_download(db: Session, key: str, destination: str | None = None, folder: str | None = None,
+                  keep_plasmid_fasta: bool = False, taxonomy_archive: str | None = None) -> DownloadPlan:
     """What a download would need: the bytes still to fetch (a partial download is resumed, where it was started),
     plus room for the unpacked database (the publisher's size, read in the larger unit) while the archive is still on
-    disk, in the chosen database folder."""
+    disk, in the chosen database folder. MOB-suite also needs a dated NCBI taxonomy archive (its listing is read)."""
+    from app.services import mobsuite_db
+
     e = entry(key)
+    extras = mobsuite_db.plan_extras(keep_plasmid_fasta, taxonomy_archive) if e.kind == mobsuite_db.KIND else None
     resume = _resumable(db, e)
     if resume is not None and destination is None and folder is None:
         root, target = destination_root(resume), Path(resume.path or "")
@@ -548,7 +560,7 @@ def plan_download(db: Session, key: str, destination: str | None = None, folder:
         target = root / folder_text
     partial = partial_bytes(resume, e) if resume and Path(resume.path or "") == target else 0
     download = e.archive_bytes - partial
-    required = download + e.extracted_bytes_estimate
+    required = download + e.extracted_bytes_estimate + (extras["extra_bytes"] if extras else 0)
     free = free_bytes(root)
     reserve = get_settings().min_free_bytes
     available = max(0, free - reserve)
@@ -556,7 +568,8 @@ def plan_download(db: Session, key: str, destination: str | None = None, folder:
     blocked, code = _blocker(db, e, resume, target, compat)
     return DownloadPlan(e, str(root), str(target), _shown(target), folder_text, partial, download, required, free,
                         reserve, available, required <= available,
-                        resume.id if resume and Path(resume.path or "") == target else None, blocked, code, compat)
+                        resume.id if resume and Path(resume.path or "") == target else None, blocked, code, compat,
+                        extras)
 
 
 def _blocker(db: Session, e: CatalogueEntry, resume: ReferenceDatabase | None, target: Path,
@@ -588,13 +601,16 @@ def _enqueue(record: ReferenceDatabase, func) -> None:
 
 
 def start_download(db: Session, key: str, confirm_bytes: int, accept_licence: bool, destination: str | None = None,
-                   folder: str | None = None) -> ReferenceDatabase:
+                   folder: str | None = None, keep_plasmid_fasta: bool = False,
+                   taxonomy_archive: str | None = None) -> ReferenceDatabase:
     """Queue the download of a catalogue database into the chosen database folder; the caller must repeat the
-    archive size shown to the user and accept its licence. A failed or cancelled download of the same version is
-    resumed where it was."""
+    archive size shown to the user and accept its licence (for MOB-suite, also name the NCBI taxonomy archive shown).
+    A failed or cancelled download of the same version is resumed where it was."""
     from app.tasks.databases import run_database_download
 
-    plan = plan_download(db, key, destination, folder)
+    plan = plan_download(db, key, destination, folder, keep_plasmid_fasta, taxonomy_archive)
+    if plan.extras is not None and taxonomy_archive != plan.extras["taxonomy"]["name"]:
+        raise refusal("mobsuite_taxonomy_confirm", name=plan.extras["taxonomy"]["name"])
     e = plan.entry
     if confirm_bytes != e.archive_bytes:
         raise DatabaseError(f"confirm the download size: the archive is {e.archive_bytes:,} bytes, the request "
@@ -616,6 +632,9 @@ def start_download(db: Session, key: str, confirm_bytes: int, accept_licence: bo
     record.task_id = _task_id()
     record.details = {**(record.details or {}), "catalogue": catalogue_snapshot(e), "destination": plan.db_dir,
                       "confirmation": {"archive_bytes": confirm_bytes, "licence": e.licence, "at": now().isoformat()}}
+    if plan.extras is not None:
+        record.details["options"] = {"keep_plasmid_fasta": keep_plasmid_fasta}
+        record.details["taxonomy"] = plan.extras["taxonomy"]
     record.progress = {"phase": "queued", "bytes_done": plan.partial_bytes, "bytes_total": e.archive_bytes}
     db.commit()
     _enqueue(record, run_database_download)
@@ -726,7 +745,12 @@ def require_available(record: ReferenceDatabase) -> None:
 
 def record_compatibility(record: ReferenceDatabase) -> kinds.Compatibility:
     details = record.details or {}
-    info = details.get("version_json") or ((details.get("detection") or {}).get("facts") or {}).get("version_json")
+    facts = (details.get("detection") or {}).get("facts") or {}
+    info = details.get("version_json") or facts.get("version_json")
+    if record.kind == "amrfinderplus":
+        info = {"database_format_version": facts.get("database_format_version")}
+    if record.kind in ("vfdb", "plasmidfinder"):
+        info = {"variant": (details.get("detection") or {}).get("variant")}
     return kinds.compatibility(record.kind, info, version=record.version)
 
 

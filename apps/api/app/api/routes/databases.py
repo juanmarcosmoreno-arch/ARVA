@@ -27,10 +27,10 @@ from app.schemas.schemas import (
     NcbiStartRequest,
     ReferenceDatabaseRead,
 )
+from app.services import abricate_db, mlst
 from app.services import database_catalogue as catalogue
 from app.services import database_kinds as kinds
 from app.services import databases as svc
-from app.services import mlst
 from app.services import ncbi_datasets as ncbi
 from app.services.locations import to_host
 
@@ -56,7 +56,7 @@ def _read(db: Session, r: ReferenceDatabase, log: bool = False) -> ReferenceData
         "collection": details.get("collection"),
         "files": details.get("file_count"),
         "published_md5_checked": details.get("published_md5_checked"),
-        "amrfinderplus_db": details.get("amrfinderplus_db"),
+        "amrfinderplus_db": _bakta_amr(details.get("amrfinderplus_db")),
         "archive": details.get("archive"),
         "catalogue_version": known.version if known else None,
         "compatibility": CompatibilityRead(**asdict(svc.record_compatibility(r))),
@@ -67,6 +67,15 @@ def _read(db: Session, r: ReferenceDatabase, log: bool = False) -> ReferenceData
         "log_text": r.log_text if log else None,
         "mlst": mlst.database_summary(r) if r.kind == mlst.KIND else None,
     })
+
+
+def _bakta_amr(info: dict | None) -> dict | None:
+    """The AMRFinderPlus data inside a Bakta database, with whether the installed AMRFinderPlus reads them."""
+    if not info:
+        return info
+    compat = kinds.compatibility("amrfinderplus", {"database_format_version": info.get("database_format")},
+                                 version=info.get("version"))
+    return {**info, "compatibility": asdict(compat)}
 
 
 def _detection(db: Session, d) -> DetectionRead:
@@ -81,7 +90,8 @@ def _detection(db: Session, d) -> DetectionRead:
     existing = db.scalar(select(ReferenceDatabase.id).where(ReferenceDatabase.path == d.path))
     compat = None
     if d.kind in kinds.BY_KEY:
-        compat = asdict(kinds.compatibility(d.kind, d.facts.get("version_json"), version=d.version))
+        info = d.facts if d.kind == "amrfinderplus" else d.facts.get("version_json")
+        compat = asdict(kinds.compatibility(d.kind, info, version=d.version))
     return DetectionRead(**{**out, "facts": facts}, kind_name=kinds.BY_KEY[d.kind].name if d.kind in kinds.BY_KEY
                          else None, host_path=to_host(d.path), compatibility=compat, already_registered=existing)
 
@@ -156,11 +166,14 @@ def detect(path: str = Query(min_length=1, max_length=4096), db: Session = Depen
 
 @router.get("/databases/catalogue/{key}/plan", response_model=DownloadPlanRead)
 def download_plan(key: str, destination: str | None = Query(default=None, max_length=4096),
-                  folder: str | None = Query(default=None, max_length=400), db: Session = Depends(get_db)):
+                  folder: str | None = Query(default=None, max_length=400),
+                  keep_plasmid_fasta: bool = False,
+                  taxonomy_archive: str | None = Query(default=None, pattern=r"^taxdmp_\d{4}-\d{2}-\d{2}\.zip$"),
+                  db: Session = Depends(get_db)):
     """What downloading this version into the chosen database folder needs now: bytes to fetch, room for
-    unpacking, free space, licence, source."""
+    unpacking, free space, licence, source (for MOB-suite, also the NCBI taxonomy archive it needs)."""
     try:
-        plan = svc.plan_download(db, key, destination, folder)
+        plan = svc.plan_download(db, key, destination, folder, keep_plasmid_fasta, taxonomy_archive)
         destinations = svc.writable_locations()
     except _EXPECTED as exc:
         return _refusal(exc)
@@ -170,6 +183,7 @@ def download_plan(key: str, destination: str | None = Query(default=None, max_le
 @router.get("/databases", response_model=list[ReferenceDatabaseRead])
 def list_databases(db: Session = Depends(get_db)):
     mlst.refresh_bundled(db)
+    abricate_db.refresh_bundled(db)
     records = db.scalars(select(ReferenceDatabase).order_by(ReferenceDatabase.kind, ReferenceDatabase.created_at))
     return [_read(db, r) for r in records]
 
@@ -243,7 +257,8 @@ def start_download(payload: DatabaseDownloadRequest, db: Session = Depends(get_d
     resumed where it was."""
     try:
         return _read(db, svc.start_download(db, payload.key, payload.confirm_bytes, payload.accept_licence,
-                                            payload.destination, payload.folder))
+                                            payload.destination, payload.folder, payload.keep_plasmid_fasta,
+                                            payload.taxonomy_archive))
     except _EXPECTED as exc:
         return _refusal(exc)
 

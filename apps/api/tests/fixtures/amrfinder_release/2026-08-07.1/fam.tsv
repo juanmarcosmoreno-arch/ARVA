@@ -1,0 +1,16 @@
+#node_id	parent_node_id	gene_symbol	hmm_id	hmm_tc1	hmm_tc2	blastrule_complete_ident	blastrule_complete_wp_coverage	blastrule_complete_br_coverage	blastrule_partial_ident	blastrule_partial_wp_coverage	blastrule_partial_br_coverage	reportable	type	subtype	class	subclass	family_name
+ALL		-	-	0	0	0.00	0.00	0.00	0.00	0.00	0.00	0					
+AMR	ALL	-	-	0	0	0.00	0.00	0.00	0.00	0.00	0.00	0	AMR	AMR			
+EFFLUX	AMR	-	-	0	0	0.00	0.00	0.00	0.00	0.00	0.00	0	AMR	AMR			efflux
+MFS_efflux	EFFLUX	-	-	0	0	0.00	0.00	0.00	0.00	0.00	0.00	0	AMR	AMR			multidrug efflux MFS transporter
+VIRULENCE	ALL	-	-	0	0	0.00	0.00	0.00	0.00	0.00	0.00	0	VIRULENCE	VIRULENCE			
+VIRULENCE_Ecoli	VIRULENCE	-	-	0	0	0.00	0.00	0.00	0.00	0.00	0.00	0	VIRULENCE	VIRULENCE			
+astA	VIRULENCE_Ecoli	astA	NF033646.1	80.00	80.00	0.00	0.00	0.00	0.00	0.00	0.00	1	VIRULENCE	VIRULENCE			heat-stable enterotoxin EAST1
+bla	AMR	bla	-	0.00	0.00	0.00	0.00	0.00	0.00	0.00	0.00	2	AMR	AMR	BETA-LACTAM	BETA-LACTAM	beta-lactamase
+bla-A	bla	bla	NF033103.1	200.00	200.00	0.00	0.00	0.00	0.00	0.00	0.00	2	AMR	AMR	BETA-LACTAM	BETA-LACTAM	class A beta-lactamase
+blaZ	blaZ_gen	blaZ	NF033139.1	580.00	580.00	0.00	0.00	0.00	0.00	0.00	0.00	2	AMR	AMR	BETA-LACTAM	BETA-LACTAM	penicillin-hydrolyzing class A beta-lactamase BlaZ
+blaZ_gen	bla-A	bla	NF033141.0	500.00	500.00	0.00	0.00	0.00	0.00	0.00	0.00	2	AMR	AMR	BETA-LACTAM	BETA-LACTAM	BlaZ-like penicillin-hydrolyzing class A beta-lactamase
+mecA	mec_gen	mecA	NF000409.1	1490.00	1490.00	0.00	0.00	0.00	0.00	0.00	0.00	2	AMR	AMR	BETA-LACTAM	METHICILLIN	PBP2a family beta-lactam-resistant peptidoglycan transpeptidase MecA
+mec_gen	AMR	mec	NF000237.1	750.00	750.00	0.00	0.00	0.00	0.00	0.00	0.00	2	AMR	AMR	BETA-LACTAM	METHICILLIN	PBP2a family beta-lactam-resistant peptidoglycan transpeptidase
+tet(38)	tet_MFS_efflux	tet(38)	NF012176.0	925.00	925.00	0.00	0.00	0.00	0.00	0.00	0.00	1	AMR	AMR	TETRACYCLINE	TETRACYCLINE	tetracycline efflux MFS transporter Tet(38)
+tet_MFS_efflux	MFS_efflux	tet	-	0.00	0.00	0.00	0.00	0.00	0.00	0.00	0.00	2	AMR	AMR	TETRACYCLINE	TETRACYCLINE	tetracycline efflux MFS transporter

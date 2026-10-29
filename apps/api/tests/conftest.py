@@ -88,6 +88,25 @@ def hidden_mlst(monkeypatch, request):
     registry._CACHE.pop("mlst", None)
 
 
+MOBILE_TOOLS = ("abricate", "mobsuite", "integronfinder", "isescan", "genomad")
+
+
+@pytest.fixture(autouse=True)
+def hidden_mobile_tools(monkeypatch, request):
+    """The plasmid, mobile-element and VFDB tools are hidden unless a test asks for them (a fixture named mobile_*),
+    so that ABRicate's bundled databases do not appear as databases in the other tests."""
+    from arva_tools import registry
+
+    for tool in MOBILE_TOOLS:
+        registry._CACHE.pop(tool, None)
+    if not any(n.startswith("mobile_") for n in request.fixturenames):
+        for tool in MOBILE_TOOLS:
+            monkeypatch.setenv(f"ARVA_TOOL_{tool.upper()}", f"/nonexistent/{tool}")
+    yield
+    for tool in MOBILE_TOOLS:
+        registry._CACHE.pop(tool, None)
+
+
 @pytest.fixture
 def held_queue(monkeypatch):
     """A task queue whose jobs wait, as when no worker is free: tests run them by calling the worker task."""

@@ -1,0 +1,5 @@
+# Pinned spec of ARVA's ABRicate environment; scripts/conda_locks.py update abricate solves it for each platform.
+# ABRicate 1.4.0 (Torsten Seemann, GPL-2.0) with the databases bundled in its package (VFDB, PlasmidFinder, ...).
+abricate=1.4.0=h05cac1d_0
+# The same BLAST+ on both platforms (BLAST+ 2.17.0 has no linux-aarch64 build in Bioconda when this was pinned).
+blast=2.16.0
