@@ -1,6 +1,31 @@
 # ARVA API and worker image (same image, different command).
 # External QC tools come from Debian's signed repositories (multi-architecture:
 # amd64 and arm64, so the image also runs on Apple Silicon).
+
+# Bioconda tools: micromamba (conda-forge's package, SHA-256 pinned in scripts/install-micromamba.sh) creates one
+# environment per tool from the checked-in lock of the image's architecture (docker/conda-locks/<tool>/
+# linux-64.lock or linux-aarch64.lock: exact package URLs with their SHA-256; micromamba refuses any other file).
+# Only the environments are copied into the final image; micromamba and its package cache stay in this stage.
+# mlst 2.35.0 with BLAST+ 2.16.0 has locks for both architectures (about 0.95 GB installed, measured on linux-64);
+# so have FastANI 1.34 (95 MB), skani 0.4.0 (31 MB), Mash 2.3 (135 MB) and sylph 1.0.0 (30 MB), the species
+# identification tools. GTDB-Tk 2.8.0 has a linux-64 lock only (about 0.43 GB; its reference data, about 100 GB, are
+# registered separately) and is not built by default: add "gtdbtk" to ARVA_CONDA_TOOLS on amd64 to include it.
+# Build with --build-arg ARVA_CONDA_TOOLS="" for an image without them.
+FROM python:3.12.7-slim-bookworm AS conda-tools
+ARG ARVA_CONDA_TOOLS="mlst fastani skani mash sylph"
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl bzip2 \
+    && rm -rf /var/lib/apt/lists/*
+COPY scripts/install-micromamba.sh scripts/conda_locks.py /build/scripts/
+COPY docker/conda-locks /build/docker/conda-locks
+RUN set -eu; mkdir -p /opt/arva-tools/conda; \
+    if [ -n "$ARVA_CONDA_TOOLS" ]; then \
+      /build/scripts/install-micromamba.sh /opt/micromamba; \
+      for tool in $ARVA_CONDA_TOOLS; do \
+        python3 -I /build/scripts/conda_locks.py --micromamba /opt/micromamba/bin/micromamba install "$tool" \
+          "/opt/arva-tools/conda/$tool"; \
+      done; \
+    fi
+
 FROM python:3.12.7-slim-bookworm
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -63,6 +88,17 @@ ENV ARVA_TOOL_MULTIQC=/opt/arva-tools/multiqc/bin/multiqc \
     ARVA_TOOL_NANOPLOT=/opt/arva-tools/nanoplot/bin/NanoPlot \
     ARVA_TOOL_QUAST=/opt/arva-tools/quast/bin/quast.py \
     ARVA_TOOL_BAKTA=/opt/arva-tools/bakta/bin/bakta
+
+# The environments keep the prefix they were created with (/opt/arva-tools/conda/<tool>): conda writes it into
+# scripts and libraries, so they are copied to the same path. mlst's PubMLST schemes are inside its environment
+# (db/), read in place; ARVA lists them as a bundled, read-only database.
+COPY --from=conda-tools /opt/arva-tools/conda /opt/arva-tools/conda
+ENV ARVA_TOOL_MLST=/opt/arva-tools/conda/mlst/bin/mlst \
+    ARVA_TOOL_FASTANI=/opt/arva-tools/conda/fastani/bin/fastANI \
+    ARVA_TOOL_SKANI=/opt/arva-tools/conda/skani/bin/skani \
+    ARVA_TOOL_MASH=/opt/arva-tools/conda/mash/bin/mash \
+    ARVA_TOOL_SYLPH=/opt/arva-tools/conda/sylph/bin/sylph \
+    ARVA_TOOL_GTDBTK=/opt/arva-tools/conda/gtdbtk/bin/gtdbtk
 
 # /databases: reference databases (ARVA_DB_DIR); a new named volume takes this folder's owner.
 RUN groupadd --system arva && useradd --system --gid arva --home /opt/arva arva \

@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ShieldCheck, Square, Star, Trash2, Zap } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
+import { DatabaseNote } from "@/components/genomic/MlstDialog";
 import { Dialog } from "@/components/ui/dialog";
 import { ErrorNote } from "@/components/ui/misc";
 import { useT, type TranslationKey } from "@/i18n";
@@ -25,6 +26,7 @@ function VersionSourceLine({ record }: { record: ReferenceDatabase }) {
   if (record.version_source === "file") return <>{t("databases.versionFrom.file", { file: record.version_file ?? "?" })}</>;
   if (record.version_source === "declared") return <>{t("databases.versionFrom.declared")}</>;
   if (record.version_source === "checksum") return <>{t("databases.versionFrom.checksum")}</>;
+  if (record.version_source === "download") return <>{t("databases.versionFrom.download")}</>;
   return <>{t("databases.versionFrom.unknown")}</>;
 }
 
@@ -74,9 +76,11 @@ export function RecordRow({ record }: { record: ReferenceDatabase }) {
                   </Button>
                 </>
               )}
-              <Button size="sm" variant="outline" onClick={() => setDeleting(true)}>
-                <Trash2 className="h-3.5 w-3.5" aria-hidden /> {t("databases.delete")}
-              </Button>
+              {record.origin !== "bundled" && (
+                <Button size="sm" variant="outline" onClick={() => setDeleting(true)}>
+                  <Trash2 className="h-3.5 w-3.5" aria-hidden /> {t("databases.delete")}
+                </Button>
+              )}
             </>
           )}
         </div>
@@ -108,7 +112,9 @@ export function RecordRow({ record }: { record: ReferenceDatabase }) {
           </code>
           {record.published_md5_checked ? <span className="block text-muted-foreground">{t("databases.publishedChecked", { n: record.published_md5_checked })}</span> : null}
         </Fact>
-        <Fact label={record.origin === "register" ? t("databases.registeredAt") : t("databases.installedAt")}>{fmtDate(record.installed_at)}</Fact>
+        <Fact label={record.origin === "register" ? t("databases.registeredAt") : record.origin === "bundled" ? t("databases.foundAt") : t("databases.installedAt")}>
+          {fmtDate(record.installed_at)}
+        </Fact>
         <Fact label={t("databases.origin")}>{t(`databases.origin.${record.origin}` as TranslationKey)}</Fact>
         <Fact label={t("databases.archiveChecksum")}>
           <code className="break-all">{record.archive_checksum ?? t("databases.noArchive")}</code>
@@ -138,6 +144,7 @@ export function RecordRow({ record }: { record: ReferenceDatabase }) {
           </p>
         </div>
       )}
+      {record.mlst && <DatabaseNote plan={{ database: record.mlst }} />}
       {record.kind === "bakta" && record.verification_level === "full" && (
         <p className="mt-2 text-xs text-muted-foreground">
           {record.amrfinderplus_db

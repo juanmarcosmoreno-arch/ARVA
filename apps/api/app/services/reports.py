@@ -14,9 +14,20 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app import __version__ as ARVA_VERSION
-from app.models import AnalysisJob, Annotation, Assembly, JobStatus, RawFile, Sample
+from app.models import (
+    AnalysisJob,
+    Annotation,
+    Assembly,
+    JobStatus,
+    MlstResult,
+    RawFile,
+    Sample,
+    SpeciesResult,
+)
 from app.services import annotation as annotation_svc
 from app.services import crosscheck, genome_explorer, qc_data
+from app.services import mlst as mlst_svc
+from app.services import species as species_svc
 from app.services.annotation import describe_step
 from app.services.circular_svg import circular_map_svg
 from app.services.jobs import (
@@ -187,6 +198,8 @@ def collect_report_data(db: Session, sample: Sample) -> dict[str, Any]:
         "read_header_summary": build_header_summary(db, sample),
         "assemblies": _assemblies(db, sample, by_id),
         "annotations": _annotations(db, sample),
+        "mlst": _mlst(db, sample),
+        "species": _species(db, sample),
         "limitations": LIMITATIONS,
     }
 
@@ -302,6 +315,71 @@ def _annotations(db: Session, sample: Sample) -> list[dict[str, Any]]:
                 "finished_at": job.finished_at.isoformat() if job.finished_at else None,
                 "duration_seconds": job.duration_seconds,
                 "programs": (job.result_summary or {}).get("programs"),
+            },
+        })
+    return out
+
+
+def _job_facts(job: AnalysisJob | None) -> dict[str, Any] | None:
+    return None if job is None else {
+        "id": job.id, "tool_path": job.tool_path, "commands": [shlex.join(c) for c in job.commands or []],
+        "resources": job.resources, "started_at": job.started_at.isoformat() if job.started_at else None,
+        "finished_at": job.finished_at.isoformat() if job.finished_at else None,
+        "duration_seconds": job.duration_seconds,
+    }
+
+
+def _species(db: Session, sample: Sample) -> list[dict[str, Any]]:
+    """Each species identification with the method, the database (kind, version, checksum), the ranked hits, ARVA's
+    reading (status, thresholds with their sources, reasons, caveats), the consistency checks, warnings, settings,
+    commands and files."""
+    out = []
+    for r in db.scalars(select(SpeciesResult).where(SpeciesResult.sample_id == sample.id)
+                        .order_by(SpeciesResult.created_at)):
+        i = r.interpretation or {}
+        out.append({
+            "id": r.id, "assembly_id": r.assembly_id, "method": r.method, "tool": r.tool,
+            "tool_version": r.tool_version, "created_at": r.created_at.isoformat(), "status": r.status,
+            "status_text": species_svc.reading_text(species_svc.STATUS_TEXT, {"status": r.status,
+                                                                              "params": {"species": r.species}}),
+            "species": r.species, "hits": r.hits, "interpretation": i,
+            "reasons": [{**x, "text": species_svc.reading_text(species_svc.REASON_TEXT, x)} for x in i.get("reasons") or []],
+            "caveats": [{**x, "text": species_svc.reading_text(species_svc.CAVEAT_TEXT, x)} for x in i.get("caveats") or []],
+            "consistency": r.consistency,
+            "warnings": [{**w, "text": species_svc.warning_text(w)} for w in r.warnings],
+            "database": {"kind": r.database_kind, "name": r.database_name, "version": r.database_version,
+                         "checksum": r.database_checksum,
+                         "references_checksum": (r.details or {}).get("references_checksum"),
+                         "references": len((r.details or {}).get("references") or [])},
+            "parameters": (r.parameters or {}).get("settings"), "files": r.files,
+            "job": _job_facts(db.get(AnalysisJob, r.job_id)),
+        })
+    return out
+
+
+def _mlst(db: Session, sample: Sample) -> list[dict[str, Any]]:
+    """Each MLST call with the scheme, ST, every locus's call and type, the clonal complex (from the scheme's
+    profile file, when it has one), ARVA's warnings, the bundled database, the settings, commands and files."""
+    out = []
+    for m in db.scalars(select(MlstResult).where(MlstResult.sample_id == sample.id).order_by(MlstResult.created_at)):
+        job = db.get(AnalysisJob, m.job_id)
+        out.append({
+            "id": m.id, "assembly_id": m.assembly_id, "assembly": (m.parameters or {}).get("assembly"),
+            "tool": m.tool, "tool_version": m.tool_version, "created_at": m.created_at.isoformat(),
+            "database": {"key": m.database_key, "name": m.database_name, "version": m.database_version,
+                         "checksum": m.database_checksum, "terms": mlst_svc.TERMS},
+            "parameters": {k: v for k, v in (m.parameters or {}).items() if k != "assembly"},
+            "scheme": m.scheme, "st": m.st, "status": m.status, "score": m.score, "alleles": m.alleles,
+            "clonal_complex": m.clonal_complex,
+            "warnings": [{**w, "text": mlst_svc.warning_text(w)} for w in m.warnings],
+            "scheme_info": (m.details or {}).get("scheme"), "ties": ((m.details or {}).get("log") or {}).get("ties"),
+            "novel_alleles": (m.details or {}).get("novel_alleles"), "files": m.files,
+            "job": None if job is None else {
+                "id": job.id, "tool_path": job.tool_path, "commands": [shlex.join(c) for c in job.commands or []],
+                "resources": job.resources,
+                "started_at": job.started_at.isoformat() if job.started_at else None,
+                "finished_at": job.finished_at.isoformat() if job.finished_at else None,
+                "duration_seconds": job.duration_seconds,
             },
         })
     return out
@@ -656,6 +734,13 @@ CSV_COLUMNS = [
     # Annotation rows (record_type "annotation"): assembly_id is the annotated assembly; counts are of features.
     "annotation_id", "annotation_database", "annotation_database_checksum", "cds", "hypothetical_cds", "trna",
     "tmrna", "rrna", "ncrna", "crispr_arrays", "pseudogenes", "coding_density", "steps_not_searched",
+    # MLST rows (record_type "mlst"): assembly_id is the typed assembly; "-" where mlst reported none.
+    "mlst_id", "mlst_scheme", "mlst_st", "mlst_status", "mlst_score", "mlst_alleles", "mlst_clonal_complex",
+    "mlst_warnings", "mlst_database", "mlst_database_checksum",
+    # Species rows (record_type "species"): assembly_id is the identified assembly; ANI in %, AF from 0 to 1.
+    "species_id", "species_method", "species_status", "species_name", "species_best_reference", "species_best_ani",
+    "species_best_af", "species_runner_up", "species_runner_up_ani", "species_reasons", "species_consistency",
+    "species_database", "species_database_checksum",
 ]
 
 
@@ -765,7 +850,52 @@ def render_csv(data: dict[str, Any]) -> str:
             "coding_density": "" if density is None else f"{density:.4f}",
             "steps_not_searched": "; ".join(k for k, v in ann["steps"].items() if v.get("status") != "searched"),
         })
+    for m in data.get("mlst", []):
+        writer.writerow({
+            "sample_code": sanitize_spreadsheet_cell(data["sample"]["sample_code"]),
+            "tool": m["tool"], "tool_version": sanitize_spreadsheet_cell(m["tool_version"]),
+            "job_id": (m["job"] or {}).get("id", ""),
+            "finished_at": (m["job"] or {}).get("finished_at") or m["created_at"],
+            "record_type": "mlst", "assembly_id": m["assembly_id"], "mlst_id": m["id"],
+            "mlst_scheme": m["scheme"] or "-", "mlst_st": m["st"] or "-", "mlst_status": m["status"],
+            "mlst_score": m["score"],
+            "mlst_alleles": sanitize_spreadsheet_cell(" ".join(f"{a['locus']}({a['call']})" for a in m["alleles"])),
+            "mlst_clonal_complex": sanitize_spreadsheet_cell(_mlst_cc(m["clonal_complex"])),
+            "mlst_warnings": "; ".join(w["code"] for w in m["warnings"]),
+            "mlst_database": sanitize_spreadsheet_cell(" ".join(x for x in (m["database"]["name"],
+                                                                           m["database"]["version"]) if x)),
+            "mlst_database_checksum": m["database"]["checksum"] or "",
+        })
+    for sp in data.get("species", []):
+        best, other = sp["interpretation"].get("best") or {}, sp["interpretation"].get("runner_up") or {}
+        writer.writerow({
+            "sample_code": sanitize_spreadsheet_cell(data["sample"]["sample_code"]),
+            "tool": sp["tool"], "tool_version": sanitize_spreadsheet_cell(sp["tool_version"]),
+            "job_id": (sp["job"] or {}).get("id", ""),
+            "finished_at": (sp["job"] or {}).get("finished_at") or sp["created_at"],
+            "record_type": "species", "assembly_id": sp["assembly_id"], "species_id": sp["id"],
+            "species_method": sp["method"], "species_status": sp["status"],
+            "species_name": sanitize_spreadsheet_cell(sp["species"] or ""),
+            "species_best_reference": sanitize_spreadsheet_cell(best.get("accession") or best.get("reference") or ""),
+            "species_best_ani": "" if best.get("ani") is None else best["ani"],
+            "species_best_af": "" if best.get("af") is None else f"{best['af']:.4f}",
+            "species_runner_up": sanitize_spreadsheet_cell(other.get("species") or ""),
+            "species_runner_up_ani": "" if other.get("ani") is None else other["ani"],
+            "species_reasons": "; ".join(x["code"] for x in sp["reasons"]),
+            "species_consistency": "; ".join(f"{c['source']}:{c['outcome']}" for c in sp["consistency"]),
+            "species_database": sanitize_spreadsheet_cell(" ".join(x for x in (sp["database"]["name"],
+                                                                              sp["database"]["version"]) if x)),
+            "species_database_checksum": sp["database"]["checksum"] or "",
+        })
     return out.getvalue()
+
+
+def _mlst_cc(cc: dict[str, Any]) -> str:
+    if not cc.get("available"):
+        return "not available from the scheme" if cc.get("reason") != "no_scheme" else "not determined"
+    if cc.get("reason") == "no_st":
+        return "not determined (no ST)"
+    return cc.get("value") or "none given for this ST"
 
 
 def render_json(data: dict[str, Any]) -> str:
@@ -1249,6 +1379,166 @@ def _annotation_html(data: dict[str, Any]) -> str:
             + "".join(sections))
 
 
+_CALL_TYPES = {"exact": "exact allele", "novel": "novel, similar to the allele shown", "partial": "partial match",
+               "missing": "not found", "multiple": "several exact alleles", "null": "no allele in the ST's profile",
+               "unrecognised": "not recognised by ARVA"}
+
+
+def _mlst_html(data: dict[str, Any]) -> str:
+    sections = []
+    for m in data.get("mlst", []):
+        job, db = m["job"] or {}, m["database"]
+        rows = [("Scheme", m["scheme"] or "none (not determined)"), ("ST", m["st"] or "not assigned"),
+                ("mlst status", m["status"]), ("mlst score", f"{m['score']} / 100"),
+                ("Clonal complex (scheme's profile file)", _mlst_cc(m["clonal_complex"]))]
+        info = m.get("scheme_info") or {}
+        if info:
+            rows.append(("Scheme dates", f"last updated {info.get('last_updated') or 'unknown'}, downloaded "
+                                         f"{info.get('download_date') or 'unknown'} from {info.get('source') or '?'}"))
+        table = "".join(f"<tr><th>{escape(k)}</th><td>{escape(str(v))}</td></tr>" for k, v in rows)
+        alleles = "".join(f"<tr><td>{escape(a['locus'])}</td><td><code>{escape(a['call'])}</code></td>"
+                          f"<td>{escape(_CALL_TYPES.get(a['type'], a['type']))}</td></tr>" for a in m["alleles"])
+        warnings = "".join(f"<li>{escape(w['text'])}</li>" for w in m["warnings"])
+        files = "".join(f"<tr><th>{escape(k)}</th><td><code>{escape(v['path'])}</code><br>SHA-256 "
+                        f"<code>{escape(v['sha256'])}</code></td></tr>" for k, v in (m["files"] or {}).items())
+        sections.append(
+            f"<h3>{escape(m['tool'])} {escape(m['tool_version'])}</h3>"
+            f"<p class='muted'>MLST result <code>{escape(m['id'])}</code> of assembly <code>{escape(m['assembly_id'])}"
+            f"</code> · created {escape(m['created_at'])}</p>"
+            f"<table>{table}</table>"
+            + (f"<table class='grid'><tr><th>Locus</th><th>Call</th><th>Meaning</th></tr>{alleles}</table>"
+               if alleles else "")
+            + (f"<div class='warn'><strong>Warnings</strong><ul>{warnings}</ul></div>" if warnings else "")
+            + "<table>"
+            + f"<tr><th>Database</th><td>{escape(db['name'] or '')}, schemes downloaded {escape(db['version'] or '?')}"
+            + (f"<br>Content checksum <code>{escape(db['checksum'])}</code>" if db["checksum"] else "") + "</td></tr>"
+            + f"<tr><th>Settings</th><td><code>{escape(json.dumps(m['parameters'], sort_keys=True))}</code></td></tr>"
+            + f"<tr><th>Analysis job</th><td><code>{escape(job.get('id') or '')}</code></td></tr>"
+            + (f"<tr><th>Resources</th><td>{escape(resources_text(job['resources']))}</td></tr>"
+               if job.get("resources") else "")
+            + files + "</table>"
+            + "".join(f"<pre>{escape(c)}</pre>" for c in job.get("commands") or [])
+        )
+    if not sections:
+        return ""
+    return ("<h2>MLST</h2><p>Sequence types are mlst's calls with the PubMLST schemes it bundles; ARVA adds no call of "
+            "its own. Inexact, missing or several alleles, tied schemes and no scheme found are listed as warnings.</p>"
+            + "".join(sections))
+
+
+def _fmt_af(v: Any) -> str:
+    return "—" if v is None else f"{v:.3f}"
+
+
+def _species_html(data: dict[str, Any]) -> str:
+    sections = []
+    for sp in data.get("species", []):
+        job, db, i = sp["job"] or {}, sp["database"], sp["interpretation"]
+        mash = sp["method"] == "mash"
+        head = ("<tr><th>#</th><th>Reference</th><th>Organism</th><th>Type material</th>"
+                + ("<th>Mash distance</th><th>Shared hashes</th>" if mash else "<th>ANI (%)</th><th>Aligned fraction</th>")
+                + "</tr>")
+        hits = "".join(
+            f"<tr><td>{h['rank']}</td><td><code>{escape(str(h.get('accession') or h.get('reference') or ''))}</code></td>"
+            f"<td>{escape(h.get('organism') or '—')}{(' · ' + escape(h['strain'])) if h.get('strain') else ''}</td>"
+            f"<td>{'yes' if h.get('type_material') else 'no' if h.get('type_material') is False else 'unknown'}</td>"
+            + (f"<td>{h.get('distance')}</td><td>{h.get('shared')}/{h.get('hashes')}</td>" if mash else
+               f"<td>{'' if h.get('ani') is None else h['ani']}</td><td>{_fmt_af(h.get('af'))}</td>")
+            + "</tr>" for h in sp["hits"][:10])
+        t = i.get("thresholds") or {}
+        rows = [("ARVA's reading", sp["status_text"]),
+                ("Thresholds", f"species boundary {t.get('ani_boundary')} % ANI (Jain et al. 2018, Nat Commun 9:5114, "
+                               f"doi:10.1038/s41467-018-07641-9); minimum aligned fraction {t.get('min_af')} "
+                               f"(GTDB-Tk's default, applied by ARVA); margin {t.get('margin')} percentage points "
+                               "(ARVA's heuristic)")]
+        for c in sp["consistency"]:
+            p = c.get("params") or {}
+            what = f"MLST scheme {p.get('scheme') or '-'} (ST {p.get('st') or '-'})" if c["source"] == "mlst" else \
+                f"organism given for {p.get('tool') or 'the annotation'}: {p.get('given')}"
+            rows.append(("Consistency", f"{what}: {species_svc.CONSISTENCY_TEXT.get(c['outcome'], c['outcome'])}"))
+        table = "".join(f"<tr><th>{escape(k)}</th><td>{escape(str(v))}</td></tr>" for k, v in rows)
+        notes = "".join(f"<li>{escape(x['text'])}</li>" for x in [*sp["reasons"], *sp["warnings"]])
+        caveats = "".join(f"<li>{escape(x['text'])}</li>" for x in sp["caveats"])
+        files = "".join(f"<tr><th>{escape(k)}</th><td><code>{escape(v['path'])}</code><br>SHA-256 "
+                        f"<code>{escape(v['sha256'])}</code></td></tr>" for k, v in (sp["files"] or {}).items())
+        sections.append(
+            f"<h3>{escape(sp['tool'])} {escape(sp['tool_version'])}</h3>"
+            f"<p class='muted'>Species result <code>{escape(sp['id'])}</code> of assembly "
+            f"<code>{escape(sp['assembly_id'])}</code> · created {escape(sp['created_at'])}</p>"
+            f"<table>{table}</table>"
+            + (f"<table class='grid'>{head}{hits}</table>" if hits else "<p>No reference was reported.</p>")
+            + (f"<div class='warn'><strong>Why it is not more certain, and warnings</strong><ul>{notes}</ul></div>"
+               if notes else "")
+            + (f"<p class='muted'>Caveats:</p><ul>{caveats}</ul>" if caveats else "")
+            + "<table>"
+            + f"<tr><th>Database</th><td>{escape(db['name'] or '')} {escape(db['version'] or '')} ({escape(db['kind'] or '')})"
+            + (f"<br>Content checksum <code>{escape(db['checksum'])}</code>" if db["checksum"] else "")
+            + (f"<br>{db['references']} reference genomes, SHA-256 of each recorded; list checksum "
+               f"<code>{escape(db['references_checksum'])}</code>" if db.get("references_checksum") else "")
+            + "</td></tr>"
+            + f"<tr><th>Settings</th><td><code>{escape(json.dumps(sp['parameters'], sort_keys=True))}</code></td></tr>"
+            + f"<tr><th>Analysis job</th><td><code>{escape(job.get('id') or '')}</code></td></tr>"
+            + (f"<tr><th>Resources</th><td>{escape(resources_text(job['resources']))}</td></tr>"
+               if job.get("resources") else "")
+            + files + "</table>"
+            + "".join(f"<pre>{escape(c)}</pre>" for c in job.get("commands") or [])
+        )
+    if not sections:
+        return ""
+    return ("<h2>Species identification</h2><p>Ranked hits of each method against the database it searched, with "
+            "ARVA's reading of them: a species is named only when one species is clearly above the boundary with "
+            "enough aligned fraction; otherwise the result is ambiguous or no reference is within the boundary.</p>"
+            + "".join(sections))
+
+
+_SPECIES_METHODS = (
+    "<p>Species identification compared the assembly's contigs with a reference database: FastANI 1.34 (Jain C. et "
+    "al. Nat Commun 2018;9:5114, doi:10.1038/s41467-018-07641-9; fragment-based ANI from reciprocal mappings of 3 kb "
+    "fragments, aligned fraction = mapped / total query fragments) or skani 0.4.0 (Shaw J., Yu Y.W. Nat Methods "
+    "2023;20:1661-1665, doi:10.1038/s41592-023-02018-3; ANI and aligned fractions from sparse approximate alignments) "
+    "against a reference genome collection; Mash 2.3 (Ondov B.D. et al. Genome Biol 2016;17:132, "
+    "doi:10.1186/s13059-016-0997-x) against a sketch file; sylph 1.0.0 (Shaw J., Yu Y.W. Nat Biotechnol "
+    "2025;43:1348-1359, doi:10.1038/s41587-024-02412-y) against a sylph database; or GTDB-Tk 2.8.0 (Chaumeil P.-A. et "
+    "al. Bioinformatics 2022;38:5315-5316, doi:10.1093/bioinformatics/btac672). Every option was passed explicitly "
+    "(Settings). ARVA's reading applies the 95 % ANI species boundary of Jain et al. (2018) with a minimum aligned "
+    "fraction of 0.5 (GTDB-Tk's default --min_af) and a margin of 0.5 percentage points (ARVA's heuristic) for values "
+    "near the boundary or near another species; Mash distances are ranked only. The consistency checks compare the "
+    "species name with the MLST scheme's name (PubMLST's genus-initial + epithet habit; a name comparison only) and "
+    "with the organism given for an annotation.</p>"
+)
+SPECIES_LIMITATIONS = [
+    "A species identification can only be as good as the database searched: a species absent from it cannot be "
+    "found, a genus-specific collection cannot identify other genera, and each reference carries the name it was "
+    "deposited with (type material is marked when the collection says so).",
+    "The 95 % ANI boundary is empirical; some species are wider or narrower, and closely related species (for "
+    "example Escherichia coli and Shigella) can both lie above it.",
+    "Mash's distance is not ANI; sylph is built for reads and its coverage adjustment does not apply to an assembly; "
+    "GTDB-Tk was not validated with ARVA.",
+]
+
+
+_MLST_METHODS = (
+    "<p>MLST was called by mlst (T. Seemann, https://github.com/tseemann/mlst) on the assembly's contigs, with the "
+    "PubMLST typing schemes bundled in its package; every option was passed explicitly (shown under Settings). mlst "
+    "searches the alleles with blastn (ungapped, minimum identity --minid), calls an exact allele n at full length "
+    "and 100 % identity, ~n at full length and lower identity, n? when at least --mincov % of the allele is matched, "
+    "- when none is found and n,m when several exact alleles are found; it scores each scheme and reports the best "
+    "one. The clonal complex is read by ARVA from the scheme's profile file when the scheme has one. This publication "
+    "made use of the PubMLST website (https://pubmlst.org/) sited at the University of Oxford (Jolley K.A., Bray J.E., "
+    "Maiden M.C.J. Wellcome Open Research 2018, 3:124, doi:10.12688/wellcomeopenres.14826.1).</p>"
+)
+MLST_LIMITATIONS = [
+    "MLST types a few housekeeping loci: an ST groups related strains, it does not identify a species or predict "
+    "a phenotype. A scheme detected by mlst depends on its minimum score; tied schemes are reported in an arbitrary "
+    "order.",
+    "The n of a novel (~n) or partial (n?) call is the first similar allele BLAST reported, not necessarily the "
+    "closest; such alleles, and missing ones, leave the ST not assigned.",
+    "The bundled schemes are as downloaded with mlst's package (their date is recorded); newer STs and alleles are "
+    "not known to them. PubMLST data submitted from 1 January 2025 are restricted to non-commercial academic "
+    "research or public health surveillance.",
+]
+
+
 _LENGTH_CLASS_LABELS = (("cds_characterised", "CDS, characterised"), ("cds_hypothetical", "CDS, hypothetical"),
                         ("rna", "RNA genes"), ("sorf", "Small ORFs"))
 _STRAND_LABELS = (("+", "Strand +"), ("-", "Strand −"), (".", "No strand"))
@@ -1465,7 +1755,9 @@ def render_html(data: dict[str, Any]) -> str:
                           + (ASSEMBLY_LIMITATIONS if data.get("assemblies") else [])
                           + (POLISHING_LIMITATIONS if any(a["kind"] == "polished" for a in data.get("assemblies", []))
                              else [])
-                          + (ANNOTATION_LIMITATIONS if data.get("annotations") else []))
+                          + (ANNOTATION_LIMITATIONS if data.get("annotations") else [])
+                          + (MLST_LIMITATIONS if data.get("mlst") else [])
+                          + (SPECIES_LIMITATIONS if data.get("species") else []))
     steps = "".join(
         f"<h3>{escape(st['tool'])} {escape(st['tool_version'])}</h3>"
         f"<p class='muted'>Inputs: {escape(', '.join(st['inputs']))} · finished {escape(st['finished_at'] or '')}"
@@ -1476,7 +1768,9 @@ def render_html(data: dict[str, Any]) -> str:
         for st in data.get("processing", [])
     )
     with_resources = any(st.get("resources") for st in data.get("processing", [])) or any(
-        (x.get("job") or {}).get("resources") for x in [*data.get("assemblies", []), *data.get("annotations", [])])
+        (x.get("job") or {}).get("resources")
+        for x in [*data.get("assemblies", []), *data.get("annotations", []), *data.get("mlst", []),
+                  *data.get("species", [])])
     return f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -1517,6 +1811,8 @@ Generated {escape(data['generated_at'])} · ARVA {escape(data['arva_version'])}<
 {_raw_signal_html(data)}
 {_assembly_html(data)}
 {_annotation_html(data)}
+{_mlst_html(data)}
+{_species_html(data)}
 {('<h2>Processing and independent checks</h2>' + steps) if steps else ''}
 <h2>Methods</h2>
 <p>Each file was streamed in full by the ARVA scientific core (<code>arva-core.seqstats</code>), which
@@ -1532,6 +1828,8 @@ technology recorded for the sample.</p>
 {_POD5_METHODS if data.get("raw_signal_files") else ""}
 {_ASSEMBLY_METHODS if data.get("assemblies") else ""}
 {_ANNOTATION_METHODS if data.get("annotations") else ""}
+{_MLST_METHODS if data.get("mlst") else ""}
+{_SPECIES_METHODS if data.get("species") else ""}
 {_RESOURCES_METHODS if with_resources else ""}
 <h2>Limitations</h2><ul>{limitations}</ul>
 <footer>This report is descriptive. It contains values computed from the input files and does not

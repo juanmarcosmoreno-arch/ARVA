@@ -3,9 +3,11 @@ from __future__ import annotations
 
 import enum
 import os
+import platform
 import re
 import shutil
 import subprocess
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -35,6 +37,8 @@ class ToolInfo:
     min_version: str
     tested_versions: tuple[str, ...]
     install: dict[str, str] = field(default_factory=dict)
+    # The platforms with a checked-in Bioconda lock (docker/conda-locks/<id>/); empty for tools from other sources.
+    conda_platforms: tuple[str, ...] = ()
 
 
 @dataclass
@@ -66,13 +70,21 @@ def help_options(text: str) -> frozenset[str]:
     return frozenset(found)
 
 
-def read_help(executable: str, args: tuple[str, ...] = ("--help",)) -> str:
+def read_help(executable: str, args: tuple[str, ...] = ("--help",), extra_env: dict[str, str] | None = None) -> str:
     with isolated_home() as home:
         proc = subprocess.run([executable, *args], capture_output=True, text=True, errors="replace", timeout=60,
-                              env=tool_environment(home), cwd=home, stdin=subprocess.DEVNULL)
+                              env={**tool_environment(home), **(extra_env or {})}, cwd=home, stdin=subprocess.DEVNULL)
     if proc.returncode != 0:
         raise RuntimeError(f"{Path(executable).name} {' '.join(args)} exited with status {proc.returncode}")
     return proc.stdout + proc.stderr
+
+
+def conda_platform() -> str | None:
+    """This machine's platform in Bioconda's naming, for the platforms ARVA has locks for."""
+    machine = platform.machine().lower()
+    if sys.platform != "linux":
+        return None
+    return {"x86_64": "linux-64", "amd64": "linux-64", "aarch64": "linux-aarch64", "arm64": "linux-aarch64"}.get(machine)
 
 
 def resolve_executable(tool_id: str, executable: str) -> str | None:
@@ -94,9 +106,21 @@ class ToolAdapter:
     version_args: tuple[str, ...] = ("--version",)
     version_pattern: re.Pattern[str]
 
+    def environment(self, executable: str) -> dict[str, str]:
+        """Variables the tool needs on top of the cleaned environment (e.g. its own environment's bin/ first)."""
+        return {}
+
     def detect(self) -> DetectedTool:
         path = resolve_executable(self.info.id, self.info.executable)
         if path is None:
+            plat = conda_platform()
+            if self.info.conda_platforms and plat not in self.info.conda_platforms:
+                return DetectedTool(
+                    self.info, ToolStatus.not_installed,
+                    message=f"Executable not found; ARVA has no Bioconda lock of {self.info.name} for "
+                            f"{plat or 'this platform'} (only {', '.join(self.info.conda_platforms)})",
+                    reason="no_conda_platform",
+                    reason_params={"platform": plat or "?", "platforms": ", ".join(self.info.conda_platforms)})
             return DetectedTool(self.info, ToolStatus.not_installed, message="Executable not found", reason="not_found")
         try:
             with isolated_home() as home:
@@ -106,7 +130,7 @@ class ToolAdapter:
                     text=True,
                     errors="replace",
                     timeout=60,
-                    env=tool_environment(home),
+                    env={**tool_environment(home), **self.environment(path)},
                     cwd=home,
                     stdin=subprocess.DEVNULL,
                 )

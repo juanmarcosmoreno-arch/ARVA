@@ -95,9 +95,29 @@ export type GuideId =
   | "performance_profile"
   | "docker_resources"
   | "reference_databases"
-  | "database_versions";
+  | "database_versions"
+  | "mlst"
+  | "sequence_type"
+  | "novel_allele"
+  | "ani"
+  | "species_boundary"
+  | "reference_collection"
+  | "gtdb";
 
 const REF = {
+  jain2018: { label: "Jain et al. (2018) Nat Commun 9:5114 — High throughput ANI analysis of 90K prokaryotic genomes reveals clear species boundaries (FastANI)", url: "https://doi.org/10.1038/s41467-018-07641-9" },
+  fastaniReadme: { label: "FastANI README (v1.34) — usage, output format, no output for pairs much below 80 % ANI", url: "https://github.com/ParBLiSS/FastANI/blob/v1.34/README.md" },
+  skani: { label: "Shaw & Yu (2023) Nat Methods 20:1661–1665 — Fast and robust metagenomic sequence comparison through sparse chaining with skani", url: "https://doi.org/10.1038/s41592-023-02018-3" },
+  mash: { label: "Ondov et al. (2016) Genome Biol 17:132 — Mash: fast genome and metagenome distance estimation using MinHash", url: "https://doi.org/10.1186/s13059-016-0997-x" },
+  sylph: { label: "Shaw & Yu (2025) Nat Biotechnol 43:1348–1359 — Rapid species-level metagenome profiling and containment estimation with sylph", url: "https://doi.org/10.1038/s41587-024-02412-y" },
+  varghese2015: { label: "Varghese et al. (2015) Nucleic Acids Res 43:6761–6771 — Microbial species delineation using whole genome sequences (ANI together with the alignment fraction)", url: "https://doi.org/10.1093/nar/gkv657" },
+  gtdbtk: { label: "Chaumeil et al. (2022) Bioinformatics 38(23):5315–5316 — GTDB-Tk v2: memory friendly classification with the genome taxonomy database", url: "https://doi.org/10.1093/bioinformatics/btac672" },
+  gtdbtkHardware: { label: "GTDB-Tk 2.8.0 documentation — Installing GTDB-Tk: hardware requirements and reference data", url: "https://ecogenomics.github.io/GTDBTk/installing/index.html" },
+  ncbiDatasets: { label: "NCBI Datasets documentation — genome data package and the v2 API", url: "https://www.ncbi.nlm.nih.gov/datasets/docs/v2/reference-docs/data-packages/genome/" },
+  maiden1998: { label: "Maiden et al. (1998) PNAS 95(6):3140–3145 — Multilocus sequence typing: a portable approach to the identification of clones", url: "https://doi.org/10.1073/pnas.95.6.3140" },
+  mlstTool: { label: "Seemann T. — mlst: scan contig files against PubMLST typing schemes (README: notation, scoring, status)", url: "https://github.com/tseemann/mlst" },
+  pubmlst: { label: "Jolley, Bray & Maiden (2018) Wellcome Open Research 3:124 — BIGSdb software, the PubMLST.org website and their applications", url: "https://doi.org/10.12688/wellcomeopenres.14826.1" },
+  pubmlstTerms: { label: "PubMLST — Terms and conditions (updated 2026-05-13): data submitted before and after 1 January 2025", url: "https://pubmlst.org/terms-conditions" },
   appleSysctl: { label: "Apple Developer Documentation — Determining system capabilities (sysctlbyname: hw.perflevelN.physicalcpu, hw.physicalcpu, hw.memsize)", url: "https://developer.apple.com/documentation/kernel/1387446-sysctlbyname/determining_system_capabilities" },
   posixNice: { label: "The Open Group Base Specifications (POSIX.1-2017) — nice utility", url: "https://pubs.opengroup.org/onlinepubs/9699919799/utilities/nice.html" },
   cgroupV2: { label: "Linux kernel documentation — Control Group v2 (cpu.max, memory.max)", url: "https://docs.kernel.org/admin-guide/cgroup-v2.html" },
@@ -2180,6 +2200,230 @@ export const GUIDE: GuideEntry[] = [
         "Suponer que dos carpetas con la misma versión tienen los mismos archivos: la suma completa muestra si es así.",
       ],
       limitations: "ARVA no puede comprobar una versión declarada. La huella de una colección identifica su lista de accesiones, no el contenido de los archivos de genoma; eso lo registra la suma completa.",
+    },
+  },
+  {
+    id: "mlst",
+    references: [REF.maiden1998, REF.mlstTool, REF.pubmlst, REF.pubmlstTerms],
+    en: {
+      title: "MLST (multilocus sequence typing)",
+      what: "MLST (Maiden et al. 1998) describes a bacterial isolate by the alleles of a few housekeeping genes, usually seven. Each distinct sequence of a gene in a scheme has a number (its allele); the combination of the allele numbers is the allele profile, and each profile known to the scheme has a sequence type (ST). Schemes are made for a species or genus and curated by public databases such as PubMLST.",
+      why: "An ST is a short, portable name for a lineage: isolates with the same ST share the same alleles at the scheme's loci, which helps to compare isolates between laboratories and with the literature, and to recognise well-known lineages.",
+      how: "ARVA runs Torsten Seemann's mlst on one assembly with the PubMLST schemes bundled in mlst's package (the Database Manager lists them with their download date, checksum and terms). mlst searches the contigs with blastn (ungapped, minimum identity --minid) for the alleles of every scheme, scores each scheme (90 points shared by its loci, exact alleles 1, novel 0.7, partial 0.5, missing 0; 10 more when the combination is a known ST) and reports the best one if it reaches --minscore — or the scheme you choose, with minimum score 0. ARVA passes --minid, --mincov, --minscore, --threads, --exclude (or --scheme), --blastdb and --datadir explicitly and records mlst's own defaults from its --help. The clonal complex is read by ARVA from the scheme's profile file when it has such a column.",
+      interpret: "A number (8) is an exact, full-length allele; ~n is a novel full-length allele similar to n; n? a partial match; - a locus not found; n,m several exact alleles. The ST is assigned only when every locus has a known allele and the combination is in the scheme. mlst's status (PERFECT, NOVEL, MIXED, MISSING, BAD, OK, NONE) and score are shown as mlst's; ARVA's warnings list every inexact or missing call, tied schemes and a scheme that was not found.",
+      next: "Check the warnings first: a novel or partial allele, a missing locus or several alleles leave the ST not assigned and are worth a look at the assembly (coverage, contig ends, contamination). Compare STs across the project in its MLST table.",
+      mistakes: [
+        "Reading the ST as a species identification: the scheme mlst detected only had the best score among the schemes it has.",
+        "Taking ~n or n? as allele n: the number is the first similar allele BLAST reported, not necessarily the closest.",
+        "Comparing STs from different scheme versions without checking the scheme dates: new STs and alleles are added over time.",
+        "Ignoring a tie between schemes: mlst then picks one in an arbitrary order; it often means a mixed sample.",
+      ],
+      limitations: "The bundled schemes are as downloaded with mlst's package (their date is shown); they lack newer alleles and STs, and ARVA ships no updater. PubMLST's terms (updated 2026-05-13) allow data submitted up to 31 December 2024 to be redistributed with citation; data submitted from 1 January 2025 may be used only for non-commercial academic research or public health surveillance. Nine schemes come from the Institut Pasteur's BIGSdb, whose terms ARVA has not checked. Results on ARVA's SYNTHETIC genomes are not biology.",
+      advanced: "mlst leaves out four schemes unless asked (--exclude: ecoli, abaumannii, vcholerae_2, senterica_achtman_2), so E. coli is typed with the Achtman scheme (ecoli_achtman_4) and A. baumannii with the Pasteur scheme (abaumannii_2) by default. Several STs can exist for one isolate in different schemes of the same species.",
+    },
+    es: {
+      title: "MLST (tipificación multilocus de secuencias)",
+      what: "El MLST (Maiden et al. 1998) describe un aislamiento bacteriano por los alelos de unos pocos genes de mantenimiento, normalmente siete. Cada secuencia distinta de un gen en un esquema tiene un número (su alelo); la combinación de los números de alelo es el perfil alélico, y cada perfil conocido por el esquema tiene un tipo de secuencia (ST). Los esquemas se definen para una especie o un género y los mantienen bases de datos públicas como PubMLST.",
+      why: "Un ST es un nombre corto y portable para un linaje: los aislamientos con el mismo ST comparten los mismos alelos en los loci del esquema, lo que ayuda a comparar aislamientos entre laboratorios y con la bibliografía, y a reconocer linajes bien conocidos.",
+      how: "ARVA ejecuta mlst, de Torsten Seemann, sobre un ensamblaje con los esquemas de PubMLST incluidos en el paquete de mlst (el Gestor de bases de datos los muestra con su fecha de descarga, su suma de comprobación y sus condiciones). mlst busca en los contigs con blastn (sin huecos, identidad mínima --minid) los alelos de todos los esquemas, puntúa cada esquema (90 puntos repartidos entre sus loci: alelos exactos 1, nuevos 0,7, parciales 0,5, ausentes 0; 10 más si la combinación es un ST conocido) e informa del mejor si alcanza --minscore — o del esquema que elijas, con puntuación mínima 0. ARVA pasa de forma explícita --minid, --mincov, --minscore, --threads, --exclude (o --scheme), --blastdb y --datadir y registra los valores predeterminados de mlst según su --help. ARVA lee el complejo clonal del archivo de perfiles del esquema cuando tiene esa columna.",
+      interpret: "Un número (8) es un alelo exacto de longitud completa; ~n, un alelo nuevo de longitud completa similar a n; n?, una coincidencia parcial; -, un locus no encontrado; n,m, varios alelos exactos. El ST solo se asigna cuando cada locus tiene un alelo conocido y la combinación está en el esquema. El estado de mlst (PERFECT, NOVEL, MIXED, MISSING, BAD, OK, NONE) y su puntuación se muestran como de mlst; los avisos de ARVA enumeran cada asignación inexacta o ausente, los esquemas empatados y un esquema no encontrado.",
+      next: "Revisa primero los avisos: un alelo nuevo o parcial, un locus ausente o varios alelos dejan el ST sin asignar y merecen una mirada al ensamblaje (cobertura, extremos de contigs, contaminación). Compara los ST del proyecto en su tabla de MLST.",
+      mistakes: [
+        "Leer el ST como una identificación de especie: el esquema que detectó mlst solo tuvo la mejor puntuación entre los esquemas que tiene.",
+        "Tomar ~n o n? por el alelo n: el número es el primer alelo similar que informó BLAST, no necesariamente el más cercano.",
+        "Comparar ST de versiones distintas de un esquema sin mirar sus fechas: con el tiempo se añaden ST y alelos nuevos.",
+        "Ignorar un empate entre esquemas: mlst elige entonces uno en un orden arbitrario; a menudo indica una muestra mezclada.",
+      ],
+      limitations: "Los esquemas incluidos son los que se descargaron con el paquete de mlst (se muestra su fecha); les faltan los alelos y ST más recientes, y ARVA no incluye ningún actualizador. Las condiciones de PubMLST (actualizadas el 2026-05-13) permiten redistribuir citándolos los datos enviados hasta el 31 de diciembre de 2024; los enviados desde el 1 de enero de 2025 solo pueden usarse para investigación académica no comercial o vigilancia de salud pública. Nueve esquemas proceden del BIGSdb del Institut Pasteur, cuyas condiciones ARVA no ha comprobado. Los resultados sobre los genomas SINTÉTICOS de ARVA no son biología.",
+      advanced: "mlst deja fuera cuatro esquemas salvo que se le pida (--exclude: ecoli, abaumannii, vcholerae_2, senterica_achtman_2), así que por defecto E. coli se tipifica con el esquema de Achtman (ecoli_achtman_4) y A. baumannii con el de Pasteur (abaumannii_2). Un mismo aislamiento puede tener varios ST en esquemas distintos de la misma especie.",
+    },
+  },
+  {
+    id: "sequence_type",
+    references: [REF.maiden1998, REF.pubmlst, REF.mlstTool],
+    en: {
+      title: "Sequence type (ST)",
+      what: "The sequence type is the number a scheme gives to one combination of allele numbers at its loci (the allele profile). ST8 of the Staphylococcus aureus scheme, for example, is arcC 3, aroE 3, glpF 1, gmk 1, pta 4, tpi 4, yqiL 3.",
+      why: "STs let isolates be compared by name across studies; a clonal complex, where a scheme defines one, groups related STs.",
+      how: "mlst looks up the profile of exact allele calls in the scheme's profile file and reports its ST; when any locus is novel, partial, missing or has several alleles, or the combination is not listed, the ST is \"-\" and ARVA shows \"ST not assigned\". The clonal complex is read by ARVA from the profile file's clonal_complex or CC column for that ST; schemes without such a column show \"not available from the scheme\".",
+      interpret: "Same ST: the same alleles at these few loci — not the same genome. Different STs can be closely related (one allele apart). \"ST not assigned\" is not a new ST: it means the call is incomplete or the combination is unknown to this version of the scheme.",
+      next: "For an unassigned ST, look at the allele calls and their warnings; a combination of known alleles that is not listed (mlst's NOVEL status) can be submitted to the scheme's curators.",
+      mistakes: [
+        "Treating one ST as one outbreak strain: MLST cannot separate closely related isolates; finer methods (cgMLST, SNPs) are needed.",
+        "Reading a missing clonal complex as \"no complex\": many schemes do not define complexes in their profile files.",
+      ],
+      limitations: "An ST is defined only within its scheme and its version. ARVA shows the ST and the clonal complex as the bundled scheme files give them and does not infer either.",
+    },
+    es: {
+      title: "Tipo de secuencia (ST)",
+      what: "El tipo de secuencia es el número que un esquema da a una combinación de números de alelo en sus loci (el perfil alélico). El ST8 del esquema de Staphylococcus aureus, por ejemplo, es arcC 3, aroE 3, glpF 1, gmk 1, pta 4, tpi 4, yqiL 3.",
+      why: "Los ST permiten comparar aislamientos por su nombre entre estudios; un complejo clonal, cuando el esquema lo define, agrupa ST relacionados.",
+      how: "mlst busca el perfil de asignaciones exactas en el archivo de perfiles del esquema e informa de su ST; cuando algún locus es nuevo, parcial, ausente o tiene varios alelos, o la combinación no figura, el ST es «-» y ARVA muestra «ST no asignado». ARVA lee el complejo clonal de la columna clonal_complex o CC del archivo de perfiles para ese ST; los esquemas sin esa columna muestran «no disponible en el esquema».",
+      interpret: "Mismo ST: los mismos alelos en estos pocos loci, no el mismo genoma. ST distintos pueden estar muy relacionados (a un alelo de diferencia). «ST no asignado» no es un ST nuevo: significa que la asignación está incompleta o que esta versión del esquema no conoce la combinación.",
+      next: "Para un ST sin asignar, mira las asignaciones de alelos y sus avisos; una combinación de alelos conocidos que no figura (estado NOVEL de mlst) puede enviarse a los conservadores del esquema.",
+      mistakes: [
+        "Tratar un ST como una cepa de brote: el MLST no separa aislamientos muy relacionados; hacen falta métodos más finos (cgMLST, SNP).",
+        "Leer un complejo clonal ausente como «sin complejo»: muchos esquemas no definen complejos en sus archivos de perfiles.",
+      ],
+      limitations: "Un ST solo está definido dentro de su esquema y de su versión. ARVA muestra el ST y el complejo clonal tal como los dan los archivos del esquema incluido y no infiere ninguno de los dos.",
+    },
+  },
+  {
+    id: "novel_allele",
+    references: [REF.mlstTool, REF.pubmlst],
+    en: {
+      title: "Novel, partial and missing alleles",
+      what: "mlst calls an allele exact only when a known allele matches at full length with 100 % identity. A full-length match with lower identity (at least --minid, 95 % by default) is reported as ~n, a novel allele similar to allele n; a match covering at least --mincov of an allele (50 % by default) but not its full length as n?, a partial match; no match at all as -.",
+      why: "These calls say how complete the typing is. A novel allele can be real (a new variant of the gene) or an error of the assembly; a partial or missing allele often points to a gene cut at a contig end, an insertion or deletion (mlst's search is ungapped), low coverage or contamination.",
+      how: "mlst runs blastn without gaps and keeps, for each locus, the exact alleles or else the first inexact hit; ARVA records each call with its type, and mlst's --novel file with the sequences of the novel full-length alleles (named scheme.locus-MD5), kept with the job's files.",
+      interpret: "The number after ~ or before ? identifies the first similar allele BLAST reported, not necessarily the closest one, so it is not an allele assignment. Any novel, partial or missing call leaves the ST not assigned.",
+      next: "Check the assembly around the locus (polishing often fixes small indels in long-read assemblies); a confirmed novel allele can be submitted to the scheme's curators with the sequence mlst saved.",
+      mistakes: [
+        "Submitting a novel allele from an unpolished long-read assembly without checking it: small indels are a known source of false novel alleles.",
+        "Reading - as the gene being absent from the organism: it was not found in this assembly with these settings.",
+      ],
+      limitations: "Thresholds are mlst's (--minid, --mincov), not biological boundaries; ARVA shows the values used. mlst reports one call per locus, so two different inexact copies of a gene are not both shown.",
+    },
+    es: {
+      title: "Alelos nuevos, parciales y ausentes",
+      what: "mlst solo da un alelo por exacto cuando un alelo conocido coincide en toda su longitud con un 100 % de identidad. Una coincidencia de longitud completa con menor identidad (al menos --minid, 95 % por defecto) se informa como ~n, un alelo nuevo similar al alelo n; una coincidencia que cubre al menos --mincov de un alelo (50 % por defecto) pero no toda su longitud, como n?, una coincidencia parcial; la ausencia de coincidencia, como -.",
+      why: "Estas asignaciones indican lo completa que es la tipificación. Un alelo nuevo puede ser real (una nueva variante del gen) o un error del ensamblaje; un alelo parcial o ausente suele señalar un gen cortado en el extremo de un contig, una inserción o deleción (la búsqueda de mlst no admite huecos), poca cobertura o contaminación.",
+      how: "mlst ejecuta blastn sin huecos y conserva, para cada locus, los alelos exactos o, si no los hay, la primera coincidencia inexacta; ARVA registra cada asignación con su tipo, y el archivo --novel de mlst con las secuencias de los alelos nuevos de longitud completa (con nombre esquema.locus-MD5), que se guarda con los archivos del trabajo.",
+      interpret: "El número tras ~ o antes de ? identifica el primer alelo similar que informó BLAST, no necesariamente el más cercano, así que no es una asignación de alelo. Cualquier asignación nueva, parcial o ausente deja el ST sin asignar.",
+      next: "Revisa el ensamblaje alrededor del locus (el pulido suele corregir pequeñas inserciones y deleciones en ensamblajes de lecturas largas); un alelo nuevo confirmado puede enviarse a los conservadores del esquema con la secuencia que guardó mlst.",
+      mistakes: [
+        "Enviar un alelo nuevo de un ensamblaje de lecturas largas sin pulir sin comprobarlo: las pequeñas inserciones y deleciones son una fuente conocida de falsos alelos nuevos.",
+        "Leer - como que el organismo no tiene el gen: no se encontró en este ensamblaje con estos ajustes.",
+      ],
+      limitations: "Los umbrales son los de mlst (--minid, --mincov), no límites biológicos; ARVA muestra los valores usados. mlst informa de una asignación por locus, así que no se muestran a la vez dos copias inexactas distintas de un gen.",
+    },
+  },
+  {
+    id: "ani",
+    references: [REF.jain2018, REF.fastaniReadme, REF.skani, REF.mash, REF.sylph],
+    en: {
+      title: "Average nucleotide identity (ANI)",
+      what: "ANI is the mean identity of the parts two genomes share, computed over their orthologous regions. It is used to tell whether two genomes belong to the same species. The aligned fraction (AF) says how much of the genomes the ANI was computed on.",
+      why: "Genomes of one species are, with few exceptions, more than 95 % identical over what they share (Jain et al. 2018). Comparing an assembly with genomes of known species therefore suggests its species — when the right species is in the collection.",
+      how: "FastANI cuts the query into 3 kb fragments, maps each one to the reference with MinHash-based mapping and averages the identity of the reciprocal mappings; its aligned fraction is the share of query fragments mapped. skani builds approximate alignments from chains of sampled k-mers and reports the ANI and the aligned fraction of both genomes. Mash compares MinHash sketches and reports a distance that estimates a k-mer mutation rate — not ANI. sylph estimates the containment ANI of each database genome in a sample from sampled k-mers. ARVA passes every option explicitly and records the tool, its version, the database and the SHA-256 of each reference genome it read.",
+      interpret: "Read the ANI together with the aligned fraction: a high ANI over a small aligned fraction says little about the rest of the genome. ARVA names a species only when one species is clearly above the boundary with enough aligned fraction; it calls the result ambiguous when two species are above the boundary, when the best value is near it, or when the aligned fraction is low, and shows each reason.",
+      next: "If the result is ambiguous, look at the hits: two species above 95 % usually means they are not separable by ANI in this collection (Escherichia coli and Shigella are the classic case). If no reference is within the boundary, the species may be missing from the collection: try a broader collection.",
+      mistakes: [
+        "Reading the closest reference as the species when its ANI is below the boundary.",
+        "Ignoring the aligned fraction: a contaminated or partial assembly can give a high ANI over a small part of the genome.",
+        "Reading Mash's distance as 1 − ANI: it is a k-mer mutation-rate estimate, and ARVA applies no species boundary to it.",
+        "Trusting a species name without checking whether the reference is type material.",
+      ],
+      limitations: "FastANI reports no ANI for pairs much below 80 % (its README). skani screens out pairs below about 80 % identity by default. sylph is built for reads: on an assembly ARVA reads its unadjusted containment ANI. ANI values from different tools differ slightly; compare values from the same method.",
+      advanced: "skani's learned ANI model (trained on MAGs) is on by default for compression factors of 70 or more and at least 150,000 aligned bases; ARVA keeps the default and records when it was used.",
+    },
+    es: {
+      title: "Identidad nucleotídica media (ANI)",
+      what: "La ANI es la identidad media de las partes que comparten dos genomas, calculada sobre sus regiones ortólogas. Se usa para saber si dos genomas pertenecen a la misma especie. La fracción alineada (FA) indica sobre qué parte de los genomas se calculó la ANI.",
+      why: "Los genomas de una misma especie son, salvo pocas excepciones, idénticos en más de un 95 % en lo que comparten (Jain et al. 2018). Comparar un ensamblaje con genomas de especies conocidas sugiere por tanto su especie — cuando la especie correcta está en la colección.",
+      how: "FastANI divide la consulta en fragmentos de 3 kb, mapea cada uno contra la referencia con un mapeo basado en MinHash y promedia la identidad de los mapeos recíprocos; su fracción alineada es la proporción de fragmentos de la consulta mapeados. skani construye alineamientos aproximados a partir de cadenas de k-meros muestreados e informa de la ANI y de la fracción alineada de ambos genomas. Mash compara sketches MinHash e informa de una distancia que estima una tasa de mutación de k-meros — no ANI. sylph estima la ANI de contención de cada genoma de la base en una muestra a partir de k-meros muestreados. ARVA pasa cada opción de forma explícita y registra la herramienta, su versión, la base de datos y el SHA-256 de cada genoma de referencia que leyó.",
+      interpret: "Lee la ANI junto con la fracción alineada: una ANI alta sobre una fracción alineada pequeña dice poco del resto del genoma. ARVA solo nombra una especie cuando una especie queda claramente por encima del límite con fracción alineada suficiente; considera el resultado ambiguo cuando dos especies superan el límite, cuando el mejor valor está cerca de él o cuando la fracción alineada es baja, y muestra cada motivo.",
+      next: "Si el resultado es ambiguo, mira los resultados: dos especies por encima del 95 % suelen indicar que no se pueden separar por ANI en esta colección (Escherichia coli y Shigella son el caso clásico). Si ninguna referencia queda dentro del límite, puede que la especie falte en la colección: prueba con una colección más amplia.",
+      mistakes: [
+        "Tomar la referencia más cercana por la especie cuando su ANI está por debajo del límite.",
+        "Ignorar la fracción alineada: un ensamblaje contaminado o parcial puede dar una ANI alta sobre una pequeña parte del genoma.",
+        "Leer la distancia de Mash como 1 − ANI: es una estimación de la tasa de mutación de k-meros, y ARVA no le aplica ningún límite de especie.",
+        "Fiarse de un nombre de especie sin comprobar si la referencia es material tipo.",
+      ],
+      limitations: "FastANI no informa de la ANI de los pares muy por debajo del 80 % (su README). skani descarta por defecto los pares por debajo de un 80 % de identidad aproximada. sylph está pensado para lecturas: en un ensamblaje ARVA lee su ANI de contención sin ajustar. Los valores de ANI de herramientas distintas difieren algo; compara valores del mismo método.",
+      advanced: "El modelo de ANI aprendido de skani (entrenado con MAG) está activo por defecto con factores de compresión de 70 o más y al menos 150 000 bases alineadas; ARVA mantiene el valor predeterminado y registra cuándo se usó.",
+    },
+  },
+  {
+    id: "species_boundary",
+    references: [REF.jain2018, REF.varghese2015, REF.gtdbtk],
+    en: {
+      title: "The 95 % ANI species boundary",
+      what: "Jain et al. (2018) computed ANI for 8 billion pairs of prokaryotic genomes and found that 99.8 % of them conform to more than 95 % ANI within a species and less than 83 % between species. 95 % ANI is therefore the usual species boundary for genomes.",
+      why: "A fixed, cited boundary lets ARVA read ranked ANI values the same way every time and say when a value supports a species and when it does not.",
+      how: "ARVA calls a genome the same species as its closest reference when that reference's ANI is at least 95 % plus a margin of 0.5 percentage points (ARVA's heuristic), its aligned fraction is at least 0.5 (the minimum GTDB-Tk 2.8.0 requires for a species assignment, applied by ARVA to every method), it has a species name, and no other species is above 95 % or within the margin. Values within the margin of the boundary, a second species above it and a low aligned fraction make the result ambiguous; a best value below the boundary means no reference in the collection is within it.",
+      interpret: "\"Same species as X\" means the collection's evidence supports it, as far as the reference's name is right. \"Ambiguous\" lists the reasons. \"No reference within the species boundary\" is not a new species: the species may simply not be in the collection.",
+      next: "For an ambiguous result between two named species, check whether they are known to be inseparable by ANI and use other evidence (MLST scheme, phenotype, a curated taxonomy such as GTDB).",
+      mistakes: [
+        "Treating 95 % as an exact law: some species are wider or narrower, and some named species are closer than 95 % to each other.",
+        "Calling a genome a new species because no reference is above 95 %: the collection may lack it.",
+        "Applying the boundary to Mash distances or to values from a low aligned fraction.",
+      ],
+      limitations: "The boundary is empirical and ARVA's margin is a heuristic, not a literature value. Varghese et al. (2015) showed that ANI should be read together with the alignment fraction; ARVA's minimum of 0.5 is GTDB-Tk's default, not a universal threshold.",
+    },
+    es: {
+      title: "El límite de especie del 95 % de ANI",
+      what: "Jain et al. (2018) calcularon la ANI de 8000 millones de pares de genomas procariotas y vieron que el 99,8 % de ellos cumple más de un 95 % de ANI dentro de una especie y menos de un 83 % entre especies. Por eso el 95 % de ANI es el límite de especie habitual para genomas.",
+      why: "Un límite fijo y citado permite a ARVA leer siempre igual los valores de ANI ordenados y decir cuándo un valor respalda una especie y cuándo no.",
+      how: "ARVA considera que un genoma es de la misma especie que su referencia más cercana cuando la ANI con esa referencia es de al menos el 95 % más un margen de 0,5 puntos porcentuales (heurística de ARVA), su fracción alineada es de al menos 0,5 (el mínimo que exige GTDB-Tk 2.8.0 para asignar una especie, aplicado por ARVA a todos los métodos), tiene nombre de especie y ninguna otra especie supera el 95 % ni queda dentro del margen. Los valores dentro del margen del límite, una segunda especie por encima de él y una fracción alineada baja hacen que el resultado sea ambiguo; un mejor valor por debajo del límite significa que ninguna referencia de la colección queda dentro de él.",
+      interpret: "«Misma especie que X» significa que la evidencia de la colección lo respalda, en la medida en que el nombre de la referencia sea correcto. «Ambiguo» enumera los motivos. «Ninguna referencia dentro del límite de especie» no es una especie nueva: puede que la especie simplemente no esté en la colección.",
+      next: "Ante un resultado ambiguo entre dos especies con nombre, comprueba si se sabe que no se pueden separar por ANI y usa otra evidencia (esquema de MLST, fenotipo, una taxonomía curada como GTDB).",
+      mistakes: [
+        "Tratar el 95 % como una ley exacta: algunas especies son más amplias o más estrechas, y algunas especies con nombre están a menos del 95 % entre sí.",
+        "Llamar especie nueva a un genoma porque ninguna referencia supera el 95 %: puede que falte en la colección.",
+        "Aplicar el límite a distancias de Mash o a valores con una fracción alineada baja.",
+      ],
+      limitations: "El límite es empírico y el margen de ARVA es una heurística, no un valor de la bibliografía. Varghese et al. (2015) mostraron que la ANI debe leerse junto con la fracción de alineamiento; el mínimo de 0,5 de ARVA es el valor predeterminado de GTDB-Tk, no un umbral universal.",
+    },
+  },
+  {
+    id: "reference_collection",
+    references: [REF.ncbiDatasets, REF.jain2018],
+    en: {
+      title: "Reference genome collection",
+      what: "A set of genomes of known species that an assembly is compared with by ANI: an NCBI Datasets genome package, a FastANI reference list or a folder of FASTA files, registered in the Database Manager — or built there from NCBI Datasets for a genus or species.",
+      why: "ANI can only name a species that is in the collection. Type strains (type material) carry the species name by definition; other genomes carry the name they were deposited with.",
+      how: "For a package ARVA reads each genome's accession, organism, strain, type material and RefSeq category from assembly_data_report.jsonl. Building from NCBI Datasets, ARVA first asks which genomes match the taxon and filters (RefSeq, type material, reference genomes, atypical genomes left out), shows their number and NCBI's size estimate, and downloads only the list you confirm; every file is checked against the package's MD5 list and the collection is versioned by its source, its download date and a fingerprint of its accessions. Only the taxon, the filters and the accession list are sent.",
+      interpret: "The dialog shows how many genomes, species and genera a collection holds and how many are type material. A collection of one genus cannot identify another genus; a collection without the species cannot identify it.",
+      next: "Prefer type-material genomes for species identification; add more species of the genus when results are \"no reference within the boundary\".",
+      mistakes: [
+        "Using a collection of one genus for a genome of unknown genus.",
+        "Mixing collections of different dates without recording which one a result used (ARVA records it on every result).",
+      ],
+      limitations: "NCBI's species names follow NCBI Taxonomy, which can differ from GTDB's. NCBI builds packages on request, so two downloads of the same list can differ in their metadata files.",
+    },
+    es: {
+      title: "Colección de genomas de referencia",
+      what: "Un conjunto de genomas de especies conocidas con el que se compara un ensamblaje por ANI: un paquete de genomas de NCBI Datasets, una lista de referencias de FastANI o una carpeta de archivos FASTA, registrada en el Gestor de bases de datos — o creada allí desde NCBI Datasets para un género o una especie.",
+      why: "La ANI solo puede nombrar una especie que esté en la colección. Las cepas tipo (material tipo) llevan el nombre de la especie por definición; los demás genomas llevan el nombre con el que se depositaron.",
+      how: "En un paquete ARVA lee la accesión, el organismo, la cepa, el material tipo y la categoría de RefSeq de cada genoma en assembly_data_report.jsonl. Al crear una colección desde NCBI Datasets, ARVA pregunta primero qué genomas corresponden al taxón y a los filtros (RefSeq, material tipo, genomas de referencia, sin genomas atípicos), muestra su número y la estimación de tamaño de NCBI, y solo descarga la lista que confirmes; cada archivo se comprueba con la lista de MD5 del paquete y la colección se versiona por su origen, su fecha de descarga y una huella de sus accesiones. Solo se envían el taxón, los filtros y la lista de accesiones.",
+      interpret: "El diálogo muestra cuántos genomas, especies y géneros contiene una colección y cuántos son material tipo. Una colección de un solo género no puede identificar otro género; una colección sin la especie no puede identificarla.",
+      next: "Para identificar especies, prefiere genomas de material tipo; añade más especies del género cuando los resultados sean «ninguna referencia dentro del límite».",
+      mistakes: [
+        "Usar una colección de un solo género para un genoma de género desconocido.",
+        "Mezclar colecciones de fechas distintas sin registrar cuál usó un resultado (ARVA lo registra en cada resultado).",
+      ],
+      limitations: "Los nombres de especie de NCBI siguen NCBI Taxonomy, que puede diferir de la de GTDB. NCBI construye los paquetes bajo demanda, así que dos descargas de la misma lista pueden diferir en sus archivos de metadatos.",
+    },
+  },
+  {
+    id: "gtdb",
+    references: [REF.gtdbtk, REF.gtdbtkHardware],
+    en: {
+      title: "GTDB and GTDB-Tk",
+      what: "The Genome Taxonomy Database (GTDB) is a genome-based taxonomy of Bacteria and Archaea; GTDB-Tk classifies a genome in it by marker genes, placement in the GTDB reference tree and ANI to the species representatives.",
+      why: "GTDB gives every genome a rank-by-rank classification from one consistent, genome-based taxonomy, also for genera and species without a cultured type strain.",
+      how: "ARVA can run GTDB-Tk 2.8.0's classify_wf on one assembly against registered GTDB reference data (release R232, the only one GTDB-Tk 2.8.0 reads), with --min_af 0.5, --min_perc_aa 10 and one pplacer thread, and reads its summary. Its documentation gives about 140 GB of memory for bacteria (950 GB with --full_tree, which ARVA never uses), about 100 GB for archaea and about 100 GB of disk: ARVA refuses to start it when the performance profile gives a run less than 140 GB.",
+      interpret: "A filled s__ rank is GTDB-Tk's species call (with its ANI and aligned fraction to the closest representative); an empty one means no species within GTDB's radius. GTDB names can differ from NCBI's (for example GTDB places Shigella in Escherichia).",
+      next: "Compare GTDB-Tk's call with the ANI result against a curated collection and with the MLST scheme.",
+      mistakes: [
+        "Expecting GTDB names to match NCBI's.",
+        "Starting GTDB-Tk on a computer with less memory than its documentation requires.",
+      ],
+      limitations: "GTDB-Tk has not been validated with ARVA: its reference data and memory requirement could not be met where ARVA was tested, so ARVA's reading of its output is based on its source code only.",
+    },
+    es: {
+      title: "GTDB y GTDB-Tk",
+      what: "La Genome Taxonomy Database (GTDB) es una taxonomía de Bacteria y Archaea basada en genomas; GTDB-Tk clasifica un genoma en ella mediante genes marcadores, su ubicación en el árbol de referencia de GTDB y la ANI con los representantes de especie.",
+      why: "GTDB da a cada genoma una clasificación rango a rango a partir de una única taxonomía coherente basada en genomas, también para géneros y especies sin cepa tipo cultivada.",
+      how: "ARVA puede ejecutar classify_wf de GTDB-Tk 2.8.0 sobre un ensamblaje con los datos de referencia de GTDB registrados (versión R232, la única que lee GTDB-Tk 2.8.0), con --min_af 0.5, --min_perc_aa 10 y un hilo de pplacer, y lee su resumen. Su documentación indica unos 140 GB de memoria para bacterias (950 GB con --full_tree, que ARVA nunca usa), unos 100 GB para arqueas y unos 100 GB de disco: ARVA no lo inicia cuando el perfil de rendimiento da a una ejecución menos de 140 GB.",
+      interpret: "Un rango s__ relleno es la asignación de especie de GTDB-Tk (con su ANI y su fracción alineada respecto al representante más cercano); uno vacío significa que no hay especie dentro del radio de GTDB. Los nombres de GTDB pueden diferir de los de NCBI (por ejemplo, GTDB sitúa Shigella dentro de Escherichia).",
+      next: "Compara la asignación de GTDB-Tk con el resultado por ANI frente a una colección curada y con el esquema de MLST.",
+      mistakes: [
+        "Esperar que los nombres de GTDB coincidan con los de NCBI.",
+        "Iniciar GTDB-Tk en un equipo con menos memoria de la que exige su documentación.",
+      ],
+      limitations: "GTDB-Tk no se ha validado con ARVA: sus datos de referencia y su requisito de memoria no se podían cumplir donde se probó ARVA, así que la lectura de su salida por ARVA se basa solo en su código fuente.",
     },
   },
 ];

@@ -27,7 +27,7 @@ const SAME_IN_SPANISH = new Set([
   "no", "original", "error", "Pseudogenes", "Chip", "Desktop", "Locus", "tag", "tags", "pass", "warn", "fail",
   "Illumina", "CASAVA", "bcl2fastq", "BCL", "Convert", "Element", "Biosciences", "bases2fastq", "pod5", "lib_pod5",
   "Oxford", "Excel", "xlsx", "openpyxl", "CLR", "SNP", "oriC", "oriV", "oriT", "Mycoplasma", "Spiroplasma", "Debian",
-  "Ubuntu", "Compatible", "Incompatible",
+  "Ubuntu", "Compatible", "Incompatible", "Staphylococcus",
 ]);
 
 const describeFinding = (f: Finding) => `${f.file}:${f.line} [${f.kind}] ${f.text}`;

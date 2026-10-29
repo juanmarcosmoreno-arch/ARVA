@@ -1,0 +1,28 @@
+
+Version: 2.3
+
+Usage:
+
+  mash info [options] <sketch>
+
+Description:
+
+  Display information about sketch files.
+
+Options:
+
+  Option  Description (range) [default]
+
+  -h      Help
+
+  -H      Only show header info. Do not list each sketch. Incompatible with -d,
+          -t and -c.
+
+  -t      Tabular output (rather than padded), with no header. Incompatible with
+          -d, -H and -c.
+
+  -c      Show hash count histograms for each sketch. Incompatible with -d, -H
+          and -t.
+
+  -d      Dump sketches in JSON format. Incompatible with -H, -t, and -c.
+

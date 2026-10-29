@@ -38,6 +38,9 @@ class DatabaseOrigin(str, enum.Enum):
     # A copy ARVA extracted from an archive the user has, into a database folder: ARVA owns (and may delete) the copy,
     # never the archive.
     extract = "extract"
+    # Shipped inside a tool's own package (mlst's PubMLST schemes): ARVA reads it in place and never changes,
+    # updates or deletes it.
+    bundled = "bundled"
 
 
 class VersionSource(str, enum.Enum):
@@ -47,6 +50,9 @@ class VersionSource(str, enum.Enum):
     declared = "declared"
     # Identified by the full checksum matching a checksum the tool publishes per version (CheckM2).
     checksum = "checksum"
+    # Recorded by ARVA when it downloaded the data from a source that publishes no version (the download date, e.g.
+    # a reference collection built from NCBI Datasets).
+    download = "download"
 
 
 def _kind_of_key(context) -> str:

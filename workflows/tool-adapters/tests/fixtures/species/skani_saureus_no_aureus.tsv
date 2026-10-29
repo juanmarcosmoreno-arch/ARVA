@@ -1,0 +1,2 @@
+Ref_file	Query_file	ANI	Align_fraction_ref	Align_fraction_query	Ref_name	Query_name
+collection/staphylococcus/ncbi_dataset/data/GCF_000236925.1/GCF_000236925.1_ASM23692v1_genomic.fna	input/saureus.fna	89.51	61.26	60.53	NC_016941.1 Staphylococcus argenteus, complete sequence	NC_007795.1 Staphylococcus aureus subsp. aureus NCTC 8325 chromosome, complete genome

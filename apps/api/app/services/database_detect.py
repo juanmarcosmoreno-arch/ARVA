@@ -501,8 +501,24 @@ def _vfdb_file(path: Path) -> Detection | None:
     return d
 
 
+def _mlst_schemes(root: Path) -> Detection | None:
+    from arva_tools.mlst import database_info, database_version
+
+    if not (root / "blast" / "mlst.fa.njs").is_file() or not (root / "pubmlst").is_dir():
+        return None
+    info = database_info(root)
+    d = Detection("mlst_schemes", str(root), "folder")
+    d.require(root, "blast/mlst.fa.njs", *info["blast_files"])
+    d.require(root, *(f"pubmlst/{s['name']}/{s['name']}.txt" for s in info["schemes"]))
+    d.version = database_version(info)
+    if d.version:
+        d.version_file, d.version_detail = "pubmlst/<scheme>/<scheme>_info.json", "download_date"
+    d.facts = {"mlst": {k: v for k, v in info.items() if k != "schemes"}}
+    return d
+
+
 FOLDER_DETECTORS = (_bakta, _amrfinderplus, _gtdbtk, _skani, _kraken2, _checkm2, _busco, _plasmidfinder, _mobsuite,
-                    _genomad, _interproscan, _spa_types, _vfdb)
+                    _genomad, _interproscan, _spa_types, _vfdb, _mlst_schemes)
 FILE_DETECTORS = (_sylph, _mash, _vfdb_file)
 
 

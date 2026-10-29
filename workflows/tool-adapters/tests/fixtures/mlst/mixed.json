@@ -1,0 +1,17 @@
+[
+   {
+      "id" : "input/genome.fna",
+      "sequence_type" : "8",
+      "scheme" : "saureus",
+      "alleles" : {
+         "pta" : "4",
+         "aroE" : "3",
+         "glpF" : "1",
+         "arcC" : "3",
+         "tpi" : "4",
+         "gmk" : "1",
+         "yqiL" : "3"
+      },
+      "filename" : "input/genome.fna"
+   }
+]

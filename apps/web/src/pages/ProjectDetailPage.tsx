@@ -5,6 +5,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { BulkImportDialog } from "@/components/domain/BulkImportDialog";
 import { MetadataSection } from "@/components/domain/MetadataImport";
 import { ProjectAssemblies } from "@/components/domain/ProjectAssemblies";
+import { ProjectMlst } from "@/components/genomic/ProjectMlst";
 import { ProjectBatchQc } from "@/components/domain/ProjectBatchQc";
 import { ProjectFormDialog } from "@/components/domain/ProjectFormDialog";
 import { ProjectQcOverview } from "@/components/domain/ProjectQcOverview";
@@ -95,6 +96,7 @@ export function ProjectDetailPage() {
       {!!samples.data?.length && <ProjectBatchQc projectId={p.id} />}
       {!!samples.data?.length && <ProjectQcOverview projectId={p.id} />}
       {!!samples.data?.length && <ProjectAssemblies projectId={p.id} />}
+      {!!samples.data?.length && <ProjectMlst projectId={p.id} />}
       {!!samples.data?.length && <ProjectQcReport projectId={p.id} samples={samples.data} />}
       <MetadataSection projectId={p.id} />
 

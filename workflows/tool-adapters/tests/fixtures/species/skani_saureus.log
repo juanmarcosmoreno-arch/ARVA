@@ -1,0 +1,4 @@
+[00:00:00.000] (7fc0e9526840) INFO   skani dist -q input/saureus.fna --rl staph_refs.txt -o skani_saureus.tsv -t 2 -c 125 -m 1000 -s 80 --min-af 15
+[00:00:00.035] (7fc0e9526840) INFO   Learned ANI mode detected. ANI may be adjusted according to a regression model trained on MAGs.
+[00:00:00.035] (7fc0e9526840) INFO   Generating sketch time: 0.0358913
+[00:00:00.040] (7fc0e9526840) INFO   ANI calculation time: 0.004055438

@@ -1,0 +1,17 @@
+[
+   {
+      "scheme" : "ecoli_achtman_4",
+      "sequence_type" : "10",
+      "id" : "input/genome.fna",
+      "filename" : "input/genome.fna",
+      "alleles" : {
+         "icd" : "8",
+         "fumC" : "11",
+         "recA" : "2",
+         "purA" : "8",
+         "mdh" : "8",
+         "adk" : "10",
+         "gyrB" : "4"
+      }
+   }
+]

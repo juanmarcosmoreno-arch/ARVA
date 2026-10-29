@@ -1,0 +1,67 @@
+-----------------
+fastANI is a fast alignment-free implementation for computing whole-genome Average Nucleotide Identity (ANI) between genomes
+-----------------
+Example usage:
+$ fastANI -q genome1.fa -r genome2.fa -o output.txt
+$ fastANI -q genome1.fa --rl genome_list.txt -o output.txt
+
+SYNOPSIS
+--------
+fastANI [-h] [-r <value>] [--rl <value>] [-q
+    <value>] [--ql <value>] [-k <value>] [-t <value>] [--fragLen <value>]
+    [--minFraction <value>] [--maxRatioDiff <value>] [--visualize] [--matrix]
+    [-o <value>] [-s] [-v]
+
+OPTIONS
+--------
+-h, --help
+     print this help page
+
+-r, --ref <value>
+     reference genome (fasta/fastq)[.gz]
+
+--rl, --refList <value>
+     a file containing list of reference genome files, one genome per line
+
+-q, --query <value>
+     query genome (fasta/fastq)[.gz]
+
+--ql, --queryList <value>
+     a file containing list of query genome files, one genome per line
+
+-k, --kmer <value>
+     kmer size <= 16 [default : 16]
+
+-t, --threads <value>
+     thread count for parallel execution [default : 1]
+
+--fragLen <value>
+     fragment length [default : 3,000]
+
+--minFraction <value>
+     minimum fraction of genome that must be shared for trusting ANI. If
+     reference and query genome size differ, smaller one among the two is
+     considered. [default : 0.2]
+
+--maxRatioDiff <value>
+     maximum difference between (Total Ref. Length/Total Occ. Hashes) and (Total
+     Ref. Length/Total No. Hashes). [default : 10.0]
+
+--visualize
+     output mappings for visualization, can be enabled for single genome to
+     single genome comparison only [disabled by default]
+
+--matrix
+     also output ANI values as lower triangular matrix (format inspired from
+     phylip). If enabled, you should expect an output file with .matrix
+     extension [disabled by default]
+
+-o, --output <value>
+     output file name
+
+-s, --sanityCheck
+     run sanity check
+
+-v, --version
+     show version
+

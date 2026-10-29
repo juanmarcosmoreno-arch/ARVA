@@ -22,11 +22,16 @@ from app.schemas.schemas import (
     DetectResultRead,
     DownloadPlanRead,
     ExtractPlanRead,
+    NcbiPlanRead,
+    NcbiPlanRequest,
+    NcbiStartRequest,
     ReferenceDatabaseRead,
 )
 from app.services import database_catalogue as catalogue
 from app.services import database_kinds as kinds
 from app.services import databases as svc
+from app.services import mlst
+from app.services import ncbi_datasets as ncbi
 from app.services.locations import to_host
 
 router = APIRouter(tags=["databases"])
@@ -60,6 +65,7 @@ def _read(db: Session, r: ReferenceDatabase, log: bool = False) -> ReferenceData
         "unavailable_reason": reason,
         "host_path": to_host(r.path),
         "log_text": r.log_text if log else None,
+        "mlst": mlst.database_summary(r) if r.kind == mlst.KIND else None,
     })
 
 
@@ -75,7 +81,7 @@ def _detection(db: Session, d) -> DetectionRead:
     existing = db.scalar(select(ReferenceDatabase.id).where(ReferenceDatabase.path == d.path))
     compat = None
     if d.kind in kinds.BY_KEY:
-        compat = asdict(kinds.compatibility(d.kind, d.facts.get("version_json")))
+        compat = asdict(kinds.compatibility(d.kind, d.facts.get("version_json"), version=d.version))
     return DetectionRead(**{**out, "facts": facts}, kind_name=kinds.BY_KEY[d.kind].name if d.kind in kinds.BY_KEY
                          else None, host_path=to_host(d.path), compatibility=compat, already_registered=existing)
 
@@ -97,6 +103,8 @@ def _refusal(exc: Exception):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Reference database not found") from exc
     if isinstance(exc, svc.DatabaseFolderUnavailable):
         return _coded(status.HTTP_503_SERVICE_UNAVAILABLE, exc)
+    if isinstance(exc, ncbi.NcbiError) and exc.upstream:
+        return _coded(status.HTTP_502_BAD_GATEWAY, exc)
     code = status.HTTP_409_CONFLICT if isinstance(exc, svc.DatabaseStateError) else status.HTTP_400_BAD_REQUEST
     if getattr(exc, "code", None):
         return _coded(code, exc)
@@ -161,6 +169,7 @@ def download_plan(key: str, destination: str | None = Query(default=None, max_le
 
 @router.get("/databases", response_model=list[ReferenceDatabaseRead])
 def list_databases(db: Session = Depends(get_db)):
+    mlst.refresh_bundled(db)
     records = db.scalars(select(ReferenceDatabase).order_by(ReferenceDatabase.kind, ReferenceDatabase.created_at))
     return [_read(db, r) for r in records]
 
@@ -185,6 +194,37 @@ def extract_plan(path: str = Query(min_length=1, max_length=4096),
         return _refusal(exc)
     return ExtractPlanRead(**{**{k: v for k, v in plan.__dict__.items() if k != "detection"},
                               "detection": _detection(db, plan.detection), "destinations": destinations})
+
+
+def _filters(payload: NcbiPlanRequest) -> ncbi.Filters:
+    return ncbi.Filters(**payload.filters.model_dump())
+
+
+@router.post("/databases/ncbi/plan", response_model=NcbiPlanRead,
+             responses={502: {"description": "NCBI Datasets refused, failed or could not be reached"}})
+def ncbi_plan(payload: NcbiPlanRequest, db: Session = Depends(get_db)):
+    """What a reference genome collection of the taxon would hold, from NCBI Datasets' metadata only: the taxon
+    (several when a name is ambiguous), the number of genomes, species and type-material genomes, NCBI's download
+    size estimate, ARVA's estimate of the unpacked size and the destination's free space. Nothing is downloaded but
+    metadata; only the taxon and the filters are sent."""
+    try:
+        return ncbi.plan(db, payload.taxon, payload.tax_id, _filters(payload), payload.destination, payload.folder)
+    except _EXPECTED as exc:
+        return _refusal(exc)
+
+
+@router.post("/databases/ncbi", response_model=ReferenceDatabaseRead, status_code=status.HTTP_202_ACCEPTED,
+             responses={502: {"description": "NCBI Datasets refused, failed or could not be reached"},
+                        507: {"description": "Not enough free space in the chosen database folder"}})
+def ncbi_start(payload: NcbiStartRequest, db: Session = Depends(get_db)):
+    """Download the confirmed collection from NCBI Datasets into a database folder (a background task). The list is
+    fetched again and must match the confirmed number of genomes and fingerprint; every file is checked against the
+    package's md5sum.txt and the collection is installed with its source and download date as its version."""
+    try:
+        return _read(db, ncbi.start(db, payload.taxon, payload.tax_id, _filters(payload), payload.confirm_genomes,
+                                    payload.confirm_fingerprint, payload.destination, payload.folder))
+    except _EXPECTED as exc:
+        return _refusal(exc)
 
 
 @router.get("/databases/{record_id}", response_model=ReferenceDatabaseRead)

@@ -1,0 +1,22 @@
+>>>>>>>>>>>>>>>>>>
+Reference = [collection/staphylococcus/ncbi_dataset/data/GCF_000236925.1/GCF_000236925.1_ASM23692v1_genomic.fna, collection/staphylococcus/ncbi_dataset/data/GCF_006094375.1/GCF_006094375.1_ASM609437v1_genomic.fna]
+Query = [input/saureus.fna]
+Kmer size = 16
+Fragment length = 3000
+Threads = 2
+ANI output file = fastani_saureus_no_aureus.tsv
+Sanity Check  = 0
+>>>>>>>>>>>>>>>>>>
+INFO [thread 0], skch::main, Count of threads executing parallel_for : 2
+INFO [thread 0], skch::Sketch::build, window size for minimizer sampling  = 24
+INFO [thread 0], skch::Sketch::build, minimizers picked from reference = 223034
+INFO [thread 0], skch::Sketch::index, unique minimizers = 217587
+INFO [thread 0], skch::Sketch::computeFreqHist, Frequency histogram of minimizers = (1, 214442) ... (28, 1)
+INFO [thread 0], skch::Sketch::computeFreqHist, consider all minimizers during lookup.
+INFO [thread 0], skch::main, Time spent sketching the reference : 0.293094 sec
+INFO [thread 0], skch::main, Start Map 1
+INFO [thread 1], skch::main, ready to exit the loop
+INFO [thread 0], skch::main, Time spent mapping fragments in query #1 : 0.459183 sec
+INFO [thread 0], skch::main, Time spent post mapping : 8.6409e-05 sec
+INFO [thread 0], skch::main, ready to exit the loop
+INFO, skch::main, parallel_for execution finished

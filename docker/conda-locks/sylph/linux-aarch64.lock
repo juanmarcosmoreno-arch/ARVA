@@ -1,0 +1,9 @@
+# ARVA lock for sylph on linux-aarch64: written by scripts/conda_locks.py update with micromamba 2.9.0 on 2026-10-29
+# spec: sylph=1.0.0
+# channels: conda-forge bioconda (strict priority)
+@EXPLICIT
+https://conda.anaconda.org/conda-forge/linux-aarch64/libgomp-16.2.0-h8acb6b2_7.conda#sha256:4406fd67c5beeb99b9372f9bf07aa3e40ca141e337eceebac3ff64aa72799494
+https://conda.anaconda.org/conda-forge/linux-aarch64/_openmp_mutex-4.5-20_gnu.conda#sha256:a2527b1d81792a0ccd2c05850960df119c2b6d8f5fdec97f2db7d25dc23b1068
+https://conda.anaconda.org/conda-forge/linux-aarch64/libgcc-16.2.0-h205dda4_7.conda#sha256:eae7a3449d5a3b5351c5427137c076cc3fc826645c7bfc42dc10772b783826f1
+https://conda.anaconda.org/conda-forge/linux-aarch64/libstdcxx-16.2.0-hef695bb_7.conda#sha256:b241a3acfa9cdb1359112864a1241225533c92642de3000d52ae65ef5d3a9786
+https://conda.anaconda.org/bioconda/linux-aarch64/sylph-1.0.0-heafea3b_0.conda#sha256:80d5c138c31b2eaa3aa9748bb5736889f3e333df14cc706c083318ad1665af44

@@ -1,0 +1,2 @@
+FILE	SCHEME	ST	STATUS	SCORE	ALLELES
+input/genome.fna	ecoli_achtman_4	10	PERFECT	100	adk(10);fumC(11);gyrB(4);icd(8);mdh(8);purA(8);recA(2)

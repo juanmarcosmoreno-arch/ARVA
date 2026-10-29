@@ -1,0 +1,7 @@
+2026-10-29T16:48:16.438Z INFO  [sylph::contain] Obtaining sketches...
+2026-10-29T16:48:16.439Z INFO  [sylph::contain] Finished obtaining genome sketches.
+2026-10-29T16:48:16.439Z INFO  [sylph::contain] Loaded 0 two-stage database(s) (0 genomes total) and 3 plain genome sketch(es).
+2026-10-29T16:48:16.441Z INFO  [sylph::contain] input/synthetic.fna taxonomic profiling; reassigning k-mers for 0 genomes...
+2026-10-29T16:48:16.442Z INFO  [sylph::contain] input/synthetic.fna has 0 genomes passing profiling threshold. 
+2026-10-29T16:48:16.442Z INFO  [sylph::contain] Finished sample input/synthetic.fna.
+2026-10-29T16:48:16.442Z INFO  [sylph::contain] sylph finished.

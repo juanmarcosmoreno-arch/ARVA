@@ -1,0 +1,69 @@
+skani-dist 
+Compute ANI for queries against references fasta files or pre-computed sketch files. Usage: skani
+dist query.fa ref1.fa ref2.fa ... or use -q/--ql and -r/--rl options
+
+USAGE:
+    skani dist [OPTIONS] <QUERY|-q <QUERIES>...|--ql <QUERY_LIST>> [--] [REFERENCE]...
+
+OPTIONS:
+    -h, --help          Print help information
+    -t <THREADS>        Number of threads [default: 3]
+
+INPUTS:
+    -q <QUERIES>...              Query fasta(s) or sketch(es)
+        --qi                     Use individual sequences for the QUERY in a multi-line fasta
+        --ql <QUERY_LIST>        File with each line containing one fasta/sketch file
+    -r <REFERENCES>...           Reference fasta(s) or sketch(es)
+        --ri                     Use individual sequences for the REFERENCE in a multi-line fasta
+        --rl <REFERENCE_LIST>    File with each line containing one fasta/sketch file
+    <QUERY>                  Query fasta or sketch
+    <REFERENCE>...           Reference fasta(s) or sketch(es)
+
+OUTPUT:
+    -o <OUTPUT>                        Output file name; rewrites file by default [default: output
+                                       to stdout]
+        --min-af <MIN_AF>              Only output ANI values where one genome has aligned fraction
+                                       > than this value. [default: 15]
+        --both-min-af <BOTH_MIN_AF>    Only output ANI values where both genomes have aligned
+                                       fraction > than this value. [default: disabled]
+        --ci                           Output [5%,95%] ANI confidence intervals using percentile
+                                       bootstrap on the putative ANI distribution
+        --detailed                     Print additional info including contig N50s and more
+    -n <N>                             Max number of results to show for each query. [default:
+                                       unlimited]
+        --short-header                 Only display the first part of contig names (before first
+                                       whitespace)
+
+PRESETS:
+        --fast             Faster skani mode; 2x faster and less memory. Less accurate AF and less
+                           accurate ANI for distant genomes, but works ok for high N50 and > 95%
+                           ANI. Alias for -c 200
+        --medium           Medium skani mode; 2x slower and more memory. More accurate AF and more
+                           accurate ANI for moderately fragmented assemblies (< 10kb N50). Alias for
+                           -c 70
+        --slow             Slower skani mode; 4x slower and more memory. Gives much more accurate AF
+                           for distant genomes. More accurate ANI for VERY fragmented assemblies (<
+                           3kb N50), but less accurate ANI otherwise. Alias for -c 30
+        --small-genomes    Mode for small genomes such as viruses or plasmids (< 20 kb). Can be much
+                           faster for large data, but is slower/less accurate on bacterial-sized
+                           genomes. Alias for: -c 30 -m 200 --faster-small
+
+ALGORITHM PARAMETERS:
+    -c <C>                   Compression factor (k-mer subsampling rate). [default: 125]
+        --faster-small       Filter genomes with < 20 marker k-mers more aggressively. Much faster
+                             for many small genomes but may miss some comparisons
+    -m <MARKER_C>            Marker k-mer compression factor. Markers are used for filtering.
+                             Consider decreasing to ~200-300 if working with small genomes (e.g.
+                             plasmids or viruses). [default: 1000]
+        --median             Estimate median identity instead of average (mean) identity
+        --no-learned-ani     Disable regression model for ANI prediction. [default: learned ANI used
+                             for c >= 70 and >= 150,000 bases aligned and not on individual contigs]
+        --no-marker-index    Do not use hash-table inverted index for faster ANI filtering.
+                             [default: load index if > 100 query files or using the --qi option]
+        --robust             Estimate mean after trimming off 10%/90% quantiles
+    -s <S>                   Screen out pairs with *approximately* < % identity using k-mer
+                             sketching. [default: 80]
+
+MISC:
+        --trace    Trace level verbosity
+    -v, --debug    Debug level verbosity

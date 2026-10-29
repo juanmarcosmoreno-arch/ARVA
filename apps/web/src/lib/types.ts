@@ -1650,7 +1650,7 @@ export interface PolishingSummary {
   followups: { pilon_job_id?: string; quast_job_id?: string; pilon_error?: string; quast_error?: string };
 }
 
-export type VersionSource = "file" | "declared" | "checksum";
+export type VersionSource = "file" | "declared" | "checksum" | "download";
 
 /** Whether the tool version ARVA runs can read a database (only Bakta is integrated so far). */
 export interface Compatibility {
@@ -1673,7 +1673,7 @@ export interface DatabaseKind {
   recognise: string;
   version_from: string;
   typical_size: string;
-  download: "catalogue" | "register";
+  download: "catalogue" | "register" | "bundled";
   download_note: string;
   sources: string[];
   unconfirmed: string[];
@@ -1756,7 +1756,7 @@ export interface ReferenceDatabase {
   checksum: string | null;
   archive_checksum: string | null;
   status: DatabaseStatus;
-  origin: "download" | "register" | "extract";
+  origin: "download" | "register" | "extract" | "bundled";
   is_default: boolean;
   verification_level: "quick" | "full" | null;
   installed_at: string | null;
@@ -1786,6 +1786,8 @@ export interface ReferenceDatabase {
   /** The folder on this computer, when ARVA knows it. */
   host_path?: string | null;
   log_text: string | null;
+  /** mlst's bundled schemes: count, dates, sources and the PubMLST terms. */
+  mlst?: MlstDatabase | null;
 }
 
 export interface DatabaseLocation {
@@ -2379,4 +2381,406 @@ export interface AnnotationCharts {
     total: { characterised: number; hypothetical: number } | null;
   };
   types: { types: string[]; total: Record<string, number>; by_contig: { contig: string; contig_in_assembly: string; counts: Record<string, number> }[] };
+}
+
+// --- MLST ---------------------------------------------------------------------
+
+export interface MlstDatabase {
+  id: string;
+  name: string;
+  version: string | null;
+  checksum: string | null;
+  path: string | null;
+  version_txt: string | null;
+  download_dates: string[] | null;
+  blast_last_updated: string | null;
+  scheme_count: number | null;
+  sources: Record<string, number>;
+  authenticated: string[];
+  updated_after_open_terms: string[];
+  without_update_date: string[];
+  terms: { open_until: string; url: string; updated: string };
+}
+
+export interface MlstScheme {
+  name: string;
+  loci: string[];
+  source: string | null;
+  download_date: string | null;
+  last_updated: string | null;
+  clonal_complex: boolean;
+}
+
+export interface MlstPlan {
+  tool: AnnotationPlan["tool"];
+  database: MlstDatabase | null;
+  schemes: MlstScheme[];
+  defaults: Record<string, string>;
+  tool_defaults: Record<string, string>;
+  defaults_match: boolean | null;
+  assembly: {
+    assembly_id: string;
+    kind: string;
+    assembler: string;
+    assembler_version: string;
+    parent_assembly_id: string | null;
+    contigs: number;
+    total_length: number | null;
+    synthetic_evidence: string[];
+  };
+  scheme: string | null;
+  problems: { code: string; message: string; params: Record<string, string | number> }[];
+}
+
+export interface MlstRequest {
+  settings: { scheme: string | null; minid: number; mincov: number; minscore: number; exclude: string[] | null };
+  threads: number | null;
+  confirmed: boolean;
+}
+
+export type MlstCallType = "exact" | "novel" | "partial" | "missing" | "multiple" | "null" | "unrecognised";
+
+export interface MlstAllele {
+  locus: string;
+  call: string;
+  type: MlstCallType;
+  alleles: string[];
+  similar_to: string | null;
+}
+
+export interface MlstWarning {
+  code: string;
+  params: Record<string, string | number>;
+}
+
+export interface MlstClonalComplex {
+  available: boolean;
+  column: string | null;
+  value: string | null;
+  reason: "no_scheme" | "not_in_scheme" | "no_st" | "empty_for_st" | null;
+}
+
+export interface MlstResult {
+  id: string;
+  sample_id: string;
+  assembly_id: string;
+  job_id: string;
+  tool: string;
+  tool_version: string;
+  database_key: string | null;
+  database_name: string | null;
+  database_version: string | null;
+  database_checksum: string | null;
+  parameters: Record<string, unknown>;
+  scheme: string | null;
+  st: string | null;
+  status: string;
+  score: number;
+  alleles: MlstAllele[];
+  clonal_complex: MlstClonalComplex;
+  warnings: MlstWarning[];
+  details: {
+    scheme?: MlstScheme & { extra_columns?: string[] } | null;
+    log?: { ties: { scheme: string; st: string; other_scheme: string; other_st: string; score: number }[]; exact_by_scheme: Record<string, string[]> };
+    novel_alleles?: { id: string; scheme: string | null; locus: string | null; md5: string | null; length: number }[];
+    contigs?: number;
+  };
+  files: Record<string, { path: string; sha256: string; size_bytes: number }>;
+  created_at: string;
+}
+
+export interface MlstRow {
+  id: string;
+  sample_id: string;
+  sample_code: string;
+  project_id: string;
+  project_name: string;
+  is_demo: boolean;
+  assembly_id: string;
+  assembler: string;
+  assembler_version: string;
+  assembly_kind: string;
+  scheme: string | null;
+  st: string | null;
+  status: string;
+  score: number;
+  alleles: MlstAllele[];
+  clonal_complex: MlstClonalComplex;
+  warnings: MlstWarning[];
+  tool: string;
+  tool_version: string;
+  database_name: string | null;
+  database_version: string | null;
+  database_checksum: string | null;
+  created_at: string;
+}
+
+export interface MlstProjectOverview {
+  project_id: string;
+  project_name: string;
+  is_demo: boolean;
+  samples: { sample_id: string; sample_code: string; results: number; latest: MlstRow | null }[];
+  sequence_types: { scheme: string | null; st: string | null; samples: number }[];
+}
+
+export interface MlstOverview {
+  projects: { project_id: string; project_name: string; is_demo: boolean; samples: number; typed_samples: number }[];
+  recent: MlstRow[];
+  total_results: number;
+}
+
+// --- Species identification ---------------------------------------------------------------------------------------
+
+export type SpeciesMethod = "fastani" | "skani" | "mash" | "sylph" | "gtdbtk";
+export type SpeciesValidation = "validated" | "test_database" | "not_validated";
+export type SpeciesStatus = "same_species" | "ambiguous" | "below_boundary" | "no_hits" | "screening_only";
+
+export interface SpeciesCollectionFacts {
+  genomes: number;
+  present: number | null;
+  missing: number | null;
+  species: number;
+  genera: string[];
+  genus_count: number;
+  by_species: { species: string; genomes: number }[];
+  type_material: number;
+  reference_genomes: number | null;
+  unclassified: number | null;
+  fingerprint: string | null;
+  source: string | null;
+}
+
+export interface SpeciesDatabase {
+  id: string;
+  kind: string;
+  name: string;
+  version: string | null;
+  version_source: VersionSource | null;
+  checksum: string | null;
+  path: string | null;
+  host_path: string;
+  size_bytes: number | null;
+  is_default: boolean;
+  status: string;
+  available: boolean;
+  unavailable_reason: string | null;
+  verification_level: string | null;
+  collection: SpeciesCollectionFacts | null;
+}
+
+export interface SpeciesContext {
+  mlst: { id: string; scheme: string | null; st: string | null; tool_version: string } | null;
+  annotation: { id: string; tool: string; genus: string | null; species: string | null } | null;
+}
+
+export interface SpeciesPlan {
+  method: SpeciesMethod;
+  methods: Record<SpeciesMethod, { tool: string; kind: string; validation: SpeciesValidation }>;
+  tool: AnnotationPlan["tool"] & { id: string; name: string; memory_gb: number };
+  validation: SpeciesValidation;
+  database_kind: string;
+  databases: SpeciesDatabase[];
+  database: SpeciesDatabase | null;
+  assembly: MlstPlan["assembly"];
+  context: SpeciesContext;
+  problems: { code: string; message: string; params: Record<string, string | number> }[];
+  gtdbtk_memory_gb: Record<string, number> | null;
+}
+
+export interface SpeciesRequest {
+  method: SpeciesMethod;
+  database_id: string | null;
+  threads: number | null;
+  confirmed: boolean;
+}
+
+export interface SpeciesHit {
+  rank: number;
+  reference: string | null;
+  accession: string | null;
+  organism: string | null;
+  species: string | null;
+  strain?: string | null;
+  type_material?: boolean | null;
+  type_label?: string | null;
+  refseq_category?: string | null;
+  ani?: number | null;
+  af?: number | null;
+  af_query?: number | null;
+  af_reference?: number | null;
+  fragments_mapped?: number | null;
+  fragments_total?: number | null;
+  distance?: number | null;
+  p_value?: number | null;
+  shared?: number | null;
+  hashes?: number | null;
+  naive_ani?: number | null;
+  adjusted_ani?: number | null;
+  eff_lambda?: string | null;
+  containment_shared?: number | null;
+  containment_sampled?: number | null;
+}
+
+export interface SpeciesCode {
+  code: string;
+  params: Record<string, string | number>;
+}
+
+export interface SpeciesBest {
+  reference: string | null;
+  accession: string | null;
+  organism: string | null;
+  species: string | null;
+  strain: string | null;
+  type_material: boolean | null;
+  ani: number | null;
+  af: number | null;
+  distance: number | null;
+}
+
+export interface SpeciesInterpretation {
+  method: SpeciesMethod;
+  status: SpeciesStatus;
+  species: string | null;
+  best: SpeciesBest | null;
+  runner_up: SpeciesBest | null;
+  reasons: SpeciesCode[];
+  caveats: SpeciesCode[];
+  thresholds: { ani_boundary: number; min_af: number; margin: number };
+  sources: Record<string, string>;
+  scope?: { species: number; genera: string[] };
+}
+
+export interface SpeciesCheck {
+  source: "mlst" | "annotation";
+  outcome: "agree" | "genus_agrees" | "differs" | "not_comparable";
+  reason: string | null;
+  params: Record<string, string>;
+}
+
+export interface SpeciesResult {
+  id: string;
+  sample_id: string;
+  assembly_id: string;
+  job_id: string;
+  method: SpeciesMethod;
+  tool: string;
+  tool_version: string;
+  database_kind: string | null;
+  database_name: string | null;
+  database_version: string | null;
+  database_checksum: string | null;
+  parameters: { settings?: Record<string, unknown> } & Record<string, unknown>;
+  status: SpeciesStatus;
+  species: string | null;
+  hits: SpeciesHit[];
+  interpretation: SpeciesInterpretation;
+  consistency: SpeciesCheck[];
+  warnings: SpeciesCode[];
+  details: {
+    references_checksum?: string;
+    references?: { accession: string | null; path: string; size_bytes: number; sha256: string }[];
+    missing_count?: number;
+    learned_ani?: boolean | null;
+    hits_total?: number;
+    sketch?: { kmer: number; sketch_size: number; seed?: number; sketches?: number };
+    sylph_database?: { c: number; k: number; genomes: number };
+  };
+  files: Record<string, { path: string; sha256: string; size_bytes: number }>;
+  created_at: string;
+}
+
+export interface SpeciesRow {
+  id: string;
+  sample_id: string;
+  sample_code: string;
+  project_id: string;
+  project_name: string;
+  is_demo: boolean;
+  assembly_id: string;
+  assembler: string;
+  assembler_version: string;
+  assembly_kind: string;
+  method: SpeciesMethod;
+  tool: string;
+  tool_version: string;
+  status: SpeciesStatus;
+  species: string | null;
+  best: SpeciesBest | null;
+  runner_up: SpeciesBest | null;
+  reasons: SpeciesCode[];
+  consistency: SpeciesCheck[];
+  warnings: SpeciesCode[];
+  database_name: string | null;
+  database_version: string | null;
+  created_at: string;
+}
+
+export interface SpeciesProjectOverview {
+  project_id: string;
+  project_name: string;
+  is_demo: boolean;
+  samples: { sample_id: string; sample_code: string; results: number; latest: SpeciesRow | null }[];
+  species: { status: SpeciesStatus; species: string | null; samples: number }[];
+}
+
+export interface SpeciesOverview {
+  projects: { project_id: string; project_name: string; is_demo: boolean; samples: number; identified_samples: number }[];
+  recent: SpeciesRow[];
+  total_results: number;
+}
+
+export interface NcbiFilters {
+  source: "refseq" | "genbank" | "all";
+  type_material: boolean;
+  reference_only: boolean;
+  exclude_atypical: boolean;
+  exact_taxon: boolean;
+}
+
+export interface NcbiTaxon {
+  tax_id: number;
+  name: string;
+  rank: string | null;
+  bacterial: boolean;
+}
+
+export interface NcbiGenomePreview {
+  accession: string;
+  organism: string | null;
+  species: string | null;
+  strain: string | null;
+  type_label: string | null;
+  refseq_category: string | null;
+  assembly_level: string | null;
+  length: number | null;
+}
+
+export interface NcbiPlan {
+  status: "ready" | "choose_taxon" | "too_many" | "no_genomes";
+  query: string;
+  filters: NcbiFilters;
+  candidates: NcbiTaxon[];
+  taxon: NcbiTaxon | null;
+  total_count: number | null;
+  limit: number | null;
+  query_url: string | null;
+  genomes: number;
+  fingerprint: string | null;
+  species: number | null;
+  by_species: { species: string; genomes: number }[];
+  type_material: number | null;
+  reference_genomes: number | null;
+  preview: NcbiGenomePreview[];
+  download: { record_count: number | null; estimated_mb: number | null; fasta_files: number | null; fasta_mb: number | null; resource_updated_on: string | null } | null;
+  zip_estimate_bytes: number | null;
+  fasta_estimate_bytes: number | null;
+  required_bytes: number | null;
+  db_dir: string | null;
+  folder: string | null;
+  host_target_path: string | null;
+  free_bytes: number | null;
+  available_bytes: number | null;
+  enough: boolean | null;
+  target_exists: boolean | null;
 }

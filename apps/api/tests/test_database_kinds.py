@@ -76,15 +76,16 @@ def record(client, record_id):
 
 def test_every_kind_states_its_facts_and_their_sources(client):
     keys = [k.key for k in kinds.KINDS]
-    assert len(keys) == len(set(keys)) and len(keys) == 16
+    assert len(keys) == len(set(keys)) and len(keys) == 17
     for k in kinds.KINDS:
         assert k.source_url.startswith(("https://", "http://")) and k.licence and k.citation and k.recognise
-        assert k.version_from and k.typical_size and k.download in ("catalogue", "register") and k.sources
+        assert k.version_from and k.typical_size and k.download in ("catalogue", "register", "bundled") and k.sources
         assert k.tools and all(t.versions for t in k.tools)
         offered = catalogue.for_kind(k.key)
         assert bool(offered) == (k.download == "catalogue"), k.key
     assert kinds.BY_KEY["spa_types"].user_provided_only and kinds.BY_KEY["spa_types"].download == "register"
     assert [t.tool for t in kinds.BY_KEY["bakta"].tools if t.integrated] == ["Bakta"]
+    assert kinds.BY_KEY["mlst_schemes"].download == "bundled" and kinds.BY_KEY["mlst_schemes"].tools[0].integrated
     for e in catalogue.CATALOGUE:
         assert e.kind in kinds.BY_KEY and e.download_url.startswith("https://") and e.checksum_algorithm == "md5"
         assert re.fullmatch(r"[0-9a-f]{32}", e.checksum) and e.archive_bytes > 0 and e.extracted_bytes_estimate > 0
@@ -104,6 +105,9 @@ def test_bakta_compatibility_follows_the_installed_schema():
     assert (old.status, old.code, old.params["schema"]) == ("incompatible", "schema_mismatch", 6)
     assert kinds.compatibility("bakta", {"major": 6}, installed="9.9.9").code == "tool_version_unchecked"
     assert kinds.compatibility("kraken2").code == "tool_not_integrated"
+    assert kinds.compatibility("reference_genomes").status == "compatible"
+    assert kinds.compatibility("gtdbtk", version="r232").status == "compatible"
+    assert kinds.compatibility("gtdbtk", version="r226").code == "release_mismatch"
 
 
 # --- Recognition and versions, kind by kind (CONSTRUCTED folders) -----------------------------------------------

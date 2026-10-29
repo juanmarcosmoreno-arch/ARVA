@@ -1670,7 +1670,7 @@ class DatabaseKindRead(BaseModel):
     recognise: str
     version_from: str
     typical_size: str
-    download: Literal["catalogue", "register"]
+    download: Literal["catalogue", "register", "bundled"]
     download_note: str
     sources: list[str]
     unconfirmed: list[str] = []
@@ -1807,6 +1807,8 @@ class ReferenceDatabaseRead(ORMModel):
     unavailable_reason: Literal["disk_not_connected", "folder_missing"] | None = None
     host_path: str | None = Field(default=None, description="The folder on this computer, when ARVA knows it")
     log_text: str | None = None
+    mlst: dict[str, Any] | None = Field(default=None, description="mlst's bundled schemes: count, dates, sources, "
+                                        "schemes updated after PubMLST's open-data date, the terms")
 
 
 class DatabaseLocationRead(BaseModel):
@@ -2495,3 +2497,405 @@ class AnnotationChartsRead(BaseModel):
     cog: CogProfileRead
     hypothetical: HypotheticalRead
     types: TypeCountsRead
+
+
+# --- MLST -----------------------------------------------------------------------
+
+_SCHEME = r"^[A-Za-z0-9_]{1,64}$"
+
+
+class MlstPreviewRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    scheme: str | None = Field(default=None, pattern=_SCHEME, description="A bundled scheme; default: mlst detects it")
+
+
+class MlstSettingsIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    scheme: str | None = Field(default=None, pattern=_SCHEME, description="--scheme (mlst then uses minimum score 0 "
+                               "and no excluded schemes); default: automatic detection")
+    minid: float = Field(default=95.0, gt=0, le=100, description="--minid, DNA % identity of a full-length allele "
+                         "to call it similar (~); mlst's default 95")
+    mincov: float = Field(default=50.0, gt=0, le=100, description="--mincov, % of an allele covered to call a "
+                          "partial match (?); mlst's default 50")
+    minscore: float = Field(default=50.0, ge=0, le=100, description="--minscore, minimum score of a detected scheme "
+                            "(mlst's default 50; 0 with a chosen scheme)")
+    exclude: list[Annotated[str, Field(pattern=_SCHEME)]] | None = Field(
+        default=None, max_length=200, description="--exclude; default: mlst's own list (ecoli, abaumannii, "
+        "vcholerae_2, senterica_achtman_2)")
+
+
+class MlstRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    settings: MlstSettingsIn = MlstSettingsIn()
+    threads: int | None = Field(default=None, ge=1, le=256)
+    confirmed: bool
+
+
+class MlstProblem(BaseModel):
+    code: str
+    message: str
+    params: dict[str, Any] = {}
+
+
+class MlstSchemeRead(BaseModel):
+    name: str
+    loci: list[str]
+    source: str | None
+    download_date: str | None
+    last_updated: str | None
+    clonal_complex: bool = Field(description="The scheme's profile file has a clonal_complex or CC column")
+
+
+class MlstAssemblyFacts(BaseModel):
+    assembly_id: str
+    kind: str
+    assembler: str
+    assembler_version: str
+    parent_assembly_id: str | None
+    job_id: str
+    contigs_sha256: str
+    created_at: dt.datetime
+    contigs: int
+    total_length: int | None
+    synthetic_evidence: list[str]
+
+
+class MlstPlanRead(BaseModel):
+    tool: AnnotationToolRead
+    database: dict[str, Any] | None
+    schemes: list[MlstSchemeRead]
+    defaults: dict[str, str] = Field(description="mlst 2.35.0's defaults, as ARVA passes them")
+    tool_defaults: dict[str, str] = Field(description="The defaults the installed mlst's --help states")
+    defaults_match: bool | None
+    assembly: MlstAssemblyFacts
+    scheme: str | None
+    problems: list[MlstProblem]
+
+
+class MlstAlleleRead(BaseModel):
+    locus: str
+    call: str = Field(description="mlst's notation: n, ~n, n?, -, n,m or 0")
+    type: Literal["exact", "novel", "partial", "missing", "multiple", "null", "unrecognised"]
+    alleles: list[str]
+    similar_to: str | None
+
+
+class MlstWarningRead(BaseModel):
+    code: str
+    params: dict[str, Any] = {}
+
+
+class MlstResultRead(ORMModel):
+    id: str
+    sample_id: str
+    assembly_id: str
+    job_id: str
+    tool: str
+    tool_version: str
+    database_key: str | None
+    database_name: str | None
+    database_version: str | None
+    database_checksum: str | None
+    parameters: dict[str, Any]
+    scheme: str | None
+    st: str | None
+    status: str
+    score: int
+    alleles: list[MlstAlleleRead]
+    clonal_complex: dict[str, Any]
+    warnings: list[MlstWarningRead]
+    details: dict[str, Any]
+    files: dict[str, AnnotationFileRead]
+    created_at: dt.datetime
+
+
+class MlstRow(BaseModel):
+    id: str
+    sample_id: str
+    sample_code: str
+    project_id: str
+    project_name: str
+    is_demo: bool
+    assembly_id: str
+    assembler: str
+    assembler_version: str
+    assembly_kind: str
+    scheme: str | None
+    st: str | None
+    status: str
+    score: int
+    alleles: list[MlstAlleleRead]
+    clonal_complex: dict[str, Any]
+    warnings: list[MlstWarningRead]
+    tool: str
+    tool_version: str
+    database_name: str | None
+    database_version: str | None
+    database_checksum: str | None
+    created_at: dt.datetime
+
+
+class MlstProjectSampleRow(BaseModel):
+    sample_id: str
+    sample_code: str
+    results: int
+    latest: MlstRow | None
+
+
+class MlstTypeCount(BaseModel):
+    scheme: str | None
+    st: str | None
+    samples: int
+
+
+class MlstProjectOverviewRead(BaseModel):
+    project_id: str
+    project_name: str
+    is_demo: bool
+    samples: list[MlstProjectSampleRow]
+    sequence_types: list[MlstTypeCount]
+
+
+class MlstProjectCount(BaseModel):
+    project_id: str
+    project_name: str
+    is_demo: bool
+    samples: int
+    typed_samples: int
+
+
+class MlstOverviewRead(BaseModel):
+    projects: list[MlstProjectCount]
+    recent: list[MlstRow]
+    total_results: int
+
+
+# --- Species identification -------------------------------------------------------------------------------------
+
+SpeciesMethod = Literal["fastani", "skani", "mash", "sylph", "gtdbtk"]
+
+
+class SpeciesPreviewRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    method: SpeciesMethod
+    database_id: str | None = Field(default=None, max_length=36, description="A database of the method's kind; "
+                                    "default: the default database of that kind")
+
+
+class SpeciesRequest(SpeciesPreviewRequest):
+    threads: int | None = Field(default=None, ge=1, le=256)
+    confirmed: bool
+
+
+class SpeciesProblem(BaseModel):
+    code: str
+    message: str
+    params: dict[str, Any] = {}
+
+
+class SpeciesToolRead(AnnotationToolRead):
+    id: str
+    name: str
+    memory_gb: int
+
+
+class SpeciesPlanRead(BaseModel):
+    method: SpeciesMethod
+    methods: dict[str, dict[str, str]] = Field(description="Every method with its tool, database kind and how far "
+                                               "ARVA validated it (validated, test_database, not_validated)")
+    tool: SpeciesToolRead
+    validation: str
+    database_kind: str
+    databases: list[dict[str, Any]]
+    database: dict[str, Any] | None
+    assembly: MlstAssemblyFacts
+    context: dict[str, Any] = Field(description="The MLST call and the organism given for an annotation of this "
+                                    "assembly, used for the consistency checks")
+    problems: list[SpeciesProblem]
+    gtdbtk_memory_gb: dict[str, int] | None
+
+
+class SpeciesHitRead(BaseModel):
+    rank: int
+    reference: str | None
+    accession: str | None
+    organism: str | None
+    species: str | None
+    strain: str | None = None
+    type_material: bool | None = None
+    type_label: str | None = None
+    refseq_category: str | None = None
+    ani: float | None = None
+    af: float | None = Field(default=None, description="Aligned fraction used by ARVA (FastANI: mapped / total query "
+                             "fragments; skani: the smaller of its two; sylph: containment), 0 to 1")
+    af_query: float | None = None
+    af_reference: float | None = None
+    fragments_mapped: int | None = None
+    fragments_total: int | None = None
+    distance: float | None = None
+    p_value: float | None = None
+    shared: int | None = None
+    hashes: int | None = None
+    naive_ani: float | None = None
+    adjusted_ani: float | None = None
+    eff_lambda: str | None = None
+    eff_cov: str | None = None
+    containment_shared: int | None = None
+    containment_sampled: int | None = None
+    taxonomic_abundance: float | None = None
+
+
+class SpeciesResultRead(ORMModel):
+    id: str
+    sample_id: str
+    assembly_id: str
+    job_id: str
+    method: SpeciesMethod
+    tool: str
+    tool_version: str
+    database_kind: str | None
+    database_name: str | None
+    database_version: str | None
+    database_checksum: str | None
+    parameters: dict[str, Any]
+    status: str
+    species: str | None
+    hits: list[SpeciesHitRead]
+    interpretation: dict[str, Any]
+    consistency: list[dict[str, Any]]
+    warnings: list[MlstWarningRead]
+    details: dict[str, Any]
+    files: dict[str, AnnotationFileRead]
+    created_at: dt.datetime
+
+
+class SpeciesRow(BaseModel):
+    id: str
+    sample_id: str
+    sample_code: str
+    project_id: str
+    project_name: str
+    is_demo: bool
+    assembly_id: str
+    assembler: str
+    assembler_version: str
+    assembly_kind: str
+    method: SpeciesMethod
+    tool: str
+    tool_version: str
+    status: str
+    species: str | None
+    best: dict[str, Any] | None
+    runner_up: dict[str, Any] | None
+    reasons: list[dict[str, Any]]
+    consistency: list[dict[str, Any]]
+    warnings: list[MlstWarningRead]
+    database_name: str | None
+    database_version: str | None
+    created_at: dt.datetime
+
+
+class SpeciesProjectSampleRow(BaseModel):
+    sample_id: str
+    sample_code: str
+    results: int
+    latest: SpeciesRow | None
+
+
+class SpeciesCount(BaseModel):
+    status: str
+    species: str | None
+    samples: int
+
+
+class SpeciesProjectOverviewRead(BaseModel):
+    project_id: str
+    project_name: str
+    is_demo: bool
+    samples: list[SpeciesProjectSampleRow]
+    species: list[SpeciesCount]
+
+
+class SpeciesProjectCount(BaseModel):
+    project_id: str
+    project_name: str
+    is_demo: bool
+    samples: int
+    identified_samples: int
+
+
+class SpeciesOverviewRead(BaseModel):
+    projects: list[SpeciesProjectCount]
+    recent: list[SpeciesRow]
+    total_results: int
+
+
+# --- Reference collections from NCBI Datasets --------------------------------------------------------------------
+
+class NcbiFiltersIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    source: Literal["refseq", "genbank", "all"] = Field(default="refseq", description="filters.assembly_source")
+    type_material: bool = Field(default=False, description="filters.is_type_material: genomes from type material only")
+    reference_only: bool = Field(default=False, description="filters.reference_only: reference genomes only")
+    exclude_atypical: bool = Field(default=True, description="filters.exclude_atypical")
+    exact_taxon: bool = Field(default=False, description="tax_exact_match: the taxon itself, not its child taxa")
+
+
+class NcbiPlanRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    taxon: str = Field(min_length=1, max_length=100, description="A genus or species name, or an NCBI Taxonomy id")
+    tax_id: int | None = Field(default=None, ge=1, le=9_999_999_999, description="The taxon chosen when the name "
+                               "matched several")
+    filters: NcbiFiltersIn = NcbiFiltersIn()
+    destination: str | None = Field(default=None, max_length=4096)
+    folder: str | None = Field(default=None, max_length=400)
+
+
+class NcbiStartRequest(NcbiPlanRequest):
+    tax_id: int = Field(ge=1, le=9_999_999_999)
+    confirm_genomes: int = Field(ge=1, description="The number of genomes the plan showed")
+    confirm_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$", description="The plan's accession-list fingerprint")
+
+
+class NcbiTaxonRead(BaseModel):
+    tax_id: int
+    name: str
+    rank: str | None
+    bacterial: bool
+
+
+class NcbiPlanRead(BaseModel):
+    status: Literal["ready", "choose_taxon", "too_many", "no_genomes"]
+    query: str
+    filters: dict[str, Any]
+    candidates: list[NcbiTaxonRead]
+    taxon: NcbiTaxonRead | None
+    total_count: int | None = None
+    limit: int | None = None
+    query_url: str | None = None
+    genomes: int = 0
+    fingerprint: str | None = None
+    species: int | None = None
+    unclassified: int | None = None
+    by_species: list[dict[str, Any]] = []
+    type_material: int | None = None
+    reference_genomes: int | None = None
+    preview: list[dict[str, Any]] = []
+    download: dict[str, Any] | None = None
+    zip_estimate_bytes: int | None = None
+    fasta_estimate_bytes: int | None = None
+    required_bytes: int | None = None
+    db_dir: str | None = None
+    folder: str | None = None
+    target_path: str | None = None
+    host_target_path: str | None = None
+    free_bytes: int | None = None
+    available_bytes: int | None = None
+    enough: bool | None = None
+    target_exists: bool | None = None

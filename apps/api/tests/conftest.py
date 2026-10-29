@@ -73,6 +73,19 @@ def sync_queue(monkeypatch):
     return queue
 
 
+@pytest.fixture(autouse=True)
+def hidden_mlst(monkeypatch, request):
+    """mlst is hidden unless a test asks for it (real_mlst, or a stand-in that sets ARVA_TOOL_MLST itself), so that
+    its bundled schemes do not appear as a database in the other tests."""
+    from arva_tools import registry
+
+    registry._CACHE.pop("mlst", None)
+    if "real_mlst" not in request.fixturenames:
+        monkeypatch.setenv("ARVA_TOOL_MLST", "/nonexistent/mlst")
+    yield
+    registry._CACHE.pop("mlst", None)
+
+
 @pytest.fixture
 def held_queue(monkeypatch):
     """A task queue whose jobs wait, as when no worker is free: tests run them by calling the worker task."""

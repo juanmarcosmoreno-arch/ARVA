@@ -4,6 +4,7 @@ import { AppShell } from "@/components/layout/AppShell";
 import { SplashScreen } from "@/components/layout/SplashScreen";
 import { DashboardPage } from "@/pages/DashboardPage";
 import { ExplorerListPage, ExplorerPage } from "@/pages/ExplorerPage";
+import { GenomicPage } from "@/pages/GenomicPage";
 import { GuidePage } from "@/pages/GuidePage";
 import { ImportPage } from "@/pages/ImportPage";
 import { NotFoundPage, PlannedModulePage } from "@/pages/PlannedModulePage";
@@ -35,6 +36,7 @@ export const routes = [
       { path: "settings", element: <SettingsPage /> },
       { path: "tools", element: <ToolsPage /> },
       { path: "explorer", element: <ExplorerListPage /> },
+      { path: "genomic", element: <GenomicPage /> },
       { path: "explorer/:annotationId", element: <ExplorerPage /> },
       { path: "modules/:key", element: <PlannedModulePage /> },
       { path: "*", element: <NotFoundPage /> },

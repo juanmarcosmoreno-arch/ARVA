@@ -16,6 +16,8 @@ from arva_tools.bakta import flags as bakta_flags
 from arva_tools.fastp import FastpParams
 from arva_tools.filtlong import FiltlongParams
 from arva_tools.flye import FlyeAdapter, FlyeParams, read_checkpoint
+from arva_tools.mlst import MlstAdapter, MlstParams
+from arva_tools.mlst import flags as mlst_flags
 from arva_tools.pilon import FLAGS as PILON_FLAGS
 from arva_tools.pilon import PilonAdapter, PilonParams, java_executable
 from arva_tools.prokka import ProkkaAdapter, ProkkaParams
@@ -63,6 +65,8 @@ POLISHING_JOBS = (RACON_JOB, PILON_JOB)
 BAKTA_JOB = "bakta_annotation"
 PROKKA_JOB = "prokka_annotation"
 ANNOTATION_JOBS = (BAKTA_JOB, PROKKA_JOB)
+MLST_JOB = "mlst_typing"
+SPECIES_JOB = "species_identification"
 
 
 class ToolUnavailableError(RuntimeError):
@@ -595,6 +599,57 @@ def create_prokka_job(db: Session, sample: Sample, assembly: Assembly, params: P
     db.add(job)
     db.commit()
     _enqueue([job], run_prokka_job)
+    db.refresh(job)
+    return job
+
+
+def create_mlst_job(db: Session, sample: Sample, assembly: Assembly, params: MlstParams, record: ReferenceDatabase,
+                    provenance: dict) -> AnalysisJob:
+    """One mlst run of an assembly with the PubMLST schemes mlst bundles (recorded as a read-only database)."""
+    from app.services.databases import record_use
+    from app.tasks.mlst import run_mlst_job
+
+    tool = require_tool("mlst")
+    res = effective_resources(db)
+    params.threads = res.cap_threads(params.threads)
+    params.validate()
+    _check_flags(MlstAdapter.help_options, tool, tuple(mlst_flags(params)), tool.path or "mlst")
+    parameters = {**params.as_dict(), "assembly": assembly_record(assembly), **provenance}
+    job = _tool_job(sample, MLST_JOB, tool, parameters, [], res.record(params.threads))
+    record_use(job, record)
+    db.add(job)
+    db.commit()
+    _enqueue([job], run_mlst_job)
+    db.refresh(job)
+    return job
+
+
+def create_species_job(db: Session, sample: Sample, assembly: Assembly, method: str, threads: int | None,
+                       record: ReferenceDatabase, provenance: dict) -> AnalysisJob:
+    """One species identification of an assembly with one method against one database (record_use keeps its kind,
+    version, version source, checksum and path on the job)."""
+    from arva_tools import gtdbtk as gtdbtk_tool
+
+    from app.services.databases import record_use
+    from app.services.species import METHODS
+    from app.tasks.species import ADAPTERS, FLAGS, PARAMS, run_species_job
+
+    tool_id = METHODS[method]["tool"]
+    tool = require_tool(tool_id)
+    res = effective_resources(db)
+    if method == "gtdbtk" and res.memory_gb < gtdbtk_tool.REQUIRED_MEMORY_GB:
+        raise ValueError(f"GTDB-Tk needs about {gtdbtk_tool.REQUIRED_MEMORY_GB} GB of memory; the performance profile "
+                         f"gives a run {res.memory_gb} GB")
+    params = PARAMS[method](threads=res.cap_threads(threads or res.threads))
+    params.validate()
+    _check_flags(ADAPTERS[method].help_options, tool, FLAGS[method], tool.path or tool_id)
+    parameters = {"method": method, "settings": params.as_dict(), "assembly": assembly_record(assembly),
+                  **provenance}
+    job = _tool_job(sample, SPECIES_JOB, tool, parameters, [], res.record(params.threads))
+    record_use(job, record)
+    db.add(job)
+    db.commit()
+    _enqueue([job], run_species_job)
     db.refresh(job)
     return job
 

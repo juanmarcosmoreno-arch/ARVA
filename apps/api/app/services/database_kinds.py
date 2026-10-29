@@ -31,7 +31,8 @@ class DatabaseKind:
     recognise: str
     version_from: str
     typical_size: str
-    # "catalogue": ARVA can download the versions database_catalogue.py lists; "register": register-only.
+    # "catalogue": ARVA can download the versions database_catalogue.py lists; "register": register-only;
+    # "bundled": shipped inside a tool's package, recorded by ARVA when the tool is found.
     download: str
     download_note: str
     sources: tuple[str, ...]
@@ -102,7 +103,7 @@ KINDS: tuple[DatabaseKind, ...] = (
         description="The Genome Taxonomy Database release package GTDB-Tk classifies genomes against.",
         tools=(ToolUse("GTDB-Tk", "R232 needs GTDB-Tk 2.7.0 or later; R226 and R220: 2.4.x to 2.6.1; R214 and "
                                   "R207_v2: 2.1.0 to 2.3.2 (GTDB-Tk installation guide); GTDB-Tk 2.8.0 accepts R232 "
-                                  "only"),),
+                                  "only", integrated=True),),
         source_url="https://data.gtdb.ecogenomic.org/releases/",
         licence="CC BY-SA 4.0 (GTDB downloads page)",
         licence_url="https://creativecommons.org/licenses/by-sa/4.0/",
@@ -148,7 +149,7 @@ KINDS: tuple[DatabaseKind, ...] = (
         description="A sylph database file (.syldb, or .syl2db for two-stage databases) of sketched genomes, for "
                     "profiling reads with sylph profile.",
         tools=(ToolUse("sylph", ".syl2db databases need sylph 1.0.0 or later; the sylph documentation states no "
-                                "requirement for .syldb databases"),),
+                                "requirement for .syldb databases", integrated=True),),
         source_url="https://sylph-docs.github.io/pre%E2%80%90built-databases/",
         licence="sylph: MIT or Apache-2.0; the pre-built databases state no licence of their own",
         citation="Shaw J., Yu Y.W. (2024) Rapid species-level metagenome profiling and containment estimation with "
@@ -168,7 +169,7 @@ KINDS: tuple[DatabaseKind, ...] = (
         name="Mash sketches",
         description="A Mash sketch file (.msh), such as the RefSeq sketches on the Mash data page, for fast "
                     "distance estimates with mash dist.",
-        tools=(ToolUse("Mash", "the Mash data page states no version requirement"),),
+        tools=(ToolUse("Mash", "the Mash data page states no version requirement", integrated=True),),
         source_url="https://mash.readthedocs.io/en/latest/data.html",
         licence="Not stated on the Mash data page (RefSeq is NCBI data)",
         citation="Ondov B.D. et al. (2016) Mash: fast genome and metagenome distance estimation using MinHash. "
@@ -375,13 +376,45 @@ KINDS: tuple[DatabaseKind, ...] = (
         sources=("spaTyper 0.3.3 wheel: spaTyper/utils.py, spaTyper/spa_typing.py",),
     ),
     DatabaseKind(
+        key="mlst_schemes",
+        name="PubMLST typing schemes (bundled with mlst)",
+        description="The MLST schemes mlst ships in its own package: each scheme's profiles (ST definitions) and "
+                    "allele sequences, and the BLAST index mlst searches. ARVA reads them where mlst's environment "
+                    "installed them, records their date, scheme list and checksum on every MLST job, and ships no "
+                    "updater.",
+        tools=(ToolUse("mlst", "mlst 2.35.0 reads db/pubmlst (--datadir) and db/blast/mlst.fa (--blastdb)",
+                       integrated=True),),
+        source_url="https://pubmlst.org/",
+        licence="PubMLST terms (updated 2026-05-13): data submitted up to 31 December 2024 may be used and "
+                "redistributed with citation; data submitted from 1 January 2025 only for non-commercial academic "
+                "research or public health surveillance, and not redistributed",
+        licence_url="https://pubmlst.org/terms-conditions",
+        citation="Jolley K.A., Bray J.E., Maiden M.C.J. (2018) Open-access bacterial population genomics: BIGSdb "
+                 "software, the PubMLST.org website and their applications. Wellcome Open Research 3:124, "
+                 "doi:10.12688/wellcomeopenres.14826.1.",
+        recognise="pubmlst/<scheme>/<scheme>.txt profile files with <scheme>_info.json, and blast/mlst.fa.njs with "
+                  "the BLAST index files it lists.",
+        version_from="The download_date every scheme's <scheme>_info.json gives (all the same); db/VERSION.txt and "
+                     "the BLAST index's last-updated are recorded beside it.",
+        typical_size="About 190 MB (mlst 2.35.0: 162 schemes).",
+        download="bundled",
+        download_note="Part of mlst's package: it changes only when mlst's environment is rebuilt from a new lock. "
+                      "ARVA ships no updater (PubMLST's API needs an account for current data).",
+        sources=("mlst 2.35.0 package (Bioconda mlst-2.35.0-hdfd78af_1): README.md, bin/mlst, perl5/MLST/Scheme.pm, "
+                 "db/", "pubmlst.org/terms-conditions (updated 2026-05-13)"),
+        unconfirmed=("9 schemes come from the Institut Pasteur's BIGSdb (bigsdb.pasteur.fr); its terms were not "
+                     "checked.",
+                     "Which records were submitted after 31 December 2024: the files give only each scheme's last "
+                     "update."),
+    ),
+    DatabaseKind(
         key="reference_genomes",
         name="Reference genome collection",
         description="Genomes of known species (for example type and reference strains) to identify a genome's "
                     "species by average nucleotide identity (FastANI or skani), for any genus: an NCBI Datasets "
                     "genome package, a FastANI reference list (--rl) or a folder of FASTA files.",
-        tools=(ToolUse("FastANI", "--rl takes a file with one genome path per line"),
-               ToolUse("skani", "skani dist and skani search read FASTA genomes or sketches")),
+        tools=(ToolUse("FastANI", "--rl takes a file with one genome path per line", integrated=True),
+               ToolUse("skani", "skani dist and skani search read FASTA genomes or sketches", integrated=True)),
         source_url="https://www.ncbi.nlm.nih.gov/datasets/docs/v2/reference-docs/data-packages/genome/",
         licence="NCBI data; each genome's own terms apply (NCBI Datasets)",
         citation="Jain C. et al. (2018) High throughput ANI analysis of 90K prokaryotic genomes reveals clear "
@@ -434,9 +467,29 @@ def bakta_version() -> str | None:
     return d.version if d.path else None
 
 
-def compatibility(kind_key: str, version_json: dict | None = None, installed: str | None = None) -> Compatibility:
-    """Whether the tool version ARVA runs can read a database of this kind. Only Bakta is integrated so far; for the
-    other kinds the tool is not installed and compatibility is unknown (the kind lists what its docs require)."""
+# The kinds species identification reads whose files state no version requirement ARVA could check.
+_NO_REQUIREMENT = {"reference_genomes": "FastANI and skani", "mash": "Mash", "sylph": "sylph"}
+
+
+def compatibility(kind_key: str, version_json: dict | None = None, installed: str | None = None,
+                  version: str | None = None) -> Compatibility:
+    """Whether the tool version ARVA runs can read a database of this kind: Bakta by its schema, GTDB-Tk by the GTDB
+    release (VERSION_DATA), mlst's bundled schemes always; the kinds species identification reads without a stated
+    requirement are compatible; for the other kinds the tool is not integrated and compatibility is unknown (the
+    kind lists what its docs require)."""
+    if kind_key == "mlst_schemes":
+        return Compatibility("compatible", "bundled_with_tool", {"tool": "mlst"})
+    if kind_key in _NO_REQUIREMENT:
+        return Compatibility("compatible", "no_requirement", {"tool": _NO_REQUIREMENT[kind_key]})
+    if kind_key == "gtdbtk":
+        from arva_tools.gtdbtk import COMPATIBLE_DATA
+
+        params: dict[str, str | int] = {"tool": "GTDB-Tk", "version": "2.8.0", "needs": ", ".join(COMPATIBLE_DATA),
+                                        "release": version or "?"}
+        if not version:
+            return Compatibility("unknown", "release_unknown", params)
+        return Compatibility("compatible" if version in COMPATIBLE_DATA else "incompatible",
+                             "release_ok" if version in COMPATIBLE_DATA else "release_mismatch", params)
     if kind_key != "bakta":
         return Compatibility("unknown", "tool_not_integrated", {"tool": BY_KEY[kind_key].tools[0].tool})
     installed = installed if installed is not None else bakta_version()

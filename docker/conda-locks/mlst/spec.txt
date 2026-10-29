@@ -1,0 +1,5 @@
+# Pinned spec of ARVA's mlst environment; scripts/conda_locks.py update mlst solves it for each platform.
+# mlst 2.35.0 (Torsten Seemann, GPL-2.0) with the PubMLST schemes bundled in its package.
+mlst=2.35.0=hdfd78af_1
+# The same BLAST+ on both platforms (2.17.0 has no linux-aarch64 build in Bioconda when this was pinned).
+blast=2.16.0

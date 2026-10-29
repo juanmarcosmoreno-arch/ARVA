@@ -12,6 +12,9 @@ import {
 } from "@/components/charts/QcCharts";
 import { AnnotationDialog } from "@/components/annotation/AnnotationDialog";
 import { AnnotationTab } from "@/components/annotation/AnnotationTab";
+import { GenomicTab } from "@/components/genomic/GenomicTab";
+import { MlstDialog } from "@/components/genomic/MlstDialog";
+import { SpeciesDialog } from "@/components/genomic/SpeciesDialog";
 import { AssemblyTab } from "@/components/assembly/AssemblyTab";
 import { AssemblyDialog } from "@/components/assembly/AssemblyDialog";
 import { PolishingDialog } from "@/components/assembly/PolishingDialog";
@@ -44,6 +47,8 @@ import { fmtBases, fmtBp, fmtBytes, fmtDate, fmtDuration, fmtInt, fmtNum, fmtPct
 import { derivedDescription, fileValidation, jobError, seqstatsWarnings } from "@/lib/messages";
 import { lineageOrder } from "@/lib/filters";
 import { ANNOTATION_JOBS } from "@/lib/annotation";
+import { MLST_JOB } from "@/lib/mlst";
+import { SPECIES_JOB } from "@/lib/species";
 import { ASSEMBLY_JOBS } from "@/lib/flye";
 import { QUAST_JOB, jobRelativePath } from "@/lib/quast";
 import { NANOPLOT_JOB } from "@/lib/nanoplot";
@@ -52,7 +57,7 @@ import { FILTER_JOBS, IMPORT_JOBS, RAW_SIGNAL_JOBS, hasReads, inProcessTool, job
 import type { AnalysisJobDetail, HeaderSummary, RawFile, SequencingTechnology } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-type Tab = "files" | "qc" | "filtering" | "assembly" | "annotation" | "history" | "metadata";
+type Tab = "files" | "qc" | "filtering" | "assembly" | "annotation" | "genomic" | "history" | "metadata";
 
 export function SampleDetailPage() {
   const { sampleId = "" } = useParams();
@@ -74,9 +79,11 @@ export function SampleDetailPage() {
   const allJobs = jobs.data ?? [];
   const qcJobs = allJobs.filter(
     (j) =>
-      !FILTER_JOBS.has(j.job_type) && !IMPORT_JOBS.has(j.job_type) && !RAW_SIGNAL_JOBS.has(j.job_type) && !ASSEMBLY_JOBS.has(j.job_type) && !ANNOTATION_JOBS.has(j.job_type),
+      !FILTER_JOBS.has(j.job_type) && !IMPORT_JOBS.has(j.job_type) && !RAW_SIGNAL_JOBS.has(j.job_type) && !ASSEMBLY_JOBS.has(j.job_type) && !ANNOTATION_JOBS.has(j.job_type) &&
+      j.job_type !== MLST_JOB && j.job_type !== SPECIES_JOB,
   );
   const annotationJobs = allJobs.filter((j) => ANNOTATION_JOBS.has(j.job_type));
+  const genomicJobs = allJobs.filter((j) => j.job_type === MLST_JOB || j.job_type === SPECIES_JOB);
   const filterJobs = allJobs.filter((j) => FILTER_JOBS.has(j.job_type));
   const assemblyJobs = allJobs.filter((j) => ASSEMBLY_JOBS.has(j.job_type));
   const signalJobs = allJobs.filter((j) => RAW_SIGNAL_JOBS.has(j.job_type));
@@ -90,7 +97,13 @@ export function SampleDetailPage() {
   const [polishDraft, setPolishDraft] = useState<string | null | undefined>(undefined);
   const polishOpen = polishDraft !== undefined;
   const [annotateOpen, setAnnotateOpen] = useState(false);
-  const assemblies = useQuery({ queryKey: ["assemblies", sampleId], queryFn: () => api.assemblies(sampleId), enabled: quastOpen || polishOpen || annotateOpen });
+  const [mlstOpen, setMlstOpen] = useState(false);
+  const [speciesOpen, setSpeciesOpen] = useState(false);
+  const assemblies = useQuery({
+    queryKey: ["assemblies", sampleId],
+    queryFn: () => api.assemblies(sampleId),
+    enabled: quastOpen || polishOpen || annotateOpen || mlstOpen || speciesOpen,
+  });
   const queryClient = useQueryClient();
   const finishedCount = allJobs.filter((j) => j.status === "completed" || j.status === "failed" || j.status === "cancelled").length;
   useEffect(() => {
@@ -99,6 +112,8 @@ export function SampleDetailPage() {
     queryClient.invalidateQueries({ queryKey: ["crosscheck"] });
     queryClient.invalidateQueries({ queryKey: ["assemblies", sampleId] });
     queryClient.invalidateQueries({ queryKey: ["annotations", sampleId] });
+    queryClient.invalidateQueries({ queryKey: ["mlst", sampleId] });
+    queryClient.invalidateQueries({ queryKey: ["species", sampleId] });
   }, [finishedCount, sampleId, queryClient]);
 
   const stages: Stage[] = [
@@ -148,7 +163,16 @@ export function SampleDetailPage() {
           ? t("annotation.timelineRuns", { count: annotationJobs.filter((j) => j.status === "completed").length })
           : t("annotation.timelineNotRun"),
     },
-    { key: "biology", label: t("timeline.biology"), state: "planned", phase: 5 },
+    {
+      key: "genomic",
+      label: t("sample.genomic"),
+      state: genomicJobs.some(isActive) ? "running" : genomicJobs[0]?.status === "failed" ? "failed" : genomicJobs.some((j) => j.status === "completed") ? "done" : "ready",
+      detail: genomicJobs.some(isActive)
+        ? t("mlst.timelineRunning")
+        : genomicJobs.some((j) => j.status === "completed")
+          ? t("annotation.timelineRuns", { count: genomicJobs.filter((j) => j.status === "completed").length })
+          : t("annotation.timelineNotRun"),
+    },
   ];
 
   if (sample.isLoading) return <Skeleton className="h-40" />;
@@ -190,8 +214,8 @@ export function SampleDetailPage() {
       <Card className="px-4 pb-2 pt-5">
         <AnalysisTimeline
           stages={stages}
-          selected={tab === "files" ? "raw" : tab === "qc" ? "qc" : tab === "filtering" ? "filtering" : tab === "assembly" ? "assembly" : tab === "annotation" ? "annotation" : undefined}
-          onSelect={(k) => setTab(k === "raw" ? "files" : k === "filtering" ? "filtering" : k === "assembly" ? "assembly" : k === "annotation" ? "annotation" : "qc")}
+          selected={tab === "files" ? "raw" : tab === "qc" || tab === "filtering" || tab === "assembly" || tab === "annotation" || tab === "genomic" ? tab : undefined}
+          onSelect={(k) => setTab(k === "raw" ? "files" : k === "filtering" || k === "assembly" || k === "annotation" || k === "genomic" ? k : "qc")}
         />
       </Card>
 
@@ -204,6 +228,7 @@ export function SampleDetailPage() {
           { value: "filtering", label: `${t("sample.filtering")}${filterJobs.length ? ` (${filterJobs.length})` : ""}` },
           { value: "assembly", label: `${t("sample.assembly")}${assemblyJobs.length ? ` (${assemblyJobs.length})` : ""}` },
           { value: "annotation", label: `${t("sample.annotation")}${annotationJobs.length ? ` (${annotationJobs.length})` : ""}` },
+          { value: "genomic", label: `${t("sample.genomic")}${genomicJobs.length ? ` (${genomicJobs.length})` : ""}` },
           { value: "history", label: `${t("sample.history")}${jobs.data?.length ? ` (${jobs.data.length})` : ""}` },
           { value: "metadata", label: t("sample.metadata") },
         ]}
@@ -244,6 +269,7 @@ export function SampleDetailPage() {
         />
       )}
       {tab === "annotation" && <AnnotationTab sampleId={s.id} jobs={allJobs} onNew={() => setAnnotateOpen(true)} />}
+      {tab === "genomic" && <GenomicTab sampleId={s.id} jobs={allJobs} onMlst={() => setMlstOpen(true)} onSpecies={() => setSpeciesOpen(true)} />}
       {tab === "history" && <HistoryTab jobs={jobs.data ?? []} files={files.data ?? []} openJob={params.get("job")} />}
       {tab === "metadata" && (
         <Card>
@@ -289,6 +315,8 @@ export function SampleDetailPage() {
       {annotateOpen && assemblies.data && (
         <AnnotationDialog open={annotateOpen} onOpenChange={setAnnotateOpen} sampleId={s.id} assemblies={assemblies.data} />
       )}
+      {mlstOpen && assemblies.data && <MlstDialog open={mlstOpen} onOpenChange={setMlstOpen} sampleId={s.id} assemblies={assemblies.data} />}
+      {speciesOpen && assemblies.data && <SpeciesDialog open={speciesOpen} onOpenChange={setSpeciesOpen} sampleId={s.id} assemblies={assemblies.data} />}
     </div>
   );
 }

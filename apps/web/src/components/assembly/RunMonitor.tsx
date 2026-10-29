@@ -9,6 +9,8 @@ import { dictionaries, type TranslationKey, useT } from "@/i18n";
 import { api } from "@/lib/api";
 import { ANNOTATION_JOBS, BAKTA_JOB } from "@/lib/annotation";
 import { elapsedSeconds } from "@/lib/assembly";
+import { MLST_JOB } from "@/lib/mlst";
+import { SPECIES_JOB } from "@/lib/species";
 import { FLYE_JOB, stageStates } from "@/lib/flye";
 import { POLISHING_JOBS, RACON_JOB } from "@/lib/polishing";
 import { fmtDate, fmtDuration } from "@/lib/format";
@@ -23,6 +25,8 @@ const TEXT = {
   [FLYE_JOB]: { running: "assembly.running", starting: "assembly.startingTool", liveLog: "assembly.liveLog", failed: "assembly.failed", cancelled: "assembly.cancelled", failedAt: "assembly.failedAt", failedNote: "assembly.failedNote", stages: "assembly.stages" },
   [QUAST_JOB]: { running: "quast.running", starting: "quast.startingTool", liveLog: "quast.liveLog", failed: "quast.failed", cancelled: "quast.cancelled", failedAt: "quast.failedAt", failedNote: "quast.failedNote", stages: "quast.stages" },
   [BAKTA_JOB]: { running: "annotation.running", starting: "annotation.startingTool", liveLog: "annotation.liveLog", failed: "annotation.failed", cancelled: "annotation.cancelled", failedAt: "annotation.failedAt", failedNote: "annotation.failedNote", stages: "annotation.stages" },
+  [MLST_JOB]: { running: "mlst.running", starting: "mlst.startingTool", liveLog: "mlst.liveLog", failed: "mlst.failed", cancelled: "mlst.cancelled", failedAt: "mlst.failedAt", failedNote: "mlst.failedNote", stages: "mlst.stages" },
+  [SPECIES_JOB]: { running: "species.running", starting: "species.startingTool", liveLog: "species.liveLog", failed: "species.failed", cancelled: "species.cancelled", failedAt: "species.failedAt", failedNote: "species.failedNote", stages: "species.stages" },
   [RACON_JOB]: { running: "polishing.running", starting: "polishing.startingTool", liveLog: "polishing.liveLog", failed: "polishing.failed", cancelled: "polishing.cancelled", failedAt: "polishing.failedAt", failedNote: "polishing.failedNote", stages: "polishing.stages" },
 } as const satisfies Record<string, Record<string, TranslationKey>>;
 
@@ -33,7 +37,11 @@ const texts = (job: AnalysisJobDetail) =>
       ? TEXT[RACON_JOB]
       : ANNOTATION_JOBS.has(job.job_type)
         ? TEXT[BAKTA_JOB]
-        : TEXT[FLYE_JOB];
+        : job.job_type === MLST_JOB
+          ? TEXT[MLST_JOB]
+          : job.job_type === SPECIES_JOB
+            ? TEXT[SPECIES_JOB]
+            : TEXT[FLYE_JOB];
 
 /** A polishing step's name in the interface language: "Racon round 2", "Reads aligned to both", ... */
 function stageName(t: ReturnType<typeof useT>, stage: string) {

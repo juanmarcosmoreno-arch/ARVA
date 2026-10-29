@@ -1,0 +1,11 @@
+This is mlst 2.35.0 running on linux with Perl 5.032001
+Checking mlst dependencies:
+Found 'blastn' => /env/bin/blastn
+Found 'any2fasta' => /env/bin/any2fasta
+Excluding 4 schemes: vcholerae_2 abaumannii senterica_achtman_2 ecoli
+Running: any2fasta -q input\/genome\.fna > /tmp/XXXXXXXXXX/mlst.fna
+Running:  blastn -query /tmp/XXXXXXXXXX/mlst.fna -out /tmp/XXXXXXXXXX/mlst.bls -db \/env\/db\/blast\/mlst\.fa -num_threads 2 -ungapped -dust no -word_size 32 -max_target_seqs 100000 -perc_identity 95 -evalue 1E-20 -outfmt '6 sseqid slen length nident qseqid qstart qend qseq sstrand'
+Writing JSON: mlst.json
+Found 0 novel alleles
+Remember that --minscore is only used when using automatic scheme detection.
+Done.

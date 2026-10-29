@@ -21,10 +21,12 @@ from app.api.routes import (
     files,
     imports,
     metadata,
+    mlst,
     overview,
     projects,
     reports,
     samples,
+    species,
     system,
     tools,
 )
@@ -110,7 +112,7 @@ def create_app() -> FastAPI:
                 "storage": storage}
 
     for module in (dashboard, projects, samples, files, imports, metadata, analyses, tools, reports, overview,
-                   assemblies, annotations, explorer, databases, system):
+                   assemblies, annotations, explorer, databases, mlst, species, system):
         app.include_router(module.router, prefix=settings.api_v1_prefix)
     return app
 

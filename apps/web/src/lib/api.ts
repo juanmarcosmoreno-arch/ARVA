@@ -2,6 +2,19 @@ import { translator } from "@/i18n";
 import { messageText } from "@/lib/messages";
 import { useSettings } from "@/store/settings";
 import type {
+  MlstOverview,
+  MlstPlan,
+  MlstProjectOverview,
+  MlstRequest,
+  MlstResult,
+  NcbiFilters,
+  NcbiPlan,
+  SpeciesMethod,
+  SpeciesOverview,
+  SpeciesPlan,
+  SpeciesProjectOverview,
+  SpeciesRequest,
+  SpeciesResult,
   Annotation,
   AnnotationCharts,
   AnnotationExportFormat,
@@ -311,6 +324,26 @@ export const api = {
     request<AnnotationPlan>(`/assemblies/${assemblyId}/annotate/prokka/preview`, json("POST", body)),
   runProkka: (assemblyId: string, body: ProkkaRequest) => request<AnalysisJob>(`/assemblies/${assemblyId}/annotate/prokka`, json("POST", body)),
   annotations: (sampleId: string) => request<Annotation[]>(`/samples/${sampleId}/annotations`),
+  mlstPreview: (assemblyId: string, scheme: string | null) =>
+    request<MlstPlan>(`/assemblies/${assemblyId}/mlst/preview`, json("POST", { scheme })),
+  runMlst: (assemblyId: string, body: MlstRequest) => request<AnalysisJob>(`/assemblies/${assemblyId}/mlst`, json("POST", body)),
+  mlstResults: (sampleId: string) => request<MlstResult[]>(`/samples/${sampleId}/mlst`),
+  mlstProject: (projectId: string) => request<MlstProjectOverview>(`/projects/${projectId}/mlst`),
+  mlstProjectCsvUrl: (projectId: string) => `${BASE}/projects/${projectId}/mlst.csv`,
+  mlstOverview: () => request<MlstOverview>("/mlst"),
+  mlstFileUrl: (id: string, kind: string) => `${BASE}/mlst/${id}/files/${encodeURIComponent(kind)}`,
+  speciesPreview: (assemblyId: string, method: SpeciesMethod, databaseId: string | null) =>
+    request<SpeciesPlan>(`/assemblies/${assemblyId}/species/preview`, json("POST", { method, database_id: databaseId })),
+  runSpecies: (assemblyId: string, body: SpeciesRequest) => request<AnalysisJob>(`/assemblies/${assemblyId}/species`, json("POST", body)),
+  speciesResults: (sampleId: string) => request<SpeciesResult[]>(`/samples/${sampleId}/species`),
+  speciesProject: (projectId: string) => request<SpeciesProjectOverview>(`/projects/${projectId}/species`),
+  speciesProjectCsvUrl: (projectId: string) => `${BASE}/projects/${projectId}/species.csv`,
+  speciesOverview: () => request<SpeciesOverview>("/species"),
+  speciesFileUrl: (id: string, kind: string) => `${BASE}/species/${id}/files/${encodeURIComponent(kind)}`,
+  ncbiPlan: (body: { taxon: string; tax_id: number | null; filters: NcbiFilters; destination?: string | null; folder?: string | null }) =>
+    request<NcbiPlan>("/databases/ncbi/plan", json("POST", body)),
+  ncbiStart: (body: { taxon: string; tax_id: number; filters: NcbiFilters; confirm_genomes: number; confirm_fingerprint: string; destination?: string | null; folder?: string | null }) =>
+    request<ReferenceDatabase>("/databases/ncbi", json("POST", body)),
   annotation: (id: string) => request<Annotation>(`/annotations/${id}`),
   annotationFeatures: (id: string, q: FeatureQuery) => {
     const params = new URLSearchParams({ sort: q.sort, descending: String(q.descending), limit: String(q.limit), offset: String(q.offset) });

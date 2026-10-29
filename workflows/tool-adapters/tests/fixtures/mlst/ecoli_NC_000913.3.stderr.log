@@ -1,0 +1,29 @@
+This is mlst 2.35.0 running on linux with Perl 5.032001
+Checking mlst dependencies:
+Found 'blastn' => /env/bin/blastn
+Found 'any2fasta' => /env/bin/any2fasta
+Excluding 4 schemes: abaumannii ecoli senterica_achtman_2 vcholerae_2
+Running: any2fasta -q input\/genome\.fna > /tmp/XXXXXXXXXX/mlst.fna
+Running:  blastn -query /tmp/XXXXXXXXXX/mlst.fna -out /tmp/XXXXXXXXXX/mlst.bls -db \/env\/db\/blast\/mlst\.fa -num_threads 2 -ungapped -dust no -word_size 32 -max_target_seqs 100000 -perc_identity 95 -evalue 1E-20 -outfmt '6 sseqid slen length nident qseqid qstart qend qseq sstrand'
+Found exact allele match ecloacae.rplB-123
+Found exact allele match ecoli_achtman_4.adk-10
+Found exact allele match ecoli_achtman_4.icd-8
+Found exact allele match ecoli_achtman_4.recA-2
+Found exact allele match salmonella.thrA-1279
+Found exact allele match salmonella.sucA-581
+Found exact allele match salmonella.hisD-1549
+Found exact allele match salmonella.dnaN-559
+Found exact allele match salmonella.aroC-621
+Found exact allele match ecoli_achtman_4.purA-8
+Found exact allele match cfreundii.lysP-308
+Found exact allele match ecoli_achtman_4.fumC-11
+Found exact allele match ecoli_achtman_4.gyrB-4
+Found exact allele match ecoli_achtman_4.mdh-8
+Found exact allele match cfreundii.dnaG-258
+Found exact allele match ecloacae.dnaA-688
+Found exact allele match cronobacter.fusA-92
+Found exact allele match salmonella.hemD-1012
+Writing JSON: mlst.json
+Found 0 novel alleles
+mlst also supports --json output for the modern bioinformatician.
+Done.

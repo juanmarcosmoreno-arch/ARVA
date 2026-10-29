@@ -1396,11 +1396,162 @@ windows; `apps/web/src/test/circular.test.tsx` checks the ring geometry (angles,
 across the origin, merging, hit-testing, scales, ticks) and the chart helpers. On ARVA's synthetic genomes these
 figures describe the tools, not biology.
 
+## MLST (Phase 5C1)
+
+MLST (Maiden et al. 1998) names an isolate by the alleles of a few housekeeping loci and the sequence type (ST) of
+their combination. ARVA runs mlst 2.35.0 (Seemann, https://github.com/tseemann/mlst) on one assembly of the
+sample's lineage (draft or polished), written as `input/genome.fna` without FASTA descriptions, with the PubMLST
+schemes bundled in mlst's package. What mlst does was read in its source (`bin/mlst`, `perl5/MLST/Scheme.pm`) and
+README:
+
+- **Search**: `any2fasta`, then `blastn -ungapped -dust no -word_size 32 -max_target_seqs 100000 -perc_identity
+  <minid> -evalue 1E-20` against every allele of every scheme. A hit counts when identical bases / allele length ≥
+  `--mincov` (%). Full length and 100 % identity: exact allele `n`; full length otherwise: `~n` (novel); shorter:
+  `n?` (partial); none: `-`; several exact alleles: `n,m`. The `n` of `~n` and `n?` is the first such hit in BLAST's
+  output, not necessarily the closest allele (a fixture shows a partial `gmk(725?)` for a gene cut inside allele 1).
+  Because the search is ungapped, an allele with an insertion or deletion is at best partial.
+- **Scheme and ST**: each scheme scores int(90 × (exact + 0.7 novel + 0.5 partial) / loci) + 10 when the exact
+  combination is in its profile file (an ST); the best scheme is reported when its score reaches `--minscore`
+  (default 50, an *ad hoc* value according to the README). With equal best scores mlst reports one of them in Perl's
+  hash order and prints `WARNING: a(ST)==b(ST) score=n`; ARVA turns that line into the *tied schemes* warning. With
+  `--scheme`, mlst sets the minimum score to 0 and ignores `--exclude`; ARVA then passes `--minscore 0` and no
+  `--exclude`, so the recorded options are those applied. mlst excludes `ecoli`, `abaumannii`, `vcholerae_2` and
+  `senterica_achtman_2` by default; ARVA passes that list explicitly (the user may clear it).
+- **Clonal complex**: mlst ignores the profile file's `clonal_complex`/`CC` columns; ARVA reads the column for the
+  reported ST when the scheme has one (e.g. `ecoli_achtman_4`: ST10 → "ST10 Cplx") and otherwise shows "not
+  available from the scheme" (e.g. `saureus` has no such column).
+- **Recorded**: tool path and version; every option and mlst's defaults as its `--help` states them; the bundled
+  database's name, download date (the schemes' `<scheme>_info.json`), `db/VERSION.txt`, BLAST index date and the
+  SHA-256 over every file (checked again before the run); input and output SHA-256; mlst's log, including the exact
+  `blastn` command it ran and the other schemes with exact allele matches.
+- **Warnings (ARVA's)**: no scheme; novel, partial, missing, several or null (`0`) alleles by locus; ST not
+  assigned; tied schemes; a chosen (not detected) scheme; a scheme updated after 31 December 2024 (PubMLST's terms);
+  SYNTHETIC input. mlst's STATUS (PERFECT, NOVEL, NONE, MIXED, MISSING, BAD, OK — the last three marked unstable in
+  its README) and score are shown as mlst's.
+
+Validation on this system (real mlst 2.35.0, BLAST+ 2.16.0): NC_007795.1 (S. aureus NCTC 8325) → saureus ST8,
+PERFECT, score 100; NC_000913.3 (E. coli K-12 MG1655) → ecoli_achtman_4 ST10 (Achtman), and ST262 with
+`--scheme ecoli` (Pasteur); ARVA's SYNTHETIC genome → no scheme. Derived test inputs (documented in
+`workflows/tool-adapters/tests/fixtures/mlst/README.md`) show the novel, partial, missing and several-allele calls
+and a tie between saureus and ecoli_achtman_4 in a two-genome mixture. The genomes were downloaded from NCBI with
+their accessions and checksums recorded and deleted after the runs.
+
+## Species identification (Phase 5C2)
+
+ARVA identifies the species of one assembly of the sample's lineage (draft or polished, written as
+`input/genome.fna` without FASTA descriptions) by comparing it with a database registered in the Database Manager,
+and reads the ranked hits with fixed, cited rules. It names a species only when the evidence supports it. Every
+option is passed explicitly and recorded with the tool, its version and path, the database (kind, version, how the
+version is known, checksum when computed, path), the SHA-256 of every reference genome read, the input's and outputs'
+SHA-256, the commands and the logs.
+
+### Methods
+
+- **FastANI 1.34** (Jain et al. 2018) against a reference genome collection (NCBI Datasets package, FastANI list or
+  FASTA folder): `fastANI -q <genome> --rl <list> -o fastani.tsv -t <threads> -k 16 --fragLen 3000 --minFraction
+  0.2 --maxRatioDiff 10.0` (every value is FastANI's own default, from its `--help`). FastANI cuts the query into
+  3 kb fragments, maps them with MashMap's MinHash mapping and averages the identity of reciprocal mappings; its
+  output (README) is query, reference, ANI, bidirectional fragment mappings and total query fragments. ARVA's
+  aligned fraction is mappings / total fragments. "No ANI output is reported for a genome pair if ANI value is much
+  below 80%" (README), so a genome with no close reference gives an empty file.
+- **skani 0.4.0** (Shaw & Yu 2023) against the same collections: `skani dist -q <genome> --rl <list> -o skani.tsv -t
+  <threads> -c 125 -m 1000 -s 80 --min-af 15` (its defaults, from `--help`). skani estimates ANI from sparse chains
+  of sampled k-mers and reports the aligned fraction of both genomes (percent); ARVA uses the smaller of the two.
+  Its learned ANI model is on by default (for c ≥ 70 and ≥ 150,000 aligned bases); ARVA records when skani's log
+  says it was used. Pairs below about 80 % identity are screened out (`-s 80`) and a pair is reported only when one
+  genome has more than 15 % aligned.
+- **Mash 2.3** (Ondov et al. 2016) against a registered sketch file (.msh, e.g. RefSeq): `mash info -H` and `mash
+  info -t` record the sketch's k-mer size, sketch size, seed and each sketch's first header, then `mash dist -p
+  <threads> <sketch> <genome>`. With a sketch as reference, `-k` is refused ("inherited from the sketch"), so ARVA
+  passes only `-p`. The distance estimates a k-mer mutation rate (Mash documentation, *Distance Estimation*); it is
+  not ANI, and ARVA ranks the sketches by distance (references sharing no hash are not a hit) without a species
+  call. The organism is read from each sketch's first FASTA header (ARVA's reading).
+- **sylph 1.0.0** (Shaw & Yu 2025) against a registered .syldb: `sylph inspect` gives the database's c and k, then
+  `sylph profile <db> -r <genome> -o sylph.tsv -t <threads> -m 95 -M 10 --min-contain 7 --min-count-correct 3 -c <c>
+  -k <k>`. The assembly is passed with `-r`, as reads; on an assembly every k-mer is seen about once, so sylph cannot
+  estimate coverage (Eff_lambda LOW) and its coverage adjustment does not apply — in ARVA's runs a reference sharing
+  10 % of its k-mers got Adjusted_ANI 100.00 with Naive_ANI 92.80. ARVA therefore reads **Naive_ANI** and uses the
+  containment index (shared / sampled k-mers of the reference) as the aligned-fraction analogue (ARVA's choice).
+- **GTDB-Tk 2.8.0** (Chaumeil et al. 2022) against registered GTDB reference data (release R232, the only one 2.8.0
+  accepts): `gtdbtk classify_wf --genome_dir input --out_dir gtdbtk --extension fna --prefix gtdbtk --cpus <threads>
+  --pplacer_cpus 1 --min_af 0.5 --min_perc_aa 10 --tmpdir tmp` with GTDBTK_DATA_PATH. ARVA reads
+  `classify/gtdbtk.bac120.summary.tsv` (and `ar53`) as laid out in GTDB-Tk's source and reports GTDB-Tk's own call
+  (s__ filled: species; empty: no species within GTDB's radius). GTDB-Tk's documentation (2.8.0, *Hardware
+  requirements*) gives about 140 GB of memory for bacteria (950 GB with `--full_tree`, never used), about 100 GB for
+  archaea and about 100 GB of disk: ARVA refuses to start it when the performance profile's memory for a run is
+  below 140 GB, and never runs it silently. One pplacer thread because the documentation notes that memory varies
+  with the number of pplacer threads.
+
+### ARVA's reading and its thresholds
+
+`arva_core.species.interpret` reads the hits of FastANI, skani and sylph the same way:
+
+| Threshold | Value | Source |
+|---|---|---|
+| Species boundary | 95 % ANI | Jain C. et al. (2018) Nat Commun 9:5114, doi:10.1038/s41467-018-07641-9: 99.8 % of 8 billion genome pairs conform to >95 % intra-species and <83 % inter-species ANI |
+| Minimum aligned fraction | 0.5 | GTDB-Tk 2.8.0 `classify_wf --min_af` default ("minimum alignment fraction to assign genome to a species cluster"); applied by ARVA to every method |
+| Margin | 0.5 percentage points | ARVA's heuristic, not a literature value |
+
+- **Same species as X**: the best hit's ANI ≥ boundary + margin, its aligned fraction ≥ 0.5, it has a species name,
+  and no other species is ≥ 95 % or within the margin of it.
+- **Ambiguous**, with every reason shown: the best ANI within the margin of the boundary; a second species also ≥ 95 %
+  (e.g. *E. coli* and *Shigella flexneri*, which a collection cannot separate by ANI); another species within the
+  margin; an aligned fraction below 0.5 or unknown; a best reference without a species name.
+- **No reference in this collection within the species boundary**: the best ANI is below boundary − margin, or no
+  reference was reported. This is not a new species: it may not be in the collection.
+- **Caveats always shown**: the result can only be as good as the collection; a single-genus collection cannot
+  identify other genera; the closest reference is not type material (when the collection says so); FastANI's 80 %
+  floor; sylph on an assembly; Mash's distance is not ANI; GTDB names can differ from NCBI's.
+
+Varghese et al. (2015, Nucleic Acids Res 43:6761, doi:10.1093/nar/gkv657) showed that ANI should be read together
+with the alignment fraction; ARVA's 0.5 is GTDB-Tk's default, not a universal threshold.
+
+### Consistency checks
+
+`arva_core.species.consistency` compares the ANI species (only when ARVA's reading is *same species*) with the most
+recent MLST result of the same assembly and with the genus/species given for its most recent annotation (Bakta or
+Prokka `--genus`/`--species`). The MLST comparison uses the scheme's name only, after PubMLST's habit of genus
+initial + epithet (`saureus`, `ecoli_achtman_4`), the genus (`listeria_2`) or a prefix + epithet
+(`staphlugdunensis`): *agrees*, *agrees at genus level* or *differs — check*; a scheme can cover related species
+(S. argenteus is typed with the saureus scheme) or a complex (`bcc`), so a difference is flagged, never resolved.
+No scheme, or no ANI species, is *not comparable*.
+
+### Reference collections from NCBI Datasets
+
+The Database Manager builds a collection for a taxon with the NCBI Datasets v2 API (endpoints and parameters from
+its OpenAPI document and requests made on 2026-10-29): `GET /taxonomy/taxon/{name}` (only nodes whose lineage holds
+2, Bacteria; "Bacillus" is also a stick-insect genus), `GET /genome/taxon/{tax_id}/dataset_report` with
+`filters.assembly_source`, `filters.is_type_material`, `filters.reference_only`, `filters.exclude_atypical`,
+`tax_exact_match`, `page_size=1000` and `page_token`, then `POST /genome/download_summary` for NCBI's size estimate.
+ARVA shows the number of genomes, species and type-material genomes, NCBI's estimate and its own estimate of the
+unpacked FASTA (bases + one newline per 80 bases + ~120 bytes of header per sequence) and the free space, and
+downloads (`POST /genome/download`, genomic FASTA only) only after the user confirms that exact list (its
+fingerprint is checked again when the download starts). The package is extracted with ARVA's zip checks, every file
+compared with `md5sum.txt`, and the accessions must be the confirmed ones; the collection's version is "NCBI
+Datasets <download date> #<accession fingerprint>", recorded by ARVA (version source *download*). Only the taxon,
+the filters and the accession list are sent: no API key, e-mail or personal data. At most 2,000 genomes.
+
+### Validation on this system
+
+Real FastANI 1.34 and skani 0.4.0 on NCBI RefSeq genomes downloaded with the Datasets API (accessions and SHA-256 in
+`workflows/tool-adapters/tests/fixtures/species/README.md`, deleted after the runs): *S. aureus* NCTC 8325
+(GCF_000013425.1) against the type strains of *S. aureus* (ATCC 12600), *S. argenteus* (MSHR1132) and
+*S. epidermidis* (ATCC 14990): FastANI 99.9171 % (900/940 fragments), 88.85 % and 79.1388 %; skani 99.87 % (AF
+97.81/96.46 %) and 89.51 % → *same species as S. aureus*, consistent with mlst's saureus ST8. Without the *S.
+aureus* reference → *no reference within the boundary* (best *S. argenteus* 88.85 %). *E. coli* O157:H7 Sakai
+against K-12 MG1655 and *S. flexneri* 2a 301: 97.7623 % and 96.9917 % → *ambiguous* (two species above 95 %).
+ARVA's SYNTHETIC genome → no reference reported. Mash and sylph were run on three-genome test databases built from
+the same genomes (best *S. aureus*: Mash 931/1000 shared hashes; sylph Naive_ANI 99.60) and in the API on synthetic
+databases; they were **not** checked against the published RefSeq sketches or GTDB databases (0.25 to 24 GB).
+**GTDB-Tk was not validated**: its environment was installed from the lock only to record `--version` and
+`classify_wf -h`; no classification ran (no reference data, not enough memory).
+
 ## What ARVA does not do yet
 
 - No pass/fail thresholds: suitability depends on technology, chemistry and purpose.
 - No duplicate-read detection or k-mer analysis by ARVA itself (fastp reports a duplication estimate).
-- No taxonomic or biological interpretation, and no functional annotation of its own: names and products are the annotators'.
+- No functional annotation of its own (names and products are the annotators'), and no taxonomic call beyond ARVA's
+  reading of ANI hits against the collection you chose (above).
 - No basecalling: POD5 raw signal must be basecalled outside ARVA (Dorado or MinKNOW).
 
 ## Validation
@@ -1458,6 +1609,9 @@ specification 13.1 (QNAME convention); NCBI sra-tools wiki "HowTo: fasterq-dump"
 
 - Schwengers O, Jelonek L, Dieckmann MA, Beyvers S, Blom J, Goesmann A. Bakta: rapid and standardized annotation of bacterial genomes via alignment-free sequence identification. *Microb Genom* 2021;7(11). doi:10.1099/mgen.0.000685
 - Seemann T. Prokka: rapid prokaryotic genome annotation. *Bioinformatics* 2014;30(14):2068–2069. doi:10.1093/bioinformatics/btu153
+- Maiden MCJ, Bygraves JA, Feil E, et al. Multilocus sequence typing: a portable approach to the identification of clones within populations of pathogenic microorganisms. *Proc Natl Acad Sci U S A* 1998;95(6):3140–3145. doi:10.1073/pnas.95.6.3140
+- Seemann T. mlst. https://github.com/tseemann/mlst (software, unpublished; version 2.35.0 used)
+- Jolley KA, Bray JE, Maiden MCJ. Open-access bacterial population genomics: BIGSdb software, the PubMLST.org website and their applications. *Wellcome Open Res* 2018;3:124. doi:10.12688/wellcomeopenres.14826.1
 - Hyatt D et al. Prodigal: prokaryotic gene recognition and translation initiation site identification. *BMC Bioinformatics* 2010;11:119. doi:10.1186/1471-2105-11-119
 - Larralde M. Pyrodigal: Python bindings and interface to Prodigal, an efficient method for gene prediction in prokaryotes. *J Open Source Softw* 2022;7(72):4296. doi:10.21105/joss.04296
 - Chan PP, Lin BY, Mak AJ, Lowe TM. tRNAscan-SE 2.0: improved detection and functional classification of transfer RNA genes. *Nucleic Acids Res* 2021;49(16):9077–9096. doi:10.1093/nar/gkab688
@@ -1503,3 +1657,10 @@ specification 13.1 (QNAME convention); NCBI sra-tools wiki "HowTo: fasterq-dump"
 - Kurtz S et al. Versatile and open software for comparing large genomes. *Genome Biol* 2004;5(2):R12. doi:10.1186/gb-2004-5-2-r12
 - Wick RR, Holt KE. Polypolish: Short-read polishing of long-read bacterial genome assemblies. *PLoS Comput Biol* 2022;18(1):e1009802. doi:10.1371/journal.pcbi.1009802
 - Wick RR, Judd LM, Holt KE. Assembling the perfect bacterial genome using Oxford Nanopore and Illumina sequencing. *PLoS Comput Biol* 2023;19(3):e1010905. doi:10.1371/journal.pcbi.1010905
+- Jain C, Rodriguez-R LM, Phillippy AM, Konstantinidis KT, Aluru S. High throughput ANI analysis of 90K prokaryotic genomes reveals clear species boundaries. *Nat Commun* 2018;9:5114. doi:10.1038/s41467-018-07641-9
+- Shaw J, Yu YW. Fast and robust metagenomic sequence comparison through sparse chaining with skani. *Nat Methods* 2023;20:1661–1665. doi:10.1038/s41592-023-02018-3
+- Ondov BD et al. Mash: fast genome and metagenome distance estimation using MinHash. *Genome Biol* 2016;17:132. doi:10.1186/s13059-016-0997-x
+- Shaw J, Yu YW. Rapid species-level metagenome profiling and containment estimation with sylph. *Nat Biotechnol* 2025;43:1348–1359. doi:10.1038/s41587-024-02412-y
+- Chaumeil P-A, Mussig AJ, Hugenholtz P, Parks DH. GTDB-Tk v2: memory friendly classification with the genome taxonomy database. *Bioinformatics* 2022;38(23):5315–5316. doi:10.1093/bioinformatics/btac672
+- Varghese NJ et al. Microbial species delineation using whole genome sequences. *Nucleic Acids Res* 2015;43:6761–6771. doi:10.1093/nar/gkv657
+- NCBI Datasets v2 API (OpenAPI document, https://www.ncbi.nlm.nih.gov/datasets/docs/v2/openapi3/openapi3.docs.yaml, fetched 2026-10-29).

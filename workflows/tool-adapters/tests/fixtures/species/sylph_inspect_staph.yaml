@@ -1,0 +1,17 @@
+- database_file: db/staph.syldb
+  c: 200
+  k: 31
+  min_spacing_parameter: 30
+  genome_files:
+  - file_name: collection/staphylococcus/ncbi_dataset/data/GCF_000236925.1/GCF_000236925.1_ASM23692v1_genomic.fna
+    genome_kmers_num: 11748
+    first_contig_name: NC_016941.1 Staphylococcus argenteus, complete sequence
+    genome_size: 2787638
+  - file_name: collection/staphylococcus/ncbi_dataset/data/GCF_006094915.1/GCF_006094915.1_ASM609491v1_genomic.fna
+    genome_kmers_num: 11891
+    first_contig_name: NZ_CP035101.1 Staphylococcus aureus strain ATCC 12600 chromosome, complete genome
+    genome_size: 2782561
+  - file_name: collection/staphylococcus/ncbi_dataset/data/GCF_006094375.1/GCF_006094375.1_ASM609437v1_genomic.fna
+    genome_kmers_num: 10390
+    first_contig_name: NZ_CP035288.1 Staphylococcus epidermidis strain ATCC 14990 chromosome, complete genome
+    genome_size: 2491058

@@ -605,6 +605,90 @@ reset of the data folder; the API and the worker must see it at the same path. T
 circular views, the annotation charts and the report's genome map need no further tools or databases: they are
 drawn by ARVA from the annotator's files.
 
+### Bioconda tools from pinned locks (micromamba): mlst, FastANI, skani, Mash, sylph, GTDB-Tk
+
+Tools that are not packaged by the distribution or PyPI come from Bioconda (with conda-forge), one environment per
+tool, created **only** from the explicit lock files checked in under `docker/conda-locks/<tool>/` — one per
+platform, `linux-64.lock` and `linux-aarch64.lock` (osx is not needed: on a Mac the tools run in the Linux
+container). Each line of a lock is an exact package URL on conda.anaconda.org followed by `#sha256:` and the
+checksum the channel's repodata lists; micromamba refuses a download whose checksum differs and solves nothing when
+it installs from a lock (tested: a lock line with a wrong checksum fails with "tarball has incorrect SHA256").
+
+```bash
+# 1. micromamba 2.9.0 (conda-forge's static build; the package's SHA-256 is pinned per platform in the script and
+#    was compared with conda-forge's repodata.json; about 18 MB with its licence files)
+scripts/install-micromamba.sh                       # -> ~/.arva-tools/micromamba/bin/micromamba
+python3 scripts/conda_locks.py verify-micromamba    # the pinned checksums == conda-forge's repodata, now
+
+# 2. one environment per tool, from this machine's lock; the result is compared with the lock (URL and sha256 of
+#    every installed package) and micromamba's caches are removed
+python3 scripts/conda_locks.py install mlst ~/.arva-tools/conda/mlst
+export ARVA_TOOL_MLST=~/.arva-tools/conda/mlst/bin/mlst
+
+python3 scripts/conda_locks.py check                # every lock: allowed channel, platform, a sha256 per line
+python3 scripts/conda_locks.py verify-env mlst ~/.arva-tools/conda/mlst
+```
+
+| Tool | Pinned spec (`docker/conda-locks/<tool>/spec.txt`) | linux-64 | linux-aarch64 | Installed size (linux-64, measured) |
+|---|---|---|---|---|
+| mlst | `mlst=2.35.0=hdfd78af_1`, `blast=2.16.0` | 71 packages | 99 packages | 950 MB (BLAST+ 423 MB of it, mlst's PubMLST schemes 186 MB) |
+| FastANI | `fastani=1.34` (Apache-2.0; linux-64 build hb66fcc3_7) | 12 packages | 12 packages | 95 MB |
+| skani | `skani=0.4.0` (MIT; hec9b1f2_0) | 5 packages | 5 packages | 31 MB |
+| Mash | `mash=2.3` (BSD-3-Clause; hf85e966_11) | 17 packages | 17 packages | 135 MB |
+| sylph | `sylph=1.0.0` (MIT; hb42e459_0) | 5 packages | 5 packages | 30 MB |
+| GTDB-Tk | `gtdbtk=2.8.0=pyhdfd78af_0` (GPL-3.0-or-later) | 53 packages | none: Bioconda has no pplacer 1.1.alpha19 for linux-aarch64 (`linux-aarch64.unavailable`) | 434 MB (installed once to read its `--help`, then removed: not validated) |
+
+```bash
+for t in fastani skani mash sylph; do python3 scripts/conda_locks.py install $t ~/.arva-tools/conda/$t; done
+export ARVA_TOOL_FASTANI=~/.arva-tools/conda/fastani/bin/fastANI ARVA_TOOL_SKANI=~/.arva-tools/conda/skani/bin/skani \
+       ARVA_TOOL_MASH=~/.arva-tools/conda/mash/bin/mash ARVA_TOOL_SYLPH=~/.arva-tools/conda/sylph/bin/sylph
+# GTDB-Tk (linux-64 only; needs its reference data and about 140 GB of memory for bacteria):
+python3 scripts/conda_locks.py install gtdbtk ~/.arva-tools/conda/gtdbtk
+export ARVA_TOOL_GTDBTK=~/.arva-tools/conda/gtdbtk/bin/gtdbtk
+```
+
+skani 0.4.0 (2026-10-11) and GTDB-Tk 2.8.0 (2026-10-13) were the newest releases and more than two weeks old when
+pinned. The species-identification databases are registered in the Database Manager, never bundled:
+
+| Database (kind) | Size | Validated with ARVA |
+|---|---|---|
+| Reference genome collection, e.g. built from NCBI Datasets | about 3 MB per bacterial genome unpacked (183 *Staphylococcus* genomes: about 0.5 GB) | yes, with FastANI and skani |
+| Mash sketches (.msh), e.g. RefSeq release 70 | 48 MB (k=16, s=400) or 255 MB (k=21, s=1000), compressed (Mash data page) | on a three-genome test sketch only |
+| sylph database (.syldb), e.g. GTDB R232 | 4.9 GB (-c 1000) to 24 GB (-c 200) (sylph documentation) | on a three-genome test database only |
+| GTDB-Tk reference data, release R232 | about 100 GB unpacked; GTDB-Tk needs about 140 GB of memory for bacteria | no |
+
+BLAST+ is pinned to 2.16.0 so that both platforms run the same version (Bioconda had no linux-aarch64 build of
+2.17.0 when the lock was made). Only the linux-64 environment was installed and run here; the linux-aarch64 lock
+was solved by micromamba for that platform but not installed or run. When a spec cannot be solved for a platform,
+`update` writes `<platform>.unavailable` with micromamba's message instead of a lock, and the Tools page says that
+ARVA has no lock for that platform (reason `no_conda_platform`).
+
+**Updating a lock** (a deliberate change, reviewed like code): edit `spec.txt` (exact versions and, where it
+matters, build strings), then
+
+```bash
+python3 scripts/conda_locks.py update mlst      # re-solve for linux-64 and linux-aarch64; rewrites the .lock files
+python3 scripts/conda_locks.py check mlst
+rm -rf ~/.arva-tools/conda/mlst && python3 scripts/conda_locks.py install mlst ~/.arva-tools/conda/mlst
+```
+
+and run the adapter's tests (`workflows/tool-adapters/tests/test_mlst.py`, `test_conda_locks.py`) before
+committing the new locks with the tool's `tested_versions`. The Docker image builds the same environments in a
+build stage (`ARVA_CONDA_TOOLS="mlst fastani skani mash sylph"` by default; add `gtdbtk` on amd64; empty for none)
+and copies only `/opt/arva-tools/conda` into the final image.
+
+**mlst and its schemes.** mlst 2.35.0 (Torsten Seemann, GPL-2.0, https://github.com/tseemann/mlst) bundles the
+PubMLST typing schemes in its package (`<env>/db`: 162 schemes downloaded 2026-03-11 without authentication from
+PubMLST (153) and the Institut Pasteur's BIGSdb (9); `db/VERSION.txt` says 2025-12-29; BLAST index built
+2026-03-11). ARVA lists them in the Database Manager as a **bundled**, read-only database (kind *PubMLST typing
+schemes*) with the SHA-256 of every file, records them on every MLST job, and ships no updater: mlst's README says
+PubMLST's API now needs an account. Under PubMLST's terms (https://pubmlst.org/terms-conditions, updated
+2026-05-13) data submitted up to 31 December 2024 may be used and redistributed with citation; data submitted from
+1 January 2025 may be used only for non-commercial academic research or public health surveillance and not
+redistributed. 108 of the 162 schemes were last updated after 31 December 2024 and may hold such data; the
+Pasteur schemes' terms were not checked. Cite PubMLST (Jolley KA, Bray JE, Maiden MCJ. Wellcome Open Res
+2018;3:124) and mlst.
+
 ### Optional: POD5 run metadata (pod5 library)
 
 ARVA recognises POD5 raw-signal files without any library. To read their run metadata (reads, signal
@@ -752,7 +836,17 @@ RefSeq *Staphylococcus* genomes (82 species, type and reference strains) from an
 2026-05-27 and extracted in `/Volumes/JM/BioInf/staph_references/staphylococcus_refseq_type_genomes/` (its zip is
 there too). With `scripts/start.sh --add-databases /Volumes/JM/BioInf/staph_references`, register either the package
 folder or the list (date 2026-05-27); the list's paths written as `/Volumes/JM/BioInf/staph_references/...` are mapped.
-A later part will use the collection for species identification; this one registers, validates, lists and records it.
+The sample's *Genomic analysis* tab then identifies species with FastANI or skani against it.
+
+**Building a collection from NCBI Datasets.** In the Database Manager, *Reference genome collection* → *Build from
+NCBI Datasets*: give a genus or species (or an NCBI Taxonomy id) and the filters (RefSeq/GenBank, type material
+only, reference genomes only, atypical genomes left out, this taxon only). ARVA asks the NCBI Datasets v2 API for
+the matching genomes — sending only the taxon and the filters, no API key, e-mail or personal data — and shows their
+number, species and type material, NCBI's download estimate, its own estimate of the unpacked size and the free
+space. Nothing is downloaded until you confirm that exact list; the package is then downloaded into the chosen
+database folder, every file is checked against its `md5sum.txt`, the zip is deleted, and the collection is versioned
+as `NCBI Datasets <download date> #<fingerprint>`. At most 2,000 genomes per collection; the server address is
+`ARVA_NCBI_DATASETS_URL` (default `https://api.ncbi.nlm.nih.gov/datasets/v2`).
 
 ### Download a version into a folder you choose
 

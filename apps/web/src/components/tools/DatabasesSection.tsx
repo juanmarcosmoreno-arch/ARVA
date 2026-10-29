@@ -1,7 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
-import { ChevronDown, Database, Download, FolderPlus, HardDrive } from "lucide-react";
+import { ChevronDown, Database, Download, FolderPlus, Globe, HardDrive } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { DownloadDialog } from "@/components/databases/DownloadDialog";
+import { NcbiCollectionDialog } from "@/components/databases/NcbiCollectionDialog";
 import { RecordRow } from "@/components/databases/RecordRow";
 import { RegisterDialog } from "@/components/databases/RegisterDialog";
 import { CompatibilityBadge, ExtLink, Fact, kindText, kindToolText, kindUnconfirmed } from "@/components/databases/shared";
@@ -112,6 +113,7 @@ function KindCard({ group }: { group: KindGroup }) {
   const { kind, records, versions } = group;
   const [open, setOpen] = useState(records.length > 0);
   const [downloading, setDownloading] = useState<CatalogueEntry | null>(null);
+  const [building, setBuilding] = useState(false);
   return (
     <Card>
       <button type="button" className="flex w-full items-start justify-between gap-3 px-5 py-4 text-left" onClick={() => setOpen((o) => !o)} aria-expanded={open}>
@@ -119,7 +121,13 @@ function KindCard({ group }: { group: KindGroup }) {
           <h3 className="flex flex-wrap items-center gap-2 font-semibold">
             {kindText(t, kind, "name")}
             {records.length > 0 && <Badge tone="blue">{t("databases.countKnown", { n: records.length })}</Badge>}
-            {kind.download === "catalogue" ? <Badge>{t("databases.downloadable")}</Badge> : <Badge>{t("databases.registerOnly")}</Badge>}
+            {kind.download === "catalogue" ? (
+              <Badge>{t("databases.downloadable")}</Badge>
+            ) : kind.download === "bundled" ? (
+              <Badge>{t("databases.bundled")}</Badge>
+            ) : (
+              <Badge>{t("databases.registerOnly")}</Badge>
+            )}
             {kind.user_provided_only && <Badge tone="warning">{t("databases.userProvided")}</Badge>}
           </h3>
           <p className="mt-1 text-sm text-muted-foreground">{kindText(t, kind, "description")}</p>
@@ -145,10 +153,19 @@ function KindCard({ group }: { group: KindGroup }) {
               ))}
             </div>
           )}
+          {kind.key === "reference_genomes" && (
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-dashed p-3 text-xs">
+              <p className="max-w-2xl text-muted-foreground">{t("ncbi.kindHint")}</p>
+              <Button size="sm" variant="outline" onClick={() => setBuilding(true)}>
+                <Globe className="h-3.5 w-3.5" aria-hidden /> {t("ncbi.open")}
+              </Button>
+            </div>
+          )}
           <KindFacts group={group} />
         </CardBody>
       )}
       {downloading && <DownloadDialog entry={downloading} onClose={() => setDownloading(null)} />}
+      {building && <NcbiCollectionDialog onClose={() => setBuilding(false)} />}
     </Card>
   );
 }

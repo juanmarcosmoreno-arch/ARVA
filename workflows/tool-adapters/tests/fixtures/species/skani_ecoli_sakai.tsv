@@ -1,0 +1,3 @@
+Ref_file	Query_file	ANI	Align_fraction_ref	Align_fraction_query	Ref_name	Query_name
+collection/escherichia/ncbi_dataset/data/GCF_000005845.2/GCF_000005845.2_ASM584v2_genomic.fna	input/ecoli_sakai.fna	98.08	88.25	73.22	NC_000913.3 Escherichia coli str. K-12 substr. MG1655, complete genome	NC_002695.2 Escherichia coli O157:H7 str. Sakai DNA, complete genome
+collection/escherichia/ncbi_dataset/data/GCF_000006925.2/GCF_000006925.2_ASM692v2_genomic.fna	input/ecoli_sakai.fna	97.58	78.35	67.63	NC_004337.2 Shigella flexneri 2a str. 301 chromosome, complete genome	NC_002695.2 Escherichia coli O157:H7 str. Sakai DNA, complete genome

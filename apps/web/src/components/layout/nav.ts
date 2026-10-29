@@ -52,7 +52,8 @@ export const NAV: NavSection[] = [
         description: "nav.desc.assembly" },
       { key: "annotation", label: "nav.annotation", icon: Dna, to: "/modules/annotation", plannedPhase: 4,
         description: "nav.desc.annotation" },
-      { key: "genomic", label: "nav.genomic", icon: Microscope, to: "/modules/genomic", plannedPhase: 5,
+      // Phase 5 is under way: the page shows MLST across projects; P5 stays until the phase is complete.
+      { key: "genomic", label: "nav.genomic", icon: Microscope, to: "/genomic", plannedPhase: 5,
         description: "nav.desc.genomic" },
       { key: "explorer", label: "nav.explorer", icon: MapIcon, to: "/explorer",
         description: "nav.desc.explorer" },

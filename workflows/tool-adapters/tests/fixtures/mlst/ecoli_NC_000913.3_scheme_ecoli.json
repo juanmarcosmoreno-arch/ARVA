@@ -1,0 +1,18 @@
+[
+   {
+      "alleles" : {
+         "trpB" : "4",
+         "trpA" : "1",
+         "icdA" : "118",
+         "dinB" : "8",
+         "putP" : "7",
+         "uidA" : "2",
+         "polB" : "3",
+         "pabB" : "7"
+      },
+      "id" : "input/genome.fna",
+      "sequence_type" : "262",
+      "scheme" : "ecoli",
+      "filename" : "input/genome.fna"
+   }
+]

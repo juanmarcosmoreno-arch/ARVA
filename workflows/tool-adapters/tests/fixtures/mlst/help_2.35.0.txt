@@ -1,0 +1,40 @@
+SYNOPSIS
+  Automatic MLST calling from assembled contigs
+USAGE
+  % mlst --longlist                                        # list known schemes
+  % mlst [options] <contigs.{fasta,gbk,embl}[.gz]          # auto-detect scheme
+  % mlst --scheme <scheme> <contigs.{fasta,gbk,embl}[.gz]> # force a scheme
+GENERAL
+  --help            This help
+  --version         Print version and exit
+  --check           Just check dependencies and exit (default OFF)
+  --skipcheck       Skip dependency check at runtime (default OFF)
+  --quiet           Quiet - no stderr output (default OFF)
+  --threads INT     Number of BLAST threads (suggest GNU Parallel instead) (default '1')
+  --debug           Verbose debug output to stderr (default OFF)
+  --fofn STR        File of input filenames to use (default '')
+SCHEME
+  --scheme STR      Do not auto-detect, force this scheme (default '')
+  --info            More information about schemes (default OFF)
+  --list            List available MLST scheme names (default OFF)
+  --longlist        List allelles for all MLST schemes (default OFF)
+  --exclude STR     Ignore these schemes (default 'ecoli,abaumannii,vcholerae_2,senterica_achtman_2')
+OUTPUT FORMAT
+  --full            More detailed output format (recommended) (default OFF)
+  --legacy          Use old legacy output with allele header row (requires --scheme) (default OFF)
+  --csv             Output CSV instead of TSV (default OFF)
+  --label STR       Replace FILE with this name instead (default '')
+  --nopath          Strip filename paths from FILE column (default OFF)
+OUTPUT FILES
+  --outfile STR     Save output to this file [STDOUT] (default '')
+  --novel STR       Save novel alleles to this FASTA file (default '')
+  --json STR        Also write results to this file in JSON format (default '')
+SCORING
+  --minid NUM       DNA %identity of full allelle to consider similar/'~'' (default '95')
+  --mincov NUM      DNA %cov to report partial/'?' allele (default '50')
+  --minscore NUM    Minumum score out of 100 to match a scheme (when auto --scheme) (default '50')
+DATABASE
+  --blastdb STR     BLAST database prefix [default via MLST_DBDIR/blast/mlst.fa; --blastdb overrides] (default '/env/db/blast/mlst.fa')
+  --datadir STR     PubMLST data folders [default via MLST_DBDIR/pubmlst; --datadir overrides] (default '/env/db/pubmlst')
+HOMEPAGE
+  https://github.com/tseemann/mlst - Torsten Seemann

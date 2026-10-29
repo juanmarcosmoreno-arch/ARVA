@@ -1,0 +1,21 @@
+# ARVA lock for mash on linux-64: written by scripts/conda_locks.py update with micromamba 2.9.0 on 2026-10-29
+# spec: mash=2.3
+# channels: conda-forge bioconda (strict priority)
+@EXPLICIT
+https://conda.anaconda.org/conda-forge/linux-64/libzlib-1.3.2-h25fd6f3_3.conda#sha256:eb8a0db0aa570124f7d2a93d7c7f596e3390df5e047818d873baad32985fc736
+https://conda.anaconda.org/conda-forge/linux-64/libgomp-16.2.0-he0feb66_7.conda#sha256:92a0bb350c7be6a4eedcb4e111c60aefd176018e6b1c009a6e025dbe9bbcd758
+https://conda.anaconda.org/conda-forge/linux-64/_openmp_mutex-4.5-20_gnu.conda#sha256:1dd3fffd892081df9726d7eb7e0dea6198962ba775bd88842135a4ddb4deb3c9
+https://conda.anaconda.org/conda-forge/linux-64/libgcc-16.2.0-ha9f2e26_7.conda#sha256:e031634c3a928f9594eba868bc46ef5230d6571a364a0c63215b06c4563bfcea
+https://conda.anaconda.org/conda-forge/linux-64/libgfortran5-16.2.0-h6b99dfc_7.conda#sha256:04dbab12c925b92977bb835dd2f5eda413607afa79f95a554e5a04b07a380322
+https://conda.anaconda.org/conda-forge/linux-64/libstdcxx-16.2.0-h934c35e_7.conda#sha256:fa7018298629fc429971fffd6ecba3d27a7b02e4e890d6a93ea01ffebe8cb745
+https://conda.anaconda.org/conda-forge/linux-64/libgcc-ng-16.2.0-h69a702a_7.conda#sha256:03b54d7008de080a17cc2174b0e4acd6d06e1c981b2eb19846f46d8f59966034
+https://conda.anaconda.org/conda-forge/linux-64/libgfortran-16.2.0-h69a702a_7.conda#sha256:9682ae4dd11487e10b904b3cb3ab6379cad25233d45fdfdf90d54349df244494
+https://conda.anaconda.org/conda-forge/linux-64/libstdcxx-ng-16.2.0-hdf11a46_7.conda#sha256:337f481db36cc357884f05f404ccd1b3a7e0fc1ee48ec5c884e4281d213bc863
+https://conda.anaconda.org/conda-forge/linux-64/libopenblas-0.3.34-pthreads_hf13c14d_2.conda#sha256:69a722751e14eab2eb3bfdcb9acb1187afbd962b0c49b48d829341e0f6787f60
+https://conda.anaconda.org/conda-forge/linux-64/libblas-3.11.0-11_h4a7cf45_openblas.conda#sha256:d942e0c820d60a613a6f786d074f0820fb6343e3f1ccfb110b1d98b44fb75968
+https://conda.anaconda.org/conda-forge/linux-64/libcblas-3.11.0-11_h0358290_openblas.conda#sha256:f7d1bbdea61cf94ba219d17b2cb571a29830f8025385af799bff5a7ad1ef45e6
+https://conda.anaconda.org/conda-forge/linux-64/gsl-2.8-h3cd6761_2.conda#sha256:433d1b1570afa09f469fa5cfb633a2d860fe270639ffa6ba7a354088ab5aba23
+https://conda.anaconda.org/conda-forge/noarch/ca-certificates-2026.10.23-hbd8a1cb_0.conda#sha256:95619b9c1184be7175392eeb0ee7eeb5ccf25d280951f4225f2d62e725790be3
+https://conda.anaconda.org/conda-forge/linux-64/openssl-3.6.5-h781a0a9_0.conda#sha256:9c1533f1cf784f0e250919c0c9762d0b0e6bc727a79290ffb7cea1ceca1d038c
+https://conda.anaconda.org/conda-forge/linux-64/capnproto-1.3.0-h791c776_1.conda#sha256:14a4445a2af39123ae3841f15da7380bfeee1092ade0d9181bd29816c64d7ca5
+https://conda.anaconda.org/bioconda/linux-64/mash-2.3-hf85e966_11.conda#sha256:c6f8f8c3b5925435dbd696f12af5f49af8e137535bafaf3f0778d21658777798

@@ -1,0 +1,7 @@
+2026-10-29T16:48:16.380Z INFO  [sylph::contain] Obtaining sketches...
+2026-10-29T16:48:16.381Z INFO  [sylph::contain] Finished obtaining genome sketches.
+2026-10-29T16:48:16.381Z INFO  [sylph::contain] Loaded 0 two-stage database(s) (0 genomes total) and 3 plain genome sketch(es).
+2026-10-29T16:48:16.401Z INFO  [sylph::contain] input/saureus.fna taxonomic profiling; reassigning k-mers for 2 genomes...
+2026-10-29T16:48:16.431Z INFO  [sylph::contain] input/saureus.fna has 2 genomes passing profiling threshold. 
+2026-10-29T16:48:16.431Z INFO  [sylph::contain] Finished sample input/saureus.fna.
+2026-10-29T16:48:16.431Z INFO  [sylph::contain] sylph finished.

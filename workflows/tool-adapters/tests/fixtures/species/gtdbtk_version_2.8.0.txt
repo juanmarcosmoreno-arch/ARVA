@@ -1,0 +1,1 @@
+gtdbtk: version 2.8.0 Copyright 2017 Pierre-Alain Chaumeil, Aaron Mussig and Donovan Parks

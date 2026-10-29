@@ -1,0 +1,21 @@
+# gtdbtk=2.8.0=pyhdfd78af_0 could not be solved for linux-aarch64 on 2026-10-29 (micromamba 2.9.0):
+# {
+#     "log_history": [
+#         {
+#             "level": "error",
+#             "location": "/home/conda/feedstock_root/build_artifacts/micromamba_1786125696885/work/mamba/libmamba/src/api/utils.cpp:683:13 bool mamba::handle_unsolvable_with_retry(solver::libsolv::Solver::Outcome&, const Palette&, bool, bool, bool, std::size_t&, solver::libsolv::Database&, const std::function<void()>&, const std::function<void()>&)",
+#             "message": "Could not solve for environment specs\n    The following package could not be installed\n    └─ gtdbtk =2.8.0 pyhdfd78af_0 is not installable because it requires\n       └─ pplacer =1.1.alpha19 *, which does not exist (perhaps a missing channel).",
+#             "source": "libmamba"
+#         },
+#         {
+#             "level": "critical",
+#             "location": "/home/conda/feedstock_root/build_artifacts/micromamba_1786125696885/work/mamba/micromamba/src/main.cpp:235:9 int main(int, char**)",
+#             "message": "Could not solve for environment specs",
+#             "source": "libmamba"
+#         }
+#     ],
+#     "solver_problems": [
+#         "nothing provides pplacer 1.1.alpha19.* needed by gtdbtk-2.8.0-pyhdfd78af_0"
+#     ],
+#     "success": false
+# }

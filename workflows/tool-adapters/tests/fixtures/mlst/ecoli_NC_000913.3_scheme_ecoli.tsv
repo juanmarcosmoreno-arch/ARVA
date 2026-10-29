@@ -1,0 +1,2 @@
+FILE	SCHEME	ST	STATUS	SCORE	ALLELES
+input/genome.fna	ecoli	262	PERFECT	100	dinB(8);icdA(118);pabB(7);polB(3);putP(7);trpA(1);trpB(4);uidA(2)

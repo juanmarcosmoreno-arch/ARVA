@@ -20,6 +20,7 @@ export function latestJobFor(jobs: AnalysisJobDetail[], type: string, fileId: st
 
 const LABELLED_JOBS = new Set([
   "sequence_stats", "seqkit_stats", "fastqc", "fastp", "filtlong", "server_import", "bakta_annotation", "prokka_annotation",
+  "mlst_typing", "species_identification",
 ]);
 
 export const FILTER_JOBS = new Set(["fastp", "filtlong"]);

@@ -1,0 +1,4 @@
+[00:00:00.000] (7fbf94bbf840) INFO   skani dist -q input/ecoli_sakai.fna --rl ecoli_refs.txt -o skani_ecoli_sakai.tsv -t 2 -c 125 -m 1000 -s 80 --min-af 15
+[00:00:00.055] (7fbf94bbf840) INFO   Learned ANI mode detected. ANI may be adjusted according to a regression model trained on MAGs.
+[00:00:00.055] (7fbf94bbf840) INFO   Generating sketch time: 0.055172164
+[00:00:00.063] (7fbf94bbf840) INFO   ANI calculation time: 0.007797555

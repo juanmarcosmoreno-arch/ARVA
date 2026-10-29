@@ -152,6 +152,29 @@
   COG categories as reported, hypothetical and characterised CDS, features by type), computed from the feature
   index on request rather than stored, so existing annotations get them and the definitions live in one place.
   The sample report collects the same numbers (`charts`, `map` in the JSON; the map's SVG only in the HTML).
+- **MLST result** (`mlst_results`): one MLST call of one assembly by one `mlst_typing` job: scheme and ST (None
+  where mlst wrote `-`), mlst's status and score, every locus with mlst's call and its type (exact, novel, partial,
+  missing, multiple, null), the clonal complex read from the scheme's profile file (or why there is none), ARVA's
+  coded warnings, and the facts of mlst's log (tied schemes, other schemes with exact matches, the BLAST command),
+  the novel alleles and the scheme's own dates; mlst's files with SHA-256. The PubMLST schemes mlst bundles are a
+  `reference_databases` record with origin `bundled` (kind `mlst_schemes`): created when mlst is found (the
+  database list and the MLST preview), with the SHA-256 of every file, read in place, never deleted or updated
+  by ARVA (`DELETE` answers `bundled_read_only`; registering such a folder answers `bundled_only`). The job records
+  it like any database (`record_use`) and the worker refuses to run when the folder or its checksum changed.
+  `GET /samples/{id}/mlst`, `/mlst/{id}`, `/mlst/{id}/files/{kind}`, `/projects/{id}/mlst` (and `mlst.csv`), and
+  `/mlst` (every project) serve them.
+- **Species result** (`species_results`): one species identification of one assembly by one `species_identification`
+  job with one method (fastani, skani, mash, sylph, gtdbtk) against one database (kind `reference_genomes`, `mash`,
+  `sylph` or `gtdbtk`, recorded with `record_use`): the best hits (accession, organism, strain, type material from
+  the collection; ANI, aligned fraction, fragments, Mash distance or sylph containment), ARVA's reading
+  (`arva_core.species`: status, species only for *same_species*, thresholds with their sources, coded reasons and
+  caveats), the consistency checks with the MLST result and the annotation organism of the same assembly, coded
+  warnings, the SHA-256 of every reference genome read and the tool's files. `POST /assemblies/{id}/species/preview`
+  and `/assemblies/{id}/species`, `GET /samples/{id}/species`, `/species/{id}`, `/species/{id}/files/{kind}`,
+  `/projects/{id}/species` (and `species.csv`) and `/species`. Reference collections can be built from NCBI Datasets
+  (`POST /databases/ncbi/plan`, then `/databases/ncbi` with the confirmed count and fingerprint): a database task
+  (`app/tasks/ncbi_collection.py`) downloads, extracts, checks the MD5s and the accession list and installs the
+  collection (origin `download`, version source `download`).
 - **QCResult**: structured output of a sequence-statistics job for one raw file. Headline metrics are
   indexed columns; the full payload is JSON (also written to `results/…/sequence_stats.json`).
 
@@ -354,6 +377,14 @@ point at a fresh empty folder that is deleted after the run. A `monitor` callbac
 run: it is called every few seconds while the tool runs (Flye's stages, ARVA's cancellation check), also with
 gzip-streamed stdout (compressed in a thread), and the tool's process group is killed if it raises. `GET /api/v1/tools` reports status (`available`, `not_installed`,
 `incompatible`, `failed`) and whether the detected version has been validated.
+
+Tools from Bioconda run from environments created only from checked-in explicit locks
+(`docker/conda-locks/<tool>/<platform>.lock`, every package URL with its SHA-256; `scripts/conda_locks.py`), one
+per tool. An adapter can add variables for its tool (`ToolAdapter.environment`): mlst's `bin/mlst` runs
+`env perl` and finds `blastn` and `any2fasta` on `PATH`, so its environment's `bin/` comes first, `MLST_DBDIR`
+names the bundled database, Perl's `PERL5LIB`/`PERLLIB`/`PERL5OPT` are emptied and its temporary folder is inside
+the job. `ToolInfo.conda_platforms` lists the platforms with a lock; without one, the Tools page says so
+(`no_conda_platform`).
 
 Tool HTML reports are served by `GET /jobs/{id}/outputs/{name}` with
 `Content-Security-Policy: sandbox …; default-src 'none'`: they render in an opaque origin and cannot

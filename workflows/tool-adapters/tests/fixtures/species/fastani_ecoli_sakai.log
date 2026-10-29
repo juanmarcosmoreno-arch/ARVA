@@ -1,0 +1,22 @@
+>>>>>>>>>>>>>>>>>>
+Reference = [collection/escherichia/ncbi_dataset/data/GCF_000005845.2/GCF_000005845.2_ASM584v2_genomic.fna, collection/escherichia/ncbi_dataset/data/GCF_000006925.2/GCF_000006925.2_ASM692v2_genomic.fna]
+Query = [input/ecoli_sakai.fna]
+Kmer size = 16
+Fragment length = 3000
+Threads = 2
+ANI output file = fastani_ecoli_sakai.tsv
+Sanity Check  = 0
+>>>>>>>>>>>>>>>>>>
+INFO [thread 0], skch::main, Count of threads executing parallel_for : 2
+INFO [thread 0], skch::Sketch::build, window size for minimizer sampling  = 24
+INFO [thread 0], skch::Sketch::build, minimizers picked from reference = 371301
+INFO [thread 0], skch::Sketch::index, unique minimizers = 361568
+INFO [thread 0], skch::Sketch::computeFreqHist, Frequency histogram of minimizers = (1, 357382) ... (59, 1)
+INFO [thread 0], skch::Sketch::computeFreqHist, consider all minimizers during lookup.
+INFO [thread 0], skch::main, Time spent sketching the reference : 0.47499 sec
+INFO [thread 0], skch::main, Start Map 1
+INFO [thread 0], skch::main, Time spent mapping fragments in query #1 : 1.05902 sec
+INFO [thread 0], skch::main, Time spent post mapping : 0.000190181 sec
+INFO [thread 0], skch::main, ready to exit the loop
+INFO [thread 1], skch::main, ready to exit the loop
+INFO, skch::main, parallel_for execution finished

@@ -1,0 +1,3 @@
+# Pinned spec of ARVA's Mash environment; scripts/conda_locks.py update mash solves it for each platform.
+# Mash 2.3 (Ondov et al. 2016): MinHash distance estimates against sketch files.
+mash=2.3

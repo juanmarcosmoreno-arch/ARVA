@@ -1,0 +1,6 @@
+Header:
+  Hash function (seed):          MurmurHash3_x64_128 (42)
+  K-mer size:                    21 (64-bit hashes)
+  Alphabet:                      ACGT (canonical)
+  Target min-hashes per sketch:  1000
+  Sketches:                      3

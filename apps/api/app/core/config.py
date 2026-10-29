@@ -58,6 +58,10 @@ class Settings(BaseSettings):
     tool_memory_gb: int | None = Field(default=None, ge=1)
     tool_timeout_seconds: int = 12 * 3600
 
+    # NCBI Datasets v2 API, for building reference genome collections (public metadata and genomes only; ARVA sends
+    # no API key, e-mail or other personal data). Tests point it at a local server.
+    ncbi_datasets_url: str = "https://api.ncbi.nlm.nih.gov/datasets/v2"
+
     @property
     def raw_dir(self) -> Path:
         return self.storage_root / "raw"

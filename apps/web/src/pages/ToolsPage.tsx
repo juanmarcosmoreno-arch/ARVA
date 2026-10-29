@@ -20,7 +20,7 @@ const STATUS: Record<Tool["status"], { label: TranslationKey; tone: "success" | 
   failed: { label: "tools.status.failed", tone: "danger" },
 };
 
-const INSTALL_LABEL: Record<string, TranslationKey> = { conda: "tools.install.conda", apt: "tools.install.apt" };
+const INSTALL_LABEL: Record<string, TranslationKey> = { conda: "tools.install.conda", apt: "tools.install.apt", conda_lock: "tools.install.condaLock" };
 
 function installCommand(kind: string, pkg: string) {
   if (kind === "conda") return `mamba install -c conda-forge -c bioconda ${pkg.replace("bioconda::", "")}`;

@@ -80,6 +80,10 @@ MESSAGES = {
     "target_exists": "{path} already exists; choose another folder name.",
     "not_usable": "{name} cannot be the default: it is {status}.",
     "incompatible": "{name} {version} cannot be used by {tool} {tool_version} (it needs database schema {schema}).",
+    "bundled_only": "{path} holds {kind}, which ARVA reads only where {tool}'s own environment installed it; it is "
+                    "listed by itself when {tool} is installed.",
+    "bundled_read_only": "{name} is part of {tool}'s own package: ARVA reads it where it is and cannot remove it (it "
+                         "goes with the tool's environment).",
 }
 
 
@@ -398,6 +402,8 @@ def register(db: Session, raw_path: str, kind: str | None = None, declared_versi
     if db.scalar(select(ReferenceDatabase).where(ReferenceDatabase.path == str(path))) is not None:
         raise DatabaseStateError("", "already_registered", path=raw_path)
     d = _choose(path, found, kind, raw_path)
+    if kinds.BY_KEY.get(d.kind) and kinds.BY_KEY[d.kind].download == "bundled":
+        raise refusal("bundled_only", path=raw_path, kind=kinds.BY_KEY[d.kind].name, tool=kinds.BY_KEY[d.kind].tools[0].tool)
     if d.path_type == "zip":
         raise refusal("zip_needs_extraction", path=raw_path)
     if not d.ok:
@@ -721,7 +727,7 @@ def require_available(record: ReferenceDatabase) -> None:
 def record_compatibility(record: ReferenceDatabase) -> kinds.Compatibility:
     details = record.details or {}
     info = details.get("version_json") or ((details.get("detection") or {}).get("facts") or {}).get("version_json")
-    return kinds.compatibility(record.kind, info)
+    return kinds.compatibility(record.kind, info, version=record.version)
 
 
 def _get(db: Session, record_id: str, lock: bool = False) -> ReferenceDatabase:
@@ -908,6 +914,9 @@ def delete(db: Session, record_id: str) -> None:
         raise DatabaseStateError(f"this database is {record.status.value}; cancel that first")
     if n := jobs_using(db, record.id):
         raise DatabaseStateError(f"{n} queued or running job(s) use this database; wait for them or cancel them")
+    if record.origin is DatabaseOrigin.bundled:
+        raise DatabaseStateError("", "bundled_read_only", name=record.name,
+                                 tool=kinds.BY_KEY[record.kind].tools[0].tool)
     kind = record.kind
     if record.origin in OWNED:
         # Deleting the record of an installed database whose disk is missing would leave its files behind unseen.

@@ -56,7 +56,7 @@ def test_every_code_the_api_sends_has_a_text_in_the_interface():
     job_codes |= set(re.findall(r'code="(\w+)"', runner)) | {"tool_exit", "tool_timeout", "out_of_memory"}
     assert {"input_missing", "tool_unavailable", "not_fastq", "settings_rejected", "pod5_not_reads"} <= job_codes
     missing = sorted(f"job.error.{c}" for c in job_codes if f"job.error.{c}" not in keys)
-    db_codes = _codes(app / "tasks" / "databases.py", "TaskFailure")
+    db_codes = _codes(app / "tasks" / "databases.py", "TaskFailure") | _codes(app / "tasks" / "ncbi_collection.py", "TaskFailure")
     missing += sorted(f"database.error.{c}" for c in db_codes if f"database.error.{c}" not in keys)
     files = {"verified", "corrupt", "unrecognised", "format_error", "no_records", "entire", "full_failed", "pod5_complete",
              "pod5_truncated", "twin"}

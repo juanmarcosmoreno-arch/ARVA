@@ -289,7 +289,7 @@ as inline SVG (escaped names), a sequence table and the charts' numbers; the JSO
   Docker image (Debian bookworm) has not been built or run in this phase.
 - **Phase 5**: AMRFinderPlus (and its database, with checksums, through the Database Manager), virulence (VFDB) and
   mobile-element searches, which will fill the AMR, virulence and mobile-element rings of the circular map;
-  InterProScan for protein domains; MLST and species identification.
+  InterProScan for protein domains (MLST and species identification are done: 5C1, 5C2).
 - The circular map has no zoom (the linear view is for detail) and draws at most 50,000 features per map; contigs of a
   draft assembly on one circle are in the annotator's order, not in genome order.
 
@@ -331,6 +331,59 @@ as inline SVG (escaped names), a sequence table and the charts' numbers; the JSO
 - Not yet validated on a real Mac; only Bakta is run by ARVA, so the other kinds are registered and versioned for the
   analyses that will use them (species identification, AMR, plasmids, …) without a tool-version check yet.
 
+## Pinned Bioconda tools and MLST (5C1) ✅
+
+- micromamba 2.9.0 from conda-forge (`scripts/install-micromamba.sh`, package SHA-256 pinned per platform and
+  checked against conda-forge's repodata); one environment per tool from explicit locks with a SHA-256 per package
+  (`docker/conda-locks/<tool>/{spec.txt,linux-64.lock,linux-aarch64.lock}`), created, checked, verified and
+  re-solved with `scripts/conda_locks.py`; a Docker build stage installs the image architecture's lock and copies
+  only the environments. Adapters declare the platforms they have locks for; the Tools page says when there is none.
+- mlst 2.35.0 (`arva_tools/mlst.py`): every flag checked in `--help` and its defaults recorded from it; --minid,
+  --mincov, --minscore, --threads, --exclude or --scheme, --blastdb, --datadir passed explicitly (minimum score 0
+  and no exclusions with a chosen scheme, as mlst applies them); --full TSV, JSON (cross-checked) and --novel FASTA
+  parsed; exact, novel (~), partial (?), missing (-), several (n,m) and null (0) calls; tied schemes from mlst's
+  warning; clonal complex from the scheme's profile file when it has a column for it.
+- Job `mlst_typing` on any assembly of the lineage (draft or polished), the bundled schemes as a read-only database
+  record (origin `bundled`, kind `mlst_schemes`, full checksum, PubMLST terms), re-checked before the run; results
+  table `mlst_results` (migration `a4c7e2f9b3d1`); the sample's *Genomic analysis* tab, the project's MLST table
+  (CSV), the cross-project *Genomic analysis* page (the sidebar's P5 entry), report sections (HTML/JSON/CSV), Guide
+  entries (MLST, sequence type, novel alleles) in English and Spanish.
+- Tested with real mlst output on NCBI RefSeq NC_007795.1 (S. aureus NCTC 8325: ST8) and NC_000913.3 (E. coli K-12
+  MG1655: Achtman ST10; Pasteur scheme ST262), two derived test inputs (novel/partial/missing/several alleles; a
+  two-species mixture with a tie) and the SYNTHETIC genome (no scheme). The linux-aarch64 lock was solved, not
+  installed or run; the Docker image was not built.
+
+## Species identification (5C2) ✅ — Phase 5C done
+
+- Locks and environments for FastANI 1.34, skani 0.4.0, Mash 2.3 and sylph 1.0.0 (linux-64 and linux-aarch64;
+  installed and run here on linux-64) and GTDB-Tk 2.8.0 (linux-64 only: no pplacer 1.1.alpha19 for aarch64).
+- Adapters with every flag checked against the tool's `--help`, its defaults recorded and passed explicitly; parsers
+  for FastANI's TSV, skani's TSV, `mash info`/`mash dist`, `sylph inspect`/`sylph profile` and GTDB-Tk's summary.
+- `arva_core.species`: ARVA's reading of the hits (same species / ambiguous / no reference within the boundary /
+  no hits / Mash screening only) with the 95 % boundary of Jain et al. 2018, the 0.5 aligned fraction of GTDB-Tk and
+  ARVA's 0.5-point margin, every reason and caveat coded; consistency with the MLST scheme's name and the organism
+  given for an annotation.
+- Job `species_identification` on any assembly against a reference genome collection (FastANI, skani), a Mash
+  sketch, a sylph database or GTDB-Tk data, with the SHA-256 of every reference genome; GTDB-Tk refused below its
+  documented 140 GB; table `species_results` (migration `b8e1d5c3f7a2`); the *Genomic analysis* tab (method dialog,
+  interpretation card, ANI/AF chart with the 95 % line, hits table), a species column in the project's genomic
+  table (and CSV), the cross-project page, report sections (HTML/JSON/CSV), Guide entries (ANI, species boundary,
+  reference collection, GTDB) in English and Spanish.
+- Reference collections built from NCBI Datasets for any bacterial taxon: plan (taxon, count, species, type material,
+  sizes) before anything is downloaded, confirmation of the exact list, MD5 check of every file, version = source,
+  download date and accession fingerprint (version source `download`); no personal data sent.
+- Validated with real FastANI and skani on NCBI RefSeq *Staphylococcus* type strains (*S. aureus* NCTC 8325 → *S.
+  aureus*, consistent with MLST ST8; without the *S. aureus* reference → no reference within the boundary) and on
+  *E. coli*/*Shigella* (ambiguous, two species above 95 %); the SYNTHETIC genome → no reference.
+- **Not validated**: Mash and sylph against the published RefSeq sketches or GTDB databases (only on three-genome test
+  databases); GTDB-Tk (no reference data or memory here: its classification never ran); Mash `screen` and skani
+  `search` against pre-sketched databases are not offered; the linux-aarch64 environments were solved, not
+  installed; the Docker image was not built.
+
+**Next** (Phase 5, as planned above): 5D — antimicrobial resistance and virulence (AMRFinderPlus with its database
+through the Database Manager; VFDB), filling the AMR and virulence rings of the circular map; 5E — plasmids and
+mobile elements (PlasmidFinder, MOB-suite, geNomad) and InterProScan domains.
+
 ## Performance profiles (P1) ✅
 
 - Host detection (`app/services/host.py`): usable CPUs (affinity, cgroup v2/v1 quota), memory (cgroup limit or
@@ -361,7 +414,9 @@ as inline SVG (escaped names), a sequence table and the charts' numbers; the JSO
 | 3 ✅ | Assembly (Flye, SPAdes, Unicycler), QUAST, contig plots, GFA view, polishing (Racon, Pilon), job cancellation and Flye resume, batch QC; Medaka, Polypolish, Raven, Canu, MEGAHIT, BUSCO and CheckM2 not yet integrated (above) |
 | 4 ✅ | Database Manager, annotation (Bakta; Prokka), Genome Explorer (linear and circular), annotation charts and report section |
 | 5A, 5B ✅ | External storage; database kinds (register in place, download a chosen version to a chosen folder, reference genome collections, one default per kind) |
-| 5 | MLST, AMRFinderPlus (AMR ring), virulence (VFDB) and mobile elements (their rings), InterProScan, BLAST, species identification (Mash/FastANI/Kraken2/GTDB-Tk) |
+| 5C1 ✅ | Pinned Bioconda environments (micromamba, checksummed locks for linux-64 and linux-aarch64); MLST with mlst and its bundled PubMLST schemes |
+| 5C2 ✅ | Species identification: FastANI and skani against reference genome collections (validated), Mash and sylph (test databases only), GTDB-Tk (not validated, memory-gated); collections from NCBI Datasets; consistency with MLST and the annotation's organism |
+| 5D, 5E | AMRFinderPlus (AMR ring) and virulence (VFDB); plasmids and mobile elements (their rings), InterProScan, BLAST; Kraken2 |
 | 6 | Comparative genomics: ANI, synteny, dot plots, Genome Region Explorer |
 | 7 | Pangenome (Panaroo), alignments (MAFFT), phylogeny (IQ-TREE), Tree Explorer |
 | 8 | Workflow Builder (Nextflow DSL2), batch processing beyond QC (first step: batch QC, Phase 3), mobilome, variants, ARVA Discover, full reports, optional ARVA Assist, multi-user |

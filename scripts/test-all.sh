@@ -16,6 +16,17 @@ fi
 if [ -z "${ARVA_TOOL_BAKTA:-}" ] && [ -x "$HOME/.arva-tools/bakta/bin/bakta" ]; then
   export ARVA_TOOL_BAKTA="$HOME/.arva-tools/bakta/bin/bakta"
 fi
+# Bioconda tools live in environments created from docker/conda-locks (scripts/conda_locks.py install <tool>).
+for spec in MLST:mlst/bin/mlst FASTANI:fastani/bin/fastANI SKANI:skani/bin/skani MASH:mash/bin/mash \
+  SYLPH:sylph/bin/sylph GTDBTK:gtdbtk/bin/gtdbtk; do
+  var="ARVA_TOOL_${spec%%:*}"
+  exe="$HOME/.arva-tools/conda/${spec#*:}"
+  if [ -z "${!var:-}" ] && [ -x "$exe" ]; then
+    export "$var=$exe"
+  fi
+done
+# The species identification tests on NCBI genomes need ARVA_TEST_SPECIES_GENOMES (see
+# workflows/tool-adapters/tests/fixtures/species/README.md); without it they are skipped.
 
 echo "==> scientific-core"
 (cd "$ROOT/scientific-core" && "$ROOT/apps/api/.venv/bin/pytest" -q)

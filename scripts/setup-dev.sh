@@ -32,5 +32,8 @@ for d in detect_all():
     print(f'    {d.info.name:<9} {d.status.value:<14} {d.version or \"\"} {d.message}')
 "
 echo "    Install with: mamba env create -f workflows/tool-adapters/environment.yml (or apt/your package manager)"
+echo "    Bioconda tools (mlst, FastANI, skani, Mash, sylph; GTDB-Tk on linux-64) from ARVA's pinned locks:"
+echo "    scripts/install-micromamba.sh, then python3 scripts/conda_locks.py install <tool> ~/.arva-tools/conda/<tool>"
+echo "    for each tool (see docs/installation.md)"
 
 echo "Done. Start ARVA with: scripts/dev.sh"

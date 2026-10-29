@@ -1,0 +1,16 @@
+# ARVA lock for fastani on linux-aarch64: written by scripts/conda_locks.py update with micromamba 2.9.0 on 2026-10-29
+# spec: fastani=1.34
+# channels: conda-forge bioconda (strict priority)
+@EXPLICIT
+https://conda.anaconda.org/conda-forge/linux-aarch64/libgomp-16.2.0-h8acb6b2_7.conda#sha256:4406fd67c5beeb99b9372f9bf07aa3e40ca141e337eceebac3ff64aa72799494
+https://conda.anaconda.org/conda-forge/linux-aarch64/libzlib-1.3.2-hdc9db2a_3.conda#sha256:76efa6cc9d7e6f5ee3bbca0939f64054af2bdfb3c3632531f8e633cf6c2ea41e
+https://conda.anaconda.org/conda-forge/linux-aarch64/_openmp_mutex-4.5-20_gnu.conda#sha256:a2527b1d81792a0ccd2c05850960df119c2b6d8f5fdec97f2db7d25dc23b1068
+https://conda.anaconda.org/conda-forge/linux-aarch64/libgcc-16.2.0-h205dda4_7.conda#sha256:eae7a3449d5a3b5351c5427137c076cc3fc826645c7bfc42dc10772b783826f1
+https://conda.anaconda.org/conda-forge/linux-aarch64/libgfortran5-16.2.0-hc864f27_7.conda#sha256:190e69c2be216c3f716dbcf23a5a37c4b8ddcd8beb7c1c5b8e48e85ddc73d50f
+https://conda.anaconda.org/conda-forge/linux-aarch64/libstdcxx-16.2.0-hef695bb_7.conda#sha256:b241a3acfa9cdb1359112864a1241225533c92642de3000d52ae65ef5d3a9786
+https://conda.anaconda.org/conda-forge/linux-aarch64/libgfortran-16.2.0-he9431aa_7.conda#sha256:827d61d002235b26f9af0a51dccf9a1b0f2e83e50f05e10ff86a984bfd4897b4
+https://conda.anaconda.org/conda-forge/linux-aarch64/libopenblas-0.3.34-pthreads_h4148b7d_2.conda#sha256:afa7b72bf42a8f02298f2688c07413a93614897fbf5c0f55c9326f61da02ad9a
+https://conda.anaconda.org/conda-forge/linux-aarch64/libblas-3.11.0-11_haddc8a3_openblas.conda#sha256:c15ae151597be9b1b1ebc6519288a1849269ae0a6315205d4a6a1186df1a936b
+https://conda.anaconda.org/conda-forge/linux-aarch64/libcblas-3.11.0-11_hd72aa62_openblas.conda#sha256:e04bcb996eb712d07c0bd06a6a78b21fdc4030b52abae444f94d73065a9c5b81
+https://conda.anaconda.org/conda-forge/linux-aarch64/gsl-2.8-h575f6a0_2.conda#sha256:c98f61f8c8d64921128ec2dbb2f48f8504a5a9f26231eed9e740b71eebc1c7dd
+https://conda.anaconda.org/bioconda/linux-aarch64/fastani-1.34-h07fb39f_7.tar.bz2#sha256:359549b44dc99b90aff91a225bf19c1638870d652e44d3a2ee07ab1e30ac2f36
