@@ -32,7 +32,7 @@ import {
   windowAt,
 } from "@/lib/circular";
 import { type ContigOption, featureLabel, formatPosition } from "@/lib/explorer";
-import { fmtBases, fmtBp, fmtInt, fmtNum } from "@/lib/format";
+import { fmtBases, fmtBp, fmtInt, fmtNum, fmtPct } from "@/lib/format";
 import type { Annotation, GenomeMap, MapFeature } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { groupColour, SKEW } from "./GenomeBrowser";
@@ -591,7 +591,7 @@ const CircleArt = memo(function CircleArt({ c, theme, rings, showNames, contigs 
       </text>
       <text x={cx} y={cy + 6} fontSize={11} textAnchor="middle" fill={theme.muted}>
         {fmtBases(model.map.total_length)}
-        {totalGc != null ? ` · ${t("circular.centre.gc", { v: `${fmtNum(100 * totalGc, 1)} %` })}` : ""}
+        {totalGc != null ? ` · ${t("circular.centre.gc", { v: fmtPct(100 * totalGc, 1) })}` : ""}
       </text>
       <text x={cx} y={cy + 21} fontSize={11} textAnchor="middle" fill={theme.muted}>
         {t("circular.centre.features", { n: fmtInt(model.map.total) })}
@@ -677,7 +677,7 @@ function legendItems(t: ReturnType<typeof useT>, p: MapProps, models: CircleMode
     else if (r === "gc")
       items.push({
         swatches: [{ fill: th.text, opacity: 0.7 }],
-        text: t(mean != null ? "circular.legend.gc" : "circular.legend.gcEach", { mean: mean != null ? `${fmtNum(100 * mean, 1)} %` : "", max: fmtNum(100 * max("gc"), 1), w: fmtInt(window) }),
+        text: t(mean != null ? "circular.legend.gc" : "circular.legend.gcEach", { mean: mean != null ? fmtPct(100 * mean, 1) : "", max: fmtNum(100 * max("gc"), 1), w: fmtInt(window) }),
       });
     else if (r === "skew") items.push({ swatches: [{ fill: skew.pos }, { fill: skew.neg }], text: t("circular.legend.skew", { max: fmtNum(max("skew"), 2), w: fmtInt(window) }) });
   }
@@ -722,7 +722,7 @@ function Tooltip({ hit, placed, width, t }: { hit: Hit; placed: Placed[]; width:
       lines.push(t("explorer.readoutWindow", { s: fmtInt(seq.gc.start[i]), e: fmtInt(seq.gc.end[i]) }));
       const gc = seq.gc.gc[i];
       const sk = seq.gc.skew[i];
-      if (hit.ring === "gc" && gc != null) lines.push(`${t("explorer.track.gc")} ${fmtNum(100 * gc, 1)} %`);
+      if (hit.ring === "gc" && gc != null) lines.push(`${t("explorer.track.gc")} ${fmtPct(100 * gc, 1)}`);
       if (hit.ring === "skew" && sk != null) lines.push(`${t("explorer.track.skew")} ${fmtNum(sk, 3)}`);
     }
   }

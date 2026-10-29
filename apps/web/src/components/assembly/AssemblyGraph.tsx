@@ -8,7 +8,7 @@ import { type TranslationKey, useT } from "@/i18n";
 import { api } from "@/lib/api";
 import { NODE_KINDS, type NodeKind, nodeKind, nodeSize, segmentCoverage, selfLinks } from "@/lib/assembly";
 import { coverageKind, fmtCoverage } from "@/lib/shortReads";
-import { escapeHtml, fmtInt } from "@/lib/format";
+import { escapeHtml, fmtBp, fmtInt } from "@/lib/format";
 import type { Assembly, AssemblyGraphEdge, AssemblyGraphNode } from "@/lib/types";
 
 /** Segments drawn at most: a force layout of more stays readable on a laptop screen and responsive. */
@@ -45,7 +45,7 @@ export function AssemblyGraphView({ assembly }: { assembly: Assembly }) {
   const coverage = (n: AssemblyGraphNode) => segmentCoverage(g, n);
   const nodeTip = (n: AssemblyGraphNode) =>
     `<b>${escapeHtml(n.id)}</b>` +
-    row(t("assembly.graph.length"), `${fmtInt(n.length)} bp`) +
+    row(t("assembly.graph.length"), fmtBp(n.length)) +
     (coverage(n) !== null ? row(t("assembly.graph.coverage", { meaning: g.coverage_meaning ?? g.coverage_tag ?? "" }), fmtCoverage(coverage(n), coverageKind(assembly))) : "") +
     row(t("assembly.graph.contigs"), n.paths.length ? n.paths.join(", ") : "—") +
     row(t("assembly.graph.colour"), t(KIND_LABEL[nodeKind(n)])) +

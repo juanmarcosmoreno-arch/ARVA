@@ -5,7 +5,7 @@ import { axisStyle, baseOption, type ChartTheme, useChartTheme } from "@/compone
 import { useT } from "@/i18n";
 import { assemblyLabel, cumulativePoints, nxSteps } from "@/lib/assembly";
 import { COVERAGE_LABEL, coverageKind, fmtCoverage } from "@/lib/shortReads";
-import { escapeHtml, fmtBases, fmtCompact, fmtInt, fmtNum } from "@/lib/format";
+import { escapeHtml, fmtBases, fmtBp, fmtCompact, fmtInt, fmtNum, fmtPct } from "@/lib/format";
 import type { Assembly, AssemblyContig } from "@/lib/types";
 
 const BAR_RADIUS: [number, number, number, number] = [4, 4, 0, 0];
@@ -23,7 +23,7 @@ export function ContigLengthHistogram({ assembly: a }: { assembly: Assembly }) {
   const th = useChartTheme();
   const [weight, setWeight] = useState<"contigs" | "bases">("contigs");
   const bins = a.stats.length_histogram ?? [];
-  const range = (b: (typeof bins)[number]) => `${fmtInt(b.min_length)}–${fmtInt(b.max_length - 1)} bp`;
+  const range = (b: (typeof bins)[number]) => `${fmtInt(b.min_length)}–${fmtBp(b.max_length - 1)}`;
   const option: EChartsOption = {
     ...baseOption(th),
     tooltip: {
@@ -76,7 +76,7 @@ export function NxChart({ assembly: a }: { assembly: Assembly }) {
       trigger: "axis",
       formatter: (p: unknown) => {
         const [x, len] = (p as { value: [number, number] }[])[0].value;
-        return `${row("x", `${fmtNum(x, 1)} %`)}${row(t("assembly.chart.contigLength"), `${fmtInt(len)} bp`)}`;
+        return `${row("x", fmtPct(x, 1))}${row(t("assembly.chart.contigLength"), fmtBp(len))}`;
       },
     },
     xAxis: { type: "value", min: 0, max: 100, ...axisStyle(th, t("assembly.chart.nxAxis"), { nameGap: 28 }) },
@@ -94,8 +94,8 @@ export function NxChart({ assembly: a }: { assembly: Assembly }) {
           lineStyle: { color: th.text, type: "dashed", width: 1 },
           label: { color: th.text, fontSize: 10, formatter: "{b}" },
           data: [
-            { name: `N50 ${fmtInt(a.stats.n50)} bp`, xAxis: 50 },
-            { name: `N90 ${fmtInt(a.stats.n90)} bp`, xAxis: 90 },
+            { name: `N50 ${fmtBp(a.stats.n50)}`, xAxis: 50 },
+            { name: `N90 ${fmtBp(a.stats.n90)}`, xAxis: 90 },
           ],
         },
       },
@@ -130,7 +130,7 @@ export function CumulativeChart({ assembly: a }: { assembly: Assembly }) {
       trigger: "axis",
       formatter: (p: unknown) => {
         const [rank, cum] = (p as { value: [number, number] }[])[0].value;
-        return `<b>${escapeHtml(t("assembly.chart.firstContigs", { n: fmtInt(rank) }))}</b>${row(t("assembly.chart.cumulative"), `${fmtInt(cum)} bp`)}`;
+        return `<b>${escapeHtml(t("assembly.chart.firstContigs", { n: fmtInt(rank) }))}</b>${row(t("assembly.chart.cumulative"), fmtBp(cum))}`;
       },
     },
     xAxis: { type: "value", min: 1, minInterval: 1, ...axisStyle(th, t("assembly.chart.rankAxis"), { nameGap: 28 }) },
@@ -200,9 +200,9 @@ export function ContigScatter({ assembly: a, contigs, x }: { assembly: Assembly;
         const c = (p as { data: { contig: AssemblyContig } }).data.contig;
         return (
           `<b>${escapeHtml(c.name)}</b>` +
-          row(t("assembly.col.length"), `${fmtInt(c.length)} bp`) +
+          row(t("assembly.col.length"), fmtBp(c.length)) +
           row(kind ? t(COVERAGE_LABEL[kind]) : t("assembly.col.coverage"), fmtCoverage(c.coverage, kind)) +
-          (c.gc_percent !== null ? row(t("assembly.col.gc"), `${fmtNum(c.gc_percent, 2)} %`) : "") +
+          (c.gc_percent !== null ? row(t("assembly.col.gc"), fmtPct(c.gc_percent, 2)) : "") +
           (c.repeat ? row(t("assembly.col.repeat"), t("assembly.yes")) : "")
         );
       },
@@ -257,7 +257,7 @@ export function CompareCumulativeChart({ assemblies }: { assemblies: Assembly[] 
     ...baseOption(th),
     grid: { left: 56, right: 16, top: 16 + 22 * Math.ceil(shown.length / 2), bottom: 44 },
     legend: { ...legend(th), left: 8 },
-    tooltip: { ...baseOption(th).tooltip, trigger: "axis", valueFormatter: (v) => `${fmtInt(Number(v))} bp` },
+    tooltip: { ...baseOption(th).tooltip, trigger: "axis", valueFormatter: (v) => fmtBp(Number(v)) },
     xAxis: { type: "value", min: 1, minInterval: 1, ...axisStyle(th, t("assembly.chart.rankAxis"), { nameGap: 28 }) },
     yAxis: { type: "value", min: 0, ...axisStyle(th, t("assembly.chart.cumulative"), { nameGap: 44 }), axisLabel: compactAxis(th) },
     series: shown.map((a, i) => ({

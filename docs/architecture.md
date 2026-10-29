@@ -249,6 +249,59 @@ memory ARVA could use, the run's threads and memory limit, and what to change
 (`performance.out_of_memory_reason`). `python -m app.services.performance --lang en|es` prints the same summary
 for the launcher. Reports list each step's resources and add a methods paragraph on them.
 
+## Interface language
+
+The web interface is in English and Spanish (`apps/web/src/i18n/index.ts`; Settings → Language). Every string the
+user reads goes through `t(key, vars)`; the two dictionaries have the same keys (the Spanish one is typed
+`Record<TranslationKey, string>`).
+
+- **Plurals**: ICU-style blocks, `{count, plural, =0 {…} one {# file} other {# files}}`, chosen with
+  `Intl.PluralRules` for the language; `#` is the count in the locale's format.
+- **Numbers, units and dates**: `lib/format.ts` formats with the language's locale (`en-US`, `es-ES`): 1,234.5 and
+  45.2% in English, 1234,5 / 12.345 and 45,2 % in Spanish; base pairs are `bp`/`kbp`/`Mbp` in English and
+  `pb`/`kpb`/`Mpb` in Spanish (`fmtBp`, `fmtBases`, `bpUnit`). Values typed into inputs (genome size, `--read-error`)
+  keep the decimal point the parsers expect.
+- **Messages from the API** carry a stable code and parameters next to their English text; the interface shows
+  `prefix.<code>` in its language and the English text for codes it does not know (`lib/messages.ts`):
+  tool detection (`DetectedTool.reason`, `reason_params` → `tool.reason.*`); job failures
+  (`analysis_jobs.error_detail` → `job.error.*`, written by `run_job` from `JobFailure(message, code, **params)`, from
+  `ToolExecutionError`'s code, and `out_of_memory` after a SIGKILL); file checks (`raw_files.validation_detail` →
+  `file.validation.*`, from `arva_core`'s `QuickValidation.code`/`Pod5Check.code` and the full validation after
+  statistics); upload and server-import refusals (`code`, `params` → `upload.rejected.*`); read-statistics warnings
+  (`messages` in the statistics document → `seqstats.warning.*`); database-manager failures
+  (`reference_databases.error_detail` → `database.error.*`); metadata-import and POD5 warnings (`metadata.msg.*`,
+  `pod5.msg.*`); assembly warnings, polishing observations, annotation steps and plan problems (their own codes).
+  Parameters named `*_bytes` are shown as sizes in the locale. Migration `c3e9a5d7f1b4` adds the three
+  `*_detail` columns; rows written before it have none and show their English text.
+- **English text in the API** for coded metadata and POD5 messages uses the interface's English templates, plurals
+  included (`app/core/messages.render`, English rules: 1 is singular), and a test checks that both say the same.
+  Catalogue descriptions and notes are shown translated only while the interface's English for them is the server's
+  text exactly (`serverText`), so a corrected fact never shows in an older translation; a test checks the pair.
+- **Guards** (`apps/web/src/test/i18n.test.ts`): a scan of every `.tsx`/`.ts` source with the TypeScript compiler
+  API for JSX text, user-facing attributes (`title`, `aria-label`, `placeholder`, `alt`, `label`, …), label-like and
+  chart properties (`label`, `title`, `header`, series `name`, …) and `bp` after a number written outside `t()`,
+  with a small reviewed allowlist (tool option values, QUAST's field names); same keys, placeholders and plural
+  variables in both languages; every plural complete; no unused key; no Spanish text left identical to the English
+  one unless all its words are names or written the same in Spanish.
+
+**Still English in the Spanish interface** (by design or not yet coded): HTTP error details of the API's guards
+(`detail` of 4xx answers, FastAPI's 422 validation messages), shown as the server wrote them; job failures without a
+code, chiefly the adapters' `failure_reason` texts that quote the tool's own error line, the consistency checks of
+MultiQC, NanoPlot, SPAdes, Unicycler and QUAST outputs, server-import summaries and unexpected exceptions; the rarer
+database-manager failures (redirects, size or Content-Range mismatches, archive layout); job logs; the tools' own
+words (QUAST field names and log warnings, FastQC's pass/warn/fail, option values such as SPAdes'
+`--cov-cutoff off|auto` and Unicycler's `--mode`), NCBI's COG category names, annotation products, reference titles
+and the tools' own HTML reports.
+
+**Reports** (`GET /samples/{id}/report`, HTML/JSON/CSV) and the circular map inside the HTML report are English
+only: they are written by the API (`app/services/reports.py`, about 1,500 lines with some 110 HTML fragments and
+30 explanatory notes; `app/services/circular_svg.py`, its legend and caption) and the API has no language
+parameter. Following the interface language would take a `lang` query parameter passed by the interface, a
+server-side EN/ES catalogue for the HTML text with a parity test against the web dictionary, the HTML `lang`
+attribute and locale number formatting in the HTML; JSON keys and CSV headers would stay English (machine-readable)
+and the free-text fields of the JSON would carry codes. Figures exported from the interface (charts, the circular
+map's SVG with its legend and caption) already follow the interface language.
+
 ## External tools
 
 `arva_tools` provides one adapter per tool (`ToolInfo`: licence, citation, homepage, formats,

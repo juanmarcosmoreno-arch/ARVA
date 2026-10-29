@@ -40,7 +40,13 @@ Using the existing `sequence_stats` analysis as the template:
 - Charts: `ChartCard` + `useChartTheme()`. Mark colours in `components/charts/theme.ts` were
   validated (contrast ≥ 3:1, lightness band, colour-vision-deficiency separation) for each theme;
   re-validate if you change them. One y-axis per chart; tooltips on every chart; provide a table view.
-- Strings: add to `src/i18n/index.ts` in both languages.
+- Strings: add to `src/i18n/index.ts` in both languages and read them with `t()`; counts with the plural syntax
+  (`{n, plural, one {# file} other {# files}}`), numbers, sizes, base pairs and dates with `lib/format.ts`
+  (`fmtInt`, `fmtNum`, `fmtPct`, `fmtBytes`, `fmtBp`, `fmtDate`), never `toFixed` or a literal `bp`. A message the API
+  sends gets a stable code and parameters next to its English text (`JobFailure(message, "code", **params)`); the
+  interface translates `prefix.<code>` and falls back to the text. `src/test/i18n.test.ts` fails on interface text
+  written outside `t()`; a technical token that must stay as written goes to its reviewed allowlist with the reason
+  (see "Interface language" in `architecture.md`).
 - Brand tokens: `tailwind.config.ts` (`arva-navy`, `arva-royal`, `arva-teal`, `arva-cyan`, …)
   and semantic CSS variables in `src/index.css`.
 

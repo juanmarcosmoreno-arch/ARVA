@@ -139,6 +139,7 @@ def test_a_tool_killed_by_sigkill_fails_with_a_memory_reason(client, sample, tmp
     assert "ARVA could use 64.0 GB of memory here; this job ran with 4 thread(s) (balanced profile)" in msg
     assert "lighter performance profile or fewer threads" in msg and "Docker" not in msg
     assert "ARVA could use 64.0 GB" in d["log_text"]
+    assert d["error_detail"] == {"code": "out_of_memory", "params": {"tool": "seqkit"}}
 
 
 def test_an_adapter_memory_reason_gets_only_the_advice():

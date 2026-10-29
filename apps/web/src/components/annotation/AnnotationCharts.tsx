@@ -21,7 +21,7 @@ import {
   strandRows,
 } from "@/lib/annotationCharts";
 import { api } from "@/lib/api";
-import { bpUnit, escapeHtml, fmtBp, fmtCompact, fmtInt, fmtNum } from "@/lib/format";
+import { bpUnit, escapeHtml, fmtBp, fmtCompact, fmtInt, fmtNum, fmtPct } from "@/lib/format";
 import type { Annotation, AnnotationCharts as Charts, LengthClass } from "@/lib/types";
 import { typeLabel } from "./FeatureDetail";
 
@@ -33,7 +33,7 @@ const WINDOWS = [0, 1_000, 5_000, 10_000, 50_000, 100_000];
 const legend = (th: ChartTheme) => ({ top: 0, right: 8, icon: "roundRect", itemWidth: 12, itemHeight: 8, textStyle: { color: th.text, fontSize: 11 } });
 const row = (label: string, value: string) =>
   `<div style="display:flex;justify-content:space-between;gap:16px"><span style="opacity:.7">${escapeHtml(label)}</span><b>${escapeHtml(value)}</b></div>`;
-const share = (v: number | null) => (v == null ? "—" : `${fmtNum(v, 1)} %`);
+const share = (v: number | null) => (v == null ? "—" : fmtPct(v, 1));
 
 /**
  * Spec §11 "Visualizaciones": features by type, gene lengths, gene density along each sequence, strand, COG

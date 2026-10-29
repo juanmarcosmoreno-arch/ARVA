@@ -305,6 +305,17 @@ as inline SVG (escaped names), a sequence table and the charts' numbers; the JSO
 - **Not yet validated on a real Mac**: the launcher and the macOS readers were tested with constructed outputs only.
   The profiles' shares are heuristics, not measurements of heat or speed.
 
+## Interface language (P2) ✅
+
+- The Spanish interface is Spanish throughout: forms, upload progress, history labels, units (`pb`), numbers and
+  dates in the locale's format, plurals; terminology made consistent ("estadísticas de lecturas", "encabezados").
+- Stable codes for the API messages shown most often (job failures, file checks, upload refusals, read-statistics
+  warnings, database-manager failures, catalogue texts), translated by the interface with the English text as
+  fallback; a test of the sources keeps interface text inside the dictionaries.
+- Still English: the API's HTTP error details, uncoded job failures (mostly the tools' own error lines), job logs,
+  the tools' own words, and the reports (HTML/JSON/CSV), which the API writes in English only; see "Interface
+  language" in `architecture.md` for the list and what following the interface language in reports would take.
+
 ## Later phases
 
 | Phase | Scope |

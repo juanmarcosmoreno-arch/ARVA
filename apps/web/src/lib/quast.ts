@@ -1,4 +1,5 @@
 import type { TranslationKey } from "@/i18n";
+import { fmtMax } from "./format";
 import { basename } from "./results";
 import type { AnalysisJobDetail, QuastPlan, QuastRequest, QuastSummary, QuastValue, RawFile } from "./types";
 
@@ -100,12 +101,11 @@ export function reportRows(summary: QuastSummary, all: boolean) {
   return all ? summary.report.rows : summary.report.rows.filter((r) => KEY_FIELDS.has(r.field));
 }
 
-const NUMBER = new Intl.NumberFormat("en-US", { maximumFractionDigits: 3 });
-
-/** A QUAST value as QUAST reported it ("1 + 0 part" for unaligned contigs, "—" where QUAST wrote "-"). */
+/** A QUAST value as QUAST reported it, numbers in the interface's format ("1 + 0 part" for unaligned contigs, "—" where
+ * QUAST wrote "-"). */
 export function formatQuastValue(v: QuastValue | undefined, partLabel: string): string {
   if (v === null || v === undefined) return "—";
-  if (typeof v === "number") return NUMBER.format(v);
+  if (typeof v === "number") return fmtMax(v, 3);
   if (typeof v === "string") return v;
   return `${v.full} + ${v.partial} ${partLabel}`;
 }

@@ -1,5 +1,5 @@
 import type { TranslationKey } from "@/i18n";
-import { fmtInt, fmtNum } from "./format";
+import { bpUnit, fmtInt, fmtNum } from "./format";
 import { basename } from "./results";
 import type { NanoplotStats, SequenceStats, SequencingTechnology } from "./types";
 
@@ -36,7 +36,7 @@ export const STAT_ROWS: { key: StatKey; label: TranslationKey; definition: Trans
 /** NanoPlot prints values with one decimal; whole numbers are shown without it. */
 export function formatNanoplot(value: number, kind: StatKind): string {
   const n = Number.isInteger(value) ? fmtInt(value) : fmtNum(value, 1);
-  if (kind === "bp") return `${n} bp`;
+  if (kind === "bp") return `${n} ${bpUnit()}`;
   if (kind === "q") return `Q${fmtNum(value, 1)}`;
   return n;
 }

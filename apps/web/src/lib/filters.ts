@@ -162,9 +162,9 @@ export function describeFiltlong(p: FiltlongParams, t: Translate = EN, coverage:
   const out: string[] = [];
   if (p.min_length != null) out.push(t("filter.do.filtlong.minLength", { length: fmtInt(p.min_length) }));
   if (p.max_length != null) out.push(t("filter.do.filtlong.maxLength", { length: fmtInt(p.max_length) }));
-  if (p.min_mean_q != null) out.push(t("filter.do.filtlong.meanQ", { identity: p.min_mean_q, q: identityToPhred(p.min_mean_q).toFixed(1) }));
+  if (p.min_mean_q != null) out.push(t("filter.do.filtlong.meanQ", { identity: p.min_mean_q, q: fmtNum(identityToPhred(p.min_mean_q), 1) }));
   if (p.min_window_q != null)
-    out.push(t("filter.do.filtlong.windowQ", { size: p.window_size, identity: p.min_window_q, q: identityToPhred(p.min_window_q).toFixed(1) }));
+    out.push(t("filter.do.filtlong.windowQ", { size: p.window_size, identity: p.min_window_q, q: fmtNum(identityToPhred(p.min_window_q), 1) }));
   if (p.keep_percent != null) out.push(t("filter.do.filtlong.keepPercent", { percent: p.keep_percent }));
   if (p.target_bases != null)
     out.push(

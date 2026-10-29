@@ -1,7 +1,7 @@
 import { Card, CardBody, CardHeader } from "@/components/ui/card";
 import { type TranslationKey, useT } from "@/i18n";
 import { MAX_COMPARED, assemblyLabel, compared } from "@/lib/assembly";
-import { fmtBases, fmtDate, fmtInt, fmtPct } from "@/lib/format";
+import { fmtBases, fmtBp, fmtDate, fmtInt, fmtPct } from "@/lib/format";
 import { COVERAGE_LABEL, coverageKind, fmtCoverage } from "@/lib/shortReads";
 import type { Assembly, RawFile } from "@/lib/types";
 import { CompareCumulativeChart } from "./AssemblyCharts";
@@ -19,11 +19,11 @@ export function AssemblyComparison({ assemblies, files }: { assemblies: Assembly
     { label: "assembly.compare.created", value: (a) => fmtDate(a.created_at) },
     { label: "assembly.compare.inputs", value: (a) => inputLineage(a, files) },
     { label: "assembly.stat.contigs", value: (a) => fmtInt(a.stats.contig_count) },
-    { label: "assembly.stat.totalLength", value: (a) => `${fmtInt(a.stats.total_length)} bp (${fmtBases(a.stats.total_length)})` },
-    { label: "assembly.stat.largest", value: (a) => `${fmtInt(a.stats.largest_contig)} bp` },
-    { label: "assembly.stat.n50", value: (a) => `${fmtInt(a.stats.n50)} bp` },
+    { label: "assembly.stat.totalLength", value: (a) => `${fmtBp(a.stats.total_length)} (${fmtBases(a.stats.total_length)})` },
+    { label: "assembly.stat.largest", value: (a) => fmtBp(a.stats.largest_contig) },
+    { label: "assembly.stat.n50", value: (a) => fmtBp(a.stats.n50) },
     { label: "assembly.stat.l50", value: (a) => fmtInt(a.stats.l50) },
-    { label: "assembly.stat.n90", value: (a) => `${fmtInt(a.stats.n90)} bp` },
+    { label: "assembly.stat.n90", value: (a) => fmtBp(a.stats.n90) },
     { label: "assembly.stat.l90", value: (a) => fmtInt(a.stats.l90) },
     { label: "assembly.stat.gc", value: (a) => (a.stats.gc_percent === null ? "—" : fmtPct(a.stats.gc_percent, 2)) },
     {

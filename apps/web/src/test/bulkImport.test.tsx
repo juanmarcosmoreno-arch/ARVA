@@ -69,15 +69,15 @@ describe("BulkImportDialog", () => {
     expect(screen.getByText("existing")).toBeInTheDocument();
     expect(screen.getByText("new")).toBeInTheDocument();
     expect(screen.getByText("R1 without its R2 file: B_R1.fastq.gz")).toBeInTheDocument();
-    expect(screen.getByText("1 file(s) ignored (not FASTQ/FASTA/POD5): SampleSheet.csv")).toBeInTheDocument();
+    expect(screen.getByText("1 file ignored (not FASTQ/FASTA/POD5): SampleSheet.csv")).toBeInTheDocument();
     expect(mocked.createSample).not.toHaveBeenCalled();
     expect(mocked.uploadFiles).not.toHaveBeenCalled();
 
     await user.click(startButton());
-    await screen.findByText("Finished: 2 of 2 group(s) uploaded.");
+    await screen.findByText("Finished: 2 of 2 groups uploaded.");
     // The project page refetches its samples afterwards; the dialog keeps describing what it did.
     refreshSamples([existing, { id: "new-B", sample_code: "B" } as Sample]);
-    expect(screen.getByText(/2 sample\(s\): 1 new, 1 existing/)).toBeInTheDocument();
+    expect(screen.getByText(/2 samples: 1 new, 1 existing/)).toBeInTheDocument();
     expect(mocked.createSample).toHaveBeenCalledTimes(1);
     expect(mocked.createSample).toHaveBeenCalledWith("p1", { sample_code: "B", sequencing_technology: "unknown" });
     const uploads = mocked.uploadFiles.mock.calls.map(([id, files]) => [id, files.map((f) => f.name)]);
@@ -92,7 +92,7 @@ describe("BulkImportDialog", () => {
     const { folderInput } = setup([]);
     await user.upload(folderInput, [file("run7_barcode02.pod5"), file("run7_barcode02.fastq.gz"), file("reads.fast5")]);
     expect(screen.getAllByLabelText("Sample ID").map((i) => (i as HTMLInputElement).value)).toEqual(["run7_barcode02"]);
-    expect(screen.getByText("1 file(s) ignored (not FASTQ/FASTA/POD5): reads.fast5")).toBeInTheDocument();
+    expect(screen.getByText("1 file ignored (not FASTQ/FASTA/POD5): reads.fast5")).toBeInTheDocument();
     await user.click(startButton());
     await screen.findByText(/^Finished:/);
     expect(mocked.uploadFiles.mock.calls.map(([, files]) => files.map((f) => f.name))).toEqual([["run7_barcode02.fastq.gz", "run7_barcode02.pod5"]]);
@@ -162,7 +162,7 @@ describe("BulkImportDialog", () => {
     const { filesInput } = setup();
     await user.upload(filesInput, [file("a.fastq.gz"), file("b.fastq.gz")]);
     await user.click(startButton());
-    await screen.findByText("Finished: 1 of 2 group(s) uploaded. 1 with every file rejected (nothing stored).");
+    await screen.findByText("Finished: 1 of 2 groups uploaded. 1 with every file rejected (nothing stored).");
     expect(screen.getByText("Nothing stored: every file was rejected")).toBeInTheDocument();
   });
 
@@ -175,7 +175,7 @@ describe("BulkImportDialog", () => {
     const { filesInput } = setup([]);
     await user.upload(filesInput, [file("A.fastq.gz"), file("B.fastq.gz"), file("C.fastq.gz")]);
     await user.click(startButton());
-    await screen.findByText("Finished: 0 of 3 group(s) uploaded.", { exact: false });
+    await screen.findByText("Finished: 0 of 3 groups uploaded.", { exact: false });
     expect(mocked.createSample).toHaveBeenCalledTimes(1);
     expect(mocked.uploadFiles).toHaveBeenCalledTimes(1);
     expect(screen.getAllByText("Not started")).toHaveLength(2);
@@ -196,7 +196,7 @@ describe("BulkImportDialog", () => {
     expect(screen.queryByRole("link", { name: "Open sample" })).not.toBeInTheDocument();
 
     release({ files: [stored("B.fastq.gz")], rejected: [] });
-    await screen.findByText("Finished: 2 of 2 group(s) uploaded.");
+    await screen.findByText("Finished: 2 of 2 groups uploaded.");
     expect(screen.getAllByRole("link", { name: "Open sample" })).toHaveLength(2);
   });
 

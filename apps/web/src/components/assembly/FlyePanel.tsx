@@ -23,7 +23,7 @@ import {
   type GenomeChoice,
 } from "@/lib/flye";
 import { lineageOrder } from "@/lib/filters";
-import { fmtBases, fmtInt, fmtNum, technologyLabel } from "@/lib/format";
+import { fmtBases, fmtBp, fmtInt, fmtNum, technologyLabel } from "@/lib/format";
 import { toolMessage } from "@/lib/messages";
 import type { AnalysisJobDetail, FlyePlan, FlyeReadType, RawFile } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -381,7 +381,7 @@ function GenomeSize({ form, plan, set }: { form: FlyeForm; plan: FlyePlan | unde
   const chosen = chosenGenomeSize(form, plan);
   const expectedText =
     expected?.status === "given" && expected.bp
-      ? t("flye.genome.expected", { size: `${fmtInt(expected.bp)} bp` })
+      ? t("flye.genome.expected", { size: fmtBp(expected.bp) })
       : expected?.status === "inconsistent"
         ? t("flye.genome.expectedInconsistent")
         : t("flye.genome.expectedMissing");
@@ -412,7 +412,7 @@ function GenomeSize({ form, plan, set }: { form: FlyeForm; plan: FlyePlan | unde
             g?.from_depth &&
             chosen.bp !== null && (
               <p className="text-xs text-muted-foreground">
-                {t("flye.genome.depthResult", { bases: fmtInt(g.from_depth.total_read_bases), depth: fmtNum(g.from_depth.depth_x, 1), size: `${fmtInt(g.from_depth.bp)} bp` })}
+                {t("flye.genome.depthResult", { bases: fmtInt(g.from_depth.total_read_bases), depth: fmtNum(g.from_depth.depth_x, 1), size: fmtBp(g.from_depth.bp) })}
               </p>
             )
           )}

@@ -11,7 +11,7 @@ import { dictionaries, type TranslationKey, useT } from "@/i18n";
 import { api } from "@/lib/api";
 import { type ContigSortKey, type SortDir, assemblyLabel, lineageNames, sortContigs } from "@/lib/assembly";
 import { flyeContigRows } from "@/lib/flye";
-import { fmtBases, fmtDate, fmtInt, fmtNum, fmtPct } from "@/lib/format";
+import { fmtBases, fmtBp, fmtDate, fmtInt, fmtNum, fmtPct } from "@/lib/format";
 import { messageText } from "@/lib/messages";
 import { lineage, polishedFrom } from "@/lib/polishing";
 import { basename } from "@/lib/results";
@@ -117,11 +117,11 @@ export function AssemblyCard({
         )}
         <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
           <MetricTile label={t("assembly.stat.contigs")} value={fmtInt(s.contig_count)} />
-          <MetricTile label={t("assembly.stat.totalLength")} value={fmtBases(s.total_length)} sub={`${fmtInt(s.total_length)} bp`} />
-          <MetricTile label={t("assembly.stat.largest")} value={`${fmtInt(s.largest_contig)} bp`} />
-          <MetricTile label={t("assembly.stat.n50")} value={`${fmtInt(s.n50)} bp`} explain="assembly_n50" />
+          <MetricTile label={t("assembly.stat.totalLength")} value={fmtBases(s.total_length)} sub={fmtBp(s.total_length)} />
+          <MetricTile label={t("assembly.stat.largest")} value={fmtBp(s.largest_contig)} />
+          <MetricTile label={t("assembly.stat.n50")} value={fmtBp(s.n50)} explain="assembly_n50" />
           <MetricTile label={t("assembly.stat.l50")} value={fmtInt(s.l50)} sub={t("assembly.stat.lSub", { x: 50 })} />
-          <MetricTile label={t("assembly.stat.n90")} value={`${fmtInt(s.n90)} bp`} />
+          <MetricTile label={t("assembly.stat.n90")} value={fmtBp(s.n90)} />
           <MetricTile label={t("assembly.stat.l90")} value={fmtInt(s.l90)} sub={t("assembly.stat.lSub", { x: 90 })} />
           <MetricTile label={t("assembly.stat.gc")} value={s.gc_percent === null ? "—" : fmtPct(s.gc_percent, 2)} explain="gc_content" />
           <MetricTile
@@ -146,7 +146,7 @@ export function AssemblyCard({
 
         <div className="text-xs text-muted-foreground">
           {genome.bp
-            ? t("assembly.genomeSize", { size: `${fmtInt(genome.bp)} bp`, source: lookup(t, "assembly.genomeSource.", genome.basis ?? genome.source) })
+            ? t("assembly.genomeSize", { size: fmtBp(genome.bp), source: lookup(t, "assembly.genomeSource.", genome.basis ?? genome.source) })
             : t("assembly.genomeSizeNone")}
         </div>
 

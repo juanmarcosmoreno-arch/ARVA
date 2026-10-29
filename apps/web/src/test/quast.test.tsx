@@ -99,6 +99,7 @@ describe("QUAST helpers", () => {
   });
 
   it("format QUAST's values as reported and pick the main rows", () => {
+    useSettings.setState({ language: "en" });
     expect(formatQuastValue({ full: 1, partial: 2 }, "part")).toBe("1 + 2 part");
     expect(formatQuastValue(null, "part")).toBe("—");
     expect(formatQuastValue(286_428.6, "part")).toBe("286,428.6");
@@ -122,19 +123,19 @@ describe("QUAST helpers", () => {
 describe("Assembly tab with QUAST", () => {
   it("shows QUAST's values, links to its pages and a cross-check difference without hiding it", async () => {
     renderWith(<AssemblyTab sampleId="s" jobs={[job("completed", { result_summary: summary as unknown as Record<string, unknown> })]} files={[reads, fasta]} onNew={() => undefined} onEvaluate={() => undefined} onPolish={() => undefined} />);
-    expect(await screen.findByText("QUAST 5.2.0 · 1 ensamblaje(s) · contigs ≥ 500 pb")).toBeInTheDocument();
+    expect(await screen.findByText("QUAST 5.2.0 · 1 ensamblaje · contigs ≥ 500 pb")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Informe de QUAST/ })).toHaveAttribute("href", "/api/v1/jobs/job-q/outputs/quast/report.html");
     expect(screen.getByRole("link", { name: /Navegador de contigs Icarus/ })).toHaveAttribute("href", "/api/v1/jobs/job-q/outputs/quast/icarus.html");
     expect(screen.getByRole("link", { name: /report\.tsv/ })).toHaveAttribute("href", "/api/v1/jobs/job-q/outputs/quast/report.tsv?download=true");
     const table = screen.getAllByRole("table")[0];
     expect(within(table).getByText("1 + 0 parciales")).toBeInTheDocument();
-    expect(within(table).getByText("99.683")).toBeInTheDocument();
+    expect(within(table).getByText("99,683")).toBeInTheDocument();
     expect(within(table).queryByText("auNA")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Mostrar las 7 métricas de QUAST" }));
     expect(within(table).getByText("auNA")).toBeInTheDocument();
     expect(screen.getByText("1 de 2 métricas coinciden con las de ARVA")).toBeInTheDocument();
-    expect(screen.getByText("140,001")).toBeInTheDocument();
-    expect(screen.getByText("49.4512")).toBeInTheDocument();
+    expect(screen.getByText("140.001")).toBeInTheDocument();
+    expect(screen.getByText("49,4512")).toBeInTheDocument();
     expect(screen.getByText(/rotado 1000 de 300 000 pb dio un 99,683 %/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Evaluar con QUAST/ })).toBeDisabled();
   });
@@ -168,7 +169,7 @@ describe("QUAST dialog", () => {
     };
     const preview = vi.spyOn(api, "quastPreview").mockResolvedValue(plan);
     renderWith(<QuastDialog open onOpenChange={() => undefined} sampleId="s" assemblies={[assembly]} files={[reads, fasta]} />);
-    expect(await screen.findByText(/6 de 8 contigs tienen al menos 500 pb; QUAST deja los otros 2 \(899 bp\) fuera/)).toBeInTheDocument();
+    expect(await screen.findByText(/6 de 8 contigs tienen al menos 500 pb; QUAST deja los otros 2 \(899 pb\) fuera/)).toBeInTheDocument();
     expect(preview).toHaveBeenCalledWith("s", { assembly_ids: [assembly.id], reference_file_id: null, min_contig: 500 });
     expect((screen.getByRole("spinbutton", { name: /Longitud mínima de contig/ }) as HTMLInputElement).value).toBe("500");
     expect(screen.getByRole("option", { name: "reference.fasta" })).toBeInTheDocument();
@@ -177,7 +178,7 @@ describe("QUAST dialog", () => {
 
     preview.mockResolvedValue({ ...plan, min_contig: 200_000, assemblies: [{ ...plan.assemblies[0], contigs_kept: 0, contigs_left_out: 8 }] });
     fireEvent.change(screen.getByRole("spinbutton", { name: /Longitud mínima de contig/ }), { target: { value: "200000" } });
-    expect(await screen.findByText(/Ningún contig llega a 200,000 pb/, {}, { timeout: 2000 })).toBeInTheDocument();
+    expect(await screen.findByText(/Ningún contig llega a 200\.000 pb/, {}, { timeout: 2000 })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Iniciar la evaluación/ })).toBeDisabled();
   });
 

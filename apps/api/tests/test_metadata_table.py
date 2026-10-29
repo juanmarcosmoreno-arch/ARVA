@@ -76,7 +76,7 @@ def test_xlsx_types_and_conversions():
     assert rows[5]["País"] == "Zoë 北京 😀"
     assert rows[5]["Profundidad"] == "0.001" and rows[6]["Profundidad"] == "TRUE"
     assert rows[2]["Fórmula"] is None
-    assert has(p["warnings"], "1 formula cell(s) (H2)") and has(p["warnings"], "have no stored value")
+    assert has(p["warnings"], "1 formula cell (H2) has no stored value")
     assert has(p["warnings"], "Merged cells (G5:H5)")
     assert has(p["warnings"], "The workbook has 2 sheets")
     assert p["numeric_cells"]["ID muestra"] == {2, 5, 6, 7}
@@ -86,7 +86,7 @@ def test_xlsx_cached_formula_values_libreoffice_fixture():
     p = fixture("lo_resaved_typed.xlsx")
     rows = {r["row"]: r["values"] for r in p["rows"]}
     assert rows[2]["Contig N50 (fórmula)"] == "71"
-    assert has(p["warnings"], "formula cell(s)") and not has(p["warnings"], "no stored value")
+    assert has(p["warnings"], "formula cell") and not has(p["warnings"], "no stored value")
 
 
 def test_xlsx_build_samples_end_to_end():

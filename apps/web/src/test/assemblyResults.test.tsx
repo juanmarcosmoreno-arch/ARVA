@@ -186,7 +186,7 @@ describe("Assembly results", () => {
     // The self-link is listed, not drawn.
     expect(series.edges.map((e: { source: string; target: string }) => `${e.source}-${e.target}`)).toEqual(["edge_1-edge_9"]);
     expect(screen.getByText(/showing the 2 longest of 900 segments and 2 links among them \(the graph has 1,200\)/)).toBeInTheDocument();
-    expect(screen.getByText(/1 segment\(s\) are linked to themselves/)).toBeInTheDocument();
+    expect(screen.getByText(/1 segment is linked to itself/)).toBeInTheDocument();
     expect(screen.getByText("Coverage is Flye's GFA tag dp (mean read depth).")).toBeInTheDocument();
   });
 
@@ -253,7 +253,7 @@ describe("New assembly dialog", () => {
 
     fireEvent.change(screen.getByRole("combobox", { name: "Read type" }), { target: { value: "nano-hq" } });
     const summary = await screen.findByRole("region", { name: "What this run will do" });
-    expect(within(summary).getByText("Reads: 1 file(s), 9.00 Mbp in total — ont.fastq.gz.")).toBeInTheDocument();
+    expect(within(summary).getByText("Reads: 1 file, 9.00 Mbp in total — ont.fastq.gz.")).toBeInTheDocument();
     expect(within(summary).getByText("Read type: --nano-hq (Flye's error model for these reads).")).toBeInTheDocument();
     expect(within(summary).getByText("Threads: 4. With more than one thread, runs on the same reads can differ.")).toBeInTheDocument();
     expect(within(summary).getByText("Advanced options: none (Flye's defaults).")).toBeInTheDocument();

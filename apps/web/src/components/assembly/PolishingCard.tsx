@@ -9,7 +9,7 @@ import { Card, CardBody, CardHeader } from "@/components/ui/card";
 import { useT } from "@/i18n";
 import { api } from "@/lib/api";
 import { assemblyLabel } from "@/lib/assembly";
-import { escapeHtml, fmtDate, fmtInt, fmtNum } from "@/lib/format";
+import { escapeHtml, fmtBp, fmtDate, fmtInt, fmtNum, fmtPct } from "@/lib/format";
 import { CHANGE_KINDS, type CompareRow, assemblyRows, changeSeries, indirectRows, lineage, polishingSummary, trend } from "@/lib/polishing";
 import { basename } from "@/lib/results";
 import type { AnalysisJobDetail, Assembly, Changes, PolishingObservation, PolishingSummary } from "@/lib/types";
@@ -152,7 +152,7 @@ function Followups({ summary: s }: { summary: PolishingSummary }) {
 function changesText(c: Changes | null | undefined, kind: keyof Changes): string {
   if (!c) return "—";
   const v = c[kind];
-  return v.events === v.bases ? fmtInt(v.events) : `${fmtInt(v.events)} (${fmtInt(v.bases)} bp)`;
+  return v.events === v.bases ? fmtInt(v.events) : `${fmtInt(v.events)} (${fmtBp(v.bases)})`;
 }
 
 function DirectEvidence({ summary: s }: { summary: PolishingSummary }) {
@@ -162,12 +162,12 @@ function DirectEvidence({ summary: s }: { summary: PolishingSummary }) {
   if (d) {
     rows.push(
       [t("polishing.direct.substitutions"), fmtInt(d.events.substitutions)],
-      [t("polishing.direct.insertions"), `${fmtInt(d.events.insertions)} (${fmtInt(d.events.inserted_bases)} bp)`],
-      [t("polishing.direct.deletions"), `${fmtInt(d.events.deletions)} (${fmtInt(d.events.deleted_bases)} bp)`],
-      [t("polishing.direct.unalignedDraft"), `${fmtInt(d.before.unaligned_bases)} bp`],
-      [t("polishing.direct.unalignedPolished"), `${fmtInt(d.after.unaligned_bases)} bp`],
+      [t("polishing.direct.insertions"), `${fmtInt(d.events.insertions)} (${fmtBp(d.events.inserted_bases)})`],
+      [t("polishing.direct.deletions"), `${fmtInt(d.events.deletions)} (${fmtBp(d.events.deleted_bases)})`],
+      [t("polishing.direct.unalignedDraft"), fmtBp(d.before.unaligned_bases)],
+      [t("polishing.direct.unalignedPolished"), fmtBp(d.after.unaligned_bases)],
       [t("polishing.direct.breakpoints"), fmtInt(d.before.breakpoints)],
-      [t("polishing.direct.identity"), `${fmtNum(d.before.one_to_one_identity, 2)} %`],
+      [t("polishing.direct.identity"), fmtPct(d.before.one_to_one_identity, 2)],
     );
   }
   const pilon = s.direct.pilon_changes;

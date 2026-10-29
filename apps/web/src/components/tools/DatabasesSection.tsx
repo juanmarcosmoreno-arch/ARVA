@@ -8,9 +8,9 @@ import { Dialog } from "@/components/ui/dialog";
 import { ErrorNote, Skeleton } from "@/components/ui/misc";
 import { useT, type TranslationKey } from "@/i18n";
 import { api } from "@/lib/api";
-import { fmtBytes, fmtDate, fmtInt } from "@/lib/format";
+import { fmtBytes, fmtDate, fmtInt, fmtPct } from "@/lib/format";
 import type { CatalogueEntry, DatabaseStatus, DatabaseUsage, ReferenceDatabase } from "@/lib/types";
-import { databaseError } from "@/lib/messages";
+import { databaseError, serverText } from "@/lib/messages";
 
 const BUSY: DatabaseStatus[] = ["downloading", "verifying"];
 const STATUS_TONE: Record<DatabaseStatus, "success" | "blue" | "warning" | "danger" | "neutral"> = {
@@ -155,7 +155,7 @@ function Progress({ record }: { record: ReferenceDatabase }) {
     <div className="space-y-1">
       <div className="flex justify-between text-xs">
         <span>{t(`databases.phase.${phase}` as TranslationKey)}</span>
-        <span className="text-muted-foreground">{total ? `${fmtBytes(done)} / ${fmtBytes(total)} (${pct} %)` : "—"}</span>
+        <span className="text-muted-foreground">{total ? `${fmtBytes(done)} / ${fmtBytes(total)} (${fmtPct(pct, 0)})` : "—"}</span>
       </div>
       <div className="h-2 overflow-hidden rounded-full bg-muted" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}>
         <div className="h-full bg-arva-teal transition-all" style={{ width: `${pct}%` }} />
@@ -179,7 +179,7 @@ function CatalogueCard({ entry, records }: { entry: CatalogueEntry; records: Ref
             {entry.name}
             <span className="text-sm font-normal text-muted-foreground">v{entry.version}</span>
           </h3>
-          <p className="mt-1 text-sm text-muted-foreground">{entry.description}</p>
+          <p className="mt-1 text-sm text-muted-foreground">{serverText(t, `databases.catalogue.${entry.key}.description`, entry.description)}</p>
         </div>
         {current ? <StatusBadge status={current.status} /> : <Badge>{t("databases.notInstalled")}</Badge>}
       </div>
@@ -231,8 +231,8 @@ function CatalogueCard({ entry, records }: { entry: CatalogueEntry; records: Ref
               </p>
             </div>
             <ul className="list-disc space-y-1 pl-4">
-              {entry.notes.map((n) => (
-                <li key={n}>{n}</li>
+              {entry.notes.map((n, i) => (
+                <li key={n}>{serverText(t, `databases.catalogue.${entry.key}.note${i}`, n)}</li>
               ))}
             </ul>
           </div>

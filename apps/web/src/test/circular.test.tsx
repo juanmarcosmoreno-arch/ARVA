@@ -323,7 +323,7 @@ describe("Annotation charts", () => {
     vi.spyOn(api, "annotationCharts").mockResolvedValue(base({}));
     renderWith(<AnnotationChartsPanel annotation={annotation} />);
     expect(await screen.findByText(/Prokka gave a COG identifier to 3 CDS but no category letters/)).toBeInTheDocument();
-    expect(screen.getByText(/2 of 3 CDS \(66.7 %\) have no function assigned/)).toBeInTheDocument();
+    expect(screen.getByText(/2 of 3 CDS \(66\.7%\) have no function assigned/)).toBeInTheDocument();
     expect(screen.getByText(/Leading and lagging strand are not shown/)).toBeInTheDocument();
     const density = screen.getByText("Gene density along the sequence").closest(".flex.flex-col")!;
     fireEvent.click(density.querySelector('[aria-label="Show data table"]')!);

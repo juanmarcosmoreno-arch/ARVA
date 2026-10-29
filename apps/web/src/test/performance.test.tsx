@@ -121,7 +121,7 @@ describe("Job resources", () => {
 
   it("describes what a job was given", () => {
     expect(resourcesLine(t, resources)).toBe(
-      "Light profile (automatic) · 2 thread(s) · memory limit 3 GB (-m) · CPU priority nice 15 · ARVA could use 8 CPUs and 7.7 GB · computer: MacBook Air · Apple M2",
+      "Light profile (automatic) · 2 threads · memory limit 3 GB (-m) · CPU priority nice 15 · ARVA could use 8 CPUs and 7.7 GB · computer: MacBook Air · Apple M2",
     );
     expect(resourcesLine(t, { ...resources, nice_executable: null, memory_limit_gb: null, host: "unknown computer" })).toContain(
       "CPU priority not lowered (nice 15 asked; the nice program was not found) · ARVA could use 8 CPUs and 7.7 GB · computer: unknown",

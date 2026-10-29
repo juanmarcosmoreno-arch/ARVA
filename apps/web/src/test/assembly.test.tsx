@@ -73,7 +73,7 @@ describe("Assembly tab", () => {
     expect(await screen.findByText("INFO: >>>STAGE: repeat")).toBeInTheDocument();
     expect(await screen.findByText("Flye 2.9.3 · --nano-hq")).toBeInTheDocument();
     expect(screen.getByText(/estimado como bases de las lecturas ÷ una profundidad supuesta/)).toBeInTheDocument();
-    expect(screen.getByText(/1 contig\(s\) con cobertura mayor que 4 × la mediana/)).toBeInTheDocument();
+    expect(screen.getByText(/1 contig con cobertura mayor que 4 × la mediana/)).toBeInTheDocument();
     // In the warning's contig list and in the contig table.
     expect(await screen.findAllByText("contig_2")).toHaveLength(2);
     expect(screen.getByText("2", { selector: "td.font-mono" })).toBeInTheDocument();
@@ -101,7 +101,7 @@ describe("Flye dialog", () => {
     const preview = vi.spyOn(api, "flyePreview").mockResolvedValue(plan);
     renderWith(<AssemblyDialog open onOpenChange={() => undefined} sampleId="s" files={[reads]} />);
     expect(await screen.findByText("ARVA sugiere --nano-hq")).toBeInTheDocument();
-    expect(screen.getByText(/error medio del 4\.08% \(Q13\.9\), dentro del < 5% de Flye/)).toBeInTheDocument();
+    expect(screen.getByText(/error medio del 4,08 % \(Q13,9\), dentro del < 5 % de Flye/)).toBeInTheDocument();
     expect(preview).toHaveBeenCalledWith("s", { raw_file_ids: ["f1"], assumed_depth_x: null });
     expect((screen.getByRole("combobox", { name: "Tipo de lectura" }) as HTMLSelectElement).value).toBe("");
     expect(screen.getByRole("button", { name: /Iniciar el ensamblaje/ })).toBeDisabled();

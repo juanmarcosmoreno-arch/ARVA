@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardBody, CardHeader } from "@/components/ui/card";
 import { useT } from "@/i18n";
 import { api } from "@/lib/api";
-import { fmtDate, fmtInt } from "@/lib/format";
+import { fmtDate, fmtInt, fmtNum } from "@/lib/format";
 import { FIELD_HELP, formatQuastValue, quastOutput, quastSummary, reportRows } from "@/lib/quast";
 import type { AnalysisJobDetail, QuastCrosscheckRow, QuastSummary } from "@/lib/types";
 
@@ -181,7 +181,7 @@ function Crosscheck({ summary: s }: { summary: QuastSummary }) {
 
 function CrosscheckRow({ row: r }: { row: QuastCrosscheckRow }) {
   const t = useT();
-  const arva = r.arva === null ? "—" : r.decimals === null ? fmtInt(r.arva) : r.arva.toFixed(r.decimals + 2);
+  const arva = r.arva === null ? "—" : r.decimals === null ? fmtInt(r.arva) : fmtNum(r.arva, r.decimals + 2);
   return (
     <tr>
       <td className="px-2 py-1 font-mono">{r.metric}</td>

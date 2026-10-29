@@ -18,7 +18,7 @@ export function GlobalSearch() {
     if (!needle) return [];
     const p = (projects.data ?? [])
       .filter((x) => [x.name, x.description, x.institution].some((v) => v?.toLowerCase().includes(needle)))
-      .map((x) => ({ id: x.id, kind: "project" as const, label: x.name, sub: `${x.sample_count} samples`, to: `/projects/${x.id}` }));
+      .map((x) => ({ id: x.id, kind: "project" as const, label: x.name, sub: t("dashboard.sampleCount", { count: x.sample_count }), to: `/projects/${x.id}` }));
     const s = (samples.data ?? [])
       .filter((x) =>
         [x.sample_code, x.organism, x.expected_species, x.host, x.geographic_origin, x.sequencing_run].some((v) =>
@@ -33,7 +33,7 @@ export function GlobalSearch() {
         to: `/samples/${x.id}`,
       }));
     return [...p, ...s].slice(0, 8);
-  }, [q, projects.data, samples.data]);
+  }, [q, projects.data, samples.data, t]);
 
   const go = (to: string) => {
     setQ("");

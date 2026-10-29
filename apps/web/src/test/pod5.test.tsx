@@ -111,7 +111,7 @@ describe("POD5 helpers", () => {
   it("labels the POD5 job through i18n", () => {
     const t = (k: keyof typeof dictionaries.en) => dictionaries.es[k];
     expect(jobLabel("pod5_summary", t)).toBe("Metadatos de corrida POD5");
-    expect(jobLabel("fastqc", t)).toBe("FastQC report");
+    expect(jobLabel("fastqc", t)).toBe("Informe de FastQC");
   });
 
   it("names the pod5 library, not ARVA, as what ran the run-metadata job", () => {

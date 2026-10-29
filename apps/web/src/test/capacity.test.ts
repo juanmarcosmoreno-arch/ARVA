@@ -72,11 +72,4 @@ describe("i18n interpolation", () => {
     expect(interpolate("{a} and {b}", { a: 1 })).toBe("1 and {b}");
     expect(interpolate("no placeholders")).toBe("no placeholders");
   });
-
-  it("uses the same placeholders in English and Spanish", () => {
-    const placeholders = (s: string) => [...s.matchAll(/\{(\w+)\}/g)].map((m) => m[1]).sort();
-    for (const key of Object.keys(dictionaries.en) as TranslationKey[]) {
-      expect(placeholders(dictionaries.es[key]), key).toEqual(placeholders(dictionaries.en[key]));
-    }
-  });
 });

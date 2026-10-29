@@ -78,6 +78,13 @@ export function rejectionText(t: T, r: { reason: string; code?: string | null; p
   return messageText(t, "upload.rejected", { code: r.code ?? null, params: r.params ?? {}, text: r.reason });
 }
 
+/** A text the server owns (a catalogue description or note) in the interface language when this version's English for
+ * `key` is exactly the server's text; otherwise the server's own text, so a corrected fact never shows in an older
+ * translation. */
+export function serverText(t: T, key: string, english: string): string {
+  return (dictionaries.en as Record<string, string>)[key] === english ? t(key as TranslationKey) : english;
+}
+
 /** Why a database download, registration or check failed, in the interface language when the code is known. */
 export function databaseError(t: T, record: Pick<ReferenceDatabase, "error_message" | "error_detail">): string {
   const d = record.error_detail;

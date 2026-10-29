@@ -36,7 +36,7 @@ import {
   visiblePieces,
   zoomView,
 } from "@/lib/explorer";
-import { fmtBp, fmtInt, fmtNum } from "@/lib/format";
+import { fmtBp, fmtInt, fmtNum, fmtPct } from "@/lib/format";
 import type { CoverageTrack, FeatureLayout, FeatureLayoutItem, GcTrack } from "@/lib/types";
 
 const GUTTER = 96;
@@ -609,7 +609,7 @@ function LineTrack({ y, label, theme, x, plotW, data, kind, view, skewColours }:
   }
   const scale = (v: number) => y + LINE_H - ((v - min) / (max - min || 1)) * LINE_H;
   const pts = centres.map((cx, i) => ({ x: cx, y: value[i] == null ? null : scale(value[i]!) }));
-  const fmt = (v: number) => (kind === "gc" ? `${fmtNum(100 * v, 1)} %` : fmtNum(v, 2));
+  const fmt = (v: number) => (kind === "gc" ? fmtPct(100 * v, 1) : fmtNum(v, 2));
   const zero = scale(0);
   const id = `explorer-${kind}`;
   return (
@@ -747,7 +747,7 @@ function Readout({ t, hovered, hoverPos, gc, coverage, contig }: {
     parts.push(`${contig}:${fmtInt(hoverPos)}`);
     if (gc?.start.length) {
       const i = nearest(gc.start, gc.end, hoverPos);
-      if (gc.gc[i] != null) parts.push(`${t("explorer.track.gc")} ${fmtNum(100 * gc.gc[i]!, 1)} %`);
+      if (gc.gc[i] != null) parts.push(`${t("explorer.track.gc")} ${fmtPct(100 * gc.gc[i]!, 1)}`);
       if (gc.skew[i] != null) parts.push(`${t("explorer.track.skew")} ${fmtNum(gc.skew[i]!, 3)}`);
       parts.push(t("explorer.readoutWindow", { s: fmtInt(gc.start[i]), e: fmtInt(gc.end[i]) }));
     }

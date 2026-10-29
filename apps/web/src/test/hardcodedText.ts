@@ -7,7 +7,7 @@ import { dictionaries } from "@/i18n";
 export interface Finding {
   file: string;
   line: number;
-  kind: "jsx-text" | "attribute" | "jsx-expression" | "property";
+  kind: "jsx-text" | "attribute" | "jsx-expression" | "property" | "unit";
   text: string;
 }
 
@@ -33,7 +33,7 @@ const TECHNICAL_ATTRIBUTES = new Set([
 // Object properties that hold interface text: labels, titles, column headers, ECharts titles and series names.
 const TEXT_PROPERTIES = new Set([
   "label", "title", "header", "heading", "placeholder", "description", "hint", "caption", "tooltip", "emptyText",
-  "subtitle", "message",
+  "subtitle", "message", "sub", "detail",
 ]);
 // Also often internal names (series ids, CSS), so only flagged when they read like a phrase.
 const PHRASE_PROPERTIES = new Set(["name", "text", "subtext", "formatter"]);
@@ -48,13 +48,15 @@ export const TECHNICAL_WORDS = new Set([
   "BWA", "dnadiff", "MUMmer", "Dorado", "Docker", "macOS", "Linux", "Mac", "Illumina", "Nanopore", "PacBio", "ONT",
   "HiFi", "CDS", "sORF", "tRNA", "rRNA", "tmRNA", "ncRNA", "CRISPR", "ORF", "COG", "UniProt", "NCBI", "RefSeq", "KEGG",
   "Pfam", "Zenodo", "MD5", "SHA", "sha256", "SHA256", "ID", "IDs", "UTF", "CPU", "GB", "MB", "KB", "TB", "aa", "kbp",
-  "Mbp", "Gbp", "pb", "kpb", "Mpb", "Gpb", "contig", "contigs", "English", "Español", "DEMO",
+  "Mbp", "Gbp", "pb", "kpb", "Mpb", "Gpb", "contig", "contigs", "English", "Español", "DEMO", "TXT", "EC", "GO", "doi",
 ]);
 
 const LETTER = /\p{L}/u;
 const PHRASE = /\p{L}{2,}\s+\p{L}{2,}/u;
 const ENTITIES: Record<string, string> = { "&gt;": ">", "&lt;": "<", "&amp;": "&", "&nbsp;": " ", "&quot;": '"', "&apos;": "'" };
 const I18N_KEY = /^[a-z][\w]*(\.[\w-]+)+$/;
+// A base-pair unit after a number or a ${…} value: Spanish writes pb, so it must come from fmtBp/fmtBases/bpUnit.
+const BP_AFTER_VALUE = /(\d|\$\{\})\s*[kMG]?bp\b/;
 
 /** Tokens a reader sees as code rather than words: --flags, ENV_VARS, paths, file and module names, key=value. */
 const isCodeToken = (token: string) =>
@@ -97,7 +99,12 @@ export function scanSource(file: string, source: string): Finding[] {
     out.push({ file, line: sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1, kind, text: text.trim() });
 
   const visit = (node: ts.Node) => {
+    const literal = ts.isTemplateExpression(node)
+      ? [node.head.text, ...node.templateSpans.map((s) => s.literal.text)].join("${}")
+      : ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node) ? node.text : null;
+    if (literal !== null && BP_AFTER_VALUE.test(literal)) add(node, "unit", literal);
     if (ts.isJsxText(node)) {
+      if (BP_AFTER_VALUE.test(node.getText(sf))) add(node, "unit", node.getText(sf).trim());
       const text = node.getText(sf).replace(/\s+/g, " ").trim();
       if (text && hasUntranslatedWord(text)) add(node, "jsx-text", text);
     } else if (ts.isJsxAttribute(node) && node.initializer) {

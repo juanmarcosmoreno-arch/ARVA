@@ -198,6 +198,7 @@ def _register_derived(ctx: JobContext, parent: RawFile, rel: str, name: str, des
         checksum_sha256=stored.sha256,
         is_valid=check.is_valid,
         validation_message=check.message,
+        validation_detail={"code": check.code, "params": check.params},
         header_metadata=header_metadata(check.headers),
         origin=FileOrigin.derived,
         parent_file_id=parent.id,

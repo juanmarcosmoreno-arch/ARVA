@@ -3,6 +3,7 @@
  * can be tested. Every series keeps one categorical slot for its whole life (colour follows the entity): the order
  * below is the slot order, so the common case (no small ORFs) uses the first three, validated all-pairs.
  */
+import { fmtBp, fmtInt } from "./format";
 import type { AnnotationCharts, DensityContig, LengthBin, LengthClass, StrandCounts } from "./types";
 
 export const LENGTH_CLASSES: LengthClass[] = ["cds_characterised", "cds_hypothetical", "rna", "sorf"];
@@ -12,11 +13,9 @@ export const STRANDS = [
   { key: ".", field: "unstranded" },
 ] as const;
 
-const nf = new Intl.NumberFormat("en-US");
-
-/** A length bin as a range of whole bases: "0–49", or "≥ 1,450" for the last, open bin. */
+/** A length bin as a range of whole bases in the interface's number format: "0–49", or "≥ 1,450" for the last, open bin. */
 export function binLabel(b: Pick<LengthBin, "min" | "max">): string {
-  return b.max == null ? `≥ ${nf.format(b.min)}` : `${nf.format(b.min)}–${nf.format(b.max - 1)}`;
+  return b.max == null ? `≥ ${fmtInt(b.min)}` : `${fmtInt(b.min)}–${fmtInt(b.max - 1)}`;
 }
 
 /** Length classes that have genes, in slot order, with each one's slot. */
@@ -38,7 +37,7 @@ export function densityStrands(d: DensityContig) {
 export function densityRows(d: DensityContig, window: number): (string | number)[][] {
   return d.start.map((s, i) => {
     const len = d.end[i] - s + 1;
-    return [`${nf.format(s)}–${nf.format(d.end[i])}${len < window ? ` (${nf.format(len)} bp)` : ""}`, d.forward[i], d.reverse[i], d.unstranded[i], d.total[i]];
+    return [`${fmtInt(s)}–${fmtInt(d.end[i])}${len < window ? ` (${fmtBp(len)})` : ""}`, d.forward[i], d.reverse[i], d.unstranded[i], d.total[i]];
   });
 }
 

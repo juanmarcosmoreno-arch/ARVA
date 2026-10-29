@@ -67,6 +67,6 @@ describe("Databases section", () => {
     const dialog = await screen.findByRole("dialog");
     expect(await within(dialog).findByText(/No hay espacio libre suficiente/)).toBeInTheDocument();
     fireEvent.click(within(dialog).getByRole("checkbox"));
-    expect(within(dialog).getByRole("button", { name: /Descargar 1\.25 GB/ })).toBeDisabled();
+    expect(within(dialog).getByRole("button", { name: /Descargar 1,25 GB/ })).toBeDisabled();
   });
 });

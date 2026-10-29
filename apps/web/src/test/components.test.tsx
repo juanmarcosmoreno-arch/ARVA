@@ -34,6 +34,8 @@ describe("MetricTile", () => {
 });
 
 describe("AnalysisTimeline", () => {
+  beforeEach(() => useSettings.setState({ language: "en" }));
+
   it("marks planned stages with their phase and disables them", () => {
     render(
       <MemoryRouter>

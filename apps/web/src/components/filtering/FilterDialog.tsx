@@ -494,7 +494,7 @@ function FiltlongForm({ sampleId, files, jobs, warnShort, onDone }: { sampleId: 
     onSuccess,
   });
   const qHint = (v: number | null) =>
-    v == null ? t("filter.filtlong.qHint") : v >= 100 ? t("filter.filtlong.qTooHigh") : `≈ Q${identityToPhred(v).toFixed(1)}`;
+    v == null ? t("filter.filtlong.qHint") : v >= 100 ? t("filter.filtlong.qTooHigh") : `≈ Q${fmtNum(identityToPhred(v), 1)}`;
   const suspicious = [p.min_mean_q, p.min_window_q].some((v) => v != null && v > 0 && v < 50);
 
   return (

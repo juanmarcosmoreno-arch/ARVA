@@ -178,7 +178,7 @@ describe("MetadataImportDialog", () => {
     wrap(<MetadataImportDialog open onOpenChange={() => {}} projectId="p1" />);
     const file = await chooseFile();
 
-    expect(await screen.findByText("3 row(s): 1 new, 1 to update, 0 unchanged, 1 with errors")).toBeInTheDocument();
+    expect(await screen.findByText("3 rows: 1 new, 1 to update, 0 unchanged, 1 with errors")).toBeInTheDocument();
     expect(previewSpy).toHaveBeenCalledWith("p1", file, {});
     expect(screen.getByText("matches the existing sample S2 (letter case differs)")).toBeInTheDocument();
     expect(screen.getByText("Gallus gallus")).toBeInTheDocument();
@@ -188,7 +188,7 @@ describe("MetadataImportDialog", () => {
 
     const applyButton = screen.getByRole("button", { name: "Apply import" });
     expect(applyButton).toBeDisabled();
-    await userEvent.click(screen.getByRole("checkbox", { name: /create 1 sample\(s\), update 1 and skip 1 row\(s\)/ }));
+    await userEvent.click(screen.getByRole("checkbox", { name: /create 1 sample, update 1 and skip 1 row/ }));
     expect(applyButton).toBeEnabled();
     expect(applySpy).not.toHaveBeenCalled();
 

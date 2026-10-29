@@ -12,7 +12,7 @@ import { ErrorNote } from "@/components/ui/misc";
 import { type TranslationKey, useT } from "@/i18n";
 import { FEATURE_TYPES, MAX_EXPORT, PAGE_SIZE, searched, stepLabel, stepReason, stepState } from "@/lib/annotation";
 import { api } from "@/lib/api";
-import { fmtBases, fmtBytes, fmtDate, fmtInt, fmtNum } from "@/lib/format";
+import { fmtBases, fmtBytes, fmtDate, fmtInt, fmtPct } from "@/lib/format";
 import type { Annotation, AnnotationExportFormat, AnnotationFeature, AnalysisJobDetail, FeatureQuery } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { AnnotationChartsPanel } from "./AnnotationCharts";
@@ -71,13 +71,13 @@ export function AnnotationCard({ annotation, job }: { annotation: Annotation; jo
           <MetricTile label={t("annotation.tile.pseudo")} value={searched(a.steps, "pseudo") ? fmtInt(s.pseudogenes) : notSearched} />
           <MetricTile
             label={t("annotation.tile.hypothetical")}
-            value={s.hypothetical_fraction == null ? (s.cds == null ? notSearched : "—") : `${fmtNum(100 * s.hypothetical_fraction, 1)} %`}
+            value={s.hypothetical_fraction == null ? (s.cds == null ? notSearched : "—") : fmtPct(100 * s.hypothetical_fraction, 1)}
             sub={s.hypothetical != null && s.cds != null ? t("annotation.tile.hypotheticalSub", { n: fmtInt(s.hypothetical), total: fmtInt(s.cds) }) : undefined}
             explain="hypothetical_proteins"
           />
           <MetricTile
             label={t("annotation.tile.codingDensity")}
-            value={s.coding_density.value == null ? notSearched : `${fmtNum(100 * s.coding_density.value, 1)} %`}
+            value={s.coding_density.value == null ? notSearched : fmtPct(100 * s.coding_density.value, 1)}
             sub={t("annotation.tile.codingDensitySub")}
           />
         </div>
