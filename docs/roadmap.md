@@ -311,6 +311,26 @@ as inline SVG (escaped names), a sequence table and the charts' numbers; the JSO
   (EN/ES) with the launcher commands; the Import page's storage card shows the folder on the Mac.
 - Not yet validated on a real Mac (macOS commands tested with constructed outputs); the Docker image was not built.
 
+## Database kinds (5B) ✅
+
+- A registry of 16 database kinds (`app/services/database_kinds.py`), every fact checked in the tool's documentation
+  or source code (cited; unconfirmed facts listed): how to recognise a folder, where its version is read, typical
+  size, tools and versions, licence and citation, and whether ARVA can download it. Detectors per kind on the
+  official layouts, tested on constructed miniature folders.
+- Register existing folders or files where they are (browse the database folder and the added folders, detection
+  preview with the file the version came from, a declared version when the files state none, never writing into the
+  folder); quick verification at registration and a cancellable full checksum with progress (and the publisher's
+  per-file MD5s where it lists them); unavailable while the disk is disconnected and available again when it is back.
+- Reference genome collections for ANI species identification, for any genus: NCBI Datasets package, FastANI `--rl`
+  list (host paths mapped to the mounts, paths outside refused, missing files reported), FASTA folder, and a copy
+  extracted from the package zip; taxonomic coverage shown; version = source + date + accession fingerprint.
+- Downloads of a chosen version into a chosen database folder (Bakta 6.0 light/full, GTDB-Tk R232, Kraken 2 Standard
+  2026-06-26, CheckM2 3, BUSCO bacteria_odb12.2, geNomad 1.9) with size, free space, licence, resume and MD5.
+- Several versions per kind, one default per kind; the Bakta dialog chooses the version; every job records kind,
+  version, how it was known, checksum (if computed) and path. Migration `d9f2b4a6c8e1`.
+- Not yet validated on a real Mac; only Bakta is run by ARVA, so the other kinds are registered and versioned for the
+  analyses that will use them (species identification, AMR, plasmids, …) without a tool-version check yet.
+
 ## Performance profiles (P1) ✅
 
 - Host detection (`app/services/host.py`): usable CPUs (affinity, cgroup v2/v1 quota), memory (cgroup limit or
@@ -340,6 +360,7 @@ as inline SVG (escaped names), a sequence table and the charts' numbers; the JSO
 |---|---|
 | 3 ✅ | Assembly (Flye, SPAdes, Unicycler), QUAST, contig plots, GFA view, polishing (Racon, Pilon), job cancellation and Flye resume, batch QC; Medaka, Polypolish, Raven, Canu, MEGAHIT, BUSCO and CheckM2 not yet integrated (above) |
 | 4 ✅ | Database Manager, annotation (Bakta; Prokka), Genome Explorer (linear and circular), annotation charts and report section |
+| 5A, 5B ✅ | External storage; database kinds (register in place, download a chosen version to a chosen folder, reference genome collections, one default per kind) |
 | 5 | MLST, AMRFinderPlus (AMR ring), virulence (VFDB) and mobile elements (their rings), InterProScan, BLAST, species identification (Mash/FastANI/Kraken2/GTDB-Tk) |
 | 6 | Comparative genomics: ANI, synteny, dot plots, Genome Region Explorer |
 | 7 | Pangenome (Panaroo), alignments (MAFFT), phylogeny (IQ-TREE), Tree Explorer |

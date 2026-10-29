@@ -733,6 +733,24 @@ function FailedJobs({ jobs }: { jobs: AnalysisJobDetail[] }) {
 
 // --- History ----------------------------------------------------------------
 
+/** The reference database a job read: name and version, how the version was known, checksum and folder. */
+function JobDatabase({ job }: { job: AnalysisJobDetail }) {
+  const t = useT();
+  const source = job.database_version_source
+    ? t(`history.dbVersionSource.${job.database_version_source}` as "history.dbVersionSource.file")
+    : null;
+  return (
+    <span className="block">
+      {job.database_name} {job.database_version ?? ""}
+      {source && <span className="block text-xs text-muted-foreground">{source}</span>}
+      <span className="block text-xs text-muted-foreground">
+        {job.database_checksum ? <code className="break-all">{job.database_checksum.slice(0, 23)}…</code> : t("history.dbNoChecksum")}
+      </span>
+      {job.database_path && <code className="block break-all text-xs text-muted-foreground">{job.database_path}</code>}
+    </span>
+  );
+}
+
 function HistoryTab({ jobs, files, openJob }: { jobs: AnalysisJobDetail[]; files: RawFile[]; openJob: string | null }) {
   const t = useT();
   const [open, setOpen] = useState<string | null>(openJob);
@@ -776,7 +794,7 @@ function HistoryTab({ jobs, files, openJob }: { jobs: AnalysisJobDetail[]; files
                       [t("history.jobId"), <code className="text-xs">{j.id}</code>],
                       [t("history.tool"), `${j.tool_name} ${j.tool_version}`],
                       [t("tools.executable"), j.tool_path ? <code className="text-xs">{j.tool_path}</code> : inProcessTool(j, t)],
-                      [t("history.database"), j.database_name ? `${j.database_name} ${j.database_version ?? ""}` : t("history.noDatabase")],
+                      [t("history.database"), j.database_name ? <JobDatabase job={j} /> : t("history.noDatabase")],
                       [t("history.queued"), fmtDate(j.created_at)],
                       [t("history.startedFinished"), `${fmtDate(j.started_at)} → ${fmtDate(j.finished_at)}`],
                       [t("history.runTime"), fmtDuration(j.duration_seconds)],

@@ -228,7 +228,11 @@ class AnalysisJobRead(ORMModel):
     database_name: str | None
     database_version: str | None
     database_key: str | None = None
-    database_checksum: str | None = Field(default=None, description="Content checksum of the database the job read")
+    database_kind: str | None = None
+    database_version_source: str | None = Field(default=None, description="file, declared or checksum")
+    database_checksum: str | None = Field(default=None, description="Content checksum of the database the job read "
+                                          "(None when only a quick verification had been made)")
+    database_path: str | None = None
     reference_database_id: str | None = None
     parameters: dict[str, Any] | None
     input_raw_file_ids: list[str] | None
@@ -1641,31 +1645,67 @@ class PolishingPlanRead(BaseModel):
 
 # --- Reference databases (Database Manager) ---------------------------------------------------------------------
 
+class CompatibilityRead(BaseModel):
+    status: Literal["compatible", "incompatible", "unknown"]
+    code: str = Field(description="schema_ok, schema_mismatch, schema_unknown, tool_not_installed, "
+                                  "tool_not_integrated, tool_version_unchecked")
+    params: dict[str, str | int] = {}
+
+
+class ToolUseRead(BaseModel):
+    tool: str
+    versions: str
+    integrated: bool
+
+
+class DatabaseKindRead(BaseModel):
+    key: str
+    name: str
+    description: str
+    tools: list[ToolUseRead]
+    source_url: str
+    licence: str
+    licence_url: str | None = None
+    citation: str
+    recognise: str
+    version_from: str
+    typical_size: str
+    download: Literal["catalogue", "register"]
+    download_note: str
+    sources: list[str]
+    unconfirmed: list[str] = []
+    accepts: list[str]
+    user_provided_only: bool = False
+
+
 class CatalogueEntryRead(BaseModel):
     key: str
     name: str
+    kind: str
     tool: str
-    status: Literal["available", "planned"]
+    status: Literal["available"] = "available"
     description: str
-    version: str | None = None
+    version: str
     release_date: str | None = None
     db_type: str | None = None
-    source_url: str | None = None
+    source_url: str
     doi: str | None = None
-    download_url: str | None = None
-    filename: str | None = None
-    archive_bytes: int | None = None
-    checksum_algorithm: str | None = None
-    checksum: str | None = None
+    download_url: str
+    filename: str
+    archive_bytes: int
+    checksum_algorithm: str
+    checksum: str
     checksum_sources: list[str] = []
-    extracted_size_note: str | None = Field(default=None, description="The publisher's statement of the unpacked size")
-    extracted_bytes_estimate: int | None = Field(
-        default=None, description="Bytes ARVA reserves for the unpacked database (the publisher's size, larger unit)")
-    licence: str | None = None
+    extracted_size_note: str = Field(description="The publisher's statement of the unpacked size, or ARVA's listing")
+    extracted_bytes_estimate: int = Field(description="Bytes ARVA reserves for the unpacked database")
+    top_dir: str | None = None
+    install_dir: str = Field(description="The default folder inside the chosen database folder")
+    licence: str
     licence_url: str | None = None
-    terms: str | None = None
-    citation: str | None = None
-    compatibility: str | None = None
+    terms: str
+    citation: str
+    compatibility: str
+    compatibility_now: CompatibilityRead = Field(description="With the tool version ARVA runs now")
     external_versions: dict[str, str] = {}
     notes: list[str] = []
 
@@ -1681,19 +1721,67 @@ class DatabaseProgress(BaseModel):
     updated_at: str | None = None
 
 
+class DetectionProblemRead(BaseModel):
+    code: str
+    params: dict[str, str | int] = {}
+    blocking: bool
+    text: str
+
+
+class DetectionFileRead(BaseModel):
+    path: str
+    role: str = Field(description="kind (identifies the kind), version (the version was read from it), required, "
+                                  "optional")
+    present: bool
+    size: int | None = None
+
+
+class DetectionRead(BaseModel):
+    kind: str = Field(description="A database_kinds key, or unknown (with problem nested: subfolders that are)")
+    kind_name: str | None = None
+    path: str
+    host_path: str | None = None
+    path_type: Literal["folder", "file", "zip"]
+    variant: str | None = None
+    version: str | None = Field(default=None, description="Read from the database's own files")
+    version_file: str | None = None
+    version_detail: str | None = None
+    suggested_version: str | None = Field(default=None, description="For you to confirm (it becomes declared)")
+    suggested_from: str | None = Field(default=None, description="folder_name, file_name or zip_entries")
+    version_by_checksum: bool = False
+    needs_declared_version: bool
+    catalogue_key: str | None = None
+    ok: bool
+    files: list[DetectionFileRead]
+    problems: list[DetectionProblemRead]
+    facts: dict[str, Any]
+    compatibility: CompatibilityRead | None = None
+    already_registered: str | None = Field(default=None, description="The record that already has this path")
+
+
+class DetectResultRead(BaseModel):
+    path: str
+    host_path: str | None
+    candidates: list[DetectionRead]
+
+
 class ReferenceDatabaseRead(ORMModel):
     id: str
     key: str
+    kind: str
     name: str
     version: str | None
+    version_source: Literal["file", "declared", "checksum"] | None = None
     path: str | None
     source_url: str | None
     licence: str | None
     size_bytes: int | None
-    checksum: str | None = Field(description="SHA-256 over ARVA's manifest of every file in the folder")
+    checksum: str | None = Field(description="SHA-256 over ARVA's manifest of every file (full verification only)")
     archive_checksum: str | None = Field(description="The published checksum of the archive, verified before unpacking")
     status: DatabaseStatus
     origin: DatabaseOrigin
+    is_default: bool = False
+    verification_level: Literal["quick", "full"] | None = None
     installed_at: dt.datetime | None
     verified_at: dt.datetime | None
     notes: str | None
@@ -1704,11 +1792,16 @@ class ReferenceDatabaseRead(ORMModel):
     created_at: dt.datetime
     updated_at: dt.datetime
     version_json: dict[str, Any] | None = None
+    version_file: str | None = Field(default=None, description="The file the version was read from")
+    variant: str | None = None
+    collection: dict[str, Any] | None = Field(default=None, description="A reference collection's coverage")
     files: int | None = Field(default=None, description="Files in the recorded manifest")
+    published_md5_checked: int | None = None
     amrfinderplus_db: dict[str, str | None] | None = Field(
         default=None, description="The AMRFinderPlus data in amrfinderplus-db/latest: link target, version, format")
     archive: dict[str, Any] | None = None
     catalogue_version: str | None = Field(default=None, description="The catalogue's version of this database")
+    compatibility: CompatibilityRead | None = None
     jobs_using: int = Field(default=0, description="Queued or running jobs that use it")
     available: bool = Field(default=True, description="Its folder can be read now (false: e.g. disk not connected)")
     unavailable_reason: Literal["disk_not_connected", "folder_missing"] | None = None
@@ -1716,10 +1809,52 @@ class ReferenceDatabaseRead(ORMModel):
     log_text: str | None = None
 
 
+class DatabaseLocationRead(BaseModel):
+    path: str
+    host_path: str | None
+    available: bool
+    free_bytes: int | None
+    total_bytes: int | None
+    reserve_bytes: int
+
+
+class BrowseRootRead(BaseModel):
+    path: str
+    host_path: str | None
+    read_only: bool
+    role: Literal["databases", "external_databases"]
+    available: bool
+
+
+class DatabaseLocationsRead(BaseModel):
+    writable: list[DatabaseLocationRead]
+    browse: list[BrowseRootRead]
+
+
+class BrowseEntryRead(BaseModel):
+    name: str
+    type: Literal["folder", "file"]
+    size_bytes: int | None
+    link: bool
+    path: str
+
+
+class BrowseListingRead(BaseModel):
+    root: str
+    path: str
+    parent: str | None
+    host_path: str
+    container_path: str
+    entries: list[BrowseEntryRead]
+    truncated: bool
+
+
 class DownloadPlanRead(BaseModel):
     entry: CatalogueEntryRead
     db_dir: str
     target_path: str
+    host_target_path: str
+    folder: str
     partial_bytes: int = Field(description="Bytes of an earlier partial download that will be resumed")
     download_bytes: int
     required_bytes: int = Field(description="Bytes still to download plus the unpacked size")
@@ -1729,20 +1864,61 @@ class DownloadPlanRead(BaseModel):
     enough: bool
     resume_record_id: str | None
     blocked_by: str | None = Field(description="Why the download cannot start now, if it cannot")
+    blocked_code: str | None = None
+    compatibility: CompatibilityRead
+    destinations: list[DatabaseLocationRead] = []
+
+
+class ExtractPlanRead(BaseModel):
+    source: str
+    host_source: str
+    detection: DetectionRead
+    db_dir: str
+    target_path: str
+    host_target_path: str
+    folder: str
+    required_bytes: int
+    free_bytes: int
+    reserve_bytes: int
+    available_bytes: int
+    enough: bool
+    blocked_by: str | None
+    destinations: list[DatabaseLocationRead] = []
 
 
 class DatabaseDownloadRequest(BaseModel):
     key: str = Field(min_length=1, max_length=100)
     confirm_bytes: int = Field(ge=0, description="The archive size shown to the user, repeated as confirmation")
     accept_licence: bool
+    destination: str | None = Field(default=None, max_length=4096, description="A writable database folder "
+                                    "(default: the database folder)")
+    folder: str | None = Field(default=None, max_length=400, description="Relative folder inside it")
 
 
 class DatabaseRegisterRequest(BaseModel):
-    path: str = Field(min_length=1, max_length=4096, description="Absolute path of an existing database folder")
+    path: str = Field(min_length=1, max_length=4096, description="Absolute path of an existing database folder or file")
+    kind: str | None = Field(default=None, max_length=50, description="When several kinds match")
+    declared_version: str | None = Field(default=None, max_length=200,
+                                         description="When the files do not state the version")
+    collection_date: str | None = Field(default=None, max_length=20, description="A reference collection's date")
+    full_checksum: bool = Field(default=False, description="Also start the full checksum now")
+
+
+class DatabaseExtractRequest(BaseModel):
+    path: str = Field(min_length=1, max_length=4096, description="The NCBI Datasets package zip")
+    confirm_bytes: int = Field(ge=0, description="The copy's size shown to the user, repeated as confirmation")
+    collection_date: str | None = Field(default=None, max_length=20)
+    destination: str | None = Field(default=None, max_length=4096)
+    folder: str | None = Field(default=None, max_length=400)
+
+
+class DatabaseVerifyRequest(BaseModel):
+    level: Literal["quick", "full"] = "full"
 
 
 class DatabaseUsageRead(BaseModel):
     db_dir: str
+    host_db_dir: str | None = None
     free_bytes: int
     total_bytes: int
     reserve_bytes: int
@@ -1896,14 +2072,19 @@ class BaktaDatabaseOption(BaseModel):
     key: str
     name: str
     version: str | None
+    version_source: str | None = None
     type: str | None
     status: DatabaseStatus
     usable: bool
+    is_default: bool = False
+    verification_level: str | None = None
+    compatibility: CompatibilityRead | None = None
     available: bool = True
     unavailable_reason: Literal["disk_not_connected", "folder_missing"] | None = None
     checksum: str | None
     verified_at: dt.datetime | None
     path: str | None
+    host_path: str | None = None
 
 
 class ProkkaDatabaseRead(BaseModel):

@@ -40,7 +40,6 @@ from app.services.performance import Resources, effective_resources
 from app.storage import get_storage
 
 ANNOTATORS = ("bakta", "prokka")
-BAKTA_DATABASE_KEYS = ("bakta-light", "bakta-full")
 PROKKA_DATABASE_KEY = "prokka-debian"
 MAX_EXPORT_FEATURES = 10_000
 MAX_DETAIL_SEQUENCE = 500_000
@@ -151,17 +150,26 @@ def _db_type(r: ReferenceDatabase) -> str | None:
 
 
 def bakta_databases(db: Session) -> list[dict[str, Any]]:
-    from app.services.databases import availability
+    """Every Bakta database ARVA knows, the default first, with whether this Bakta can use it now."""
+    from dataclasses import asdict
 
-    rows = db.scalars(select(ReferenceDatabase).where(ReferenceDatabase.key.in_(BAKTA_DATABASE_KEYS))
-                      .order_by(ReferenceDatabase.verified_at.desc().nulls_last()))
+    from app.services.databases import availability, record_compatibility
+    from app.services.locations import to_host
+
+    rows = db.scalars(select(ReferenceDatabase).where(ReferenceDatabase.kind == "bakta")
+                      .order_by(ReferenceDatabase.is_default.desc(), ReferenceDatabase.verified_at.desc().nulls_last()))
     out = []
     for r in rows:
         available, reason = availability(r)
+        compat = record_compatibility(r)
         out.append({"id": r.id, "key": r.key, "name": r.name, "version": r.version, "type": _db_type(r),
+                    "version_source": r.version_source.value if r.version_source else None,
                     "status": r.status, "available": available, "unavailable_reason": reason,
-                    "usable": r.status in (DatabaseStatus.installed, DatabaseStatus.registered) and bool(r.checksum)
-                    and available, "checksum": r.checksum, "verified_at": r.verified_at, "path": r.path})
+                    "is_default": r.is_default, "verification_level": r.verification_level,
+                    "compatibility": asdict(compat),
+                    "usable": r.status in (DatabaseStatus.installed, DatabaseStatus.registered) and available
+                    and compat.status != "incompatible",
+                    "checksum": r.checksum, "verified_at": r.verified_at, "path": r.path, "host_path": to_host(r.path)})
     return out
 
 
@@ -170,16 +178,21 @@ class DatabaseNotConnected(InputError):
 
 
 def bakta_database(db: Session, database_id: str | None) -> ReferenceDatabase:
+    """The database chosen in the dialog, or else the default Bakta database (or the most recently verified one
+    this Bakta can use)."""
     known = bakta_databases(db)
     usable = [d for d in known if d["usable"]]
     if not usable:
         if any(not d["available"] for d in known):
             raise DatabaseNotConnected("The Bakta database's folder is not available now (is its disk connected?). "
                                        "Connect the disk and start ARVA again")
+        if any(d["compatibility"]["status"] == "incompatible" for d in known):
+            raise InputError("No Bakta database this Bakta version can use is installed (database schema "
+                             "mismatch). Install a compatible one in Tools & Databases → Database Manager")
         raise InputError("No Bakta database is installed. Install one in Tools & Databases → Database Manager")
     chosen = next((d for d in usable if d["id"] == database_id), None) if database_id else usable[0]
     if chosen is None:
-        raise InputError(f"Database {database_id} is not an installed Bakta database")
+        raise InputError(f"Database {database_id} is not a Bakta database this Bakta can use now")
     return db.get(ReferenceDatabase, chosen["id"])
 
 

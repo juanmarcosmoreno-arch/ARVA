@@ -647,9 +647,13 @@ export interface AnalysisJob {
   tool_version: string;
   database_name: string | null;
   database_version: string | null;
-  /** The reference database the job read (Database Manager): catalogue key and content checksum. */
+  /** The reference database the job read (Database Manager): kind, catalogue key, how its version was known,
+   * content checksum (null after a quick verification only) and path. */
   database_key?: string | null;
+  database_kind?: string | null;
+  database_version_source?: VersionSource | null;
   database_checksum?: string | null;
+  database_path?: string | null;
   reference_database_id?: string | null;
   parameters: Record<string, unknown> | null;
   input_raw_file_ids: string[] | null;
@@ -1646,36 +1650,71 @@ export interface PolishingSummary {
   followups: { pilon_job_id?: string; quast_job_id?: string; pilon_error?: string; quast_error?: string };
 }
 
-/** A database ARVA knows (Database Manager catalogue), with the facts published by its source. */
+export type VersionSource = "file" | "declared" | "checksum";
+
+/** Whether the tool version ARVA runs can read a database (only Bakta is integrated so far). */
+export interface Compatibility {
+  status: "compatible" | "incompatible" | "unknown";
+  /** schema_ok, schema_mismatch, tool_not_installed, tool_not_integrated, tool_version_unchecked */
+  code: string;
+  params: Record<string, string | number>;
+}
+
+/** A kind of reference database ARVA recognises, with the facts checked against its official sources. */
+export interface DatabaseKind {
+  key: string;
+  name: string;
+  description: string;
+  tools: { tool: string; versions: string; integrated: boolean }[];
+  source_url: string;
+  licence: string;
+  licence_url: string | null;
+  citation: string;
+  recognise: string;
+  version_from: string;
+  typical_size: string;
+  download: "catalogue" | "register";
+  download_note: string;
+  sources: string[];
+  unconfirmed: string[];
+  accepts: string[];
+  user_provided_only: boolean;
+}
+
+/** A version ARVA can download (Database Manager catalogue), with the facts published by its source. */
 export interface CatalogueEntry {
   key: string;
   name: string;
+  kind: string;
   tool: string;
-  status: "available" | "planned";
+  status: "available";
   description: string;
-  version: string | null;
+  version: string;
   release_date: string | null;
   db_type: string | null;
-  source_url: string | null;
+  source_url: string;
   doi: string | null;
-  download_url: string | null;
-  filename: string | null;
-  archive_bytes: number | null;
-  checksum_algorithm: string | null;
-  checksum: string | null;
+  download_url: string;
+  filename: string;
+  archive_bytes: number;
+  checksum_algorithm: string;
+  checksum: string;
   checksum_sources: string[];
-  extracted_size_note: string | null;
-  extracted_bytes_estimate: number | null;
-  licence: string | null;
+  extracted_size_note: string;
+  extracted_bytes_estimate: number;
+  top_dir: string | null;
+  install_dir: string;
+  licence: string;
   licence_url: string | null;
-  terms: string | null;
-  citation: string | null;
-  compatibility: string | null;
+  terms: string;
+  citation: string;
+  compatibility: string;
+  compatibility_now: Compatibility;
   external_versions: Record<string, string>;
   notes: string[];
 }
 
-export type DatabaseStatus = "installed" | "registered" | "downloading" | "verifying" | "failed" | "cancelled";
+export type DatabaseStatus = "installed" | "registered" | "downloading" | "extracting" | "verifying" | "failed" | "cancelled";
 
 export interface DatabaseProgress {
   phase: string | null;
@@ -1687,11 +1726,29 @@ export interface DatabaseProgress {
   updated_at?: string | null;
 }
 
+/** A reference collection's taxonomic coverage. */
+export interface CollectionSummary {
+  genomes: number;
+  present: number;
+  missing: number;
+  bytes: number;
+  species: number;
+  unclassified: number;
+  by_species: { species: string; genomes: number }[];
+  type_material: { label: string; text: string | null; genomes: number }[];
+  reference_genomes: number;
+  with_metadata: Record<string, number>;
+  accessions: number;
+  fingerprint: string;
+}
+
 export interface ReferenceDatabase {
   id: string;
   key: string;
+  kind: string;
   name: string;
   version: string | null;
+  version_source: VersionSource | null;
   path: string | null;
   source_url: string | null;
   licence: string | null;
@@ -1699,7 +1756,9 @@ export interface ReferenceDatabase {
   checksum: string | null;
   archive_checksum: string | null;
   status: DatabaseStatus;
-  origin: "download" | "register";
+  origin: "download" | "register" | "extract";
+  is_default: boolean;
+  verification_level: "quick" | "full" | null;
   installed_at: string | null;
   verified_at: string | null;
   notes: string | null;
@@ -1710,11 +1769,16 @@ export interface ReferenceDatabase {
   created_at: string;
   updated_at: string;
   version_json: Record<string, unknown> | null;
+  version_file: string | null;
+  variant: string | null;
+  collection: CollectionSummary | null;
   files: number | null;
+  published_md5_checked: number | null;
   /** AMRFinderPlus data in amrfinderplus-db/latest (Bakta's AMR expert system), if present. */
   amrfinderplus_db: { latest: string | null; version: string | null; database_format: string | null } | null;
   archive: Record<string, unknown> | null;
   catalogue_version: string | null;
+  compatibility: Compatibility | null;
   jobs_using: number;
   /** False while its folder cannot be read (most often: its disk is not connected); the database is kept. */
   available?: boolean;
@@ -1724,10 +1788,73 @@ export interface ReferenceDatabase {
   log_text: string | null;
 }
 
+export interface DatabaseLocation {
+  path: string;
+  host_path: string | null;
+  available: boolean;
+  free_bytes: number | null;
+  total_bytes: number | null;
+  reserve_bytes: number;
+}
+
+export interface DatabaseLocations {
+  writable: DatabaseLocation[];
+  browse: { path: string; host_path: string | null; read_only: boolean; role: "databases" | "external_databases"; available: boolean }[];
+}
+
+export interface BrowseListing {
+  root: string;
+  path: string;
+  parent: string | null;
+  host_path: string;
+  container_path: string;
+  entries: { name: string; type: "folder" | "file"; size_bytes: number | null; link: boolean; path: string }[];
+  truncated: boolean;
+}
+
+export interface DetectionProblem {
+  code: string;
+  params: Record<string, string | number>;
+  blocking: boolean;
+  text: string;
+}
+
+/** What a folder or file is, as ARVA's detection read it (nothing is written). */
+export interface Detection {
+  kind: string;
+  kind_name: string | null;
+  path: string;
+  host_path: string | null;
+  path_type: "folder" | "file" | "zip";
+  variant: string | null;
+  version: string | null;
+  version_file: string | null;
+  version_detail: string | null;
+  suggested_version: string | null;
+  suggested_from: string | null;
+  version_by_checksum: boolean;
+  needs_declared_version: boolean;
+  catalogue_key: string | null;
+  ok: boolean;
+  files: { path: string; role: string; present: boolean; size: number | null }[];
+  problems: DetectionProblem[];
+  facts: Record<string, unknown> & { collection?: CollectionSummary; nested?: string[]; zip?: { name: string; date: string; uncompressed_bytes?: number; entries?: number } };
+  compatibility: Compatibility | null;
+  already_registered: string | null;
+}
+
+export interface DetectResult {
+  path: string;
+  host_path: string | null;
+  candidates: Detection[];
+}
+
 export interface DownloadPlan {
   entry: CatalogueEntry;
   db_dir: string;
   target_path: string;
+  host_target_path: string;
+  folder: string;
   partial_bytes: number;
   download_bytes: number;
   required_bytes: number;
@@ -1737,10 +1864,31 @@ export interface DownloadPlan {
   enough: boolean;
   resume_record_id: string | null;
   blocked_by: string | null;
+  blocked_code: string | null;
+  compatibility: Compatibility;
+  destinations: DatabaseLocation[];
+}
+
+export interface ExtractPlan {
+  source: string;
+  host_source: string;
+  detection: Detection;
+  db_dir: string;
+  target_path: string;
+  host_target_path: string;
+  folder: string;
+  required_bytes: number;
+  free_bytes: number;
+  reserve_bytes: number;
+  available_bytes: number;
+  enough: boolean;
+  blocked_by: string | null;
+  destinations: DatabaseLocation[];
 }
 
 export interface DatabaseUsage {
   db_dir: string;
+  host_db_dir?: string | null;
   free_bytes: number;
   total_bytes: number;
   reserve_bytes: number;
@@ -1801,12 +1949,18 @@ export interface BaktaDatabaseOption {
   key: string;
   name: string;
   version: string | null;
+  version_source?: VersionSource | null;
   type: string | null;
   status: DatabaseStatus;
   usable: boolean;
+  is_default?: boolean;
+  verification_level?: "quick" | "full" | null;
+  compatibility?: Compatibility | null;
+  available?: boolean;
   checksum: string | null;
   verified_at: string | null;
   path: string | null;
+  host_path?: string | null;
 }
 
 export interface ProkkaDatabase {

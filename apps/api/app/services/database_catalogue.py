@@ -1,4 +1,5 @@
-"""Reference databases ARVA knows how to install, with facts checked against their official sources.
+"""Database versions ARVA can download, with facts checked against their official sources (database_kinds.py has the
+kinds and what ARVA registers without downloading).
 
 Bakta database 6.0 (checked 2026-10-28):
 - Zenodo record 14916843 (API https://zenodo.org/api/records/14916843): title "Bakta database 6.0", published
@@ -9,9 +10,14 @@ Bakta database 6.0 (checked 2026-10-28):
 - Bakta 1.12.2 (PyPI wheel, bakta/db.py): database schema 6; `check()` needs version.json with date, major, minor
   and type, and the files in REQUIRED_FILES plus psc.dmnd (full) or pscc.dmnd (light); `bakta_db download` extracts
   the archive into db-light/ or db/.
+
+The other entries (checked 2026-10-29) cite their source in checksum_sources; their unpacked sizes were measured by
+listing the archive (BUSCO: downloaded; geNomad and CheckM2: streamed through `tar -tv` without keeping it) or are the
+publisher's statement (GTDB-Tk, Kraken 2), read in the larger unit.
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 
 BAKTA_SCHEMA_MAJOR = 6
@@ -52,55 +58,57 @@ _BAKTA_NOTES = (
     "AMRFinderPlus database from NCBI, a version neither Bakta nor ARVA pins. ARVA does not, so the AMRFinderPlus "
     "data stay the release this database was built with; updating them would be a separate, recorded step.",
 )
+_CC_BY = "https://creativecommons.org/licenses/by/4.0/"
 
 
 @dataclass(frozen=True)
 class CatalogueEntry:
     key: str
     name: str
+    kind: str
     tool: str
-    status: str  # "available" (ARVA can install it) or "planned"
     description: str
-    version: str | None = None
-    release_date: str | None = None
+    version: str
+    release_date: str | None
+    source_url: str
+    download_url: str
+    filename: str
+    archive_bytes: int
+    checksum: str
+    checksum_sources: tuple[str, ...]
+    # The publisher's statement of the unpacked size (or ARVA's listing of the archive), and the bytes ARVA reserves.
+    extracted_size_note: str
+    extracted_bytes_estimate: int
+    # The archive's single top folder, or None when its members lie at its root (they are unpacked into the folder).
+    top_dir: str | None
+    licence: str
+    terms: str
+    citation: str
+    compatibility: str
+    checksum_algorithm: str = "md5"
     db_type: str | None = None
-    source_url: str | None = None
     doi: str | None = None
-    download_url: str | None = None
-    filename: str | None = None
-    archive_bytes: int | None = None
-    checksum_algorithm: str | None = None
-    checksum: str | None = None
-    checksum_sources: tuple[str, ...] = ()
-    # The publisher's statement of the unpacked size, and the bytes ARVA reserves for it.
-    extracted_size_note: str | None = None
-    extracted_bytes_estimate: int | None = None
-    top_dir: str | None = None
-    licence: str | None = None
     licence_url: str | None = None
-    terms: str | None = None
-    citation: str | None = None
-    compatibility: str | None = None
     external_versions: dict[str, str] = field(default_factory=dict)
     notes: tuple[str, ...] = ()
+    status: str = "available"
 
     @property
     def install_dir(self) -> str:
-        """Folder under ARVA_DB_DIR the database is installed into."""
-        return f"{self.key}/{self.version}"
+        """The default folder, inside the chosen database folder, the database is installed into."""
+        return f"{self.key}/{re.sub(r'[^A-Za-z0-9._-]+', '-', self.version).strip('-')}"
 
 
 _BAKTA_COMMON = dict(
+    kind="bakta",
     tool="bakta",
-    status="available",
     version="6.0",
     release_date="2025-02-24",
     source_url=_BAKTA_RECORD,
     doi="10.5281/zenodo.14916843",
-    checksum_algorithm="md5",
     checksum_sources=_BAKTA_CHECKSUM_SOURCES,
     licence="CC BY 4.0",
-    licence_url="https://creativecommons.org/licenses/by/4.0/",
+    licence_url=_CC_BY,
     terms="Licence of the Zenodo record: Creative Commons Attribution 4.0. Cite the database and Bakta when you "
           "publish results; the database was built from the external databases listed (UniProt, RefSeq, Pfam, Rfam, "
           "COG, AMRFinderPlus, VFDB, ISFinder, DoriC, MOB-suite).",
@@ -145,20 +153,133 @@ CATALOGUE: tuple[CatalogueEntry, ...] = (
         **_BAKTA_COMMON,
     ),
     CatalogueEntry(
-        key="amrfinderplus",
-        name="AMRFinderPlus database",
-        tool="amrfinderplus",
-        status="planned",
-        description="NCBI's database of antimicrobial resistance genes and point mutations, read by AMRFinderPlus "
-                    "(and by Bakta's AMR expert system). Planned with the AMRFinderPlus integration.",
+        key="gtdbtk-r232",
+        name="GTDB-Tk reference data R232",
+        kind="gtdbtk",
+        tool="gtdbtk",
+        description="GTDB release 232 (R11-RS232: 901,341 genomes in 199,923 species clusters) packaged for GTDB-Tk.",
+        version="r232",
+        release_date="2026-04-15",
+        source_url="https://data.gtdb.ecogenomic.org/releases/release232/232.0/",
+        download_url="https://data.gtdb.ecogenomic.org/releases/release232/232.0/auxillary_files/gtdbtk_package/"
+                     "full_package/gtdbtk_r232_data.tar.gz",
+        filename="gtdbtk_r232_data.tar.gz",
+        archive_bytes=60_806_405_195,
+        checksum="25a59e0352b1fd150c589f56559767d4",
+        checksum_sources=("MD5SUM.txt of GTDB release 232.0",),
+        extracted_size_note="~100G of external data for R232 (GTDB-Tk installation guide)",
+        extracted_bytes_estimate=100 * GIB,
+        top_dir="release232",
+        licence="CC BY-SA 4.0",
+        licence_url="https://creativecommons.org/licenses/by-sa/4.0/",
+        terms="GTDB data are licensed under Creative Commons Attribution-ShareAlike 4.0 (GTDB downloads page). Cite "
+              "GTDB and GTDB-Tk when you publish results.",
+        citation="Chaumeil P.-A. et al. (2022) GTDB-Tk v2. Bioinformatics, doi:10.1093/bioinformatics/btac672. Parks "
+                 "D.H. et al. (2025) GTDB release 10. Nucleic Acids Research, doi:10.1093/nar/gkaf1040.",
+        compatibility="GTDB-Tk 2.7.0 or later (GTDB-Tk installation guide); GTDB-Tk 2.8.0 accepts R232 only.",
     ),
     CatalogueEntry(
-        key="checkm2",
-        name="CheckM2 database",
+        key="kraken2-standard",
+        name="Kraken 2 Standard index (2026-06-26)",
+        kind="kraken2",
+        tool="kraken2",
+        description="RefSeq archaea, bacteria, viral, plasmid, human and UniVec_Core, built with Kraken 2's default "
+                    "k-mer settings by the Kraken 2 maintainers.",
+        version="standard 2026-06-26",
+        release_date="2026-06-26",
+        source_url="https://benlangmead.github.io/aws-indexes/k2",
+        download_url="https://genome-idx.s3.amazonaws.com/kraken/k2_standard_20260626.tar.gz",
+        filename="k2_standard_20260626.tar.gz",
+        archive_bytes=85_465_587_439,
+        checksum="70477acf5ad91271725d77aadd8ca6b1",
+        checksum_sources=("standard_20260626/standard.md5 (linked from the index page)",),
+        extracted_size_note="Index size 103.1 GB (index page)",
+        extracted_bytes_estimate=int(103.1 * GIB),
+        top_dir=None,
+        licence="Not stated by the publisher",
+        terms="The index page states no licence; the indexes are \"open access thanks to the AWS Open Data "
+              "Sponsorship Program\". library_report.tsv lists the source of every sequence. Cite Kraken 2.",
+        citation="Wood D.E., Lu J., Langmead B. (2019) Improved metagenomic analysis with Kraken 2. Genome Biology "
+                 "20:257, doi:10.1186/s13059-019-1891-0.",
+        compatibility="No Kraken 2 version requirement is stated on the index page.",
+        notes=("The index includes standard.md5 with the MD5 of every file: the full verification compares them.",),
+    ),
+    CatalogueEntry(
+        key="checkm2-3",
+        name="CheckM2 database version 3",
+        kind="checkm2",
         tool="checkm2",
-        status="planned",
-        description="The protein database CheckM2 uses to estimate genome completeness and contamination. Planned "
-                    "with the genome quality module.",
+        description="UniRef100/KEGG DIAMOND database (uniref100.KO.1.dmnd) for CheckM2's completeness and "
+                    "contamination estimates.",
+        version="3",
+        release_date="2025-02-20",
+        source_url="https://zenodo.org/records/14897628",
+        doi="10.5281/zenodo.14897628",
+        download_url="https://zenodo.org/api/records/14897628/files/checkm2_database.tar.gz/content",
+        filename="checkm2_database.tar.gz",
+        archive_bytes=1_735_095_710,
+        checksum="07c10655620843b517d0df0c160d911f",
+        checksum_sources=("Zenodo record 14897628 (file checksum)",),
+        extracted_size_note="CONTENTS.json (122 bytes) and CheckM2_database/uniref100.KO.1.dmnd (3,082,500,605 "
+                            "bytes), from the archive's listing",
+        extracted_bytes_estimate=3_082_500_727,
+        top_dir=None,
+        licence="CC BY 4.0",
+        licence_url=_CC_BY,
+        terms="Licence of the Zenodo record: Creative Commons Attribution 4.0. Cite CheckM2.",
+        citation="Chklovski A. et al. (2023) CheckM2. Nature Methods 20, doi:10.1038/s41592-023-01940-w.",
+        compatibility="CheckM2 1.1.0 or later (version_hashes_1.1.0.json: incompatible below 1.1.0).",
+    ),
+    CatalogueEntry(
+        key="busco-bacteria-odb12.2",
+        name="BUSCO bacteria_odb12.2",
+        kind="busco",
+        tool="busco",
+        description="BUSCO's lineage dataset for all Bacteria: 116 marker genes from 3130 species (OrthoDB 12.2).",
+        version="bacteria_odb12.2 (2026-05-22)",
+        release_date="2026-05-22",
+        source_url="https://busco-data.ezlab.org/v5/data/",
+        download_url="https://busco-data.s3.amazonaws.com/lineages/bacteria_odb12.2.2026-05-22.tar.gz",
+        filename="bacteria_odb12.2.2026-05-22.tar.gz",
+        archive_bytes=58_578_184,
+        checksum="e21960d275e09687a86aace486f2886a",
+        checksum_sources=("busco-data.ezlab.org/v5/data/file_versions.tsv",),
+        extracted_size_note="77,382,549 bytes (listing of the archive, 2026-10-29)",
+        extracted_bytes_estimate=77_382_549,
+        top_dir="bacteria_odb12.2",
+        licence="CC BY-ND 4.0",
+        licence_url="https://creativecommons.org/licenses/by-nd/4.0/",
+        terms="The BUSCO datasets are licensed under Creative Commons Attribution-NoDerivatives 4.0 (BUSCO user "
+              "guide); cite the BUSCO paper of the dataset's version. busco-data.ezlab.org redirects downloads to "
+              "busco-data.s3.amazonaws.com, the address ARVA downloads from.",
+        citation="Tegenfeldt F. et al. OrthoDB and BUSCO update: annotation of orthologs with wider sampling of "
+                 "genomes. Manni M. et al. (2021) Molecular Biology and Evolution 38(10), doi:10.1093/molbev/msab199.",
+        compatibility="BUSCO 6.1.0 or later (BUSCO user guide: odb12.2 datasets).",
+    ),
+    CatalogueEntry(
+        key="genomad-1.9",
+        name="geNomad database 1.9",
+        kind="genomad",
+        tool="genomad",
+        description="geNomad's markers, MMseqs2 databases and taxonomy for identifying plasmids and viruses.",
+        version="1.9",
+        release_date="2025-02-18",
+        source_url="https://zenodo.org/records/14886553",
+        doi="10.5281/zenodo.14886553",
+        download_url="https://zenodo.org/api/records/14886553/files/genomad_db_v1.9.tar.gz/content",
+        filename="genomad_db_v1.9.tar.gz",
+        archive_bytes=842_023_773,
+        checksum="67244b528bb8bed464d1ca147136d33e",
+        checksum_sources=("Zenodo record 14886553 (file checksum)",),
+        extracted_size_note="1,471,626,195 bytes (listing of the archive, 2026-10-29)",
+        extracted_bytes_estimate=1_471_626_195,
+        top_dir="genomad_db",
+        licence="CC BY 4.0",
+        licence_url=_CC_BY,
+        terms="Licence of the Zenodo record: Creative Commons Attribution 4.0. Cite geNomad.",
+        citation="Camargo A.P. et al. (2023) Identification of mobile genetic elements with geNomad. Nature "
+                 "Biotechnology, doi:10.1038/s41587-023-01953-y.",
+        compatibility="geNomad 1.10 to 1.13 (releases.txt on portal.nersc.gov/genomad).",
     ),
 )
 
@@ -173,4 +294,8 @@ def entry(key: str) -> CatalogueEntry:
 
 
 def bakta_entry_for(db_type: str) -> CatalogueEntry | None:
-    return next((e for e in CATALOGUE if e.tool == "bakta" and e.db_type == db_type), None)
+    return next((e for e in CATALOGUE if e.kind == "bakta" and e.db_type == db_type), None)
+
+
+def for_kind(kind: str) -> list[CatalogueEntry]:
+    return [e for e in CATALOGUE if e.kind == kind]

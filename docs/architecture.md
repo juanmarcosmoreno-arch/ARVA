@@ -100,14 +100,24 @@
   `result_summary` holds QUAST's report read by field name and ARVA's cross-check. QUAST's HTML pages are
   served by `GET /jobs/{id}/outputs/{path}`, where a path below the job folder (e.g.
   `quast/icarus_viewers/contig_size_viewer.html`) keeps the pages' relative links working.
-- **ReferenceDatabase** (`reference_databases`): a database installed by the Database Manager
-  (`origin` download, folder owned by ARVA inside `ARVA_DB_DIR`) or a registered folder (`origin` register,
-  only read): catalogue key, name, version, path, source, licence, size, content checksum (SHA-256 of the
-  file manifest), the archive's published checksum, status (`installed`, `registered`, `downloading`,
-  `verifying`, `failed`, `cancelled`), dates, progress, log and cancellation request. Downloads and
-  verifications run as worker tasks (`app/tasks/databases.py`) with their own lifecycle, since they belong
-  to no project. `analysis_jobs.reference_database_id` (SET NULL) plus `database_key`, `database_name`,
-  `database_version` and `database_checksum` record the database a job read.
+- **ReferenceDatabase** (`reference_databases`): one reference database of a **kind** (`kind`: the registry in
+  `app/services/database_kinds.py` — Bakta, AMRFinderPlus, GTDB-Tk, skani, sylph, Mash, Kraken 2, CheckM2, BUSCO,
+  PlasmidFinder, MOB-suite, VFDB, geNomad, InterProScan, spa types, reference genome collections), downloaded by the
+  Database Manager into a database folder (`origin` download), extracted by it from an archive the user has
+  (`origin` extract, e.g. an NCBI Datasets package zip) or registered where it is (`origin` register, only read,
+  never modified or deleted): catalogue key, name, version, **how the version was known** (`version_source`: `file`,
+  read from the database's own files; `declared` by the user; `checksum`, identified from a checksum the tool
+  publishes), path (a folder, or the file of a single-file kind), source, licence, size, **verification level**
+  (`quick`: the kind's files, sizes and version file; `full`: plus the SHA-256 of every file), content checksum
+  (SHA-256 of the file manifest, after a full verification), the archive's published checksum, `is_default` (one per
+  kind, a partial unique index), status (`installed`, `registered`, `downloading`, `extracting`, `verifying`,
+  `failed`, `cancelled`), dates, progress, log and cancellation request. The manifest and a reference collection's
+  genome inventory are deferred columns (loaded only by the worker). Detection (`database_detect.py`,
+  `reference_collections.py`) only reads. Downloads, extractions and full verifications run as worker tasks
+  (`app/tasks/databases.py`) with their own lifecycle, since they belong to no project.
+  `analysis_jobs.reference_database_id` (SET NULL) plus `database_kind`, `database_key`, `database_name`,
+  `database_version`, `database_version_source`, `database_checksum` (None after a quick verification only) and
+  `database_path` record the database a job read, and survive its deletion.
 - **Annotation** (`annotations`): one finished annotation of one assembly, written by the `bakta_annotation` or
   `prokka_annotation` job that produced it (one per job, all three links CASCADE): tool and version, database key,
   name, version and checksum, the parameters, the per-step plan and outcome (`steps`: run or not, why, searched,
@@ -168,10 +178,13 @@ reports/<project>/<sample>/…                    every generated report is arch
 logs/<job-id>.log
 ```
 
-Reference databases are outside the storage root's layout, in `ARVA_DB_DIR`:
+Reference databases are outside the storage root's layout. A database folder ARVA may write to (`ARVA_DB_DIR`, the
+one chosen with `scripts/start.sh --databases-dir`) holds what ARVA downloads or extracts; databases registered in
+place stay in their own folders (usually an added, read-only database folder):
 
 ```
-<key>/<version>/…                   an installed database (e.g. bakta-light/6.0, Bakta's --db folder)
+<folder chosen in the download dialog, default <key>/<version>>/…   e.g. bakta-light/6.0 (Bakta's --db folder)
+reference-genomes/<zip name>/…      a copy extracted from an NCBI Datasets package zip
 .arva-downloads/<record-id>/….part  a partial download kept for resuming
 .arva-staging/<record-id>/…         unpacking in progress (removed on success, failure or cancellation)
 ```
@@ -391,15 +404,21 @@ them), and the UI opens the report in a new tab with `rel="noopener noreferrer"`
   without `Content-Length` with 411; each file is re-checked before it is stored and every 256 MB
   while it is written.
 - Database downloads come only from the catalogue's URL (no URL is accepted from a request; redirects
-  to another host are refused), after an explicit confirmation of the archive size and licence. Archives
-  are unpacked member by member without tarfile's extraction helpers: absolute names, `..`, members
-  outside the expected top folder, devices and FIFOs are refused, hard links must point to an earlier
-  file, symbolic links must be relative and stay inside the folder and are created last (never under
-  another link), so nothing is written through a link. Registration accepts only absolute paths whose
-  real path lies inside `ARVA_DB_DIR` or an import folder; deletion removes files only of a database ARVA
-  installed, strictly inside `ARVA_DB_DIR`. Registration may also read added database folders
-  (`ARVA_EXTERNAL_DB_ROOTS`), mounted read-only; a path given as on the host is translated to the mount
-  before the same real-path check.
+  to another host are refused), after an explicit confirmation of the archive size and licence, into a database
+  folder ARVA may write to (the destination must be one of them, the folder inside it a relative path of letters,
+  digits, `.`, `_` and `-` without `..`). Archives are unpacked member by member without tarfile's extraction
+  helpers: absolute names, `..`, members outside the expected top folder (or outside the archive, for archives
+  without one), devices and FIFOs are refused, hard links must point to an earlier file, symbolic links must be
+  relative and stay inside the folder and are created last (never under another link), so nothing is written through
+  a link. A zip is extracted only with plain files and folders, each no larger than the zip declares and in all no
+  more than its declared total; the zip itself is only read. Registration, detection and browsing accept only
+  absolute paths whose real path lies inside a database folder, an import folder or an added database folder
+  (`ARVA_EXTERNAL_DB_ROOTS`, mounted read-only); a path given as on the host is translated to the mount before the
+  same real-path check, and so is every genome path of a FastANI reference list (a path outside is refused). The
+  browser hides links that leave the folder. Detection reads only the kinds' marker and version files (at most
+  1 MiB each) and the sizes of their files; nothing is written into a registered folder (a test compares every
+  file's size, modification time and mode before and after). Deletion removes files only of a database ARVA
+  installed or extracted, strictly inside the database folder it was put in.
 - Storage locations come from the launcher's saved settings, read line by line (never sourced or evaluated) from a
   mode-600 file of the user; every folder is checked before Docker starts, reaches the Compose override only as a
   `${VARIABLE}` reference, and is mounted with `create_host_path: false`, so a missing disk stops the start instead

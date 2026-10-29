@@ -146,30 +146,23 @@ def _record(client, record_id):
 
 # --- Catalogue --------------------------------------------------------------------------------------------------
 
-def test_catalogue_entries_are_complete_and_planned_ones_carry_no_numbers(client):
+def test_bakta_catalogue_entries_carry_the_published_facts(client):
     keys = [e.key for e in catalogue.CATALOGUE]
     assert len(keys) == len(set(keys))
-    for e in catalogue.CATALOGUE:
-        if e.status == "available":
-            assert e.download_url.startswith("https://zenodo.org/api/records/14916843/files/")
-            assert e.download_url.endswith(f"/{e.filename}/content")
-            assert re.fullmatch(r"[0-9a-f]{32}", e.checksum) and e.checksum_algorithm == "md5"
-            assert len(e.checksum_sources) == 3 and e.licence == "CC BY 4.0" and e.licence_url and e.terms
-            assert e.version == "6.0" and e.top_dir and e.db_type in catalogue.BAKTA_TYPE_FILE
-            assert e.extracted_bytes_estimate > e.archive_bytes > 0 and e.extracted_size_note
-            assert e.source_url == "https://zenodo.org/records/14916843" and e.doi == "10.5281/zenodo.14916843"
-        else:
-            assert e.status == "planned"
-            assert all(getattr(e, f) is None for f in ("version", "archive_bytes", "checksum", "download_url",
-                                                       "extracted_bytes_estimate", "licence", "source_url"))
+    for e in catalogue.for_kind("bakta"):
+        assert e.download_url.startswith("https://zenodo.org/api/records/14916843/files/")
+        assert e.download_url.endswith(f"/{e.filename}/content")
+        assert re.fullmatch(r"[0-9a-f]{32}", e.checksum) and e.checksum_algorithm == "md5"
+        assert len(e.checksum_sources) == 3 and e.licence == "CC BY 4.0" and e.licence_url and e.terms
+        assert e.version == "6.0" and e.top_dir and e.db_type in catalogue.BAKTA_TYPE_FILE
+        assert e.extracted_bytes_estimate > e.archive_bytes > 0 and e.extracted_size_note
+        assert e.source_url == "https://zenodo.org/records/14916843" and e.doi == "10.5281/zenodo.14916843"
     light, full = catalogue.BY_KEY["bakta-light"], catalogue.BY_KEY["bakta-full"]
     assert (light.archive_bytes, light.checksum) == (1_344_199_496, "4a6e059ded39e9c5537ef4137d2f5648")
     assert (full.archive_bytes, full.checksum) == (31_921_769_288, "4c1115e40abfa2b464ae5dd988bdd88e")
     assert "tens of gigabytes" in full.description and full.extracted_bytes_estimate > 80 * 1024**3
     listed = client.get(f"{API}/databases/catalogue").json()
-    assert [e["key"] for e in listed] == keys
-    assert client.post(f"{API}/databases/downloads", json={"key": "checkm2", "confirm_bytes": 0,
-                                                           "accept_licence": True}).status_code == 400
+    assert [e["key"] for e in listed] == keys and {e["status"] for e in listed} == {"available"}
     assert client.get(f"{API}/databases/catalogue/nope/plan").status_code == 404
 
 
@@ -186,6 +179,7 @@ def test_download_verifies_unpacks_installs_and_reverifies(client, serve, storag
     assert r.status_code == 202, r.text
     db = r.json()
     assert db["status"] == "installed" and db["origin"] == "download" and db["version"] == "6.0"
+    assert db["kind"] == "bakta" and db["version_source"] == "file" and db["verification_level"] == "full"
     assert db["archive_checksum"] == f"md5:{hashlib.md5(server.data).hexdigest()}"
     assert db["checksum"].startswith("sha256:") and db["files"] == len(catalogue.BAKTA_REQUIRED_FILES) + 2
     assert db["licence"] == "CC BY 4.0" and db["source_url"] == "https://zenodo.org/records/14916843"
@@ -355,27 +349,27 @@ def test_registration_checks_the_folder_like_bakta_and_never_touches_it(client, 
     register = lambda p: client.post(f"{API}/databases/register", json={"path": str(p)})  # noqa: E731
     assert register("relative/path").status_code == 400
     outside = _bakta_folder(tmp_path / "outside")
-    assert "outside the folders" in register(outside).json()["detail"]
+    assert register(outside).json()["code"] == "outside_roots"
     empty = root / "custom" / "empty"
     empty.mkdir(parents=True)
-    assert "no version.json" in register(empty).json()["detail"]
+    assert register(empty).json()["code"] == "not_recognised"
     no_type = _bakta_folder(root / "custom" / "no-type", {k: v for k, v in VERSION.items() if k != "type"})
-    assert "lacks type" in register(no_type).json()["detail"]
-    old = _bakta_folder(root / "custom" / "old", {**VERSION, "major": 5, "minor": 1})
-    assert "schema 6.x" in register(old).json()["detail"]
+    assert "needs date, major, minor and type" in register(no_type).json()["detail"]
     missing = _bakta_folder(root / "custom" / "missing", omit=("pscc.dmnd",))
     assert "pscc.dmnd" in register(missing).json()["detail"]
     assert client.get(f"{API}/databases").json() == []
 
     good = _bakta_folder(root / "custom" / "good", {**VERSION, "minor": 1})
     r = register(good)
-    assert r.status_code == 202, r.text
+    assert r.status_code == 201, r.text
     db = r.json()
     assert db["status"] == "registered" and db["origin"] == "register" and db["version"] == "6.1"
-    assert db["key"] == "bakta-light" and db["checksum"].startswith("sha256:") and db["licence"] is None
+    assert db["key"] == "bakta-light" and db["kind"] == "bakta" and db["checksum"] is None
+    assert db["verification_level"] == "quick" and db["version_source"] == "file"
     assert "differs from the catalogue" in db["notes"] and db["catalogue_version"] == "6.0"
     assert register(good).status_code == 409
-    assert client.post(f"{API}/databases/{db['id']}/verify").json()["status"] == "registered"
+    full = client.post(f"{API}/databases/{db['id']}/verify").json()
+    assert full["status"] == "registered" and full["checksum"].startswith("sha256:")
     assert client.delete(f"{API}/databases/{db['id']}").status_code == 204
     assert (good / "version.json").is_file() and (good / "bakta.db").is_file()
 
@@ -384,7 +378,7 @@ def test_registration_checks_the_folder_like_bakta_and_never_touches_it(client, 
 
 def test_jobs_record_the_database_and_block_its_deletion(client, storage_root):
     folder = _bakta_folder(storage_root.resolve() / "databases" / "custom" / "for-job")
-    db_id = client.post(f"{API}/databases/register", json={"path": str(folder)}).json()["id"]
+    db_id = client.post(f"{API}/databases/register", json={"path": str(folder), "full_checksum": True}).json()["id"]
     project_id = client.post(f"{API}/projects", json={"name": "Database use"}).json()["id"]
     with SessionLocal() as session:
         record = session.get(ReferenceDatabase, db_id)
@@ -402,6 +396,7 @@ def test_jobs_record_the_database_and_block_its_deletion(client, storage_root):
     assert client.delete(f"{API}/databases/{db_id}").status_code == 204
     job = client.get(f"{API}/jobs/{job_id}").json()
     assert (job["database_key"], job["database_version"], job["database_checksum"]) == ("bakta-light", "6.0", checksum)
+    assert checksum.startswith("sha256:") and job["database_path"] == str(folder) and job["database_kind"] == "bakta"
     assert job["reference_database_id"] is None
 
 

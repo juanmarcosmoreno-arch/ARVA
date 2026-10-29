@@ -1070,8 +1070,11 @@ version: identified exactly, checked, and recorded on every job that reads it.
   same MD5s in Bakta's README and in the record's `db-versions.json` (which also gives Bakta 1.11 as the
   oldest compatible software), and Bakta 1.12.2's source (`bakta/db.py`) for the folder layout and the
   checks. The unpacked sizes are the README's approximate "3.9 Gb" and "84 Gb"; ARVA reserves them read as
-  GiB (the larger reading) and records the real size after unpacking. Databases ARVA does not support yet
-  (AMRFinderPlus, CheckM2) are listed as planned without any number.
+  GiB (the larger reading) and records the real size after unpacking. Since part 5B the other kinds
+  (AMRFinderPlus, GTDB-Tk, skani, sylph, Mash, Kraken 2, CheckM2, BUSCO, PlasmidFinder, MOB-suite, VFDB, geNomad,
+  InterProScan, spa types, reference genome collections) have their own recognition and versioning rules, each
+  cited in [databases/README.md](../databases/README.md); a version their files do not state is declared by the
+  user and recorded as declared, never guessed.
 - **Identity of a download**: the archive's MD5 must equal the published one before anything is unpacked.
   MD5 is what the publisher provides; it detects transfer errors and a different file, but is not
   collision-resistant, so ARVA also downloads only from the record's URL over HTTPS.

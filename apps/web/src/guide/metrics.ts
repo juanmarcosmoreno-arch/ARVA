@@ -93,7 +93,9 @@ export type GuideId =
   | "circular_map"
   | "annotation_charts"
   | "performance_profile"
-  | "docker_resources";
+  | "docker_resources"
+  | "reference_databases"
+  | "database_versions";
 
 const REF = {
   appleSysctl: { label: "Apple Developer Documentation — Determining system capabilities (sysctlbyname: hw.perflevelN.physicalcpu, hw.physicalcpu, hw.memsize)", url: "https://developer.apple.com/documentation/kernel/1387446-sysctlbyname/determining_system_capabilities" },
@@ -220,6 +222,10 @@ const REF = {
   bakta: { label: "Schwengers et al. (2021) Microbial Genomics 7(11) — Bakta: rapid and standardized annotation of bacterial genomes", url: "https://doi.org/10.1099/mgen.0.000685" },
   baktaReadme: { label: "Bakta README: annotation workflow, UPS/IPS/PSC/PSCC, hypothetical CDS, databases", url: "https://github.com/oschwengers/bakta#readme" },
   baktaDb: { label: "Schwengers O (2025) Bakta database 6.0, Zenodo", url: "https://doi.org/10.5281/zenodo.14916843" },
+  ncbiDatasetsPackage: { label: "NCBI Datasets documentation — Genome data package (README.md, md5sum.txt, assembly_data_report.jsonl, dataset_catalog.json)", url: "https://www.ncbi.nlm.nih.gov/datasets/docs/v2/reference-docs/data-packages/genome/" },
+  fastani: { label: "Jain et al. (2018) Nature Communications 9:5114 — FastANI (high throughput ANI analysis of 90K prokaryotic genomes)", url: "https://doi.org/10.1038/s41467-018-07641-9" },
+  gtdbtkInstall: { label: "GTDB-Tk documentation — Installing: reference data and compatible GTDB-Tk versions", url: "https://ecogenomics.github.io/GTDBTk/installing/index.html" },
+  checkm2Versions: { label: "CheckM2 source — version_hashes_1.1.0.json (SHA-256 of each DIAMOND database version)", url: "https://github.com/chklovski/CheckM2" },
   prokka: { label: "Seemann (2014) Bioinformatics 30(14):2068–2069 — Prokka: rapid prokaryotic genome annotation", url: "https://doi.org/10.1093/bioinformatics/btu153" },
   prokkaReadme: { label: "Prokka README (T. Seemann): workflow, databases and maintenance status", url: "https://github.com/tseemann/prokka#readme" },
   prodigal: { label: "Hyatt et al. (2010) BMC Bioinformatics 11:119 — Prodigal: prokaryotic gene recognition", url: "https://doi.org/10.1186/1471-2105-11-119" },
@@ -2112,6 +2118,68 @@ export const GUIDE: GuideEntry[] = [
         "No volver a iniciar ARVA después de cambiar los recursos de Docker Desktop: ARVA los lee al iniciarse.",
       ],
       limitations: "Aún no validado en un Mac real. Desde dentro de un contenedor, los recursos de Docker Desktop solo se ven como las CPU y la memoria que ve el contenedor; las cifras propias de Docker Desktop vienen del lanzador.",
+    },
+  },
+  {
+    id: "reference_databases",
+    references: [REF.baktaDb, REF.ncbiDatasetsPackage, REF.fastani, REF.gtdbtkInstall],
+    en: {
+      title: "Reference databases",
+      what: "The data analysis tools compare a genome with: Bakta's annotation database, AMRFinderPlus's resistance genes, GTDB-Tk's reference data, Kraken 2 and sylph indexes, CheckM2's and BUSCO's marker sets, plasmid and virulence databases, and reference genome collections for species identification by ANI. ARVA's Database Manager knows each kind: how to recognise its folder, where its version is written, which tools read it and whether ARVA can download it.",
+      why: "A result depends on the database as much as on the tool: the same genome annotated or classified against another database version can give other answers. These databases are large (Bakta full about 84 GB, GTDB-Tk R232 about 100 GB), so they usually live on an external disk and are downloaded once, then used in place.",
+      how: "Register a folder (or file) you already have: ARVA browses the database folder and the folders added with scripts/start.sh --add-databases, recognises the kind from its files (for example Bakta's version.json and required files, GTDB-Tk's metadata/metadata.txt, Kraken 2's hash.k2d, opts.k2d and taxo.k2d), reads the version from them and makes a quick verification. It never writes into a registered folder. Or download a version ARVA's catalogue offers into a database folder you choose: ARVA shows the size, licence and free space, checks the publisher's MD5 and unpacks safely. A full verification (the SHA-256 of every file, and the publisher's per-file MD5s when it lists them) runs in the background and can be cancelled. Reference genome collections can be an NCBI Datasets package, a FastANI reference list (paths written as on your Mac are mapped to where ARVA sees them) or a folder of FASTA files; ARVA shows their species and genome counts.",
+      interpret: "Each database shows its state: ready, verifying, unavailable (its disk is not connected; it becomes available again when the disk is back at the same path), incompatible with the installed tool, or with a version declared by you. A database on a disconnected disk is kept as it is: it is not checked, used or deleted until the disk returns.",
+      next: "Register the databases you already keep on your external disk; choose one default per kind; run a full checksum once when you have time, for example overnight for a large database on a USB disk.",
+      mistakes: [
+        "Registering the parent folder instead of the database itself (for example the folder bakta_db wrote into instead of its db/ or db-light/ subfolder): ARVA then names the subfolders that are databases.",
+        "Expecting ARVA to update a registered database: it only reads it. Download a new version next to it instead.",
+        "Registering an NCBI package zip: tools cannot read genomes inside a zip; extract a copy instead (the zip is left unchanged).",
+      ],
+      limitations: "Only Bakta is run by ARVA so far, so only Bakta databases are checked against a tool version; for the other kinds the tool versions their documentation requires are shown, and the databases are registered and versioned for the analyses that will use them. Detection reads the file names and version files of each kind's official layout; the contents of large data files are only checked by the full checksum. The Mac paths have not yet been validated on a real Mac.",
+    },
+    es: {
+      title: "Bases de datos de referencia",
+      what: "Los datos con los que las herramientas de análisis comparan un genoma: la base de datos de anotación de Bakta, los genes de resistencia de AMRFinderPlus, los datos de referencia de GTDB-Tk, los índices de Kraken 2 y de sylph, los marcadores de CheckM2 y de BUSCO, las bases de plásmidos y de virulencia, y las colecciones de genomas de referencia para identificar la especie por ANI. El gestor de bases de datos de ARVA conoce cada tipo: cómo reconocer su carpeta, dónde está escrita su versión, qué herramientas la leen y si ARVA puede descargarla.",
+      why: "Un resultado depende de la base de datos tanto como de la herramienta: el mismo genoma anotado o clasificado con otra versión de la base de datos puede dar otras respuestas. Estas bases de datos son grandes (Bakta completa unos 84 GB, GTDB-Tk R232 unos 100 GB), así que suelen estar en un disco externo y se descargan una vez y después se usan donde están.",
+      how: "Registra una carpeta (o un archivo) que ya tengas: ARVA recorre la carpeta de bases de datos y las carpetas añadidas con scripts/start.sh --add-databases, reconoce el tipo por sus archivos (por ejemplo el version.json y los archivos necesarios de Bakta, el metadata/metadata.txt de GTDB-Tk, o hash.k2d, opts.k2d y taxo.k2d de Kraken 2), lee de ellos la versión y hace una verificación rápida. Nunca escribe en una carpeta registrada. O descarga una versión que ofrezca el catálogo de ARVA en la carpeta de bases de datos que elijas: ARVA muestra el tamaño, la licencia y el espacio libre, comprueba el MD5 publicado y desempaqueta de forma segura. Una verificación completa (el SHA-256 de cada archivo, y los MD5 por archivo de quien la publica cuando los lista) se ejecuta en segundo plano y se puede cancelar. Las colecciones de genomas de referencia pueden ser un paquete de NCBI Datasets, una lista de referencias de FastANI (las rutas escritas como en tu Mac se traducen a donde las ve ARVA) o una carpeta de archivos FASTA; ARVA muestra cuántas especies y genomas tienen.",
+      interpret: "Cada base de datos muestra su estado: lista, verificando, no disponible (su disco no está conectado; vuelve a estar disponible cuando el disco vuelve a la misma ruta), incompatible con la herramienta instalada, o con una versión declarada por ti. Una base de datos en un disco desconectado se conserva tal como está: no se comprueba, ni se usa, ni se borra hasta que el disco vuelve.",
+      next: "Registra las bases de datos que ya guardas en tu disco externo; elige una predeterminada por tipo; ejecuta una vez la suma completa cuando tengas tiempo, por ejemplo por la noche para una base grande en un disco USB.",
+      mistakes: [
+        "Registrar la carpeta superior en lugar de la propia base de datos (por ejemplo la carpeta en la que escribió bakta_db en lugar de su subcarpeta db/ o db-light/): ARVA indica entonces qué subcarpetas son bases de datos.",
+        "Esperar que ARVA actualice una base de datos registrada: solo la lee. Descarga una versión nueva a su lado.",
+        "Registrar el zip de un paquete del NCBI: las herramientas no leen genomas dentro de un zip; extrae una copia (el zip queda sin cambios).",
+      ],
+      limitations: "Por ahora ARVA solo ejecuta Bakta, así que solo las bases de datos de Bakta se comprueban con una versión de la herramienta; para los demás tipos se muestran las versiones de la herramienta que exige su documentación, y las bases se registran y versionan para los análisis que las usarán. La detección lee los nombres de archivo y los archivos de versión de la estructura oficial de cada tipo; el contenido de los archivos de datos grandes solo lo comprueba la suma completa. Las rutas del Mac aún no se han validado en un Mac real.",
+    },
+  },
+  {
+    id: "database_versions",
+    references: [REF.baktaDb, REF.gtdbtkInstall, REF.checkm2Versions, REF.ncbiDatasetsPackage],
+    en: {
+      title: "Database versions and how they are known",
+      what: "Several versions of a kind can be kept side by side; one is the default, the one analyses use unless you choose another in their dialog. Every analysis records the database's kind, version, how the version was known, its content checksum (when the full checksum was computed) and its folder.",
+      why: "To repeat or compare a result you need to know exactly which data it used. A version read from the database's own files is evidence; a version you declare is a statement, and ARVA labels it so.",
+      how: "ARVA reads the version where each kind writes it: Bakta's version.json, GTDB-Tk's VERSION_DATA, AMRFinderPlus's version.txt, BUSCO's dataset.cfg, geNomad's version.txt, the archive name in a Kraken 2 index's .md5 file, CheckM2's CONTENTS.json. When the files do not state it (skani and sylph databases, Mash sketches, VFDB, MOB-suite, spa types, InterProScan), you declare it, and ARVA may suggest one from the folder or file name. For CheckM2's DIAMOND file without CONTENTS.json the full checksum identifies the version from the SHA-256 CheckM2 publishes. A reference collection's version is its source, the date you give and a fingerprint of its sorted accession list. Bakta databases are also checked against the database schema the installed Bakta accepts.",
+      interpret: "\"Version read from <file>\" is what the database says about itself; \"declared by the user\" is what you wrote; \"identified by its checksum\" matches a checksum the tool publishes. \"Quick check only\" means no content checksum was computed yet, so a job's record has none.",
+      next: "Choose the default of each kind; when you replace a database, download or register the new version next to the old one, make it the default, and delete the old record when no queued or running job uses it.",
+      mistakes: [
+        "Declaring a version from memory: write it as the publisher names it, with the download date when the files have none.",
+        "Assuming that two folders with the same version hold the same files: the full checksum shows whether they do.",
+      ],
+      limitations: "A declared version cannot be checked by ARVA. A collection's fingerprint identifies its list of accessions, not the content of the genome files; the full checksum records that.",
+    },
+    es: {
+      title: "Versiones de las bases de datos y cómo se conocen",
+      what: "Se pueden conservar varias versiones de un tipo a la vez; una es la predeterminada, la que usan los análisis salvo que elijas otra en su diálogo. Cada análisis registra el tipo de la base de datos, su versión, cómo se supo la versión, su suma de contenido (si se calculó la suma completa) y su carpeta.",
+      why: "Para repetir o comparar un resultado hay que saber exactamente qué datos usó. Una versión leída de los propios archivos de la base de datos es una prueba; una versión que declaras es una afirmación, y ARVA la marca así.",
+      how: "ARVA lee la versión donde la escribe cada tipo: el version.json de Bakta, el VERSION_DATA de GTDB-Tk, el version.txt de AMRFinderPlus, el dataset.cfg de BUSCO, el version.txt de geNomad, el nombre del archivo comprimido en el .md5 de un índice de Kraken 2, el CONTENTS.json de CheckM2. Cuando los archivos no la indican (bases de skani y de sylph, esbozos de Mash, VFDB, MOB-suite, tipos spa, InterProScan), la declaras tú, y ARVA puede sugerir una a partir del nombre de la carpeta o del archivo. Para el archivo DIAMOND de CheckM2 sin CONTENTS.json, la suma completa identifica la versión con el SHA-256 que publica CheckM2. La versión de una colección de referencia es su origen, la fecha que indicas y una huella de su lista ordenada de accesiones. Las bases de datos de Bakta se comprueban además con el esquema de base de datos que acepta el Bakta instalado.",
+      interpret: "«Versión leída de <archivo>» es lo que la base de datos dice de sí misma; «declarada por el usuario» es lo que escribiste; «identificada por su suma de comprobación» coincide con una suma que publica la herramienta. «Solo comprobación rápida» significa que aún no se calculó la suma de contenido, así que el registro de un trabajo no la tiene.",
+      next: "Elige la predeterminada de cada tipo; cuando sustituyas una base de datos, descarga o registra la versión nueva junto a la antigua, hazla predeterminada y borra el registro antiguo cuando ningún trabajo en cola o en ejecución la use.",
+      mistakes: [
+        "Declarar una versión de memoria: escríbela como la nombra quien la publica, con la fecha de descarga si los archivos no la tienen.",
+        "Suponer que dos carpetas con la misma versión tienen los mismos archivos: la suma completa muestra si es así.",
+      ],
+      limitations: "ARVA no puede comprobar una versión declarada. La huella de una colección identifica su lista de accesiones, no el contenido de los archivos de genoma; eso lo registra la suma completa.",
     },
   },
 ];

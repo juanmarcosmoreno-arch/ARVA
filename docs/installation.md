@@ -140,11 +140,13 @@ scripts/start.sh --data-dir /Volumes/JM/ARVA/data \
                  --import-dir /Volumes/JM/BioInf/runs
 ```
 
-Then register the Bakta folder in Tools & Databases → Register an existing database, giving its path as on the Mac
-(`/Volumes/JM/BioInf/bakta/db`) or as ARVA sees it (`/databases-external/<n>/…`); the folders added with the launcher
-are listed there with a *Use* button. To download a database instead, use the Database Manager: it installs into
-the database folder with the catalogue's version, size and checksum (each version in its own `<key>/<version>`
-folder).
+Then, in Tools & Databases → Reference databases → *Register existing folder…*, browse the added folder (it is
+listed as on the Mac, read-only), choose the database's own folder (for Bakta the one holding `version.json`) or
+file, and look at the detection preview: the kind, the version and the file it was read from, the files checked and
+any problem. You can also type the path as on the Mac (`/Volumes/JM/BioInf/bakta/db`) or as ARVA sees it
+(`/databases-external/<n>/…`). To download a version instead, choose it under its kind: it is installed into the
+database folder (or a folder inside it that you name), with the catalogue's version, size and checksum. See
+[Reference databases](#reference-databases-database-manager).
 
 ### The launcher's options
 
@@ -691,60 +693,111 @@ filesystem warnings, the data folder's marker) and the metadata backups; Setting
 
 ## Reference databases (Database Manager)
 
-The **Databases** section of the Tools & Databases page installs, registers, verifies and deletes the
-reference databases that annotation tools read. Databases live in `ARVA_DB_DIR` (default
-`<ARVA_STORAGE_ROOT>/databases`; Docker: the `/databases` volume), which the API **and** the worker must
-see at the same path.
+The **Reference databases** section of the Tools & Databases page knows every kind of database the analyses of
+Phase 5 and later read, for any bacterium: Bakta (light and full), AMRFinderPlus, GTDB-Tk reference data, skani
+and sylph databases, Mash sketches, Kraken 2 indexes, CheckM2's DIAMOND database, BUSCO lineage datasets,
+PlasmidFinder, MOB-suite, VFDB, geNomad, InterProScan (register only), spa types from the Ridom SpaServer (provided
+by you, never redistributed) and reference genome collections. [databases/README.md](../databases/README.md) lists
+each kind: how ARVA recognises it, where its version is read, which tool versions can use it, whether ARVA can
+download it, its licence and citation, and the sources of those facts. The section is organised by kind; several
+versions of a kind can be kept, one is the default, and each analysis dialog lets you choose (today: Bakta).
 
-| Database | Version | Download | Unpacked (Bakta README) | Checksum (MD5, published) | Licence |
-|---|---|---|---|---|---|
-| Bakta light | 6.0 (2025-02-24) | 1,344,199,496 bytes | 3.9 Gb | `4a6e059ded39e9c5537ef4137d2f5648` | CC BY 4.0 |
-| Bakta full | 6.0 (2025-02-24) | 31,921,769,288 bytes | 84 Gb | `4c1115e40abfa2b464ae5dd988bdd88e` | CC BY 4.0 |
+**Not yet validated on a real Mac** (the Mac paths below are constructed in the tests).
 
-Source: Zenodo record [14916843](https://zenodo.org/records/14916843) (doi:10.5281/zenodo.14916843); the
-sizes and checksums are the record's, and the same MD5s appear in Bakta's README and in the record's
-`db-versions.json`. AMRFinderPlus and CheckM2 databases are listed as *planned*.
+### Use the databases you already have, where they are
 
-- **Download**: the dialog shows the source, licence and terms, the archive size, the space needed
-  (bytes still to download plus the unpacked size, read in the larger unit) and the usable free space
-  (`ARVA_MIN_FREE_BYTES` stays free). Nothing starts until you accept the licence and confirm; the API
-  also requires the confirmed archive size (`confirm_bytes`) and refuses with 507 when the space is
-  insufficient. The worker downloads from the official URL only (redirects to other hosts are refused),
-  saves progress every second, can be cancelled, and keeps a partial file so the next download resumes
-  it with an HTTP range request (Zenodo answers ranges; a server that ignores them is downloaded again
-  from the start). The MD5 is then compared with the published one (a mismatch deletes the archive),
-  the archive is unpacked with path checks, Bakta's own folder check runs, ARVA records the SHA-256 of
-  every file, the folder is moved to `ARVA_DB_DIR/<key>/<version>` (e.g. `bakta-light/6.0`) and the
-  archive is deleted.
-- **Register** an existing Bakta database folder (the one holding `version.json`) inside `ARVA_DB_DIR`,
-  an import folder or a folder added with `scripts/start.sh --add-databases` (given as on the Mac, e.g.
-  `/Volumes/JM/BioInf/bakta/db`, or as ARVA sees it): ARVA runs Bakta's checks (keys of `version.json`,
-  schema version 6, required files) and records the SHA-256 of every file. A registered folder is never
-  modified or deleted. A database whose disk is not connected is shown as unavailable and kept as it is.
-- **Verify** repeats Bakta's check and compares every file with the recorded SHA-256 (the archive's MD5
-  can only be checked before unpacking).
-- **Delete** removes an installed database's folder and record, or only the record of a registered
-  folder; it is refused while the database is being downloaded or verified, or while a queued or
-  running job uses it. Jobs that used it keep its key, version and checksum.
+Add the folder that holds them with the launcher (read-only), for example
+`scripts/start.sh --add-databases /Volumes/JM/BioInf`, then *Register existing folder…*:
 
-Bakta's own installer `bakta_db download` was examined (Bakta 1.12.2, `bakta/db.py`) and is not used: it
-needs AMRFinderPlus installed even to download, reads the list of versions from the `main` branch on
-GitHub, does not resume, unpacks with `tarfile.extractall` without a filter, and finally runs
-`amrfinder_update --force_update` on the database's `amrfinderplus-db/` folder, which updates the
-AMRFinderPlus data to whatever release NCBI offers that day (unpinned). ARVA implements the same download,
-MD5 and folder checks itself and does not run that update: the light 6.0 archive already contains
-`amrfinderplus-db/2024-12-18.1` (database format 4.0.1) with `latest` linking to it, the release its
-`version.json` lists, and ARVA records that version. Bakta 1.12.2 needs AMRFinderPlus 4.2.7 or later to
-use it.
+1. Browse the database folder or an added folder (or type the path as on the Mac) and choose the database's own
+   folder or file. ARVA recognises the kind from its files (for example Bakta's `version.json` and required files,
+   GTDB-Tk's `metadata/metadata.txt`, Kraken 2's `hash.k2d`, `opts.k2d` and `taxo.k2d`) and shows which file the
+   version came from. A parent folder (such as the one `bakta_db download` wrote into) is recognised as holding
+   databases in its subfolders, which are offered.
+2. When the files do not state the version (skani and sylph databases, Mash sketches, VFDB, MOB-suite, spa types,
+   InterProScan), declare it; ARVA may suggest one from the folder or file name. It is recorded as *declared by
+   the user*. A CheckM2 DIAMOND file without `CONTENTS.json` is identified by its SHA-256 at the full checksum.
+3. Registering makes a **quick verification** (the kind's files are there; their sizes and the version file are
+   recorded). ARVA never writes, moves or deletes anything in a registered folder; deleting a registered database
+   removes only ARVA's record.
+4. The **full checksum** (the SHA-256 of every file, compared with the first one recorded, and with the publisher's
+   per-file MD5s where it lists them: a Kraken 2 index's `.md5` file, an NCBI package's `md5sum.txt`, CheckM2's
+   `CONTENTS.json`) runs in the background with its progress, and can be cancelled: on 80 GB over USB it can take
+   hours. Until then a job records no content checksum for that database, and says so.
 
-Development install used by the next parts (2026-10-28): Bakta light 6.0 downloaded through this
-mechanism into `/root/.arva-db/bakta-light/6.0` (48 files, 3,994,877,552 bytes; MD5 matched; archive
-deleted after extraction).
+A database on a disk that is not connected is shown as *unavailable* and kept as it is (it is not checked, used or
+deleted); it is available again as soon as the disk is back at the same path.
 
-API: `GET /api/v1/databases/catalogue`, `GET /databases/catalogue/{key}/plan`, `POST /databases/downloads`
-(`{key, confirm_bytes, accept_licence}`), `POST /databases/register` (`{path}`), `GET /databases`,
-`GET /databases/usage`, `GET /databases/{id}` (with its log), `POST /databases/{id}/verify`,
-`POST /databases/{id}/cancel`, `DELETE /databases/{id}`.
+### Reference genome collections (species identification by ANI)
+
+A collection of genomes of known species, for FastANI or skani, for any genus. ARVA reads:
+
+- an extracted **NCBI Datasets genome package** (`README.md`, `md5sum.txt`, `ncbi_dataset/data/assembly_data_report.jsonl`,
+  `ncbi_dataset/data/dataset_catalog.json`, one `<accession>/` folder with its `*_genomic.fna`): accession,
+  organism, strain, type material and NCBI's "reference genome" flag of every genome;
+- a **FastANI reference list** (`--rl`, one genome path per line). Paths written as on the Mac are mapped to where
+  ARVA sees them through the launcher's folders; a path outside them is refused (add its folder with
+  `--add-databases`), and missing files are listed. When the genomes lie in an NCBI package, its metadata are used;
+- a **folder of FASTA files** (`.fna`, `.fa`, `.fasta`, `.fas`, also `.gz`; the organism from each first header).
+
+ARVA shows the collection's coverage: genomes, species, genomes per species, type material and reference genomes.
+NCBI's package does not record the download date: you give it (ARVA suggests the date of the zip's entries when the
+zip is next to the package), and the collection's version is its source, that date and a fingerprint of its sorted
+accession list, e.g. `NCBI Datasets 2026-05-27 #3f0c…`. A package **zip** is never registered or changed: ARVA can
+extract a copy into a database folder (it shows the size and free space first, refuses unsafe entries, and compares
+every file with the package's `md5sum.txt`).
+
+Example (a real case, the paths are the user's own): a FastANI list `staph_refseq_type_references.txt` of 183
+RefSeq *Staphylococcus* genomes (82 species, type and reference strains) from an NCBI Datasets package downloaded on
+2026-05-27 and extracted in `/Volumes/JM/BioInf/staph_references/staphylococcus_refseq_type_genomes/` (its zip is
+there too). With `scripts/start.sh --add-databases /Volumes/JM/BioInf/staph_references`, register either the package
+folder or the list (date 2026-05-27); the list's paths written as `/Volumes/JM/BioInf/staph_references/...` are mapped.
+A later part will use the collection for species identification; this one registers, validates, lists and records it.
+
+### Download a version into a folder you choose
+
+Each kind ARVA can download lists its versions (only those the publisher offers as a stable, versioned archive with
+a published checksum): Bakta 6.0 light and full, GTDB-Tk R232, Kraken 2 Standard 2026-06-26, CheckM2 database 3,
+BUSCO bacteria_odb12.2 and geNomad 1.9 (sizes, checksums and sources in
+[databases/README.md](../databases/README.md)). A version the tool ARVA runs cannot read is not offered (today only
+Bakta is run by ARVA, so the others show *compatibility not checked* with the versions their documentation names).
+
+The dialog asks for the destination, one of the database folders ARVA may write to (the one chosen with
+`scripts/start.sh --databases-dir`, which can be on the external disk), and a folder inside it (default
+`<key>/<version>`, e.g. `bakta-light/6.0`); it shows the source, licence and terms, the archive size, the space
+needed (bytes still to download plus the unpacked size, read in the larger unit) and the usable free space
+(`ARVA_MIN_FREE_BYTES` stays free). Nothing starts until you accept the licence and confirm; the API also requires
+the confirmed archive size (`confirm_bytes`) and refuses with 507 when the space is insufficient. The worker
+downloads from the official URL only (redirects to other hosts are refused), can be cancelled, and keeps a partial
+file so the next download resumes it where it was, with an HTTP range request. The MD5 is compared with the
+published one (a mismatch deletes the archive), the archive is unpacked with path checks (no absolute or `..`
+paths, nothing outside the expected top folder, no links leaving it, no special files), the kind's folder check runs
+(Bakta's own for Bakta), the version its files state must be the one offered, ARVA records the SHA-256 of every file
+(and compares the publisher's per-file MD5s), moves the folder into place and deletes the archive.
+
+Bakta's own installer `bakta_db download` was examined (Bakta 1.12.2, `bakta/db.py`) and is not used: it needs
+AMRFinderPlus installed even to download, reads the list of versions from the `main` branch on GitHub, does not
+resume, unpacks with `tarfile.extractall` without a filter, and finally runs `amrfinder_update --force_update`,
+which updates the AMRFinderPlus data to whatever release NCBI offers that day (unpinned). ARVA does not run that
+update: the light 6.0 archive contains `amrfinderplus-db/2024-12-18.1` (database format 4.0.1), the release its
+`version.json` lists. Bakta 1.12.2 needs AMRFinderPlus 4.2.7 or later to use it.
+
+### Default, choice and what jobs record
+
+One database per kind is the default (the first usable one registered or installed becomes it; *Make default*
+changes it; an incompatible one cannot be). The Bakta dialog lists the Bakta databases this Bakta can read, the
+default preselected, with their version, how the version was known, verification level and folder. Every job
+records the database's kind, key, name, version, how the version was known (`file`, `declared` or `checksum`),
+content checksum (when the full checksum was computed) and path; the record stays after the database is deleted.
+
+API: `GET /api/v1/databases/kinds`, `GET /databases/catalogue`, `GET /databases/catalogue/{key}/plan`
+(`?destination=&folder=`), `POST /databases/downloads` (`{key, confirm_bytes, accept_licence, destination?,
+folder?}`), `GET /databases/locations`, `GET /databases/browse?root=&path=`, `GET /databases/detect?path=`,
+`POST /databases/register` (`{path, kind?, declared_version?, collection_date?, full_checksum?}`),
+`GET /databases/extract/plan?path=`, `POST /databases/extract` (`{path, confirm_bytes, collection_date,
+destination?, folder?}`), `GET /databases`, `GET /databases/usage`, `GET /databases/{id}` (with its log),
+`POST /databases/{id}/verify` (`{level: quick|full}`), `POST /databases/{id}/default`, `POST /databases/{id}/cancel`,
+`DELETE /databases/{id}`. Refusals carry a code (`{detail, code, params}`) that the interface shows in your language.
 
 ## Configuration
 

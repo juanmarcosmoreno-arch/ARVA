@@ -211,10 +211,11 @@ def test_a_database_folder_given_as_on_the_mac_is_registered_where_arva_sees_it(
     for name in (*BAKTA_REQUIRED_FILES, "pscc.dmnd"):
         (folder / name).write_text("CONSTRUCTED test file, not a Bakta database file\n")
     r = client.post(f"{API}/databases/register", json={"path": "/Volumes/JM/BioInf/bakta/db"})
-    assert r.status_code == 202, r.text
+    assert r.status_code == 201, r.text
     assert r.json()["path"] == str(folder) and r.json()["host_path"] == "/Volumes/JM/BioInf/bakta/db"
     outside = client.post(f"{API}/databases/register", json={"path": "/Volumes/JM/Elsewhere/db"})
     assert outside.status_code == 400 and "/Volumes/JM/BioInf/bakta" in outside.json()["detail"]
+    assert outside.json()["code"] == "outside_roots"
 
 
 def _record(path: Path, origin=DatabaseOrigin.register, status=DatabaseStatus.registered, **kw) -> str:

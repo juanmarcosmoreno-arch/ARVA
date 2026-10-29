@@ -50,7 +50,12 @@ class AnalysisJob(TimestampMixin, Base):
     # The reference database a job reads (set by databases.record_use): its catalogue key and content checksum are
     # copied here so the record survives the database's deletion.
     database_key: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    database_kind: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    # How the version was known: file (the database's own files), declared (by the user) or checksum.
+    database_version_source: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    # None when the database had only had a quick verification.
     database_checksum: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    database_path: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     reference_database_id: Mapped[str | None] = mapped_column(
         String(36),
         ForeignKey("reference_databases.id", ondelete="SET NULL", name="fk_analysis_jobs_reference_database_id"),

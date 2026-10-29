@@ -206,4 +206,30 @@ describe("Annotation dialog", () => {
     expect(body).toMatchObject({ database_id: "db-1", skip_options: ["--skip-crispr", "--skip-cds", "--skip-pseudo"], complete_confirmed: false, confirmed: true });
     expect(body.settings).toMatchObject({ locus_tag: "ANN1", complete: false, translation_table: 11 });
   });
+
+  it("lets the user choose another Bakta database version and sends that one", async () => {
+    const two: AnnotationPlan = {
+      ...plan,
+      databases: [
+        { ...plan.databases[0], is_default: true, version_source: "file", verification_level: "full", host_path: "/Volumes/JM/BioInf/bakta/db-light" },
+        { id: "db-2", key: "bakta-full", name: "Bakta database (full)", version: "6.0", type: "full", status: "registered", usable: true, is_default: false,
+          version_source: "file", verification_level: "quick", checksum: null, verified_at: null, path: "/databases-external/1/db", host_path: "/Volumes/JM/BioInf/bakta/db" },
+      ],
+    };
+    const preview = vi.spyOn(api, "baktaPreview").mockImplementation(async (_id, body) => ({ ...two, database_id: body.database_id ?? "db-1" }));
+    const run = vi.spyOn(api, "runBakta").mockResolvedValue({ id: "job-bakta" } as AnalysisJob);
+    renderWith(<AnnotationDialog open onOpenChange={() => {}} sampleId="s" assemblies={[draft, polished]} />);
+    const select = await screen.findByRole("combobox", { name: "Database" });
+    expect(within(select).getByRole("option", { name: /Bakta database \(light\) 6\.0 \(light\) · default/ })).toBeInTheDocument();
+    expect(await screen.findByText(/Version 6\.0 \(version read from the database's files\) · full checksum recorded/)).toBeInTheDocument();
+    fireEvent.change(select, { target: { value: "db-2" } });
+    await waitFor(() => expect(preview).toHaveBeenLastCalledWith("racon-0002", { database_id: "db-2", skip_plot: false }));
+    expect(await screen.findByText(/quick check only/)).toBeInTheDocument();
+    expect(screen.getByText("/Volumes/JM/BioInf/bakta/db")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByDisplayValue("ANN1")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("checkbox", { name: /I have read what this run will and will not search/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Annotate" }));
+    await waitFor(() => expect(run).toHaveBeenCalledTimes(1));
+    expect(run.mock.calls[0][1]).toMatchObject({ database_id: "db-2" });
+  });
 });

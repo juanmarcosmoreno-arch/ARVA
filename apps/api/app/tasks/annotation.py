@@ -100,15 +100,19 @@ def _bakta_database(ctx: JobContext) -> tuple[ReferenceDatabase, str]:
     if record is None or record.status not in (DatabaseStatus.installed, DatabaseStatus.registered):
         raise JobFailure(f"The database {job.database_name} {job.database_version} is no longer installed",
                          "database_missing", name=str(job.database_name), version=str(job.database_version))
-    if record.checksum != job.database_checksum:
-        raise JobFailure("The database's content checksum changed since the run was confirmed (it was verified or "
-                         "replaced); start the annotation again", "database_changed", name=str(job.database_name))
+    if (job.database_checksum and record.checksum != job.database_checksum) or record.version != job.database_version \
+            or record.path != (job.database_path or record.path):
+        raise JobFailure("The database's content checksum, version or folder changed since the run was confirmed (it "
+                         "was verified or replaced); start the annotation again", "database_changed",
+                         name=str(job.database_name))
     try:
         info = check_bakta_dir(Path(record.path))
     except DatabaseError as exc:
         raise JobFailure(f"Bakta could not use the database: {exc}") from exc
-    ctx.log(f"Database: {record.name} {record.version} ({info['type']}) at {record.path}, content checksum "
-            f"{record.checksum} (last verified {record.verified_at.isoformat() if record.verified_at else 'never'})")
+    source = record.version_source.value if record.version_source else "unknown"
+    ctx.log(f"Database: {record.name} {record.version} ({info['type']}; version from {source}) at {record.path}, "
+            f"content checksum {record.checksum or 'not computed (quick verification only)'} (last verified "
+            f"{record.verified_at.isoformat() if record.verified_at else 'never'}, {record.verification_level or '?'})")
     return record, info["type"]
 
 

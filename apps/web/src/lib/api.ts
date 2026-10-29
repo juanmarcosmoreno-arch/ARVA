@@ -24,10 +24,15 @@ import type {
   BatchQcRequest,
   AssemblyDetail,
   AssemblyGraph,
+  BrowseListing,
   CatalogueEntry,
   CrossCheck,
+  DatabaseKind,
+  DatabaseLocations,
   DatabaseUsage,
+  DetectResult,
   DownloadPlan,
+  ExtractPlan,
   DashboardSummary,
   FastpData,
   FastpParams,
@@ -217,16 +222,32 @@ export const api = {
 
   tools: (refresh = false) => request<Tool[]>(`/tools${refresh ? "?refresh=true" : ""}`),
   libraries: () => request<Library[]>("/tools/libraries"),
+  databaseKinds: () => request<DatabaseKind[]>("/databases/kinds"),
   databaseCatalogue: () => request<CatalogueEntry[]>("/databases/catalogue"),
   databases: () => request<ReferenceDatabase[]>("/databases"),
   database: (id: string) => request<ReferenceDatabase>(`/databases/${id}`),
   databaseUsage: () => request<DatabaseUsage>("/databases/usage"),
-  databasePlan: (key: string) => request<DownloadPlan>(`/databases/catalogue/${encodeURIComponent(key)}/plan`),
+  databaseLocations: () => request<DatabaseLocations>("/databases/locations"),
+  browseDatabases: (root: string, path: string) => request<BrowseListing>(`/databases/browse?${new URLSearchParams({ root, path })}`),
+  detectDatabase: (path: string) => request<DetectResult>(`/databases/detect?${new URLSearchParams({ path })}`),
+  databasePlan: (key: string, destination?: string | null, folder?: string | null) =>
+    request<DownloadPlan>(
+      `/databases/catalogue/${encodeURIComponent(key)}/plan?${new URLSearchParams({ ...(destination ? { destination } : {}), ...(folder ? { folder } : {}) })}`,
+    ),
+  extractPlan: (path: string, destination?: string | null, folder?: string | null) =>
+    request<ExtractPlan>(`/databases/extract/plan?${new URLSearchParams({ path, ...(destination ? { destination } : {}), ...(folder ? { folder } : {}) })}`),
+  extractDatabase: (body: { path: string; confirm_bytes: number; collection_date: string; destination?: string | null; folder?: string | null }) =>
+    request<ReferenceDatabase>("/databases/extract", json("POST", body)),
+  setDefaultDatabase: (id: string) => request<ReferenceDatabase>(`/databases/${id}/default`, { method: "POST" }),
   /** `confirmBytes` repeats the archive size shown to the user; the licence must have been accepted. */
-  downloadDatabase: (key: string, confirmBytes: number, acceptLicence: boolean) =>
-    request<ReferenceDatabase>("/databases/downloads", json("POST", { key, confirm_bytes: confirmBytes, accept_licence: acceptLicence })),
-  registerDatabase: (path: string) => request<ReferenceDatabase>("/databases/register", json("POST", { path })),
-  verifyDatabase: (id: string) => request<ReferenceDatabase>(`/databases/${id}/verify`, { method: "POST" }),
+  downloadDatabase: (key: string, confirmBytes: number, acceptLicence: boolean, destination?: string | null, folder?: string | null) =>
+    request<ReferenceDatabase>(
+      "/databases/downloads",
+      json("POST", { key, confirm_bytes: confirmBytes, accept_licence: acceptLicence, destination: destination ?? null, folder: folder ?? null }),
+    ),
+  registerDatabase: (body: { path: string; kind?: string | null; declared_version?: string | null; collection_date?: string | null; full_checksum?: boolean }) =>
+    request<ReferenceDatabase>("/databases/register", json("POST", body)),
+  verifyDatabase: (id: string, level: "quick" | "full" = "full") => request<ReferenceDatabase>(`/databases/${id}/verify`, json("POST", { level })),
   cancelDatabaseTask: (id: string) => request<ReferenceDatabase>(`/databases/${id}/cancel`, { method: "POST" }),
   deleteDatabase: (id: string) => request<void>(`/databases/${id}`, { method: "DELETE" }),
   runPod5Summary: (sampleId: string, fileIds: string[]) =>

@@ -315,11 +315,14 @@ function DatabaseSection({ plan, value, onChange }: { plan: AnnotationPlan; valu
           <Select value={value || plan.database_id || ""} onChange={(e) => onChange(e.target.value)} aria-label={t("annotation.database")}>
             {usable.map((d) => (
               <option key={d.id} value={d.id}>
-                {d.name} {d.version ?? ""} ({d.type ?? "?"}) · {d.verified_at ? t("annotation.verified", { date: fmtDate(d.verified_at) }) : t("annotation.notVerified")}
+                {d.name} {d.version ?? ""} ({d.type ?? "?"}){d.is_default ? ` · ${t("annotation.dbDefault")}` : ""} ·{" "}
+                {d.verified_at ? t("annotation.verified", { date: fmtDate(d.verified_at) }) : t("annotation.notVerified")}
               </option>
             ))}
           </Select>
+          <ChosenDatabase option={plan.databases.find((d) => d.id === plan.database_id)} />
           {plan.databases.find((d) => d.id === plan.database_id)?.type === "light" && <p className="text-xs text-muted-foreground">{t("annotation.lightDb")}</p>}
+          {plan.databases.some((d) => d.compatibility?.status === "incompatible") && <p className="text-xs text-muted-foreground">{t("annotation.incompatibleHidden")}</p>}
         </>
       ) : (
         <p className="flex gap-1.5 text-xs text-amber-700 dark:text-warning">
@@ -333,6 +336,19 @@ function DatabaseSection({ plan, value, onChange }: { plan: AnnotationPlan; valu
         </p>
       )}
     </Section>
+  );
+}
+
+function ChosenDatabase({ option }: { option: AnnotationPlan["databases"][number] | undefined }) {
+  const t = useT();
+  if (!option) return null;
+  const source = option.version_source ? t(`annotation.dbVersionSource.${option.version_source}` as "annotation.dbVersionSource.file") : t("annotation.dbVersionSource.unknown");
+  return (
+    <p className="text-xs text-muted-foreground">
+      {t("annotation.dbChosen", { version: option.version ?? "?", source })} ·{" "}
+      {option.verification_level === "full" ? t("annotation.dbFull") : t("annotation.dbQuick")} ·{" "}
+      <code className="break-all">{option.host_path ?? option.path}</code>
+    </p>
   );
 }
 
