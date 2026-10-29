@@ -1,4 +1,6 @@
 import type { ReactNode } from "react";
+import { CopyErrorDetails } from "@/components/diagnostics/CopyErrorDetails";
+import { useT } from "@/i18n";
 import { cn } from "@/lib/utils";
 
 export function Skeleton({ className }: { className?: string }) {
@@ -38,11 +40,22 @@ export function EmptyState({ icon, title, children }: { icon?: ReactNode; title:
   );
 }
 
+/** An error message; an unexpected server error also shows its error log id and a button that copies its details. */
 export function ErrorNote({ error }: { error: unknown }) {
+  const t = useT();
   if (!error) return null;
+  // An ApiError of an unexpected server error carries its error log id (read by shape, so tests can mock lib/api).
+  const id = (error as { errorId?: unknown }).errorId;
+  const errorId = typeof id === "string" ? id : undefined;
   return (
     <div role="alert" className="rounded-lg border border-danger/30 bg-danger/5 px-3 py-2 text-sm text-danger">
       {error instanceof Error ? error.message : String(error)}
+      {errorId && (
+        <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+          <span className="font-mono">{t("error.id", { id: errorId })}</span>
+          <CopyErrorDetails errorId={errorId} />
+        </div>
+      )}
     </div>
   );
 }

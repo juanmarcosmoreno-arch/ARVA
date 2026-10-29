@@ -4,6 +4,9 @@ WORKDIR /web
 COPY apps/web/package.json apps/web/package-lock.json ./
 RUN npm ci --no-audit --no-fund
 COPY apps/web ./
+# The commit the interface is built from, sent with the errors it reports to the API (scripts/start.sh passes it).
+ARG ARVA_GIT_COMMIT=unknown
+ENV VITE_ARVA_COMMIT=$ARVA_GIT_COMMIT
 RUN npm run build
 
 FROM nginx:1.27.2-alpine

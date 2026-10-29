@@ -10,6 +10,7 @@ import {
   QualityVsLengthChart,
   ReadQualityChart,
 } from "@/components/charts/QcCharts";
+import { CopyErrorDetails } from "@/components/diagnostics/CopyErrorDetails";
 import { AnnotationDialog } from "@/components/annotation/AnnotationDialog";
 import { AnnotationTab } from "@/components/annotation/AnnotationTab";
 import { GenomicTab } from "@/components/genomic/GenomicTab";
@@ -752,6 +753,7 @@ function FailedJobs({ jobs }: { jobs: AnalysisJobDetail[] }) {
           <div key={j.id} className="rounded-lg bg-danger/5 px-3 py-2 text-sm">
             <div className="text-xs text-muted-foreground">{fmtDate(j.created_at)}</div>
             <div className="text-danger">{jobError(t, j)}</div>
+            <CopyErrorDetails jobId={j.id} className="mt-1.5" />
           </div>
         ))}
       </CardBody>
@@ -890,6 +892,7 @@ function HistoryTab({ jobs, files, openJob }: { jobs: AnalysisJobDetail[]; files
                     </details>
                   )}
                   {j.error_message && <ErrorNote error={jobError(t, j)} />}
+                  {j.status === "failed" && <CopyErrorDetails jobId={j.id} />}
                   <div>
                     <div className="mb-1 text-xs text-muted-foreground">{t("history.log")}</div>
                     <pre className="max-h-72 overflow-auto rounded-lg bg-arva-navy p-3 text-[11px] leading-relaxed text-slate-200">{j.log_text || t("history.logEmpty")}</pre>
@@ -961,6 +964,7 @@ function FilteringTab({
                         {outs.length > 0 && <> → {outs.map((o) => o.original_filename).join(" + ")}</>}
                       </div>
                       {j.error_message && <div className="text-xs text-danger">{jobError(t, j)}</div>}
+                      {j.status === "failed" && <CopyErrorDetails jobId={j.id} className="mt-1" />}
                     </div>
                     <JobStatusBadge status={j.status} />
                   </li>

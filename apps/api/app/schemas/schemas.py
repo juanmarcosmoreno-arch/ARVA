@@ -2899,3 +2899,57 @@ class NcbiPlanRead(BaseModel):
     available_bytes: int | None = None
     enough: bool | None = None
     target_exists: bool | None = None
+
+
+# --- Error log and diagnostics ----------------------------------------------------------------------------------
+
+_ENTRY_ID = r"^[2-9A-HJ-NP-Z]{4}-[2-9A-HJ-NP-Z]{4}$"
+_CORRELATION = r"^[0-9a-f]{16}$"
+
+
+class ErrorEntryRead(BaseModel):
+    """One error log entry as Settings → Diagnostics lists it (the full entry is in the diagnostic report)."""
+    id: str
+    time: str
+    component: str
+    severity: str
+    code: str
+    message: str
+    params: dict[str, Any] = {}
+    route: str | None = None
+    job_id: str | None = None
+    job_type: str | None = None
+    correlation_id: str | None = None
+
+
+class ClientApiFailure(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    method: Literal["GET", "POST", "PUT", "PATCH", "DELETE"]
+    path: str = Field(max_length=300, description="The request's path; only its shape is kept (ids and names "
+                                                  "replaced), never the query")
+    status: int = Field(ge=0, le=599, description="0: no response (network error)")
+    code: str | None = Field(default=None, max_length=80, pattern=r"^[a-z0-9_.-]+$")
+    error_id: str | None = Field(default=None, pattern=_ENTRY_ID)
+    correlation_id: str | None = Field(default=None, pattern=_CORRELATION)
+
+
+class ClientErrorReport(BaseModel):
+    """An error of the web interface (POST /system/client-errors): bounded, every text redacted before it is kept."""
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["boundary", "window_error", "unhandled_rejection", "api"]
+    message: str = Field(max_length=1000)
+    name: str | None = Field(default=None, max_length=100)
+    stack: str | None = Field(default=None, max_length=8000)
+    component_stack: str | None = Field(default=None, max_length=4000)
+    page: str | None = Field(default=None, max_length=300, description="The interface's route; only its shape is "
+                                                                     "kept")
+    api: ClientApiFailure | None = None
+    client_commit: str | None = Field(default=None, pattern=r"^([0-9a-f]{7,40}|unknown)$")
+    user_agent: str | None = Field(default=None, max_length=300)
+
+
+class ClientErrorLogged(BaseModel):
+    id: str
+    duplicate: bool = False

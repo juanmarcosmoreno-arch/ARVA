@@ -58,6 +58,10 @@ class Settings(BaseSettings):
     tool_memory_gb: int | None = Field(default=None, ge=1)
     tool_timeout_seconds: int = 12 * 3600
 
+    # At API start-up, look in the background for tools that are installed but unusable, databases whose folder is
+    # missing and pending migrations, and keep what is found in the error log (app.services.startup).
+    startup_checks: bool = True
+
     # NCBI Datasets v2 API, for building reference genome collections (public metadata and genomes only; ARVA sends
     # no API key, e-mail or other personal data). Tests point it at a local server.
     ncbi_datasets_url: str = "https://api.ncbi.nlm.nih.gov/datasets/v2"

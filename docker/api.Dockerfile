@@ -115,6 +115,11 @@ RUN pip install ./scientific-core ./workflows/tool-adapters "./apps/api[pod5]"
 COPY docker/api-entrypoint.sh /usr/local/bin/arva-api
 RUN chmod 755 /usr/local/bin/arva-api
 
+# The git commit the image is built from, in every error log entry and diagnostic report (scripts/start.sh passes
+# it; "unknown" otherwise). Last, so that a new commit rebuilds only this layer.
+ARG ARVA_GIT_COMMIT=unknown
+ENV ARVA_GIT_COMMIT=$ARVA_GIT_COMMIT
+
 USER arva
 WORKDIR /opt/arva/apps/api
 EXPOSE 8000

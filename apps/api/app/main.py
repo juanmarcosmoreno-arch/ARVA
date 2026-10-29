@@ -1,5 +1,5 @@
 import json
-import logging
+import threading
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request, status
@@ -7,16 +7,19 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from starlette.concurrency import run_in_threadpool
 
 from app import __version__
 from app.api.capacity import UploadCapacityGuard, insufficient_storage_response
 from app.api.metadata_limit import MetadataUploadLimit
+from app.api.request_context import HEADER, RequestContext, route_of
 from app.api.routes import (
     analyses,
     annotations,
     assemblies,
     dashboard,
     databases,
+    diagnostics,
     explorer,
     files,
     imports,
@@ -31,8 +34,9 @@ from app.api.routes import (
     tools,
 )
 from app.api.storage_guard import StorageGuard, storage_unavailable_response
+from app.core import errorlog
 from app.core.config import get_settings
-from app.services import locations
+from app.services import locations, startup
 from app.services.capacity import InsufficientStorageError
 from app.services.import_roots import ImportPathError
 from app.storage.local import StoragePathError
@@ -48,7 +52,9 @@ class _EscapingJSONResponse(JSONResponse):
             return json.dumps(content, allow_nan=False, separators=(",", ":")).encode("ascii")
 
 
-logger = logging.getLogger("arva")
+# The English text of the 500 response; the interface has it as api.error.internal_error.
+INTERNAL_ERROR = ("ARVA hit an unexpected error (error ID {error_id}). Copy the error details to report it: they "
+                  "say what happened without any of your data (Settings → Diagnostics).")
 
 
 @asynccontextmanager
@@ -58,7 +64,10 @@ async def lifespan(_: FastAPI):
     try:
         locations.ensure_data()
     except locations.StorageUnavailable as exc:
-        logger.warning("%s", exc)
+        errorlog.record("api", "warning", exc.code, str(exc), params=exc.params)
+    errorlog.info("startup", "API started", **startup.summary())
+    if get_settings().startup_checks:
+        threading.Thread(target=startup.check, name="arva-startup-checks", daemon=True).start()
     yield
 
 
@@ -81,8 +90,23 @@ def create_app() -> FastAPI:
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
-        expose_headers=["Content-Disposition"],
+        expose_headers=["Content-Disposition", HEADER],
     )
+    app.add_middleware(RequestContext)
+
+    @app.exception_handler(Exception)
+    async def unexpected_error(request: Request, exc: Exception):
+        """Any error no other handler names: kept in the error log with the request's route (never its values),
+        and the entry's id returned so that the interface can show it."""
+        cid = request.scope.get("state", {}).get("correlation_id")
+        route = route_of(request.scope)
+        error_id = await run_in_threadpool(
+            errorlog.record, "api", "error", "internal_error", params={"method": request.method, "route": route},
+            exc=exc, request={"method": request.method, "route": route, "status": 500}, correlation_id=cid)
+        return JSONResponse(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                            content={"detail": INTERNAL_ERROR.format(error_id=error_id), "code": "internal_error",
+                                     "params": {"error_id": error_id}, "error_id": error_id},
+                            headers={HEADER: cid} if cid else None)
 
     @app.exception_handler(StoragePathError)
     @app.exception_handler(ImportPathError)
@@ -112,7 +136,7 @@ def create_app() -> FastAPI:
                 "storage": storage}
 
     for module in (dashboard, projects, samples, files, imports, metadata, analyses, tools, reports, overview,
-                   assemblies, annotations, explorer, databases, mlst, species, system):
+                   assemblies, annotations, explorer, databases, mlst, species, system, diagnostics):
         app.include_router(module.router, prefix=settings.api_v1_prefix)
     return app
 

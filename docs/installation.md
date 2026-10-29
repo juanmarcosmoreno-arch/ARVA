@@ -893,6 +893,38 @@ destination?, folder?}`), `GET /databases`, `GET /databases/usage`, `GET /databa
 `POST /databases/{id}/verify` (`{level: quick|full}`), `POST /databases/{id}/default`, `POST /databases/{id}/cancel`,
 `DELETE /databases/{id}`. Refusals carry a code (`{detail, code, params}`) that the interface shows in your language.
 
+## Reporting a problem
+
+When something fails, ARVA can describe it for whoever is helping you, without sending anything anywhere:
+
+- **Settings → Diagnostics** lists the recent errors (each with a short ID such as `K7Q2-M9XD`) and has **Copy
+  diagnostic report** (Markdown, ready to paste into a chat) and **Download** (a zip with the same report as Markdown
+  and JSON). A failed job (analysis history, assembly, annotation and genomic analysis panels) and the error screen
+  have **Copy error details**, which copies the report for that job or error only. An unexpected server error shows
+  its ID in the message and in a notice in the corner.
+- The report holds ARVA's version and commit, the computer (Mac model, chip, cores, memory, macOS, what Docker Desktop
+  gives ARVA), the performance profile, ARVA's folders and whether they are there, the services (database, task queue,
+  workers), tools, databases (kind, version, status), the migration state, the recent errors with ARVA's part of each
+  traceback and the tool's last output lines, and for a job its type, parameters, resources, timings, error and the end
+  of its log. It never holds sequences, reads, file contents, database contents, passwords, tokens, environment
+  variables, e-mail addresses or the Mac's serial number; the home folder is shown as `~`. *Anonymise names* replaces
+  project, sample and file names by `project-1`, `sample-3`, `file-2` (the same name gets the same placeholder in every
+  report); the logs can be left out and the time window chosen. API: `GET /api/v1/system/diagnostics?format=markdown|json|zip`
+  with `anonymise`, `include_logs`, `errors` (0–200), `since_hours`, `job_id` and `error_id`.
+- **When the interface does not open or Docker does not start**: `scripts/diagnostics.sh` prints the same kind of
+  report from the Mac's terminal (ARVA's version, the saved locations with their disks, Docker and Compose versions,
+  `docker compose ps`, the health check, the last error log entries and the last lines of each container's log, all
+  redacted the same way); `scripts/diagnostics.sh --output report.md` also writes it to a file, `--lines N` sets the
+  log lines per container (default 60).
+
+The logs themselves are in the data folder: `logs/errors.jsonl` (one JSON object per problem: API errors and coded
+refusals, job failures and cancellations, worker crashes, start-up problems, errors of the web interface) and
+`logs/app.jsonl` (start-up, configuration summary, job start and end with durations). Each rotates at 2 MiB
+(`app.jsonl` at 1 MiB) and keeps 4 (2) older files, so they never take more than 13 MiB. While the data folder's disk
+is not connected (or another disk is in its place), nothing is written there: entries go only to the container's log
+(`docker compose logs api`), which `scripts/diagnostics.sh` shows. The commit is recorded when the images are built by
+`scripts/start.sh --build` (`unknown` otherwise).
+
 ## Configuration
 
 Environment variables (prefix `ARVA_`), also read from `apps/api/.env`:
@@ -920,6 +952,8 @@ Environment variables (prefix `ARVA_`), also read from `apps/api/.env`:
 | `ARVA_TOOL_MEMORY_GB` | — (no cap) | Administrator cap on the memory (GB) a tool run may be given (SPAdes' `-m`, also inside Unicycler; Pilon's Java heap; samtools sort) |
 | `ARVA_HOST_*` | — | Facts about the computer, set by `scripts/start.sh` on a Mac (`PLATFORM`, `MODEL_NAME`, `MODEL_ID`, `CHIP`, `PERF_CORES`, `EFF_CORES`, `PHYSICAL_CORES`, `LOGICAL_CPUS`, `MEMORY_BYTES`, `OS_VERSION`, `ARCH`, `DOCKER_CPUS`, `DOCKER_MEMORY_BYTES`), and the host folders it mounted with their filesystems (`DATA_DIR`, `DATA_FS`, `DATABASES_DIR`, `DATABASES_FS`, `IMPORT_DIR`, `IMPORT_FS`, `EXTERNAL_DB_<n>`, `EXTERNAL_DB_<n>_FS`); validated and bounded, unknown when empty, only displayed |
 | `ARVA_TOOL_TIMEOUT_SECONDS` | 43200 | A tool run is stopped after this time |
+| `ARVA_STARTUP_CHECKS` | `true` | At API start-up, look for pending migrations, unusable tools and databases whose folder is missing, and keep what is found in the [error log](#reporting-a-problem) |
+| `ARVA_GIT_COMMIT` | — | The commit recorded in error log entries and reports; set in the images at build time (`scripts/start.sh` passes it); a checkout's own commit when run from one |
 
 ## Running tests
 
@@ -936,6 +970,7 @@ The API test suite **drops and recreates** the schema of the test database — n
 
 | Symptom | Cause / fix |
 |---|---|
+| Something failed and you need help | Settings → Diagnostics → **Copy diagnostic report**, or **Copy error details** on the failed job; if the interface does not open, `scripts/diagnostics.sh` ([Reporting a problem](#reporting-a-problem)) |
 | Jobs stay *Queued* | The worker is not running or cannot reach Redis — start `apps/workers/run_worker.py` |
 | A job stays *Cancelling…* | The worker stops the tool at its next check (about 5 s); if the worker is not running, start it. A job whose worker died is ended when cancelled, once the task queue reports it is no longer executing |
 | A job stays *Running* after the worker was restarted | Its worker died with it: cancel the job. ARVA ends it at once when the task queue reports it is no longer executing; RQ marks such a task failed at a worker's registry clean-up (when a worker starts, then every 10 minutes) once the dead worker's heartbeat has expired (about 90 s) |

@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, ChevronDown, Download, ExternalLink, FileBarChart, Loader2, Play } from "lucide-react";
 import { useState } from "react";
 import { Link } from "react-router-dom";
+import { CopyErrorDetails } from "@/components/diagnostics/CopyErrorDetails";
 import { JobResources } from "@/components/domain/JobResources";
 import { JobStatusBadge } from "@/components/domain/bits";
 import { Explain } from "@/components/guide/Explain";
@@ -303,6 +304,7 @@ function ReportItem({ job, expanded = false }: { job: AnalysisJob; expanded?: bo
         </div>
       )}
       {job.status === "failed" && job.error_message && <ErrorNote error={t("multiqc.failed", { error: jobError(t, job) })} />}
+      {job.status === "failed" && <CopyErrorDetails jobId={job.id} />}
       {expanded && summary && (
         <>
           {versions && <p className="text-xs text-muted-foreground">{t("multiqc.versions", { versions })}</p>}

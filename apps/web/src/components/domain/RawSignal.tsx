@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, Download, ExternalLink, Info, Loader2, Play, ShieldCheck } from "lucide-react";
 import { useId, type ReactNode } from "react";
+import { CopyErrorDetails } from "@/components/diagnostics/CopyErrorDetails";
 import { MetricTile } from "@/components/domain/bits";
 import { Explain } from "@/components/guide/Explain";
 import { Badge } from "@/components/ui/badge";
@@ -108,6 +109,7 @@ function RawSignalCard({
           <>
             {summary && done && <RunMetadata t={t} summary={summary} job={done} />}
             {latest?.status === "failed" && <ErrorNote error={jobError(t, latest)} />}
+            {latest?.status === "failed" && <CopyErrorDetails jobId={latest.id} />}
             <div className="space-y-2">
               <p id={hintId} className="text-xs text-muted-foreground">
                 {checking

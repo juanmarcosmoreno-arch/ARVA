@@ -128,6 +128,15 @@ ARVA_E2E=1 scripts/test-all.sh    # also the browser golden path (stack must be 
 - [Roadmap & current limitations](docs/roadmap.md)
 - API reference: interactive OpenAPI at `/docs` on the running API
 
+## Reporting a problem
+
+Settings → Diagnostics → **Copy diagnostic report** copies a Markdown report to paste into a chat: ARVA's version,
+the computer, the performance profile, storage, tools, databases and the recent errors (each with a short ID). A failed
+job and the error screen have **Copy error details** for that job or error alone. When the interface does not open,
+`scripts/diagnostics.sh` prints a similar report from the terminal. The reports never contain sequences, reads, file
+contents, passwords or e-mail addresses (the home folder is shown as `~`; names can be anonymised), and nothing is sent
+anywhere. Details: [installation guide](docs/installation.md#reporting-a-problem).
+
 ## Privacy
 
 ARVA runs entirely locally. Sequence data are never sent to external services.

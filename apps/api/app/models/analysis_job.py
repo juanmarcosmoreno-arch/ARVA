@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 from sqlalchemy import JSON, DateTime, Enum, Float, ForeignKey, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from app.core.errorlog import current_correlation
 from app.db.base import Base, TimestampMixin, new_uuid
 
 if TYPE_CHECKING:
@@ -97,6 +98,9 @@ class AnalysisJob(TimestampMixin, Base):
     parent_job_id: Mapped[str | None] = mapped_column(
         String(36), ForeignKey("analysis_jobs.id", ondelete="SET NULL"), nullable=True
     )
+    # The API request that created the job (or the job that launched it), so that error log entries of the request,
+    # the job and the worker can be linked (app.core.errorlog).
+    correlation_id: Mapped[str | None] = mapped_column(String(32), nullable=True, default=current_correlation)
 
     sample: Mapped["Sample | None"] = relationship("Sample", back_populates="analysis_jobs")
     qc_results: Mapped[list["QCResult"]] = relationship(

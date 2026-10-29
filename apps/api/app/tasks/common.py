@@ -29,6 +29,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
+from app.core import errorlog
 from app.db.session import SessionLocal
 from app.models import AnalysisJob, JobStatus, RawFile
 from app.storage import LocalStorage, get_storage
@@ -162,12 +163,33 @@ def _detail(exc: BaseException) -> dict | None:
     return {"code": code, "params": getattr(exc, "params", {})} if code else None
 
 
+def job_ref(job: AnalysisJob) -> dict:
+    """What an error log entry says about a job (ids, never names)."""
+    return {"id": job.id, "type": job.job_type, "status": job.status.value, "project_id": job.project_id,
+            "sample_id": job.sample_id, "parent_job_id": job.parent_job_id}
+
+
+def _log_end(job: AnalysisJob, exc: BaseException) -> None:
+    """A failed or cancelled job in the error log: its coded reason, the exception (where ARVA's code raised it)
+    and the end of the tool's own output."""
+    cancelled = isinstance(exc, JobCancelled)
+    detail = job.error_detail or {}
+    code = detail.get("code") or ("job_cancelled" if cancelled else "job_failed")
+    errorlog.record("job", "info" if cancelled else "error", code,
+                    cancellation_note(job) if cancelled else job.error_message,
+                    params={"job_type": job.job_type, **(detail.get("params") or {})},
+                    exc=None if cancelled else exc, job=job_ref(job),
+                    tool={"name": job.tool_name, "version": job.tool_version},
+                    stderr_tail=getattr(exc, "stderr_tail", None) or None)
+
+
 def run_job(
     job_id: str,
     body: Callable[[JobContext], None],
     on_failure: Callable[[JobContext, BaseException], None] | None = None,
 ) -> str:
     db = SessionLocal()
+    token = None
     try:
         # Locked so that a cancellation of the queued job and its start cannot interleave.
         job = db.get(AnalysisJob, job_id, with_for_update=True)
@@ -176,6 +198,9 @@ def run_job(
         if job.status is not JobStatus.pending:
             db.rollback()
             return job.status.value
+        # Jobs this one launches, and the log entries of its run, carry the correlation id of its request.
+        job.correlation_id = job.correlation_id or errorlog.new_correlation_id()
+        token = errorlog.correlation.set(job.correlation_id)
         storage = get_storage()
         log = JobLog(db, job)
         ctx = JobContext(db, job, storage, log)
@@ -185,6 +210,8 @@ def run_job(
         log(f"Tool: {job.tool_name} {job.tool_version}" + (f" ({job.tool_path})" if job.tool_path else ""))
         log(f"Environment: Python {platform.python_version()}, {platform.system()} {platform.machine()}")
         log(f"Parameters: {json.dumps(job.parameters, sort_keys=True)}", flush=True)
+        errorlog.info("job_started", f"{job.job_type} job started", component="job", job=job_ref(job),
+                      tool={"name": job.tool_name, "version": job.tool_version})
 
         storage_ok = True
         try:
@@ -241,6 +268,7 @@ def run_job(
             if on_failure is not None:
                 on_failure(ctx, exc)
             job.status = JobStatus.cancelled if isinstance(exc, JobCancelled) else JobStatus.failed
+            _log_end(job, exc)
             if not isinstance(exc, Exception):
                 raise
 
@@ -248,6 +276,8 @@ def run_job(
         job.duration_seconds = round(time.monotonic() - started, 3)
         log(f"Finished with status '{job.status.value}' in {job.duration_seconds:.2f}s")
         log.flush()
+        errorlog.info("job_finished", f"{job.job_type} job finished with status {job.status.value}", component="job",
+                      job=job_ref(job), duration_seconds=job.duration_seconds)
         if storage_ok:
             try:
                 storage.write_text(f"logs/{job.id}.log", job.log_text or "")
@@ -258,4 +288,6 @@ def run_job(
                 hook()
         return job.status.value
     finally:
+        if token is not None:
+            errorlog.correlation.reset(token)
         db.close()

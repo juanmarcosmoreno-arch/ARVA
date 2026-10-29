@@ -3,6 +3,7 @@ import { ShieldCheck } from "lucide-react";
 import { Card, CardBody, CardHeader } from "@/components/ui/card";
 import { Field, Select } from "@/components/ui/form";
 import { PageHeader } from "@/components/ui/misc";
+import { DiagnosticsSection } from "@/components/settings/DiagnosticsSection";
 import { PerformanceSection } from "@/components/settings/PerformanceSection";
 import { StorageSection } from "@/components/settings/StorageSection";
 import { useT } from "@/i18n";
@@ -86,6 +87,7 @@ export function SettingsPage() {
         </Card>
         <StorageSection />
         <PerformanceSection />
+        <DiagnosticsSection />
       </div>
     </div>
   );

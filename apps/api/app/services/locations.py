@@ -252,6 +252,14 @@ def _read_marker(root: Path) -> str | None:
     return data["id"]
 
 
+def marker_present(root: Path | None = None) -> bool:
+    """The data folder holds a readable storage marker (what can be known without the metadata)."""
+    try:
+        return _read_marker(root or get_settings().storage_root) is not None
+    except (OSError, _InvalidMarker):
+        return False
+
+
 def _write_marker(root: Path) -> str:
     """The marker of a data folder used for the first time (never replaced: an existing one is read instead)."""
     marker_id = str(uuid.uuid4())

@@ -2,6 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, CheckCircle2, Download, ExternalLink, Info, Loader2, Play, XCircle } from "lucide-react";
 import { useState } from "react";
 import { Link } from "react-router-dom";
+import { CopyErrorDetails } from "@/components/diagnostics/CopyErrorDetails";
 import { Explain } from "@/components/guide/Explain";
 import { useTool } from "@/components/tools/useTools";
 import { Button } from "@/components/ui/button";
@@ -53,6 +54,7 @@ export function NanoplotCard({
       <CardHeader title={t("nanoplot.title")} description={t("nanoplot.subtitle")} action={<Explain id="nanoplot" />} />
       <CardBody className="space-y-5 pt-3">
         {newest?.status === "failed" && <ErrorNote error={t("nanoplot.failed", { error: jobError(t, newest) || "?" })} />}
+        {newest?.status === "failed" && <CopyErrorDetails jobId={newest.id} />}
         {done && summary ? (
           <Result job={done} summary={summary} arva={arva} />
         ) : (

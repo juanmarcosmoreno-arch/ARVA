@@ -17,6 +17,8 @@ os.environ["ARVA_STORAGE_ROOT"] = _STORAGE
 os.environ["ARVA_TASK_QUEUE_ASYNC"] = "false"
 # An administrator cap, so tool runs get 4 threads whatever the profile (tests of the profiles lift it).
 os.environ["ARVA_TOOL_THREADS"] = "4"
+# The start-up checks run tool detection in a thread at every TestClient start; tests call them directly.
+os.environ["ARVA_STARTUP_CHECKS"] = "false"
 
 import pytest  # noqa: E402
 from alembic import command  # noqa: E402

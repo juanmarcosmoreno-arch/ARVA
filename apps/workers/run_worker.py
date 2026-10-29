@@ -15,6 +15,7 @@ from redis import Redis
 from rq import Queue, SimpleWorker, Worker
 
 from app.core.config import get_settings
+from app.tasks import worker_events
 
 
 def main() -> None:
@@ -24,7 +25,14 @@ def main() -> None:
     # Forking after Objective-C runtime initialisation is unsafe on macOS, so
     # jobs run in the worker process itself there; Linux forks one process per job.
     worker_cls = SimpleWorker if platform.system() == "Darwin" else Worker
-    worker_cls([queue], connection=connection).work(with_scheduler=False)
+    worker = worker_cls([queue], connection=connection, exception_handlers=[worker_events.on_exception],
+                        work_horse_killed_handler=worker_events.on_work_horse_killed)
+    worker_events.started(queue.name, worker_cls.__name__)
+    try:
+        worker.work(with_scheduler=False)
+    except Exception as exc:
+        worker_events.stopped(exc)
+        raise
 
 
 if __name__ == "__main__":

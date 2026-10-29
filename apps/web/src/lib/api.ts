@@ -1,4 +1,5 @@
 import { translator } from "@/i18n";
+import { reportApiFailure } from "@/lib/errorReporting";
 import { messageText } from "@/lib/messages";
 import { useSettings } from "@/store/settings";
 import type {
@@ -92,8 +93,16 @@ import type {
 
 const BASE = "/api/v1";
 
+/** A failed API call. `errorId` is the error log entry of an unexpected server error (shown so it can be reported),
+ * `code` the refusal's code, `correlationId` the request's (X-ARVA-Correlation-Id). */
 export class ApiError extends Error {
-  constructor(public status: number, message: string) {
+  constructor(
+    public status: number,
+    message: string,
+    public errorId?: string,
+    public code?: string,
+    public correlationId?: string,
+  ) {
     super(message);
   }
 }
@@ -107,32 +116,58 @@ export function codedError(body: unknown): string | null {
   return messageText(translator(useSettings.getState().language), "api.error", { code: b.code, params, text: b.detail });
 }
 
-async function errorMessage(res: Response): Promise<string> {
-  try {
-    const body = await res.json();
-    const coded = codedError(body);
-    if (coded) return coded;
-    if (typeof body.detail === "string") return body.detail;
-    if (typeof body.detail?.message === "string") return body.detail.message;
-    if (Array.isArray(body.detail)) {
-      return body.detail.map((d: { loc?: string[]; msg: string }) => `${d.loc?.slice(-1)[0] ?? ""}: ${d.msg}`).join("; ");
-    }
-  } catch {
-    /* non-JSON error body */
+function bodyMessage(res: Response, body: unknown): string {
+  const b = body as { detail?: unknown } | null;
+  const coded = codedError(body);
+  if (coded) return coded;
+  if (typeof b?.detail === "string") return b.detail;
+  const detail = b?.detail as { message?: unknown } | unknown[] | undefined;
+  if (Array.isArray(detail)) {
+    return detail.map((d) => `${(d as { loc?: string[] }).loc?.slice(-1)[0] ?? ""}: ${(d as { msg: string }).msg}`).join("; ");
   }
+  if (detail && typeof (detail as { message?: unknown }).message === "string") return (detail as { message: string }).message;
   return `${res.status} ${res.statusText}`;
 }
 
+/** The ApiError of a failed response. A server error the API did not record itself (no error id: a proxy's 502, an
+ * API that is down) is reported to the error log from here. */
+export async function apiError(res: Response, method = "GET"): Promise<ApiError> {
+  let body: unknown = null;
+  try {
+    body = await res.json();
+  } catch {
+    /* non-JSON error body */
+  }
+  const b = (body ?? {}) as { error_id?: unknown; code?: unknown };
+  const errorId = typeof b.error_id === "string" ? b.error_id : undefined;
+  const code = typeof b.code === "string" ? b.code : undefined;
+  const correlationId = res.headers.get("X-ARVA-Correlation-Id") ?? undefined;
+  const err = new ApiError(res.status, bodyMessage(res, body), errorId, code, correlationId);
+  if (res.status >= 500 && !errorId) {
+    reportApiFailure(method, new URL(res.url || BASE, window.location.href).pathname, res.status, err.message, code, correlationId);
+  }
+  return err;
+}
+
+async function send(path: string, init?: RequestInit): Promise<Response> {
+  try {
+    return await fetch(BASE + path, init);
+  } catch (err) {
+    reportApiFailure(init?.method ?? "GET", BASE + path, 0, err instanceof Error ? err.message : String(err));
+    throw err;
+  }
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(BASE + path, init);
-  if (!res.ok) throw new ApiError(res.status, await errorMessage(res));
+  const res = await send(path, init);
+  if (!res.ok) throw await apiError(res, init?.method);
   if (res.status === 204) return undefined as T;
   return res.json() as Promise<T>;
 }
 
 async function requestText(path: string): Promise<{ text: string; source: string | null }> {
-  const res = await fetch(BASE + path);
-  if (!res.ok) throw new ApiError(res.status, await errorMessage(res));
+  const res = await send(path);
+  if (!res.ok) throw await apiError(res);
   return { text: await res.text(), source: res.headers.get("X-ARVA-Log-Source") };
 }
 
@@ -385,7 +420,7 @@ export const api = {
   exportAnnotationFeatures: async (id: string, format: AnnotationExportFormat, selection: number[] | AnnotationRegion) => {
     const body = Array.isArray(selection) ? { format, feature_ids: selection } : { format, region: selection };
     const res = await fetch(`${BASE}/annotations/${id}/export`, json("POST", body));
-    if (!res.ok) throw new ApiError(res.status, await errorMessage(res));
+    if (!res.ok) throw await apiError(res, "POST");
     const name = /filename="([^"]+)"/.exec(res.headers.get("Content-Disposition") ?? "")?.[1] ?? `annotation_${format}.txt`;
     return { blob: await res.blob(), name };
   },

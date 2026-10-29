@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowRight, CheckCircle2, ChevronRight, File as FileIcon, Folder, HardDriveDownload, Info, Loader2, XCircle } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
+import { CopyErrorDetails } from "@/components/diagnostics/CopyErrorDetails";
 import { JobStatusBadge } from "@/components/domain/bits";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -261,6 +262,7 @@ function ImportJobResult({ job, running }: { job: AnalysisJob; running: boolean 
       </div>
       {running && <p className="text-xs text-muted-foreground">{t("serverImport.running")}</p>}
       {job.status === "failed" && !summary?.rejected.length && <ErrorNote error={jobError(t, job)} />}
+      {job.status === "failed" && <CopyErrorDetails jobId={job.id} />}
       {summary && summary.imported.length > 0 && (
         <div>
           <div className="mb-1 text-xs font-medium text-muted-foreground">{t("serverImport.imported", { count: summary.imported.length })}</div>

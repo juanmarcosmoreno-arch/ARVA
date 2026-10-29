@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { CheckCircle2, Circle, Loader2, Pause, Play, XCircle } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { CopyErrorDetails } from "@/components/diagnostics/CopyErrorDetails";
 import { CancelJobButton, CancellingNote, FlyeRecovery } from "@/components/domain/JobControls";
 import { Button } from "@/components/ui/button";
 import { Card, CardBody, CardHeader } from "@/components/ui/card";
@@ -216,6 +217,7 @@ export function FailedCard({ job, resumedBy }: { job: AnalysisJobDetail; resumed
       <CardHeader title={t(cancelled ? k.cancelled : k.failed, { tool: `${job.tool_name} ${job.tool_version}` })} description={fmtDate(job.finished_at ?? job.created_at)} />
       <CardBody className="space-y-2 pt-3">
         {!cancelled && <ErrorNote error={jobError(t, job)} />}
+        {!cancelled && <CopyErrorDetails jobId={job.id} />}
         {stage && <p className="text-xs text-muted-foreground">{t(cancelled ? "assembly.cancelledAt" : k.failedAt, { stage: stageName(t, stage) })}</p>}
         <StageList job={job} />
         <p className="text-xs text-muted-foreground">{t(cancelled ? "assembly.cancelledNote" : k.failedNote)}</p>

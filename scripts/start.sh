@@ -266,7 +266,30 @@ if [ "$arva_os" = Darwin ]; then
       "  Docker Desktop da a su máquina virtual ${docker_cpus:-?} CPU y $(gb "$docker_memory")"
 fi
 
-arva_compose up -d "$@"
+# The commit the images are built from (docker/api.Dockerfile and web.Dockerfile record it for the error log).
+arva_commit=$(git -C "$ROOT" rev-parse --short=12 HEAD 2>/dev/null || true)
+case "$arva_commit" in '' | *[!0-9a-f]*) arva_commit=unknown ;; esac
+export ARVA_GIT_COMMIT="$arva_commit"
+
+# A launcher failure in the data folder's error log (app/core/errorlog.py's format), only when that folder is there
+# and already ARVA's (storage marker and logs folder present): never into a folder that may be on another disk.
+log_launcher() {
+  logs=$cfg_data/logs
+  if [ -z "$cfg_data" ] || [ ! -f "$cfg_data/.arva-storage" ] || [ ! -d "$logs" ] || [ ! -w "$logs" ]; then return 0; fi
+  id=$(od -An -N8 -tu1 /dev/urandom 2>/dev/null | awk -v a=23456789ABCDEFGHJKLMNPQRSTUVWXYZ '
+    { for (i = 1; i <= NF; i++) s = s substr(a, $i % 32 + 1, 1) } END { print substr(s, 1, 4) "-" substr(s, 5, 4) }')
+  version=$(sed -n 's/^__version__ = "\([0-9a-z.]*\)".*/\1/p' "$ROOT/apps/api/app/__init__.py" 2>/dev/null || true)
+  printf '{"id":"%s","time":"%s","version":"%s","commit":"%s","component":"launcher","severity":"error","code":"%s","message":"%s","params":{"status":%d}}\n' \
+    "$id" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${version:-unknown}" "$arva_commit" "$1" "$2" "$3" >> "$logs/errors.jsonl" 2>/dev/null || true
+}
+
+arva_compose up -d "$@" || {
+  status=$?
+  log_launcher launcher_compose_failed "docker compose up failed (exit status $status)" "$status"
+  say "Docker Compose could not start ARVA (exit status $status). scripts/diagnostics.sh prints a report to pass on." \
+      "Docker Compose no pudo iniciar ARVA (estado de salida $status). scripts/diagnostics.sh imprime un informe para compartir."
+  exit "$status"
+}
 
 if ! arva_compose exec -T api python -m app.services.performance --lang "$lang"; then
   say "ARVA is running; its performance profile is in Settings → Performance." \

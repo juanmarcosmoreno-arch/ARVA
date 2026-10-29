@@ -420,9 +420,54 @@ them), and the UI opens the report in a new tab with `rel="noopener noreferrer"`
 - **Auth**: projects already form the unit of access control; roles (Administrator, Researcher,
   Viewer) will attach there.
 
+## Error log and diagnostic report
+
+`app/core/errorlog.py` keeps one JSON line per problem in `<data folder>/logs/errors.jsonl`: a short id shown to the
+user (`K7Q2-M9XD`), UTC time, ARVA version and commit (`ARVA_GIT_COMMIT`, baked into the images), component (`api`,
+`worker`, `job`, `web`, `launcher`), severity, code and English message (the interface translates
+`diagnostics.code.<code>`, `job.error.<code>` and `api.error.<code>`), the exception with ARVA's own frames
+(`app/`, `arva_tools/`, `arva_core/`, `workers/`) and library frames summarised, the request's method and route
+template (never path values, query or body), the job and tool, the tool's last 60 stderr lines, and a correlation id.
+`app.jsonl` holds start-up, the configuration summary and job start/end with durations. Sources:
+
+- every request gets a correlation id (`RequestContext`, header `X-ARVA-Correlation-Id`); `AnalysisJob.correlation_id`
+  defaults to it, `run_job` runs the job under it, so a request, its jobs and their follow-up jobs share one id;
+- an unhandled exception gives a 500 `{detail, code: "internal_error", params: {error_id}, error_id}`; coded 4xx/503/507
+  refusals are kept at info level, at most once per code and route in five minutes and 30 a minute;
+- `run_job` (and the database tasks) record failures with their code and cancellations; `app/tasks/worker_events.py`
+  records RQ exceptions, a killed work horse (signal, peak memory) and the worker stopping;
+- `app/services/startup.py`: the API container's migration step (`python -m app.services.startup migrate`), and at
+  API start-up the storage marker, pending migrations, unusable tools and databases whose folder is missing;
+- the web interface posts its errors (router error element and error boundary, `window.onerror`,
+  `unhandledrejection`, server errors the API did not record) to `POST /system/client-errors`: at most 16 KB, a
+  closed set of bounded fields, 20 a minute, the same error kept once in ten minutes;
+- `scripts/start.sh` appends a `launcher` entry when `docker compose up` fails, only into a data folder that already
+  has its storage marker and logs folder.
+
+Writes are appended under an `flock` shared by the API and worker processes; a file is rotated when an entry would
+take it over its size, and the number of rotated files is fixed, so the total is capped. Logs are written only while
+`locations.inspect` says the data folder is writable (checked at most every 10 s; without the database, the marker file
+alone decides); otherwise an entry goes to stderr only. The API also keeps its last 200 entries in memory, so a report
+lists them while the disk is away.
+
+`app/core/redaction.py` runs over every text kept or reported: home folders become `~`, URL credentials and
+secret-looking assignments `***`, tokens, e-mail addresses, serial numbers and hardware UUIDs are replaced, nucleotide
+and protein runs and unbroken tokens of 80 or more characters become their length; values under secret-looking keys
+are blanked. Database errors keep only the driver's first line (no SQL or parameters), validation errors lose their
+`input_value`. `app/services/diagnostics.py` builds `GET /system/diagnostics` on request from these entries, host
+detection (`performance.detection`), the performance profile, `locations.overview`, the services, tool detection,
+database records, the Alembic state and, for a job, its record and log tail; each section that fails says so instead
+of failing the report. Anonymisation maps project names, sample codes and file names (original and stored forms) to
+placeholders numbered by creation order, so they are stable across reports, and leaves structural fields (ids, codes,
+statuses) alone. `scripts/diagnostics.sh` covers the case where the API is not running, with the same redaction in
+`sed -E`/`awk`.
+
 ## Security
 
 - API and web bind to `127.0.0.1` by default; nothing is exposed to the network.
+- Error log entries and diagnostic reports pass `app/core/redaction.py` (no sequences, secrets, e-mail addresses,
+  serial numbers or home folder names); the report is built only when asked and never sent anywhere. What the browser
+  posts to `/system/client-errors` is size-, field- and rate-bounded and redacted before it is kept.
 - Upload filenames cannot influence storage paths; resolution is checked against the root.
 - Originals are written once (`open(..., "xb")`), then chmod read-only.
 - Server-folder import (`app/services/import_roots.py`) only reads inside `ARVA_IMPORT_ROOTS`: paths

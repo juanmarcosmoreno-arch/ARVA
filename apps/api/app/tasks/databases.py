@@ -36,6 +36,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app import __version__
+from app.core import errorlog
 from app.db.session import SessionLocal
 from app.models import DatabaseStatus, ReferenceDatabase, VersionSource
 from app.services import database_detect as detection
@@ -150,6 +151,14 @@ def _run(record_id: str, expected: DatabaseStatus, body: Callable[[Task], None],
             task.set_progress(phase=record.status.value)
             task.log(f"Finished with status '{record.status.value}'")
             db.commit()
+            cancelled = isinstance(exc, TaskCancelled)
+            errorlog.record("job", "info" if cancelled else "error",
+                            (record.error_detail or {}).get("code") or ("job_cancelled" if cancelled else "job_failed"),
+                            record.error_message or None,
+                            params={"job_type": f"database_{expected.value}", **((record.error_detail or {}).get("params") or {})},
+                            exc=None if cancelled else exc,
+                            job={"id": record.id, "type": f"database_{expected.value}", "status": record.status.value,
+                                 "database": {"key": record.key, "kind": record.kind, "version": record.version}})
             if not isinstance(exc, Exception):
                 raise
             return record.status.value

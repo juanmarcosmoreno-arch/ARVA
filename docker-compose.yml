@@ -72,7 +72,7 @@ services:
     restart: unless-stopped
 
   api:
-    build: { context: ., dockerfile: docker/api.Dockerfile }
+    build: { context: ., dockerfile: docker/api.Dockerfile, args: { ARVA_GIT_COMMIT: "${ARVA_GIT_COMMIT:-unknown}" } }
     image: arva-api:0.2.0
     environment: *arva-env
     volumes:
@@ -133,7 +133,7 @@ services:
     restart: unless-stopped
 
   web:
-    build: { context: ., dockerfile: docker/web.Dockerfile }
+    build: { context: ., dockerfile: docker/web.Dockerfile, args: { ARVA_GIT_COMMIT: "${ARVA_GIT_COMMIT:-unknown}" } }
     image: arva-web:0.2.0
     depends_on:
       api: { condition: service_healthy }
