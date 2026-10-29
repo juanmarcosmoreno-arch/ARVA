@@ -61,8 +61,8 @@ def sanitize_filename(name: str) -> str:
 
 class LocalStorage:
     def __init__(self, root: Path):
+        # Not created here: a data folder on a disk that is not connected must not reappear on the internal disk.
         self.root = root.resolve()
-        self.root.mkdir(parents=True, exist_ok=True)
 
     def resolve(self, relative_path: str) -> Path:
         candidate = (self.root / relative_path).resolve()

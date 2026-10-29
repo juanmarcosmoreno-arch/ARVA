@@ -151,16 +151,31 @@ def _db_type(r: ReferenceDatabase) -> str | None:
 
 
 def bakta_databases(db: Session) -> list[dict[str, Any]]:
+    from app.services.databases import availability
+
     rows = db.scalars(select(ReferenceDatabase).where(ReferenceDatabase.key.in_(BAKTA_DATABASE_KEYS))
                       .order_by(ReferenceDatabase.verified_at.desc().nulls_last()))
-    return [{"id": r.id, "key": r.key, "name": r.name, "version": r.version, "type": _db_type(r), "status": r.status,
-             "usable": r.status in (DatabaseStatus.installed, DatabaseStatus.registered) and bool(r.checksum),
-             "checksum": r.checksum, "verified_at": r.verified_at, "path": r.path} for r in rows]
+    out = []
+    for r in rows:
+        available, reason = availability(r)
+        out.append({"id": r.id, "key": r.key, "name": r.name, "version": r.version, "type": _db_type(r),
+                    "status": r.status, "available": available, "unavailable_reason": reason,
+                    "usable": r.status in (DatabaseStatus.installed, DatabaseStatus.registered) and bool(r.checksum)
+                    and available, "checksum": r.checksum, "verified_at": r.verified_at, "path": r.path})
+    return out
+
+
+class DatabaseNotConnected(InputError):
+    """Every Bakta database ARVA knows is on a disk that is not connected (or its folder is missing)."""
 
 
 def bakta_database(db: Session, database_id: str | None) -> ReferenceDatabase:
-    usable = [d for d in bakta_databases(db) if d["usable"]]
+    known = bakta_databases(db)
+    usable = [d for d in known if d["usable"]]
     if not usable:
+        if any(not d["available"] for d in known):
+            raise DatabaseNotConnected("The Bakta database's folder is not available now (is its disk connected?). "
+                                       "Connect the disk and start ARVA again")
         raise InputError("No Bakta database is installed. Install one in Tools & Databases → Database Manager")
     chosen = next((d for d in usable if d["id"] == database_id), None) if database_id else usable[0]
     if chosen is None:
@@ -187,7 +202,8 @@ def bakta_plan(db: Session, sample: Sample, a: Assembly, database_id: str | None
     try:
         record = bakta_database(db, database_id)
     except InputError as exc:
-        problems.append({"code": "no_database", "message": str(exc)})
+        code = "database_unavailable" if isinstance(exc, DatabaseNotConnected) else "no_database"
+        problems.append({"code": code, "message": str(exc)})
     dependencies, steps = [], {}
     if tool["status"] == ToolStatus.available.value and tool["path"]:
         db_path = Path(record.path) if record and record.path else None

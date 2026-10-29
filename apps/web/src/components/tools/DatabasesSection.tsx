@@ -384,9 +384,13 @@ function RecordRow({ record }: { record: ReferenceDatabase }) {
           <div className="flex flex-wrap items-center gap-2 font-medium">
             {record.name} <span className="font-normal text-muted-foreground">v{record.version ?? "?"}</span>
             <StatusBadge status={record.status} />
+            {record.available === false && (
+              <Badge tone="danger">{t(`databases.unavailable.${record.unavailable_reason ?? "folder_missing"}` as TranslationKey)}</Badge>
+            )}
             <Badge tone="neutral">{record.origin === "download" ? t("databases.origin.download") : t("databases.origin.register")}</Badge>
           </div>
-          <code className="mt-1 block break-all text-xs text-muted-foreground">{record.path}</code>
+          <code className="mt-1 block break-all text-xs text-muted-foreground">{record.host_path ?? record.path}</code>
+          {record.available === false && <p className="mt-1 text-xs text-muted-foreground">{t("databases.unavailableHint")}</p>}
         </div>
         <div className="flex shrink-0 gap-2">
           {busy ? (
@@ -396,7 +400,7 @@ function RecordRow({ record }: { record: ReferenceDatabase }) {
           ) : (
             <>
               {record.checksum && (
-                <Button size="sm" variant="outline" onClick={() => verify.mutate()} disabled={verify.isPending}>
+                <Button size="sm" variant="outline" onClick={() => verify.mutate()} disabled={verify.isPending || record.available === false}>
                   <ShieldCheck className="h-3.5 w-3.5" aria-hidden /> {t("databases.verify")}
                 </Button>
               )}
@@ -481,6 +485,8 @@ function RegisterCard({ dbDir }: { dbDir: string | undefined }) {
   const t = useT();
   const qc = useQueryClient();
   const [path, setPath] = useState("");
+  const storage = useQuery({ queryKey: ["storage"], queryFn: api.storage });
+  const added = (storage.data?.locations ?? []).filter((l) => l.role === "external_databases");
   const register = useMutation({
     mutationFn: () => api.registerDatabase(path.trim()),
     onSuccess: () => {
@@ -515,6 +521,25 @@ function RegisterCard({ dbDir }: { dbDir: string | undefined }) {
           </Button>
         </form>
         <ErrorNote error={register.error} />
+        {added.length > 0 && (
+          <div className="space-y-1 pt-1 text-xs">
+            <p className="text-muted-foreground">{t("databases.addedFolders")}</p>
+            <ul className="space-y-1">
+              {added.map((l) => (
+                <li key={l.container_path} className="flex items-center justify-between gap-2">
+                  <code className="min-w-0 break-all">{l.host_path ?? l.container_path}</code>
+                  {l.available ? (
+                    <Button size="sm" variant="ghost" onClick={() => setPath(l.host_path ?? l.container_path)}>
+                      {t("databases.useFolder")}
+                    </Button>
+                  ) : (
+                    <Badge tone="danger">{t("databases.unavailable.disk_not_connected")}</Badge>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
       </CardBody>
     </Card>
   );

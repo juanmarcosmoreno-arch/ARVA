@@ -109,7 +109,9 @@ def test_default_reserve_is_one_gib():
 def test_storage_endpoint(client, monkeypatch, reserve, storage_root, spool_factor):
     fake_disk(monkeypatch, 5000)
     spool_factor(2)
-    assert client.get(f"{API}/system/storage").json() == {
+    body = client.get(f"{API}/system/storage").json()
+    assert {k: body[k] for k in ("storage_root", "free_bytes", "total_bytes", "min_free_bytes",
+                                 "available_for_data_bytes", "upload_overhead_factor")} == {
         "storage_root": str(storage_root.resolve()),
         "free_bytes": 5000,
         "total_bytes": 2000 * GIB,

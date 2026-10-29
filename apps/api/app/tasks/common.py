@@ -8,6 +8,10 @@ registered, or failed (or cancelled) with none.
 Cancellation: the API records `cancel_requested_at`; the worker reads it while a tool runs (every few seconds,
 through the monitor callback of run_command, which then kills the tool's process group) and at the points where
 ARVA's own code can stop safely. A job cancelled before a worker started it is never run.
+
+Storage: a job starts only while the data folder can be written (app.services.locations: its disk is connected and
+it is the folder this metadata knows). Otherwise it fails with a coded reason and touches no file, so that nothing
+is written to another disk; when the folder disappears while it runs, the reason says so.
 """
 from __future__ import annotations
 
@@ -22,6 +26,7 @@ from pathlib import Path
 
 from arva_tools import ToolExecutionError
 from sqlalchemy import select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.db.session import SessionLocal
@@ -132,6 +137,26 @@ def _with_memory_advice(job: AnalysisJob, tool: str) -> tuple[str, str]:
     return (f"{message}. {note}" if message else note), note
 
 
+def _storage_usable() -> bool:
+    from app.services import locations
+
+    try:
+        with SessionLocal() as db:
+            return locations.inspect(db).writable
+    except (SQLAlchemyError, OSError):
+        return False
+
+
+def _storage_problem() -> Exception | None:
+    from app.services import locations
+
+    try:
+        locations.ensure_data()
+    except locations.StorageUnavailable as exc:
+        return exc
+    return None
+
+
 def _detail(exc: BaseException) -> dict | None:
     code = getattr(exc, "code", None)
     return {"code": code, "params": getattr(exc, "params", {})} if code else None
@@ -161,7 +186,15 @@ def run_job(
         log(f"Environment: Python {platform.python_version()}, {platform.system()} {platform.machine()}")
         log(f"Parameters: {json.dumps(job.parameters, sort_keys=True)}", flush=True)
 
+        storage_ok = True
         try:
+            if (problem := _storage_problem()) is not None:
+                storage_ok = False
+                path = problem.params["path"]
+                raise JobFailure(f"The ARVA data folder {path} was not available when this job started (its external "
+                                 "disk is not connected, or another disk is in its place), so nothing was written. "
+                                 f"Connect the disk, start ARVA again and run the job again. ({problem})",
+                                 "storage_unavailable", path=path)
             body(ctx)
             # Locked until the commit below, so a cancellation is either seen here or finds the job completed.
             if ctx.cancel_requested(lock=True):
@@ -190,10 +223,21 @@ def run_job(
                 job.error_message, note = _with_memory_advice(job, ctx.killed_tool)
                 job.error_detail = {"code": "out_of_memory", "params": {"tool": ctx.killed_tool}}
                 log(note)
-            for hook in ctx.before_cleanup:
-                hook(exc)
-            for rel in (ctx.results_rel, ctx.processed_rel):
-                storage.remove_tree(rel)
+            if storage_ok and not _storage_usable():
+                from app.services.locations import to_host
+
+                storage_ok = False
+                path = to_host(str(storage.root)) or str(storage.root)
+                job.error_message = (f"The ARVA data folder {path} stopped being available while this job ran (was "
+                                     "its disk disconnected?); its partial outputs could not be removed. Connect the "
+                                     f"disk, start ARVA again and run the job again. ({job.error_message})")
+                job.error_detail = {"code": "storage_lost", "params": {"path": path}}
+                log(f"ERROR: {job.error_message}")
+            if storage_ok:
+                for hook in ctx.before_cleanup:
+                    hook(exc)
+                for rel in (ctx.results_rel, ctx.processed_rel):
+                    storage.remove_tree(rel)
             if on_failure is not None:
                 on_failure(ctx, exc)
             job.status = JobStatus.cancelled if isinstance(exc, JobCancelled) else JobStatus.failed
@@ -204,7 +248,11 @@ def run_job(
         job.duration_seconds = round(time.monotonic() - started, 3)
         log(f"Finished with status '{job.status.value}' in {job.duration_seconds:.2f}s")
         log.flush()
-        storage.write_text(f"logs/{job.id}.log", job.log_text or "")
+        if storage_ok:
+            try:
+                storage.write_text(f"logs/{job.id}.log", job.log_text or "")
+            except OSError:
+                pass  # the log stays in the database (job.log_text)
         if job.status is JobStatus.completed:
             for hook in ctx.after_commit:
                 hook()

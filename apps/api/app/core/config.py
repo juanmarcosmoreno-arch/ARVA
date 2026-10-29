@@ -36,6 +36,14 @@ class Settings(BaseSettings):
 
     # Server folders that may be browsed and imported from (JSON list). Empty disables the feature.
     import_roots: list[Path] = []
+    # Existing database folders used in place, read-only (JSON list; scripts/start.sh --add-databases mounts them at
+    # /databases-external/<n>). Databases there may be registered; ARVA never modifies or deletes them.
+    external_db_roots: list[Path] = []
+
+    # Metadata backups made by the backup service (docker-compose.yml) in <storage_root>/backups; shown in the
+    # interface (the service reads the same variables).
+    backup_interval_hours: int = Field(default=24, ge=1)
+    backup_keep: int = Field(default=14, ge=1)
 
     # Sample metadata tables (CSV or .xlsx) imported into a project.
     metadata_max_bytes: int = Field(default=10 * 1024 * 1024, gt=0)
@@ -71,20 +79,32 @@ class Settings(BaseSettings):
         return self.storage_root / "logs"
 
     @property
+    def backups_dir(self) -> Path:
+        return self.storage_root / "backups"
+
+    @property
     def databases_dir(self) -> Path:
         return self.db_dir or self.storage_root / "databases"
+
+
+def create_folders(settings: Settings) -> None:
+    """The data folder's subfolders, and the data and database folders themselves only where their parent exists:
+    a folder on an external disk that is not connected must not be created on the internal disk instead."""
+    for root in (settings.storage_root, settings.databases_dir):
+        if not root.is_dir() and root.parent.is_dir():
+            root.mkdir(exist_ok=True)
+    if settings.storage_root.is_dir():
+        for d in (settings.raw_dir, settings.processed_dir, settings.results_dir, settings.reports_dir,
+                  settings.logs_dir, settings.backups_dir):
+            d.mkdir(exist_ok=True)
 
 
 @lru_cache
 def get_settings() -> Settings:
     settings = Settings()
-    for d in (
-        settings.raw_dir,
-        settings.processed_dir,
-        settings.results_dir,
-        settings.reports_dir,
-        settings.logs_dir,
-        settings.databases_dir,
-    ):
-        d.mkdir(parents=True, exist_ok=True)
+    try:
+        create_folders(settings)
+    except OSError:
+        # A disk that disappears while ARVA starts: the storage check reports it (app.services.locations).
+        pass
     return settings

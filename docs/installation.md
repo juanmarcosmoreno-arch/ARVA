@@ -7,19 +7,21 @@ All base images are multi-architecture.
 
 ```bash
 git clone <repository> arva && cd arva
-cp .env.example .env              # optional: set ARVA_DB_PASSWORD, ARVA_DATA_DIR
+cp .env.example .env              # optional: set ARVA_DB_PASSWORD
 docker compose up -d --build      # on a Mac: scripts/start.sh --build (see below)
 ```
 
 - Web interface: <http://localhost:8080>
 - API + OpenAPI docs: <http://localhost:8000/docs>
 
-Services: `postgres`, `redis`, `api` (runs migrations on start), `worker`, `web` (nginx). Ports are
-bound to `127.0.0.1`. To keep data in a host folder set `ARVA_DATA_DIR=/absolute/path` in `.env`.
-Reference databases installed from the Tools & Databases page live in the `arva-databases` volume,
-mounted at `/databases` (`ARVA_DB_DIR`) in `api` and `worker`; set `ARVA_DATABASES_DIR=/absolute/path`
-in `.env` to keep them in a host folder instead (writable by the container's `arva` user), for example
-on a larger disk: Bakta's full database needs tens of gigabytes.
+Services: `postgres`, `redis`, `api` (runs migrations on start), `worker`, `backup` (metadata backups, see
+[External disk](#external-disk-data-and-databases-outside-the-mac)), `web` (nginx). Ports are bound to
+`127.0.0.1`. Projects live in the `arva-data` volume (mounted at `/data`) and reference databases installed from the
+Tools & Databases page in the `arva-databases` volume (mounted at `/databases`, `ARVA_DB_DIR`). To keep them in
+host folders instead, for example on an external disk (Bakta's full database needs tens of gigabytes), start ARVA
+with `scripts/start.sh --data-dir … --databases-dir …`: see [External disk](#external-disk-data-and-databases-outside-the-mac).
+`docker-compose.yml` no longer reads `ARVA_DATA_DIR`, `ARVA_DATABASES_DIR` or `ARVA_IMPORT_DIR`; the launcher
+warns when they are still set.
 
 ```bash
 docker compose logs -f worker     # follow analysis execution
@@ -27,8 +29,8 @@ docker compose down               # stop (volumes are kept)
 ```
 
 The `import/` folder of the repository is mounted read-only at `/import` in the `api` and `worker`
-containers for [server-side import](#importing-large-files-from-a-server-folder); set
-`ARVA_IMPORT_DIR=/absolute/path` in `.env` to mount another host folder instead.
+containers for [server-side import](#importing-large-files-from-a-server-folder); choose another host folder with
+`scripts/start.sh --import-dir /absolute/path`.
 
 ### On a Mac: the launcher and the performance profile
 
@@ -107,6 +109,213 @@ every request. Without Docker (Option B on a Mac), ARVA reads the Mac's facts it
 When a tool is killed with SIGKILL (exit status −9, or 137 from a wrapper), which usually means the computer or
 the container ran out of memory, the job's failure reason says so, with the memory ARVA could use, the threads and
 memory limit of the run, and what to change.
+
+## External disk: data and databases outside the Mac
+
+The aim: on the Mac only the program (this repository and Docker Desktop); projects, their files, reference
+databases and metadata backups on an external disk, which can also be moved to another Mac. Databases you already
+have (a Bakta full database of about 80 GB, an ANI or taxonomy database, …) are used where they are, read-only.
+
+**Not yet validated on a real Mac.** The launcher's macOS checks were written from the sources cited below and
+tested with constructed `df`, `diskutil` and `docker` outputs (`apps/api/tests/test_storage_launcher.py`); the
+Docker Compose override and the backups were checked with the real `docker compose config` and the real PostgreSQL
+16 `pg_dump`/`pg_restore` here (Linux), not with Docker Desktop.
+
+### Recommended layout
+
+```
+/Volumes/<Disk>/ARVA/data         projects: raw/, processed/, results/, reports/, logs/, backups/ (metadata)
+/Volumes/<Disk>/ARVA/databases    databases ARVA downloads (Database Manager)
+/Volumes/<Disk>/…                 databases you already have, added read-only
+```
+
+For example, with a disk named `JM` whose reference data are under `/Volumes/JM/BioInf` (use your own disk and
+folder names; nothing here is fixed):
+
+```bash
+mkdir -p /Volumes/JM/ARVA/data /Volumes/JM/ARVA/databases
+scripts/start.sh --data-dir /Volumes/JM/ARVA/data \
+                 --databases-dir /Volumes/JM/ARVA/databases \
+                 --add-databases /Volumes/JM/BioInf/bakta/db \
+                 --import-dir /Volumes/JM/BioInf/runs
+```
+
+Then register the Bakta folder in Tools & Databases → Register an existing database, giving its path as on the Mac
+(`/Volumes/JM/BioInf/bakta/db`) or as ARVA sees it (`/databases-external/<n>/…`); the folders added with the launcher
+are listed there with a *Use* button. To download a database instead, use the Database Manager: it installs into
+the database folder with the catalogue's version, size and checksum (each version in its own `<key>/<version>`
+folder).
+
+### The launcher's options
+
+| Option | Mounted at | Access | Holds |
+|---|---|---|---|
+| `--data-dir PATH` | `/data` | read-write | projects (raw, processed, results, reports, logs) and the metadata backups |
+| `--databases-dir PATH` | `/databases` | read-write | databases ARVA downloads |
+| `--add-databases PATH` (repeatable) | `/databases-external/<n>` | read-only | existing database folders, used in place and never modified or deleted |
+| `--remove-databases PATH` | — | — | stops using an added folder (the folder is not touched) |
+| `--import-dir PATH` | `/import` | read-only | sequencing runs to import |
+| `--show-config` | — | — | shows and checks the saved locations, then stops |
+| `--reset-config` | — | — | forgets the saved locations (no folder is touched); Docker volumes are used again |
+
+The choices are saved in `${XDG_CONFIG_HOME:-~/.config}/arva/arva.conf` (folder mode 700, file mode 600) as
+`KEY=VALUE` lines (`ARVA_DATA_DIR`, `ARVA_DATABASES_DIR`, `ARVA_IMPORT_DIR`, `ARVA_ADD_DATABASES` once per folder, and
+the disk each writable folder was on). The file is read line by line and never executed (no `source`, no `eval`): a
+value is only a path; a link, a file of another user or one others may write is refused. Every later
+`scripts/start.sh` uses the saved locations; `scripts/restore.sh` and `scripts/backup.sh` use them too. `<n>` is the
+POSIX `cksum` of the folder's path, so it stays the same as long as the path does (registered databases keep
+working).
+
+**Changing a location needs a restart**, because a folder is mounted when the containers start: run
+`scripts/start.sh` with the new option; Settings → Storage shows the exact commands with the current folders.
+
+### What is checked before Docker starts
+
+For every folder: an absolute path without control characters, an existing folder (links resolved), readable, and
+writable for the data and database folders. Then:
+
+- **The disk.** `df -Pk` gives the folder's mount point and its free and total space (POSIX output; on macOS `-P`
+  also leaves out the inode columns, Apple file_cmds `df/df.c`). The mount point of each writable folder is saved
+  when the folder is chosen; if the folder later lies on another mount point (typically `/`, when the external disk
+  is not connected and an empty folder with the same path was left on the startup disk), **ARVA refuses to start**
+  and says to connect the disk. A missing folder is refused as well. Nothing is created in either case. An added
+  database or import folder that is missing is left out with a warning; its databases show *unavailable (disk not
+  connected)* and are not deleted.
+- **The filesystem** (on a Mac): `diskutil info -plist <mount point>` (`info` accepts a mount point, diskutil(8));
+  ARVA reads `FilesystemType` and `FilesystemName` (else `FilesystemUserVisibleName`), the keys parsed by the
+  open-source corpnewt/gibMacOS and brokeyourbike/mountefi. exFAT shows `FilesystemType` `exfat` (diskutil's "Type
+  (Bundle): exfat", as seen in user reports); that FAT shows `msdos` is not confirmed, so a name containing "FAT"
+  counts too. On Linux, GNU `stat -f -c %T`.
+- **Free space**: a warning below 20 GB on the data or database disk (ARVA's own threshold).
+- **Docker Desktop file sharing**: Docker Desktop shares `/Users`, `/Volumes`, `/private`, `/tmp` and `/var/folders`
+  by default (Docker Desktop settings documentation), so folders on external disks need nothing. A folder elsewhere
+  must be added in Docker Desktop → Settings → Resources → File sharing, otherwise Docker reports "Mounts denied";
+  the launcher says so. If macOS asks whether Docker may access the disk, allow it (System Settings → Privacy &
+  Security → Files & Folders).
+
+The folders reach Docker Compose through a generated override file (`~/.config/arva/compose.storage.yml`,
+rewritten at every start) as **long-syntax bind mounts with `create_host_path: false`**. The Compose
+specification says of `create_host_path`: "Creates a directory at the source path on the host if it doesn't exist.
+Defaults to `true`" — also in the long syntax, and the short syntax always creates it — so it is set to false: if a
+disk disappears between the check and the start, Docker refuses to start instead of mounting a new empty folder on
+the internal disk. The override contains no path, only `${ARVA_HOST_…}` variables that the launcher sets after its
+checks; without them `docker compose` refuses to use it. The host paths and filesystems are also passed to the
+containers as `ARVA_HOST_DATA_DIR`, `ARVA_HOST_DATA_FS`, `ARVA_HOST_DATABASES_DIR`, …,
+`ARVA_HOST_EXTERNAL_DB_<n>` (validated again by the API and only displayed). A plain `docker compose up` uses the
+Docker volumes and ignores the saved folders.
+
+### Filesystem: use APFS (or Mac OS Extended)
+
+Format the external disk as **APFS** (or Mac OS Extended, *Mac OS Plus* in Spanish macOS). exFAT and FAT keep no
+symbolic links and no Unix permissions: the Bakta database contains a symbolic link (`amrfinderplus-db/latest` →
+`2024-12-18.1` in the light 6.0 archive ARVA installed), and ARVA stores originals read-only. The launcher and
+Settings → Storage warn about exFAT and FAT. Reformatting erases the disk: copy the data elsewhere first.
+
+### Where the metadata lives, and the backups
+
+Projects, samples, files, jobs and settings are recorded in PostgreSQL, which **stays in the `postgres-data` Docker
+volume** (inside Docker Desktop's disk image). It is not put on the external disk: PostgreSQL refuses to start
+unless its data folder belongs to the server's user and has mode 0700 or 0750 (`checkDataDir()`,
+`src/backend/utils/init/miscinit.c`: "data directory … has wrong ownership", "Permissions should be u=rwx (0700) or
+u=rwx,g=rx (0750)"), which exFAT and FAT cannot store; on a Docker Desktop bind mount ownership and durable writes
+go through the file-sharing layer, which ARVA has not validated; and a disk unplugged under a running database can
+damage it.
+
+The external disk is made self-contained by **backups of the metadata**: the `backup` service (the same
+`postgres:16.4-alpine` image, so `pg_dump` matches the server; `scripts/metadata-backup.sh`) writes `pg_dump`
+archives in custom format into `<data folder>/backups/`:
+
+- automatically every `ARVA_BACKUP_INTERVAL_HOURS` (default 24) and at the first start, `arva-metadata-auto-<UTC
+  time>.dump`;
+- on request: Settings → Storage → *Back up now*, or `scripts/backup.sh` (`arva-metadata-manual-…`);
+- before every restore (`arva-metadata-pre-restore-…`).
+
+Each kind keeps its newest `ARVA_BACKUP_KEEP` (default 14). Every archive is checked with `pg_restore --list` before
+it is kept; `backups/.last-result` records the outcome, shown in Settings → Storage. Nothing is written while the
+data folder's storage marker is missing (its disk is not connected). The service polls every 30 seconds for a
+request from ARVA (`backups/.request`); it needs no Docker socket.
+
+**Restore** (to undo a mistake, or on another Mac):
+
+```bash
+scripts/restore.sh --list          # the backups, newest first
+scripts/restore.sh latest          # or: scripts/restore.sh arva-metadata-manual-20261028T153000Z.dump
+```
+
+It asks for confirmation (`--yes` skips it), backs up the current metadata, stops `api`, `worker` and `backup`,
+restores the archive into a new database and only when that succeeded replaces the current one (so a failed restore
+changes nothing), then starts ARVA again, whose start-up upgrades the restored metadata to this version
+(`alembic upgrade head`). Files in the data folder are not touched. A backup made by a newer ARVA cannot be restored
+into an older one. Tested here with a scratch database (`apps/api/tests/test_metadata_backup.py`).
+
+### The storage marker: never writing to the wrong disk
+
+At its first use the data folder gets a marker, `<data folder>/.arva-storage`, with an ID that is also recorded in
+the metadata. ARVA checks it at start-up, before every change through the API and before every job:
+
+| Situation | Status | What happens |
+|---|---|---|
+| Marker present, same ID | `ok` | normal |
+| Folder missing or unreadable | `unavailable` | changes refused (HTTP 503, coded message), jobs fail, `/health` says `degraded` |
+| Marker missing although the metadata knows one (disk not connected, an empty folder in its place) | `missing` | same |
+| Another ID (another disk in its place) | `mismatch` | same |
+| Marker present, new metadata, backups beside it (another Mac, reset volume) | `restore_needed` | same, until you restore (`scripts/restore.sh latest`) or choose *Use this folder with the current metadata* in Settings → Storage |
+| Marker damaged | `invalid` | same |
+
+A refused change answers `503` with `{"detail", "code", "params"}` (`storage_missing`, …), shown translated in the
+interface. A job whose data folder is not available fails with `storage_unavailable` before writing anything (not
+even its log file; the log stays in the database); one whose disk disappears while it runs fails with
+`storage_lost`. Settings → Storage and Performance stay usable meanwhile. Reference databases whose folder is on a
+disk that is not connected show *unavailable (disk not connected)*: they are not verified, used or deleted (ARVA
+refuses to delete the record of an installed one, whose files would be left behind), and a verification that finds
+the disk gone keeps the database's status.
+
+### Moving the disk to another Mac
+
+1. Install ARVA on the new Mac (Docker Desktop and this repository).
+2. Connect the disk and start ARVA with the same folders:
+   `scripts/start.sh --data-dir /Volumes/JM/ARVA/data --databases-dir /Volumes/JM/ARVA/databases` (plus
+   `--add-databases …` for each added folder). Settings → Storage then shows *This data folder needs its metadata
+   back*.
+3. `scripts/restore.sh latest`.
+
+Added database folders get the same `/databases-external/<n>` only if their paths are the same on the new Mac (same
+disk name); otherwise register them again.
+
+**Moving existing data from the Docker volumes to the disk** (once; not run here): stop ARVA (`docker compose
+down`), copy the volumes with an image ARVA already uses, then start with the launcher. The storage marker comes
+with the data, so the metadata recognises the folder:
+
+```bash
+docker volume ls | grep arva                     # arva_arva-data, arva_arva-databases (project "arva")
+docker run --rm -v arva_arva-data:/from:ro -v /Volumes/JM/ARVA/data:/to postgres:16.4-alpine cp -a /from/. /to/
+docker run --rm -v arva_arva-databases:/from:ro -v /Volumes/JM/ARVA/databases:/to postgres:16.4-alpine cp -a /from/. /to/
+scripts/start.sh --data-dir /Volumes/JM/ARVA/data --databases-dir /Volumes/JM/ARVA/databases
+```
+
+Installed databases are recorded at `/databases/…`, which stays the same; the volumes can be removed once ARVA
+works from the disk (`docker volume rm arva_arva-data arva_arva-databases`).
+
+### Docker Desktop's disk image
+
+Docker Desktop keeps images, containers and volumes (here: the metadata database) in one disk image file. Its
+default place is `~/Library/Containers/com.docker.docker/Data/vms/0/data/Docker.raw` (Docker Desktop for Mac FAQ).
+To keep that off the internal disk too: Docker Desktop → **Settings → Resources → Advanced → Disk image location**
+("Specify the location of the Linux volume where containers and images are stored"; Docker asks whether to use or
+replace an image already there). Do not move the file in Finder, Docker's FAQ warns. With the disk image on the
+external disk, Docker Desktop needs that disk connected to start.
+
+Expected size of ARVA's images, estimated from component sizes (not measured from a build):
+
+| Image | Basis | Estimate |
+|---|---|---|
+| `arva-api` (API and worker) | `python:3.12.7-slim-bookworm` (45 MB compressed download, Docker Hub); Debian tool packages ≤ 1.1 GiB installed (upper bound: the dependency closure on Ubuntu 24.04, which counts libraries the base already has); MultiQC 1.2 GB, NanoPlot 0.59 GB, QUAST 0.15 GB, Bakta 0.32 GB as venvs (measured here); ARVA with pod5 ≈ 0.6 GB (its venv here) | about 4 GB |
+| `postgres:16.4-alpine`, `redis:7.4.1-alpine`, `nginx:1.27.2-alpine` | 99, 19 and 23 MB compressed downloads (Docker Hub) | a few hundred MB unpacked |
+| `arva-web` and build cache | nginx plus the built interface; the `node:22.11.0-alpine3.20` build stage (54 MB compressed) and `node_modules` stay in the build cache | a few hundred MB to about 1 GB |
+
+So reserve about 6 GB for the images and build cache, plus the metadata volume (small) and room for rebuilds;
+`docker system df` shows the real figures. Building with `--build-arg ARVA_PYTHON_TOOLS=""` leaves out the Python
+report tools (about 2.3 GB).
 
 ## Option B — Local development
 
@@ -432,7 +641,7 @@ ARVA_IMPORT_ROOTS=["/srv/sequencing/runs"]
 ```
 
 With Docker Compose this is already set to `["/import"]`, backed by the repository's `import/` folder
-(or `ARVA_IMPORT_DIR`). The API **and** the worker must see the folder at the same path. Then use
+(or the folder chosen with `scripts/start.sh --import-dir`). The API **and** the worker must see the folder at the same path. Then use
 **Import Data → Import from a server folder**: browse, tick files, choose the sample and start. One
 import job copies the files in the background with exactly the same registration as an upload
 (streamed SHA-256, read-only copy, quick validation, duplicate and R1/R2 detection); each file's
@@ -476,7 +685,9 @@ web interface require twice the request size (bulk import: the whole selection p
 `upload_overhead_factor` in the storage figures is `2` in that case and `1` when the temporary directory
 is on another disk. Server folder import copies directly and needs only the files' size.
 
-`GET /api/v1/system/storage` reports the figures (also shown on the Import page).
+`GET /api/v1/system/storage` reports the figures (also shown on the Import page), with every storage location
+(role, folder on the computer as the launcher gave it, folder inside ARVA, read-only or not, free and total space,
+filesystem warnings, the data folder's marker) and the metadata backups; Settings → Storage shows them.
 
 ## Reference databases (Database Manager)
 
@@ -505,9 +716,11 @@ sizes and checksums are the record's, and the same MD5s appear in Bakta's README
   the archive is unpacked with path checks, Bakta's own folder check runs, ARVA records the SHA-256 of
   every file, the folder is moved to `ARVA_DB_DIR/<key>/<version>` (e.g. `bakta-light/6.0`) and the
   archive is deleted.
-- **Register** an existing Bakta database folder (the one holding `version.json`) inside `ARVA_DB_DIR`
-  or an import folder: ARVA runs Bakta's checks (keys of `version.json`, schema version 6, required
-  files) and records the SHA-256 of every file. A registered folder is never modified or deleted.
+- **Register** an existing Bakta database folder (the one holding `version.json`) inside `ARVA_DB_DIR`,
+  an import folder or a folder added with `scripts/start.sh --add-databases` (given as on the Mac, e.g.
+  `/Volumes/JM/BioInf/bakta/db`, or as ARVA sees it): ARVA runs Bakta's checks (keys of `version.json`,
+  schema version 6, required files) and records the SHA-256 of every file. A registered folder is never
+  modified or deleted. A database whose disk is not connected is shown as unavailable and kept as it is.
 - **Verify** repeats Bakta's check and compares every file with the recorded SHA-256 (the archive's MD5
   can only be checked before unpacking).
 - **Delete** removes an installed database's folder and record, or only the record of a registered
@@ -545,9 +758,10 @@ Environment variables (prefix `ARVA_`), also read from `apps/api/.env`:
 | `ARVA_MAX_UPLOAD_SIZE_BYTES` | 20 GB | Per-file upload/import limit |
 | `ARVA_MIN_FREE_BYTES` | 1073741824 (1 GiB) | Free space that uploads and imports must leave on the storage disk |
 | `ARVA_IMPORT_ROOTS` | `[]` (disabled) | Server folders that may be browsed and imported from (JSON list); Docker: `["/import"]` |
-| `ARVA_IMPORT_DIR` | `./import` | Docker Compose only: host folder mounted read-only at `/import` |
 | `ARVA_DB_DIR` | `<ARVA_STORAGE_ROOT>/databases` | Reference databases (Database Manager); Docker: `/databases` |
-| `ARVA_DATABASES_DIR` | volume `arva-databases` | Docker Compose only: host folder mounted at `/databases` |
+| `ARVA_EXTERNAL_DB_ROOTS` | `[]` | Existing database folders used in place, read-only (JSON list); set by `scripts/start.sh --add-databases` (`/databases-external/<n>`) |
+| `ARVA_BACKUP_INTERVAL_HOURS` | 24 | Docker Compose: hours between automatic metadata backups (`backup` service) |
+| `ARVA_BACKUP_KEEP` | 14 | Docker Compose: backups kept of each kind |
 | `ARVA_CORS_ORIGINS` | `["http://localhost:5173","http://localhost:4173"]` | Allowed web origins (JSON list) |
 | `ARVA_METADATA_MAX_BYTES` | 10485760 (10 MiB) | Largest sample-metadata table (CSV or .xlsx) accepted |
 | `ARVA_METADATA_MAX_ROWS` | 10000 | Data rows per metadata table |
@@ -557,7 +771,7 @@ Environment variables (prefix `ARVA_`), also read from `apps/api/.env`:
 | `ARVA_TOOL_<ID>` | — | Explicit executable for one tool (`SEQKIT`, `FASTQC`, `FASTP`, `FILTLONG`, `MULTIQC`, `NANOPLOT`, `FLYE`, `SPADES`, `UNICYCLER`, `QUAST`, `RACON`, `MINIMAP2`, `BWA`, `SAMTOOLS`, `DNADIFF`; `PILON` takes the path of `pilon.jar`; helpers: `MAKEBLASTDB` and `TBLASTN` for Unicycler, `JAVA` for Pilon) |
 | `ARVA_TOOL_THREADS` | — (no cap) | Administrator cap: no tool run gets more threads, whatever the [performance profile](#on-a-mac-the-launcher-and-the-performance-profile) or a request says |
 | `ARVA_TOOL_MEMORY_GB` | — (no cap) | Administrator cap on the memory (GB) a tool run may be given (SPAdes' `-m`, also inside Unicycler; Pilon's Java heap; samtools sort) |
-| `ARVA_HOST_*` | — | Facts about the computer, set by `scripts/start.sh` on a Mac (`PLATFORM`, `MODEL_NAME`, `MODEL_ID`, `CHIP`, `PERF_CORES`, `EFF_CORES`, `PHYSICAL_CORES`, `LOGICAL_CPUS`, `MEMORY_BYTES`, `OS_VERSION`, `ARCH`, `DOCKER_CPUS`, `DOCKER_MEMORY_BYTES`); validated and bounded, unknown when empty |
+| `ARVA_HOST_*` | — | Facts about the computer, set by `scripts/start.sh` on a Mac (`PLATFORM`, `MODEL_NAME`, `MODEL_ID`, `CHIP`, `PERF_CORES`, `EFF_CORES`, `PHYSICAL_CORES`, `LOGICAL_CPUS`, `MEMORY_BYTES`, `OS_VERSION`, `ARCH`, `DOCKER_CPUS`, `DOCKER_MEMORY_BYTES`), and the host folders it mounted with their filesystems (`DATA_DIR`, `DATA_FS`, `DATABASES_DIR`, `DATABASES_FS`, `IMPORT_DIR`, `IMPORT_FS`, `EXTERNAL_DB_<n>`, `EXTERNAL_DB_<n>_FS`); validated and bounded, unknown when empty, only displayed |
 | `ARVA_TOOL_TIMEOUT_SECONDS` | 43200 | A tool run is stopped after this time |
 
 ## Running tests

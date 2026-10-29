@@ -1,26 +1,164 @@
 #!/bin/sh
-# Start ARVA with Docker Compose (`docker compose up -d`; extra arguments, such as --build, are passed on).
+# Start ARVA with Docker Compose (`docker compose up -d`; other arguments, such as --build, are passed on).
 #
-# On a Mac it first reads which Mac this is (sysctl, system_profiler, sw_vers) and what Docker Desktop gives its
+# Storage: where ARVA keeps its files is chosen here once and remembered (scripts/lib/arva-locations.sh), so that
+# on a Mac only the program lives on the internal disk and projects and databases can live on an external disk:
+#   --data-dir PATH          projects (raw, processed, results, reports, logs) and the metadata backups
+#   --databases-dir PATH     reference databases that ARVA downloads
+#   --add-databases PATH     an existing database folder to use where it is, read-only (repeat for several)
+#   --remove-databases PATH  stop using an added database folder (the folder itself is not touched)
+#   --import-dir PATH        sequencing runs to import from, read-only
+#   --show-config            show and check the saved locations, then stop
+#   --reset-config           forget the saved locations (no folder is touched), then stop
+# Every folder is checked before Docker starts. When the disk of the data or database folder is missing, ARVA does
+# not start, so nothing is written to the internal disk instead.
+#
+# On a Mac it also reads which Mac this is (sysctl, system_profiler, sw_vers) and what Docker Desktop gives its
 # Linux virtual machine (docker info), and passes these facts to ARVA as ARVA_HOST_* variables, so that ARVA can
 # choose a performance profile. Once ARVA runs it prints the profile and, when Docker Desktop's CPUs or memory do
-# not suit it, what to set in Docker Desktop. Elsewhere it only starts ARVA. Nothing leaves this computer; of
-# system_profiler's report only the model name, chip and core counts are kept (never the serial number).
+# not suit it, what to set in Docker Desktop. Nothing leaves this computer; of system_profiler's report only the
+# model name, chip and core counts are kept (never the serial number).
 #
 # Not yet validated on a real Mac: see docs/installation.md.
 set -eu
 
 ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 cd "$ROOT"
+# shellcheck source=SCRIPTDIR/lib/arva-locations.sh
+. "$ROOT/scripts/lib/arva-locations.sh"
+arva_os=$(uname -s 2>/dev/null || true)
 
-lang=en
-case "${LC_ALL:-${LC_MESSAGES:-${LANG:-}}}" in
-  es*) lang=es ;;
-esac
-
-say() {
-  if [ "$lang" = es ]; then printf '%s\n' "$2"; else printf '%s\n' "$1"; fi
+usage() {
+  say "Usage: scripts/start.sh [--data-dir PATH] [--databases-dir PATH] [--add-databases PATH]... [--remove-databases PATH]...
+                        [--import-dir PATH] [--show-config | --reset-config] [docker compose up options, e.g. --build]
+Chosen folders are remembered in ${XDG_CONFIG_HOME:-~/.config}/arva/arva.conf; see docs/installation.md (External disk)." \
+"Uso: scripts/start.sh [--data-dir RUTA] [--databases-dir RUTA] [--add-databases RUTA]... [--remove-databases RUTA]...
+                       [--import-dir RUTA] [--show-config | --reset-config] [opciones de docker compose up, p. ej. --build]
+Las carpetas elegidas se recuerdan en ${XDG_CONFIG_HOME:-~/.config}/arva/arva.conf; consulta docs/installation.md (Disco externo)."
 }
+
+want_data='' want_databases='' want_import='' want_add='' want_remove='' show=0 reset=0
+option() {
+  if [ "$(printf '%s' "$2" | LC_ALL=C tr -d '\001-\037\177')" != "$2" ] || [ -z "$2" ]; then
+    warn "$1 needs a folder path without control characters." "$1 necesita una ruta de carpeta sin caracteres de control."
+    exit 2
+  fi
+  case "$1" in
+    --data-dir) want_data=$2 ;;
+    --databases-dir) want_databases=$2 ;;
+    --import-dir) want_import=$2 ;;
+    --add-databases) want_add=$(list_add "$want_add" "$2") ;;
+    --remove-databases) want_remove=$(list_add "$want_remove" "$2") ;;
+  esac
+}
+
+# Our options are taken out; everything else is kept, in order, for `docker compose up`.
+n=$#
+while [ "$n" -gt 0 ]; do
+  arg=$1
+  shift
+  n=$((n - 1))
+  case "$arg" in
+    --data-dir | --databases-dir | --import-dir | --add-databases | --remove-databases)
+      if [ "$n" -eq 0 ]; then option "$arg" ''; fi
+      option "$arg" "$1"
+      shift
+      n=$((n - 1))
+      ;;
+    --data-dir=* | --databases-dir=* | --import-dir=* | --add-databases=* | --remove-databases=*)
+      option "${arg%%=*}" "${arg#*=}"
+      ;;
+    --show-config) show=1 ;;
+    --reset-config) reset=1 ;;
+    -h | --help)
+      usage
+      exit 0
+      ;;
+    *) set -- "$@" "$arg" ;;
+  esac
+done
+
+arva_config_paths
+if [ "$reset" = 1 ]; then
+  if [ -n "$ARVA_CONFIG" ]; then rm -f "$ARVA_CONFIG" "$ARVA_OVERRIDE"; fi
+  say "Saved locations forgotten ($ARVA_CONFIG). No folder was touched; ARVA uses Docker volumes at its next start." \
+      "Ubicaciones guardadas olvidadas ($ARVA_CONFIG). No se tocó ninguna carpeta; ARVA usará volúmenes de Docker en su próximo inicio."
+  exit 0
+fi
+arva_read_config
+
+if [ -n "$want_data$want_databases$want_import$want_add$want_remove" ]; then
+  for role in data databases; do
+    if [ "$role" = data ]; then want=$want_data en=data es=datos; else want=$want_databases en=databases es='bases de datos'; fi
+    [ -n "$want" ] || continue
+    if ! arva_inspect "$want" rw; then
+      arva_problem "$role" "$want" "$en" "$es" >&2
+      exit 1
+    fi
+    arva_startup_disk_note
+    if [ "$role" = data ]; then cfg_data=$chk_real cfg_data_mount=$chk_mount; else cfg_databases=$chk_real cfg_databases_mount=$chk_mount; fi
+  done
+  if [ -n "$want_import" ]; then
+    if ! arva_inspect "$want_import" ro; then
+      arva_problem import "$want_import" import importación >&2
+      exit 1
+    fi
+    cfg_import=$chk_real
+  fi
+  while IFS= read -r want; do
+    [ -n "$want" ] || continue
+    if ! arva_inspect "$want" ro; then
+      arva_problem databases "$want" database "bases de datos" >&2
+      exit 1
+    fi
+    if ! list_has "$cfg_extra" "$chk_real"; then cfg_extra=$(list_add "$cfg_extra" "$chk_real"); fi
+  done <<EOF
+$want_add
+EOF
+  while IFS= read -r want; do
+    [ -n "$want" ] || continue
+    gone=$want
+    if [ -d "$want" ]; then gone=$(CDPATH='' cd -P -- "$want" 2>/dev/null && pwd -P) || gone=$want; fi
+    if list_has "$cfg_extra" "$gone"; then
+      cfg_extra=$(list_remove "$cfg_extra" "$gone")
+    else
+      warn "$want is not one of the added database folders." "$want no es una de las carpetas de bases de datos añadidas."
+    fi
+  done <<EOF
+$want_remove
+EOF
+  arva_write_config
+  say "Locations saved in $ARVA_CONFIG." "Ubicaciones guardadas en $ARVA_CONFIG."
+fi
+
+for legacy in ARVA_DATA_DIR ARVA_DATABASES_DIR ARVA_IMPORT_DIR; do
+  if printenv "$legacy" >/dev/null 2>&1 || { [ -f "$ROOT/.env" ] && grep -q "^[[:space:]]*$legacy=" "$ROOT/.env"; }; then
+    warn "$legacy is no longer read by docker-compose.yml: choose the folder with scripts/start.sh (--data-dir, --databases-dir or --import-dir)." \
+         "docker-compose.yml ya no lee $legacy: elige la carpeta con scripts/start.sh (--data-dir, --databases-dir o --import-dir)."
+  fi
+done
+
+if [ "$show" = 1 ]; then
+  say "Saved locations: $ARVA_CONFIG" "Ubicaciones guardadas: $ARVA_CONFIG"
+  if [ -z "$cfg_data$cfg_databases$cfg_import$cfg_extra" ]; then
+    say "  none: projects and databases are kept in Docker volumes (inside Docker Desktop's disk image)." \
+        "  ninguna: los proyectos y las bases de datos se guardan en volúmenes de Docker (dentro de la imagen de disco de Docker Desktop)."
+  fi
+  status=0
+  arva_check_locations || status=1
+  say "Change a location with scripts/start.sh and the option, e.g.:" "Cambia una ubicación con scripts/start.sh y la opción, p. ej.:"
+  printf '  %s\n' "scripts/start.sh --data-dir /Volumes/<Disk>/ARVA/data --databases-dir /Volumes/<Disk>/ARVA/databases" \
+    "scripts/start.sh --add-databases /Volumes/<Disk>/<existing database folder>"
+  exit "$status"
+fi
+
+if [ -n "$cfg_data$cfg_databases$cfg_import$cfg_extra" ]; then say "Storage" "Almacenamiento"; fi
+if ! arva_check_locations; then
+  say "ARVA did not start, so nothing was written to another disk. Saved locations: $ARVA_CONFIG (scripts/start.sh --show-config)." \
+      "ARVA no se inició, así que no se escribió nada en otro disco. Ubicaciones guardadas: $ARVA_CONFIG (scripts/start.sh --show-config)." >&2
+  exit 1
+fi
+arva_write_override
 
 # Printable ASCII only, at most 80 characters (the values are shown and passed on; ARVA validates them again).
 clean() {
@@ -98,7 +236,7 @@ read_mac() {
   if [ "$(sysctl_n sysctl.proc_translated)" = 1 ]; then arch=arm64; fi
 }
 
-if [ "$(uname -s 2>/dev/null || true)" = Darwin ]; then
+if [ "$arva_os" = Darwin ]; then
   if ! docker_info=$(docker info --format '{{.NCPU}} {{.MemTotal}}' 2>/dev/null); then
     say "Docker is not running. Start Docker Desktop, wait until it is ready, then run this script again." \
         "Docker no está en marcha. Abre Docker Desktop, espera a que esté listo y vuelve a ejecutar este script."
@@ -128,10 +266,13 @@ if [ "$(uname -s 2>/dev/null || true)" = Darwin ]; then
       "  Docker Desktop da a su máquina virtual ${docker_cpus:-?} CPU y $(gb "$docker_memory")"
 fi
 
-docker compose up -d "$@"
+arva_compose up -d "$@"
 
-if ! docker compose exec -T api python -m app.services.performance --lang "$lang"; then
+if ! arva_compose exec -T api python -m app.services.performance --lang "$lang"; then
   say "ARVA is running; its performance profile is in Settings → Performance." \
       "ARVA está en marcha; su perfil de rendimiento está en Ajustes → Rendimiento."
+fi
+if ! arva_compose exec -T api python -m app.services.locations --lang "$lang"; then
+  say "Where ARVA keeps its files is in Settings → Storage." "Dónde guarda ARVA sus archivos está en Ajustes → Almacenamiento."
 fi
 say "Open http://localhost:8080" "Abre http://localhost:8080"

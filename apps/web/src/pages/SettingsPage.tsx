@@ -4,6 +4,7 @@ import { Card, CardBody, CardHeader } from "@/components/ui/card";
 import { Field, Select } from "@/components/ui/form";
 import { PageHeader } from "@/components/ui/misc";
 import { PerformanceSection } from "@/components/settings/PerformanceSection";
+import { StorageSection } from "@/components/settings/StorageSection";
 import { useT } from "@/i18n";
 import { useSettings, type GuideLevel, type Language, type Theme } from "@/store/settings";
 
@@ -12,7 +13,7 @@ export function SettingsPage() {
   const s = useSettings();
   const health = useQuery({
     queryKey: ["health"],
-    queryFn: async () => (await fetch("/health")).json() as Promise<{ status: string; version: string }>,
+    queryFn: async () => (await fetch("/health")).json() as Promise<{ status: string; version: string; storage?: string }>,
   });
 
   return (
@@ -64,6 +65,8 @@ export function SettingsPage() {
               <span>
                 {health.data?.status === "ok" ? (
                   <span className="text-success">{t("settings.apiConnected")}</span>
+                ) : health.data?.status === "degraded" ? (
+                  <span className="text-warning">{t("settings.apiDegraded")}</span>
                 ) : health.isLoading ? (
                   "…"
                 ) : (
@@ -81,6 +84,7 @@ export function SettingsPage() {
             </div>
           </CardBody>
         </Card>
+        <StorageSection />
         <PerformanceSection />
       </div>
     </div>

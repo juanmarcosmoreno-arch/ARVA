@@ -147,5 +147,5 @@ def test_linux_only_starts_compose(tmp_path, shell):
 def test_shellcheck_clean():
     if shutil.which("shellcheck") is None:
         pytest.skip("shellcheck is not installed")
-    proc = subprocess.run(["shellcheck", "-s", "sh", str(SCRIPT)], capture_output=True, text=True)
+    proc = subprocess.run(["shellcheck", "-x", "-s", "sh", str(SCRIPT)], capture_output=True, text=True)
     assert proc.returncode == 0, proc.stdout

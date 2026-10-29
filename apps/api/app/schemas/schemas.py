@@ -822,6 +822,57 @@ class UploadResult(BaseModel):
 
 # --- Storage capacity and server-folder import ----------------------------------
 
+class StorageLocationRead(BaseModel):
+    role: Literal["data", "databases", "import", "external_databases"]
+    container_path: str = Field(description="Where ARVA sees the folder (inside its containers)")
+    host_path: str | None = Field(description="The folder on this computer as scripts/start.sh gave it; None for a "
+                                              "Docker volume or when ARVA was started without the launcher")
+    read_only: bool
+    available: bool = Field(description="The folder can be read now (false: its disk is not connected)")
+    free_bytes: int | None
+    total_bytes: int | None
+    filesystem: str | None = Field(description="The host filesystem as the launcher read it (apfs, hfs, exfat, ...)")
+    warnings: list[Literal["not_connected", "fat_filesystem", "low_space"]]
+    marker: str | None = Field(default=None, description="The data folder's storage marker status")
+    stores: list[str]
+    slot: str | None = Field(default=None, description="An added database folder's number (/databases-external/<n>)")
+    databases: int | None = Field(default=None, description="Reference databases ARVA knows in this folder")
+
+
+class StorageMarkerRead(BaseModel):
+    status: Literal["ok", "new", "unavailable", "missing", "mismatch", "restore_needed", "invalid"]
+    disk_id: str | None
+    recorded_id: str | None
+    backups: int
+    message: CodedMessage | None = None
+    text: str | None = Field(default=None, description="The English text of `message`")
+
+
+class BackupFileRead(BaseModel):
+    name: str
+    kind: Literal["auto", "manual", "pre-restore"]
+    created_at: dt.datetime
+    size_bytes: int
+
+
+class BackupResultRead(BaseModel):
+    result: Literal["ok", "failed"]
+    kind: Literal["auto", "manual", "pre-restore"] | None
+    at: dt.datetime
+    detail: str | None
+
+
+class BackupsRead(BaseModel):
+    folder: str
+    host_folder: str | None
+    count: int
+    files: list[BackupFileRead] = Field(description="The newest backups first (at most 30)")
+    last_result: BackupResultRead | None
+    pending_since: dt.datetime | None = Field(description="A backup asked for and not yet made")
+    interval_hours: int
+    keep: int = Field(description="Backups kept of each kind")
+
+
 class StorageCapacityRead(BaseModel):
     storage_root: str
     free_bytes: int
@@ -831,6 +882,15 @@ class StorageCapacityRead(BaseModel):
     upload_overhead_factor: Literal[1, 2] = Field(
         description="2 when browser uploads are buffered on the same disk and so need twice their size while received"
     )
+    data_host_path: str | None = Field(default=None, description="The data folder on this computer, when known")
+    marker: StorageMarkerRead | None = None
+    locations: list[StorageLocationRead] = []
+    backups: BackupsRead | None = None
+    in_container: bool = False
+
+
+class StorageAdoptRequest(BaseModel):
+    confirm: bool = Field(description="Must be true: the folder is then used with the current metadata")
 
 
 PerformanceProfile = Literal["light", "balanced", "maximum", "custom"]
@@ -1650,6 +1710,9 @@ class ReferenceDatabaseRead(ORMModel):
     archive: dict[str, Any] | None = None
     catalogue_version: str | None = Field(default=None, description="The catalogue's version of this database")
     jobs_using: int = Field(default=0, description="Queued or running jobs that use it")
+    available: bool = Field(default=True, description="Its folder can be read now (false: e.g. disk not connected)")
+    unavailable_reason: Literal["disk_not_connected", "folder_missing"] | None = None
+    host_path: str | None = Field(default=None, description="The folder on this computer, when ARVA knows it")
     log_text: str | None = None
 
 
@@ -1836,6 +1899,8 @@ class BaktaDatabaseOption(BaseModel):
     type: str | None
     status: DatabaseStatus
     usable: bool
+    available: bool = True
+    unavailable_reason: Literal["disk_not_connected", "folder_missing"] | None = None
     checksum: str | None
     verified_at: dt.datetime | None
     path: str | None

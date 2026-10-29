@@ -53,6 +53,7 @@ control**, **visual first**, **reproducibility** and **modularity**.
 | Circular genome map | The Genome Explorer's second view: rings for the sequence, genes on each strand, a custom ring (a feature type, pseudogenes or a text), read coverage when it exists, GC content and GC skew; AMR, virulence and mobile-element rings listed as *available after Phase 5* (not drawn, no guesses); ring toggles; all sequences on one circle or chromosome and plasmids side by side; tooltips, click to open a gene's details or show it in the linear view; SVG and PNG export with the legend and caption in the figure; light and dark |
 | Execution | Analyses run in a separate worker process via a Redis queue — never in the HTTP process; external tools run without a shell, with timeouts and a credential-free environment |
 | Performance profiles | ARVA detects the computer (on a Mac, through `scripts/start.sh`: model, chip, performance and efficiency cores, memory, Docker Desktop's allocation) and the CPUs and memory it can actually use, and chooses Light, Balanced or Maximum (ARVA heuristics, changeable in Settings → Performance, or Custom threads and memory) so that the computer does not overheat or freeze; tools run at a lower CPU priority with the profile's threads and memory limits, every job records the resources it was given, a tool stopped for lack of memory says so and what to change, and Settings shows what to set in Docker Desktop. Not yet validated on a real Mac |
+| External disk | Projects, downloaded databases and metadata backups on an external disk, existing databases (e.g. a Bakta full database) used in place read-only: the launcher checks every folder (absolute, existing, writable, still on its disk; on a Mac exFAT/FAT is warned about, via `diskutil`) and refuses to start when a disk is missing instead of letting Docker create an empty folder; a storage marker makes writes stop (503) and jobs fail cleanly if the disk goes away; daily and on-demand `pg_dump` backups of the metadata go to the disk, and `scripts/restore.sh` brings them back on another Mac. Settings → Storage shows every location. Not yet validated on a real Mac |
 | Cancelling and recovery | Cancel queued or running jobs (with confirmation): the tool and every process it started are stopped within seconds, partial outputs removed and the log kept; a Flye run stopped from outside after its first stages can be resumed with Flye's own `--resume` (same reads, options, threads and version; the interrupted stage rerun from scratch) or its kept work folder discarded |
 | Batch QC | Read statistics, SeqKit and/or FastQC on every sample of a project (imported or also derived files; completed results skipped unless recomputing), with a preview of exactly how many jobs each sample gets and why files are skipped; confirming creates exactly those ordinary per-sample jobs |
 | Reports | HTML (figures, methods, processing steps with exact commands, limitations), CSV and JSON per sample |
@@ -68,7 +69,11 @@ docker compose up -d --build      # on a Mac: scripts/start.sh --build (detects 
 open http://localhost:8080        # API docs: http://localhost:8000/docs
 ```
 
-Services bind to `127.0.0.1` only. Data persist in Docker volumes (`ARVA_DATA_DIR` to use a host folder).
+Services bind to `127.0.0.1` only. Data persist in Docker volumes; to keep projects and databases on an external
+disk, start with `scripts/start.sh --data-dir /Volumes/<Disk>/ARVA/data --databases-dir /Volumes/<Disk>/ARVA/databases`
+and add databases you already have with `--add-databases <folder>` (used in place, read-only). The launcher checks
+each folder (refusing to start when a disk is missing), remembers it, and the metadata is backed up into the data
+folder so the disk can move to another Mac ([External disk](docs/installation.md#external-disk-data-and-databases-outside-the-mac)).
 
 ### Local development (macOS / Linux)
 

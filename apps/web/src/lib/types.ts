@@ -838,6 +838,54 @@ export interface DashboardSummary {
   recent_projects: Project[];
 }
 
+export type StorageRole = "data" | "databases" | "import" | "external_databases";
+export type StorageWarning = "not_connected" | "fat_filesystem" | "low_space";
+export type MarkerStatus = "ok" | "new" | "unavailable" | "missing" | "mismatch" | "restore_needed" | "invalid";
+
+/** One folder ARVA uses (GET /system/storage). */
+export interface StorageLocation {
+  role: StorageRole;
+  /** Where ARVA sees it, inside its containers. */
+  container_path: string;
+  /** The folder on this computer as scripts/start.sh gave it; null for a Docker volume or without the launcher. */
+  host_path: string | null;
+  read_only: boolean;
+  available: boolean;
+  free_bytes: number | null;
+  total_bytes: number | null;
+  /** The host filesystem as the launcher read it (apfs, hfs, exfat, ...). */
+  filesystem: string | null;
+  warnings: StorageWarning[];
+  marker: MarkerStatus | null;
+  stores: string[];
+  slot: string | null;
+  databases: number | null;
+}
+
+/** The data folder's storage marker against the metadata; `message` explains a status that refuses writes. */
+export interface StorageMarker {
+  status: MarkerStatus;
+  disk_id: string | null;
+  recorded_id: string | null;
+  backups: number;
+  message: CodedMessage | null;
+  text: string | null;
+}
+
+export type BackupKind = "auto" | "manual" | "pre-restore";
+
+export interface MetadataBackups {
+  folder: string;
+  host_folder: string | null;
+  count: number;
+  files: { name: string; kind: BackupKind; created_at: string; size_bytes: number }[];
+  last_result: { result: "ok" | "failed"; kind: BackupKind | null; at: string; detail: string | null } | null;
+  /** A backup asked for and not yet made. */
+  pending_since: string | null;
+  interval_hours: number;
+  keep: number;
+}
+
 export interface StorageCapacity {
   storage_root: string;
   free_bytes: number;
@@ -846,6 +894,12 @@ export interface StorageCapacity {
   available_for_data_bytes: number;
   /** 2 when browser uploads are buffered on the same disk and so need twice their size while received. */
   upload_overhead_factor: 1 | 2;
+  /** The data folder on this computer, when known. */
+  data_host_path?: string | null;
+  marker?: StorageMarker | null;
+  locations?: StorageLocation[];
+  backups?: MetadataBackups | null;
+  in_container?: boolean;
 }
 
 export interface ImportRoot {
@@ -1662,6 +1716,11 @@ export interface ReferenceDatabase {
   archive: Record<string, unknown> | null;
   catalogue_version: string | null;
   jobs_using: number;
+  /** False while its folder cannot be read (most often: its disk is not connected); the database is kept. */
+  available?: boolean;
+  unavailable_reason?: "disk_not_connected" | "folder_missing" | null;
+  /** The folder on this computer, when ARVA knows it. */
+  host_path?: string | null;
   log_text: string | null;
 }
 

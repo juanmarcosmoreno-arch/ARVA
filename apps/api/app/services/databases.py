@@ -3,7 +3,9 @@
 Nothing is downloaded without an explicit confirmation of the archive's size and licence, and only from the
 catalogue's official URL. Downloads and verifications run in the worker; this module validates requests, plans the
 disk space and records the state. Databases ARVA installed live in ARVA_DB_DIR and may be deleted by ARVA; a
-registered folder is only read and never deleted.
+registered folder (in ARVA_DB_DIR, an import folder or an added database folder, ARVA_EXTERNAL_DB_ROOTS) is only
+read and never deleted. A database whose folder is on a disk that is not connected is shown as unavailable: it is
+neither verified nor used nor deleted until the disk is back.
 """
 from __future__ import annotations
 
@@ -50,6 +52,31 @@ class DatabaseStateError(RuntimeError):
     """The database's state does not allow the request (409)."""
 
 
+class DatabaseUnavailableError(DatabaseStateError):
+    """The database's folder cannot be read now (409), most often because its disk is not connected."""
+
+    def __init__(self, record: ReferenceDatabase, reason: str):
+        from app.services.locations import to_host
+
+        self.code = "database_unavailable"
+        self.params = {"name": record.name, "path": to_host(record.path) or record.path or "?", "reason": reason}
+        cause = "its disk is not connected" if reason == "disk_not_connected" else "the folder is missing"
+        super().__init__(f"{record.name} cannot be used now: {cause} ({self.params['path']}). Connect the disk and "
+                         "start ARVA again; the database is kept as it is.")
+
+
+class DatabaseFolderUnavailable(DatabaseError):
+    """The database folder (ARVA_DB_DIR) cannot be used now (503): its disk is not connected."""
+
+    def __init__(self, root: Path):
+        from app.services.locations import to_host
+
+        self.code = "databases_unavailable"
+        self.params = {"path": to_host(str(root)) or str(root)}
+        super().__init__(f"The database folder {self.params['path']} is not available: its disk is probably not "
+                         "connected. Connect it and start ARVA again (scripts/start.sh); nothing was written.")
+
+
 class DatabaseSpaceError(ValueError):
     """Not enough free space in ARVA_DB_DIR (507)."""
 
@@ -65,8 +92,17 @@ def now() -> datetime:
 
 
 def databases_dir() -> Path:
+    """ARVA_DB_DIR, created only when its parent exists (a folder on a disk that is not connected must not be
+    created on the internal disk instead)."""
     root = get_settings().databases_dir.resolve()
-    root.mkdir(parents=True, exist_ok=True)
+    try:
+        if not root.is_dir():
+            if not root.parent.is_dir():
+                raise DatabaseFolderUnavailable(root)
+            root.mkdir(exist_ok=True)
+        os.stat(root)
+    except OSError as exc:
+        raise DatabaseFolderUnavailable(root) from exc
     return root
 
 
@@ -247,17 +283,23 @@ def start_download(db: Session, key: str, confirm_bytes: int, accept_licence: bo
 # --- Registration -----------------------------------------------------------------------------------------------
 
 def _allowed_roots() -> list[Path]:
-    return [databases_dir(), *(Path(os.path.realpath(p)) for p in get_settings().import_roots)]
+    s = get_settings()
+    return [databases_dir(), *(Path(os.path.realpath(p)) for p in (*s.import_roots, *s.external_db_roots))]
 
 
 def resolve_registration_path(raw: str) -> Path:
+    """The folder to register: an absolute path inside ARVA_DB_DIR, an import folder or an added database folder,
+    given as ARVA sees it or as on this computer (scripts/start.sh passes the host paths), links resolved."""
+    from app.services.locations import from_host, to_host
+
     if not raw or len(raw) > _MAX_PATH or "\x00" in raw or not os.path.isabs(raw):
         raise DatabaseError("give the absolute path of the database folder")
-    path = Path(os.path.realpath(raw))
+    path = Path(os.path.realpath(from_host(raw)))
     roots = _allowed_roots()
     if not any(path == r or r in path.parents for r in roots):
-        raise DatabaseError(f"{path} is outside the folders ARVA may read databases from: "
-                            f"{', '.join(str(r) for r in roots)} (ARVA_DB_DIR and ARVA_IMPORT_ROOTS)")
+        shown = ", ".join(f"{to_host(str(r)) or r}" for r in roots)
+        raise DatabaseError(f"{path} is outside the folders ARVA may read databases from: {shown} (the database "
+                            "folder, the import folders and the folders added with scripts/start.sh --add-databases)")
     internal = databases_dir()
     if any(path == internal / d or internal / d in path.parents for d in (DOWNLOADS, STAGING)):
         raise DatabaseError("that folder holds ARVA's partial downloads")
@@ -298,10 +340,29 @@ def register(db: Session, raw_path: str) -> ReferenceDatabase:
 
 # --- Verification, cancellation, deletion -----------------------------------------------------------------------
 
+def availability(record: ReferenceDatabase) -> tuple[bool, str | None]:
+    """Whether an installed or registered database's folder can be read now, and if not why (disk_not_connected or
+    folder_missing). Other states have no folder to check."""
+    from app.services.locations import folder_available, unavailable_reason
+
+    if record.status not in USABLE or not record.path:
+        return True, None
+    if folder_available(record.path):
+        return True, None
+    return False, unavailable_reason(record.path)
+
+
+def require_available(record: ReferenceDatabase) -> None:
+    available, reason = availability(record)
+    if not available:
+        raise DatabaseUnavailableError(record, reason or "folder_missing")
+
+
 def start_verify(db: Session, record_id: str) -> ReferenceDatabase:
     from app.tasks.databases import run_database_verify
 
     record = _get(db, record_id, lock=True)
+    require_available(record)
     if record.status in BUSY:
         raise DatabaseStateError(f"this database is {record.status.value}; wait or cancel first")
     if record.status is DatabaseStatus.cancelled and not record.checksum:
@@ -381,6 +442,8 @@ def delete(db: Session, record_id: str) -> None:
     if n := jobs_using(db, record.id):
         raise DatabaseStateError(f"{n} queued or running job(s) use this database; wait for them or cancel them")
     if record.origin is DatabaseOrigin.download:
+        # Deleting the record of an installed database whose disk is missing would leave its files behind unseen.
+        require_available(record)
         if (folder := _owned_folder(record.path)) is not None:
             if folder.exists():
                 shutil.rmtree(folder)
@@ -420,6 +483,7 @@ def record_use(job: AnalysisJob, record: ReferenceDatabase) -> None:
     """Record on a job the database it reads: key, name, version and content checksum (kept after deletion)."""
     if record.status not in USABLE or not record.checksum:
         raise DatabaseStateError(f"{record.name} cannot be used: it is {record.status.value}")
+    require_available(record)
     job.reference_database_id = record.id
     job.database_key, job.database_name = record.key, record.name
     job.database_version, job.database_checksum = record.version, record.checksum

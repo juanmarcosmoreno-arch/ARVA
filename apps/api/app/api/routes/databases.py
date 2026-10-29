@@ -17,6 +17,7 @@ from app.schemas.schemas import (
 )
 from app.services import database_catalogue as catalogue
 from app.services import databases as svc
+from app.services.locations import to_host
 
 router = APIRouter(tags=["databases"])
 
@@ -28,6 +29,7 @@ def _entry(e: catalogue.CatalogueEntry) -> CatalogueEntryRead:
 def _read(db: Session, r: ReferenceDatabase, log: bool = False) -> ReferenceDatabaseRead:
     details = r.details or {}
     known = catalogue.BY_KEY.get(r.key)
+    available, reason = svc.availability(r)
     out = ReferenceDatabaseRead.model_validate(r)
     return out.model_copy(update={
         "version_json": details.get("version_json"),
@@ -36,8 +38,15 @@ def _read(db: Session, r: ReferenceDatabase, log: bool = False) -> ReferenceData
         "archive": details.get("archive"),
         "catalogue_version": known.version if known else None,
         "jobs_using": svc.jobs_using(db, r.id),
+        "available": available,
+        "unavailable_reason": reason,
+        "host_path": to_host(r.path),
         "log_text": r.log_text if log else None,
     })
+
+
+def _coded(code: int, exc: Exception) -> JSONResponse:
+    return JSONResponse(status_code=code, content={"detail": str(exc), "code": exc.code, "params": exc.params})
 
 
 def _errors(exc: Exception):
@@ -46,6 +55,16 @@ def _errors(exc: Exception):
     if isinstance(exc, svc.DatabaseStateError):
         return HTTPException(status.HTTP_409_CONFLICT, str(exc))
     return HTTPException(status.HTTP_400_BAD_REQUEST, str(exc))
+
+
+def _refusal(exc: Exception):
+    """A coded refusal (the database's disk or the database folder is not available) as JSON with its code; the
+    others as before."""
+    if isinstance(exc, svc.DatabaseUnavailableError):
+        return _coded(status.HTTP_409_CONFLICT, exc)
+    if isinstance(exc, svc.DatabaseFolderUnavailable):
+        return _coded(status.HTTP_503_SERVICE_UNAVAILABLE, exc)
+    raise _errors(exc) from exc
 
 
 def _space(exc: svc.DatabaseSpaceError) -> JSONResponse:
@@ -64,6 +83,8 @@ def download_plan(key: str, db: Session = Depends(get_db)):
     """What downloading this database needs now: bytes to fetch, room for unpacking, free space, licence, source."""
     try:
         plan = svc.plan_download(db, key)
+    except svc.DatabaseFolderUnavailable as exc:
+        return _coded(status.HTTP_503_SERVICE_UNAVAILABLE, exc)
     except (LookupError, svc.DatabaseError) as exc:
         raise HTTPException(status.HTTP_404_NOT_FOUND if isinstance(exc, LookupError) else 400, str(exc)) from exc
     return DownloadPlanRead(**{**asdict(plan), "entry": _entry(plan.entry)})
@@ -77,7 +98,10 @@ def list_databases(db: Session = Depends(get_db)):
 
 @router.get("/databases/usage", response_model=DatabaseUsageRead)
 def disk_usage(db: Session = Depends(get_db)):
-    return svc.usage(db)
+    try:
+        return svc.usage(db)
+    except svc.DatabaseFolderUnavailable as exc:
+        return _coded(status.HTTP_503_SERVICE_UNAVAILABLE, exc)
 
 
 @router.get("/databases/{record_id}", response_model=ReferenceDatabaseRead)
@@ -98,17 +122,18 @@ def start_download(payload: DatabaseDownloadRequest, db: Session = Depends(get_d
     except svc.DatabaseSpaceError as exc:
         return _space(exc)
     except (LookupError, svc.DatabaseError, svc.DatabaseStateError) as exc:
-        raise _errors(exc) from exc
+        return _refusal(exc)
 
 
 @router.post("/databases/register", response_model=ReferenceDatabaseRead, status_code=status.HTTP_202_ACCEPTED)
 def register_database(payload: DatabaseRegisterRequest, db: Session = Depends(get_db)):
-    """Register an existing Bakta database folder (inside ARVA_DB_DIR or an import folder) after Bakta's own checks;
-    the worker then records the SHA-256 of every file. ARVA never modifies or deletes a registered folder."""
+    """Register an existing Bakta database folder (inside ARVA_DB_DIR, an import folder or a folder added with
+    scripts/start.sh --add-databases; the path may be given as on this computer) after Bakta's own checks; the worker
+    then records the SHA-256 of every file. ARVA never modifies or deletes a registered folder."""
     try:
         return _read(db, svc.register(db, payload.path))
     except (svc.DatabaseError, svc.DatabaseStateError) as exc:
-        raise _errors(exc) from exc
+        return _refusal(exc)
 
 
 @router.post("/databases/{record_id}/verify", response_model=ReferenceDatabaseRead,
@@ -117,8 +142,8 @@ def verify_database(record_id: str, db: Session = Depends(get_db)):
     """Check the folder again: Bakta's folder check and every file against the SHA-256 recorded at installation."""
     try:
         return _read(db, svc.start_verify(db, record_id))
-    except (LookupError, svc.DatabaseStateError) as exc:
-        raise _errors(exc) from exc
+    except (LookupError, svc.DatabaseStateError, svc.DatabaseFolderUnavailable) as exc:
+        return _refusal(exc)
 
 
 @router.post("/databases/{record_id}/cancel", response_model=ReferenceDatabaseRead,
@@ -137,6 +162,6 @@ def delete_database(record_id: str, db: Session = Depends(get_db)):
     it is downloading or verifying, or while a queued or running job uses it."""
     try:
         svc.delete(db, record_id)
-    except (LookupError, svc.DatabaseStateError) as exc:
-        raise _errors(exc) from exc
+    except (LookupError, svc.DatabaseStateError, svc.DatabaseFolderUnavailable) as exc:
+        return _refusal(exc)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

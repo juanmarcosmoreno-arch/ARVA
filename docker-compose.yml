@@ -1,12 +1,17 @@
 # ARVA local deployment. All ports bind to 127.0.0.1 only: ARVA is not exposed
 # to the network by default. Open http://localhost:8080 after `docker compose up`.
+#
+# Projects, databases and imports live in Docker volumes (and import/ next to this file). To keep them in host
+# folders, for example on an external disk, start ARVA with scripts/start.sh --data-dir ... --databases-dir ...:
+# it checks each folder and adds them in a generated override file as bind mounts that Docker refuses to start
+# without (create_host_path: false), so a missing disk never gets an empty folder on the internal disk instead.
 name: arva
 
 x-arva-env: &arva-env
   ARVA_DATABASE_URL: postgresql+psycopg://arva:${ARVA_DB_PASSWORD:-arva_local_only}@postgres:5432/arva
   ARVA_REDIS_URL: redis://redis:6379/0
   ARVA_STORAGE_ROOT: /data
-  # Reference databases (Database Manager): a named volume, or a host folder with ARVA_DATABASES_DIR.
+  # Reference databases (Database Manager): a named volume, or a host folder chosen with scripts/start.sh.
   ARVA_DB_DIR: /databases
   ARVA_CORS_ORIGINS: '["http://localhost:8080"]'
   # Host folder mounted read-only at /import for server-side import (see import/README.md).
@@ -31,6 +36,16 @@ x-arva-env: &arva-env
   ARVA_HOST_ARCH: ${ARVA_HOST_ARCH:-}
   ARVA_HOST_DOCKER_CPUS: ${ARVA_HOST_DOCKER_CPUS:-}
   ARVA_HOST_DOCKER_MEMORY_BYTES: ${ARVA_HOST_DOCKER_MEMORY_BYTES:-}
+  # The host folders scripts/start.sh mounted and their filesystems, shown in Settings → Storage (empty: a Docker volume).
+  ARVA_HOST_DATA_DIR: ${ARVA_HOST_DATA_DIR:-}
+  ARVA_HOST_DATA_FS: ${ARVA_HOST_DATA_FS:-}
+  ARVA_HOST_DATABASES_DIR: ${ARVA_HOST_DATABASES_DIR:-}
+  ARVA_HOST_DATABASES_FS: ${ARVA_HOST_DATABASES_FS:-}
+  ARVA_HOST_IMPORT_DIR: ${ARVA_HOST_IMPORT_DIR:-}
+  ARVA_HOST_IMPORT_FS: ${ARVA_HOST_IMPORT_FS:-}
+  # Metadata backups (the backup service below), shown in Settings → Storage.
+  ARVA_BACKUP_INTERVAL_HOURS: ${ARVA_BACKUP_INTERVAL_HOURS:-24}
+  ARVA_BACKUP_KEEP: ${ARVA_BACKUP_KEEP:-14}
 
 services:
   postgres:
@@ -61,9 +76,9 @@ services:
     image: arva-api:0.2.0
     environment: *arva-env
     volumes:
-      - ${ARVA_DATA_DIR:-arva-data}:/data
-      - ${ARVA_DATABASES_DIR:-arva-databases}:/databases
-      - ${ARVA_IMPORT_DIR:-./import}:/import:ro
+      - arva-data:/data
+      - arva-databases:/databases
+      - ./import:/import:ro
     depends_on:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
@@ -80,10 +95,40 @@ services:
     command: ["python", "/opt/arva/apps/workers/run_worker.py"]
     environment: *arva-env
     volumes:
-      - ${ARVA_DATA_DIR:-arva-data}:/data
-      - ${ARVA_DATABASES_DIR:-arva-databases}:/databases
-      - ${ARVA_IMPORT_DIR:-./import}:/import:ro
+      - arva-data:/data
+      - arva-databases:/databases
+      - ./import:/import:ro
     depends_on:
+      api: { condition: service_healthy }
+    restart: unless-stopped
+
+  # Metadata backups: pg_dump of ARVA's database into <data folder>/backups every ARVA_BACKUP_INTERVAL_HOURS and when
+  # asked in Settings → Storage, keeping the newest ARVA_BACKUP_KEEP of each kind (scripts/metadata-backup.sh). The
+  # database itself stays in the postgres-data volume (docs/installation.md, External disk); these backups make the
+  # data folder self-contained, and scripts/restore.sh brings one back. Same image as the database, so pg_dump
+  # matches the server's version; it starts after the API, which creates the data folder's backups/ folder.
+  backup:
+    image: postgres:16.4-alpine
+    entrypoint: ["sh", "/opt/arva/metadata-backup.sh"]
+    command: ["loop"]
+    environment:
+      PGHOST: postgres
+      PGUSER: arva
+      PGPASSWORD: ${ARVA_DB_PASSWORD:-arva_local_only}
+      PGDATABASE: arva
+      ARVA_BACKUP_DIR: /data/backups
+      ARVA_BACKUP_INTERVAL_HOURS: ${ARVA_BACKUP_INTERVAL_HOURS:-24}
+      ARVA_BACKUP_KEEP: ${ARVA_BACKUP_KEEP:-14}
+    volumes:
+      - arva-data:/data
+      - type: bind
+        source: ./scripts/metadata-backup.sh
+        target: /opt/arva/metadata-backup.sh
+        read_only: true
+        bind:
+          create_host_path: false
+    depends_on:
+      postgres: { condition: service_healthy }
       api: { condition: service_healthy }
     restart: unless-stopped
 

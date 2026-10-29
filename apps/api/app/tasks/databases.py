@@ -63,6 +63,10 @@ class UnsafeArchive(TaskFailure):
     pass
 
 
+class DiskNotConnected(TaskFailure):
+    """The folder's disk is not connected: the database keeps the status it had (it is not marked failed)."""
+
+
 class Task:
     def __init__(self, db: Session, record: ReferenceDatabase):
         self.db = db
@@ -130,7 +134,7 @@ def _run(record_id: str, expected: DatabaseStatus, body: Callable[[Task], None],
                 task.log("Cancelled at the user's request")
             else:
                 expected_failure = isinstance(exc, TaskFailure | svc.DatabaseError)
-                record.status = DatabaseStatus.failed
+                record.status = svc.end_status(record) if isinstance(exc, DiskNotConnected) else DatabaseStatus.failed
                 record.error_message = str(exc) if expected_failure else f"{type(exc).__name__}: {exc}"
                 code = getattr(exc, "code", None)
                 record.error_detail = {"code": code, "params": exc.params} if code else None
@@ -511,7 +515,13 @@ def _verify(task: Task) -> None:
     r = task.record
     folder = Path(r.path or "")
     if not folder.is_dir():
-        raise TaskFailure(f"the database folder {folder} no longer exists", "folder_missing", folder=str(folder))
+        from app.services.locations import to_host, unavailable_reason
+
+        shown = to_host(str(folder)) or str(folder)
+        if unavailable_reason(str(folder)) == "disk_not_connected":
+            raise DiskNotConnected(f"the disk of the database folder {shown} is not connected; the database was not "
+                                   "checked and is kept as it is", "disk_not_connected", folder=shown)
+        raise TaskFailure(f"the database folder {shown} no longer exists", "folder_missing", folder=shown)
     info = svc.check_bakta_dir(folder)
     if r.version and svc.bakta_version(info) != r.version:
         raise TaskFailure(f"version.json now says {svc.bakta_version(info)}; this database was recorded as "

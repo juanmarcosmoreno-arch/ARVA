@@ -6,7 +6,8 @@ large runs (many gigabytes).
 
 With Docker Compose this folder is mounted **read-only** at `/import` in the `api` and `worker`
 containers, and `ARVA_IMPORT_ROOTS` is set to `["/import"]`. To use another host folder instead, set
-`ARVA_IMPORT_DIR=/absolute/path` in `.env` and run `docker compose up -d` again.
+start ARVA with `scripts/start.sh --import-dir /absolute/path` (it checks the folder, remembers it and mounts it
+read-only; see docs/installation.md, External disk).
 
 In ARVA: **Import Data → Import from a server folder**, choose the project and sample, tick the files
 and start the import. ARVA then:

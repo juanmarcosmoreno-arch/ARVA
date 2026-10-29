@@ -1,4 +1,5 @@
 import { translator } from "@/i18n";
+import { messageText } from "@/lib/messages";
 import { useSettings } from "@/store/settings";
 import type {
   Annotation,
@@ -65,6 +66,7 @@ import type {
   ReferenceDatabase,
   Sample,
   SampleInput,
+  MetadataBackups,
   StorageCapacity,
   Tool,
   UploadResult,
@@ -78,9 +80,20 @@ export class ApiError extends Error {
   }
 }
 
+/** A refusal the API names with a code (`{detail, code, params}`, e.g. a disk that is not connected), in the interface
+ * language when this version knows the code (`api.error.<code>`); otherwise the server's English text. */
+export function codedError(body: unknown): string | null {
+  const b = body as { detail?: unknown; code?: unknown; params?: unknown } | null;
+  if (!b || typeof b.code !== "string" || typeof b.detail !== "string") return null;
+  const params = (b.params && typeof b.params === "object" ? b.params : {}) as Record<string, string | number>;
+  return messageText(translator(useSettings.getState().language), "api.error", { code: b.code, params, text: b.detail });
+}
+
 async function errorMessage(res: Response): Promise<string> {
   try {
     const body = await res.json();
+    const coded = codedError(body);
+    if (coded) return coded;
     if (typeof body.detail === "string") return body.detail;
     if (typeof body.detail?.message === "string") return body.detail.message;
     if (Array.isArray(body.detail)) {
@@ -127,7 +140,7 @@ function uploadFiles(sampleId: string, files: File[], onProgress?: (p: UploadPro
     xhr.upload.onprogress = (e) => onProgress?.({ loaded: e.loaded, total: e.total });
     xhr.onload = () => {
       if (xhr.status >= 200 && xhr.status < 300) resolve(xhr.response as UploadResult);
-      else reject(new ApiError(xhr.status, xhr.response?.detail ?? translator(useSettings.getState().language)("import.uploadFailed", { status: xhr.status })));
+      else reject(new ApiError(xhr.status, codedError(xhr.response) ?? xhr.response?.detail ?? translator(useSettings.getState().language)("import.uploadFailed", { status: xhr.status })));
     };
     xhr.onerror = () => reject(new ApiError(0, translator(useSettings.getState().language)("import.networkError")));
     xhr.send(form);
@@ -181,6 +194,8 @@ export const api = {
   uploadFiles,
 
   storage: () => request<StorageCapacity>("/system/storage"),
+  adoptStorage: () => request<StorageCapacity>("/system/storage/adopt", json("POST", { confirm: true })),
+  requestBackup: () => request<MetadataBackups>("/system/backups", { method: "POST" }),
   performance: () => request<PerformanceOverview>("/system/performance"),
   setPerformance: (body: PerformanceUpdate) => request<PerformanceOverview>("/system/performance", json("PUT", body)),
   importRoots: () => request<ImportRoot[]>("/imports/roots"),

@@ -179,6 +179,33 @@ Reference databases are outside the storage root's layout, in `ARVA_DB_DIR`:
 `StorageBackend` is a protocol so an S3-compatible backend can replace `LocalStorage` later.
 Sequencing data are never stored in PostgreSQL.
 
+### Storage locations and external disks
+
+`app/services/locations.py` describes every folder ARVA uses: the data folder (`ARVA_STORAGE_ROOT`, with
+`backups/`), the database folder (`ARVA_DB_DIR`), the import folders (`ARVA_IMPORT_ROOTS`, read-only) and the
+added database folders (`ARVA_EXTERNAL_DB_ROOTS`, read-only, used in place). With Docker, `scripts/start.sh`
+chooses and remembers host folders (`~/.config/arva/arva.conf`, read line by line, never sourced), checks them
+(`scripts/lib/arva-locations.sh`: existing, writable, still on the disk they were chosen on, filesystem via
+`diskutil`, free space via `df -Pk`) and mounts them through a generated Compose override as bind mounts with
+`create_host_path: false` at `/data`, `/databases`, `/import` and `/databases-external/<cksum of the path>`; the
+host paths reach the API as `ARVA_HOST_*` strings for display only. Neither the settings nor the storage layer
+create a missing data or database folder whose parent is missing (a disconnected disk).
+
+```
+<data folder>/.arva-storage            {"id": …}: ties the folder to the metadata (app_settings "storage")
+<data folder>/backups/arva-metadata-<auto|manual|pre-restore>-<UTC>.dump   pg_dump -Fc archives
+<data folder>/backups/.last-result     outcome of the last backup (KEY=VALUE)
+<data folder>/backups/.request         a backup asked for in Settings → Storage
+```
+
+The marker is checked at start-up, by an ASGI middleware before every API write (`app/api/storage_guard.py`: 503
+with `{detail, code, params}`; `/system/…` stays usable) and by `run_job` before a job starts (`storage_unavailable`,
+nothing written, not even the log file) and after a failure (`storage_lost`). PostgreSQL itself stays in a Docker
+volume; the `backup` service (`scripts/metadata-backup.sh` in the postgres image) dumps it into the data folder,
+and `scripts/restore.sh` restores a dump into a new database before replacing the current one. Reference
+databases whose folder is unavailable are reported per record (`available`, `unavailable_reason`) and are not
+verified, used or deleted.
+
 ## Jobs
 
 Endpoints create `AnalysisJob` rows (status `pending`, with the tool version detected at that moment)
@@ -370,7 +397,14 @@ them), and the UI opens the report in a new tab with `rel="noopener noreferrer"`
   file, symbolic links must be relative and stay inside the folder and are created last (never under
   another link), so nothing is written through a link. Registration accepts only absolute paths whose
   real path lies inside `ARVA_DB_DIR` or an import folder; deletion removes files only of a database ARVA
-  installed, strictly inside `ARVA_DB_DIR`.
+  installed, strictly inside `ARVA_DB_DIR`. Registration may also read added database folders
+  (`ARVA_EXTERNAL_DB_ROOTS`), mounted read-only; a path given as on the host is translated to the mount
+  before the same real-path check.
+- Storage locations come from the launcher's saved settings, read line by line (never sourced or evaluated) from a
+  mode-600 file of the user; every folder is checked before Docker starts, reaches the Compose override only as a
+  `${VARIABLE}` reference, and is mounted with `create_host_path: false`, so a missing disk stops the start instead
+  of a folder being created on the internal disk. Writes and jobs stop when the data folder's storage marker is
+  missing or foreign. The backup service has no Docker socket; ARVA asks it for a backup through a file.
 - User-supplied text is HTML-escaped in reports; the React UI never injects raw HTML from data.
 - External tools run from argument vectors only (no shell), with a credential-free environment,
   timeouts and process-group termination. User-supplied names appear in commands only inside

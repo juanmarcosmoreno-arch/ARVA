@@ -5,6 +5,7 @@ import { ErrorNote, Skeleton } from "@/components/ui/misc";
 import { useT } from "@/i18n";
 import { api } from "@/lib/api";
 import { fmtBytes } from "@/lib/format";
+import { markerMessage, markerWritable } from "@/lib/storage";
 import { cn } from "@/lib/utils";
 
 export function StorageCard() {
@@ -24,6 +25,12 @@ export function StorageCard() {
         ) : (
           s && (
             <>
+              {s.marker && !markerWritable(s.marker) && (
+                <div role="alert" className="rounded-lg border border-danger/30 bg-danger/5 px-3 py-2 text-xs text-danger">
+                  <p>{markerMessage(t, s.marker)}</p>
+                  <p className="mt-1 text-muted-foreground">{t("storage.unavailableCard")}</p>
+                </div>
+              )}
               <div>
                 <div className="font-medium tabular-nums">{t("storage.freeOfTotal", { free: fmtBytes(s.free_bytes), total: fmtBytes(s.total_bytes) })}</div>
                 <div
@@ -43,7 +50,7 @@ export function StorageCard() {
               </div>
               <p className="text-xs text-muted-foreground">{t("storage.reserve", { reserve: fmtBytes(s.min_free_bytes) })}</p>
               {s.upload_overhead_factor > 1 && <p className="text-xs text-muted-foreground">{t("storage.bufferNote")}</p>}
-              <code className="block break-all rounded-md bg-muted px-2 py-1 text-[11px] text-muted-foreground">{s.storage_root}</code>
+              <code className="block break-all rounded-md bg-muted px-2 py-1 text-[11px] text-muted-foreground">{s.data_host_path ?? s.storage_root}</code>
             </>
           )
         )}

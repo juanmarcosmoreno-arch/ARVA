@@ -1,4 +1,6 @@
 import json
+import logging
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request, status
 from fastapi.encoders import jsonable_encoder
@@ -26,7 +28,9 @@ from app.api.routes import (
     system,
     tools,
 )
+from app.api.storage_guard import StorageGuard, storage_unavailable_response
 from app.core.config import get_settings
+from app.services import locations
 from app.services.capacity import InsufficientStorageError
 from app.services.import_roots import ImportPathError
 from app.storage.local import StoragePathError
@@ -42,16 +46,33 @@ class _EscapingJSONResponse(JSONResponse):
             return json.dumps(content, allow_nan=False, separators=(",", ":")).encode("ascii")
 
 
+logger = logging.getLogger("arva")
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    # A data folder used for the first time gets its storage marker now; a missing or foreign one is reported here
+    # and refused at every write.
+    try:
+        locations.ensure_data()
+    except locations.StorageUnavailable as exc:
+        logger.warning("%s", exc)
+    yield
+
+
 def create_app() -> FastAPI:
     settings = get_settings()
     app = FastAPI(
         title="ARVA API",
         description="ARVA — Integrated Genomic Discovery Platform. From sequence to insight.",
         version=__version__,
+        lifespan=lifespan,
     )
-    # Added before CORS so that CORS stays outermost and also wraps the 507 responses.
+    # Added before CORS so that CORS stays outermost and also wraps the 507 and 503 responses; the storage guard is
+    # outside the capacity checks, so that a missing disk is reported as such rather than as a lack of space.
     app.add_middleware(UploadCapacityGuard, api_prefix=settings.api_v1_prefix)
     app.add_middleware(MetadataUploadLimit, api_prefix=settings.api_v1_prefix)
+    app.add_middleware(StorageGuard, api_prefix=settings.api_v1_prefix)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,
@@ -76,9 +97,17 @@ def create_app() -> FastAPI:
     async def insufficient_storage(_: Request, exc: InsufficientStorageError):
         return insufficient_storage_response(exc)
 
+    @app.exception_handler(locations.StorageUnavailable)
+    async def storage_unavailable(_: Request, exc: locations.StorageUnavailable):
+        return storage_unavailable_response(exc)
+
     @app.get("/health", tags=["system"])
     def health():
-        return {"status": "ok", "version": __version__}
+        """Always 200 while the API runs (the container health check); "degraded" when the data folder cannot be
+        written now, with the reason in `storage` (Settings → Storage explains it)."""
+        storage = locations.health()
+        return {"status": "ok" if storage in ("ok", "new") else "degraded", "version": __version__,
+                "storage": storage}
 
     for module in (dashboard, projects, samples, files, imports, metadata, analyses, tools, reports, overview,
                    assemblies, annotations, explorer, databases, system):

@@ -208,7 +208,7 @@ export function AnnotationDialog({
 type T = ReturnType<typeof useT>;
 
 function problemText(t: T, x: { code: string; message: string }) {
-  const known = ["no_database", "tool_unavailable", "nothing_to_annotate", "contig_names", "programs_missing"];
+  const known = ["no_database", "database_unavailable", "tool_unavailable", "nothing_to_annotate", "contig_names", "programs_missing"];
   return known.includes(x.code) ? `${t(`annotation.planProblem.${x.code}` as "annotation.planProblem.no_database")} (${x.message})` : x.message;
 }
 

@@ -262,13 +262,19 @@ def test_a_server_that_ignores_ranges_is_downloaded_again_from_the_start(client,
     assert "ignored the range request" in _record(client, first["id"])["log_text"]
 
 
-def test_cancelling_a_running_download_keeps_the_partial_file_for_resuming(client, serve, monkeypatch):
+def test_cancelling_a_running_download_keeps_the_partial_file_for_resuming(client, serve, monkeypatch, storage_root):
     server = serve()
     monkeypatch.setattr(tasks, "CHUNK", 64)
     monkeypatch.setattr(tasks, "TICK_SECONDS", 0.0)
     server.pause_at = len(server.data) // 2
 
     def cancel_now():
+        # Only once the worker has written some bytes, so that the test does not depend on how fast the database
+        # connection below opens.
+        deadline = time.monotonic() + 5
+        parts = storage_root / "databases" / ".arva-downloads"
+        while time.monotonic() < deadline and not any(p.stat().st_size for p in parts.rglob("*.part")):
+            time.sleep(0.01)
         with engine.begin() as conn:
             conn.execute(text("UPDATE reference_databases SET cancel_requested_at = now()"))
 

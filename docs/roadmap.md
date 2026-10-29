@@ -293,6 +293,24 @@ as inline SVG (escaped names), a sequence table and the charts' numbers; the JSO
 - The circular map has no zoom (the linear view is for detail) and draws at most 50,000 features per map; contigs of a
   draft assembly on one circle are in the annotator's order, not in genome order.
 
+## External storage (5A) ✅
+
+- `scripts/start.sh --data-dir / --databases-dir / --add-databases (repeatable) / --remove-databases / --import-dir /
+  --show-config / --reset-config`, saved in `~/.config/arva/arva.conf` (mode 600, read line by line, never sourced);
+  each folder checked (absolute, existing, readable/writable, still on the disk it was chosen on; on a Mac the
+  filesystem through `diskutil info -plist`, exFAT/FAT warned about; free space with `df -Pk`); a missing disk stops
+  the start; a generated Compose override mounts the folders with `create_host_path: false` (extra database folders
+  read-only at `/databases-external/<n>`).
+- PostgreSQL stays in its Docker volume; the `backup` service dumps the metadata (pg_dump custom format) into
+  `<data folder>/backups` every 24 h, on request and before a restore, keeping 14 of each kind; `scripts/restore.sh`
+  restores into a new database before replacing the current one; `scripts/backup.sh`.
+- Storage marker `.arva-storage` recorded in the metadata: writes refused with coded 503s and jobs failing with
+  `storage_unavailable`/`storage_lost` when the data folder is missing or foreign; adoption or restore when the
+  metadata is new; databases on a disconnected disk shown as unavailable and kept.
+- `GET /system/storage` (every location), `POST /system/storage/adopt`, `POST /system/backups`; Settings → Storage
+  (EN/ES) with the launcher commands; the Import page's storage card shows the folder on the Mac.
+- Not yet validated on a real Mac (macOS commands tested with constructed outputs); the Docker image was not built.
+
 ## Performance profiles (P1) ✅
 
 - Host detection (`app/services/host.py`): usable CPUs (affinity, cgroup v2/v1 quota), memory (cgroup limit or
