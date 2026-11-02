@@ -17,6 +17,7 @@ from app.models.reference_database import (
 )
 from app.models.sample import Sample, SequencingTechnology
 from app.models.species_result import SpeciesResult
+from app.models.typing_result import TypingResult
 from app.models.virulence_result import VirulenceResult
 
 __all__ = [
@@ -44,6 +45,7 @@ __all__ = [
     "Sample",
     "SequencingTechnology",
     "SpeciesResult",
+    "TypingResult",
     "VersionSource",
     "VirulenceResult",
 ]

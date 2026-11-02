@@ -16,6 +16,7 @@ import { AnnotationTab } from "@/components/annotation/AnnotationTab";
 import { GenomicTab } from "@/components/genomic/GenomicTab";
 import { AmrDialog } from "@/components/genomic/AmrDialog";
 import { MobileDialog } from "@/components/genomic/MobileDialog";
+import { StaphTypingDialog } from "@/components/genomic/StaphTyping";
 import { VirulenceDialog } from "@/components/genomic/Virulence";
 import { MlstDialog } from "@/components/genomic/MlstDialog";
 import { SpeciesDialog } from "@/components/genomic/SpeciesDialog";
@@ -104,6 +105,7 @@ export function SampleDetailPage() {
   const [mlstOpen, setMlstOpen] = useState(false);
   const [amrOpen, setAmrOpen] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [typingOpen, setTypingOpen] = useState(false);
   const [virulenceOpen, setVirulenceOpen] = useState(false);
   const [speciesOpen, setSpeciesOpen] = useState(false);
   const assemblies = useQuery({
@@ -276,7 +278,7 @@ export function SampleDetailPage() {
         />
       )}
       {tab === "annotation" && <AnnotationTab sampleId={s.id} jobs={allJobs} onNew={() => setAnnotateOpen(true)} />}
-      {tab === "genomic" && <GenomicTab sampleId={s.id} jobs={allJobs} onMlst={() => setMlstOpen(true)} onSpecies={() => setSpeciesOpen(true)} onAmr={() => setAmrOpen(true)} onMobile={() => setMobileOpen(true)} onVirulence={() => setVirulenceOpen(true)} />}
+      {tab === "genomic" && <GenomicTab sampleId={s.id} jobs={allJobs} onMlst={() => setMlstOpen(true)} onSpecies={() => setSpeciesOpen(true)} onAmr={() => setAmrOpen(true)} onMobile={() => setMobileOpen(true)} onVirulence={() => setVirulenceOpen(true)} onTyping={() => setTypingOpen(true)} />}
       {tab === "history" && <HistoryTab jobs={jobs.data ?? []} files={files.data ?? []} openJob={params.get("job")} />}
       {tab === "metadata" && (
         <Card>
@@ -325,6 +327,7 @@ export function SampleDetailPage() {
       {mlstOpen && assemblies.data && <MlstDialog open={mlstOpen} onOpenChange={setMlstOpen} sampleId={s.id} assemblies={assemblies.data} />}
       {amrOpen && assemblies.data && <AmrDialog open={amrOpen} onOpenChange={setAmrOpen} sampleId={s.id} assemblies={assemblies.data} />}
       {mobileOpen && assemblies.data && <MobileDialog open={mobileOpen} onOpenChange={setMobileOpen} sampleId={s.id} assemblies={assemblies.data} />}
+      {typingOpen && assemblies.data && <StaphTypingDialog open={typingOpen} onOpenChange={setTypingOpen} sampleId={s.id} assemblies={assemblies.data} />}
       {virulenceOpen && assemblies.data && <VirulenceDialog open={virulenceOpen} onOpenChange={setVirulenceOpen} sampleId={s.id} assemblies={assemblies.data} />}
       {speciesOpen && assemblies.data && <SpeciesDialog open={speciesOpen} onOpenChange={setSpeciesOpen} sampleId={s.id} assemblies={assemblies.data} />}
     </div>

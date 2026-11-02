@@ -1,0 +1,31 @@
+                                                                                                                        
+ Usage: sccmec-main [OPTIONS]                                                                                           
+                                                                                                                        
+ sccmec - typing SCCmec cassettes in assemblies                                                                         
+                                                                                                                        
+╭─ Required Options ───────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ *  --input         -i   TEXT  Input file in FASTA format to classify [required]                                      │
+│ *  --yaml-targets  -yt  TEXT  YAML file documenting the targets and types [default:                                  │
+│                               <conda>/sccmec/bin/../share/sccmec/sccmec-targets.yaml] [required]     │
+│ *  --yaml-regions  -yr  TEXT  YAML file documenting the regions and types [default:                                  │
+│                               <conda>/sccmec/bin/../share/sccmec/sccmec-regions.yaml] [required]     │
+│ *  --targets       -t   TEXT  Query targets in FASTA format [default:                                                │
+│                               <conda>/sccmec/bin/../share/sccmec/sccmec-targets.fasta] [required]    │
+│ *  --regions       -r   TEXT  Query regions in FASTA format [default:                                                │
+│                               <conda>/sccmec/bin/../share/sccmec/sccmec-regions.fasta] [required]    │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+╭─ Filtering Options ──────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ --min-targets-pident    INTEGER  Minimum percent identity of targets to count a hit [default: 90]                    │
+│ --min-targets-coverage  INTEGER  Minimum percent coverage of targets to count a hit [default: 80]                    │
+│ --min-regions-pident    INTEGER  Minimum percent identity of regions to count a hit [default: 85]                    │
+│ --min-regions-coverage  INTEGER  Minimum percent coverage of regions to count a hit [default: 83]                    │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+╭─ Additional Options ─────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ --prefix   -p  TEXT  Prefix to use for output files [default: sccmec]                                                │
+│ --outdir   -o  PATH  Directory to write output [default: ./]                                                         │
+│ --force              Overwrite existing reports                                                                      │
+│ --verbose            Increase the verbosity of output                                                                │
+│ --silent             Only critical errors will be printed                                                            │
+│ --version            Print schema and camlhmp version                                                                │
+│ --help               Show this message and exit.                                                                     │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯

@@ -7,6 +7,7 @@ import { MetadataSection } from "@/components/domain/MetadataImport";
 import { ProjectAssemblies } from "@/components/domain/ProjectAssemblies";
 import { ProjectAmr } from "@/components/genomic/ProjectAmr";
 import { ProjectMobile } from "@/components/genomic/ProjectMobile";
+import { ProjectTyping } from "@/components/genomic/StaphTyping";
 import { ProjectMlst } from "@/components/genomic/ProjectMlst";
 import { ProjectBatchQc } from "@/components/domain/ProjectBatchQc";
 import { ProjectFormDialog } from "@/components/domain/ProjectFormDialog";
@@ -101,6 +102,7 @@ export function ProjectDetailPage() {
       {!!samples.data?.length && <ProjectMlst projectId={p.id} />}
       {!!samples.data?.length && <ProjectAmr projectId={p.id} />}
       {!!samples.data?.length && <ProjectMobile projectId={p.id} />}
+      {!!samples.data?.length && <ProjectTyping projectId={p.id} />}
       {!!samples.data?.length && <ProjectQcReport projectId={p.id} samples={samples.data} />}
       <MetadataSection projectId={p.id} />
 

@@ -111,9 +111,20 @@ export type GuideId =
   | "replicon"
   | "mobile_element"
   | "virulence_factor"
-  | "vfdb";
+  | "vfdb"
+  | "sccmec"
+  | "spa_typing"
+  | "agr"
+  | "staph_typing_summary";
 
 const REF = {
+  iwgscc2009: { label: "IWG-SCC (2009) Antimicrob Agents Chemother 53(12):4961–4967 — Classification of staphylococcal cassette chromosome mec (SCCmec): guidelines for reporting novel SCCmec elements", url: "https://doi.org/10.1128/AAC.00579-09" },
+  sccmecTool: { label: "sccmec — SCCmec typing of assemblies (R.A. Petit III; GitHub)", url: "https://github.com/rpetit3/sccmec" },
+  harmsen2003: { label: "Harmsen et al. (2003) J Clin Microbiol 41(12):5442–5448 — Typing of MRSA using novel software for spa repeat determination and database management", url: "https://doi.org/10.1128/JCM.41.12.5442-5448.2003" },
+  ridomPolicy: { label: "Ridom SpaServer — server policy (data use and citation)", url: "https://spa.ridom.de/policy.shtml" },
+  spatyper: { label: "spaTyper 0.3.3 (Zenodo)", url: "https://doi.org/10.5281/zenodo.4063625" },
+  agrvate2022: { label: "Raghuram et al. (2022) Microbiol Spectr 10(1) — Species-wide phylogenomics of the Staphylococcus aureus agr operon (AgrVATE)", url: "https://doi.org/10.1128/spectrum.01334-21" },
+  diep2006: { label: "Diep et al. (2006) Lancet 367:731–739 — Complete genome sequence of USA300, an epidemic clone of community-acquired MRSA", url: "https://pubmed.ncbi.nlm.nih.gov/16517273/" },
   mobsuite2018: { label: "Robertson & Nash (2018) Microb Genom 4(8):e000206 — MOB-suite: software tools for clustering, reconstruction and typing of plasmids from draft assemblies", url: "https://doi.org/10.1099/mgen.0.000206" },
   mobsuite2020: { label: "Robertson et al. (2020) Microb Genom 6(10):mgen000435 — Universal whole-sequence-based plasmid typing and its utility to prediction of host range", url: "https://doi.org/10.1099/mgen.0.000435" },
   carattoli2014: { label: "Carattoli et al. (2014) Antimicrob Agents Chemother 58(7):3895–3903 — In silico detection and typing of plasmids using PlasmidFinder and plasmid multilocus sequence typing", url: "https://doi.org/10.1128/AAC.02412-14" },
@@ -2674,6 +2685,124 @@ export const GUIDE: GuideEntry[] = [
       next: "Cita VFDB y ABRicate cuando publiques resultados de este análisis.",
       mistakes: ["Tomar la fecha de indexación por la fecha de la versión de VFDB."],
       limitations: "El conjunto A es el central; los factores que solo están en el conjunto completo B no se buscan.",
+    },
+  },
+  {
+    id: "sccmec",
+    references: [REF.iwgscc2009, REF.sccmecTool],
+    en: {
+      title: "SCCmec typing",
+      what: "SCCmec (staphylococcal cassette chromosome mec) is the mobile element that carries mecA (or mecC), the gene of methicillin resistance in staphylococci. Its type (I to XV) is named by the combination of its ccr complex (the recombinase genes that move it) and its mec complex class (mecA with its regulators and insertion sequences); subtypes (IIa, IVa, …) differ in the rest of the cassette (IWG-SCC 2009).",
+      why: "The SCCmec type is part of the usual name of an MRSA lineage (ST8-MRSA-IV, ST5-MRSA-II) and helps to tell hospital- from community-associated clones.",
+      how: "ARVA runs sccmec 1.2.0 (R.A. Petit III) on the assembly's contigs. It searches, with blastn, the ccr, mec and IS targets of its schema (type = the ccr complex and mec class whose targets are all found, with the schema's exclusions) and the whole reference cassettes (subtype = the cassette covered over the threshold). ARVA passes the four schema files and the four thresholds (targets 90 % identity, 80 % coverage; cassettes 85 % and 83 %) explicitly, records the schemas' checksum, and names the ccr complexes and mec classes from the schema's own aliases.",
+      interpret: "A type with a subtype is the most complete call. A type without a subtype means no cassette reached the coverage threshold. mecA found with no type means a novel, composite or fragmented cassette. Several types are reported as such, never as one. sccmec's mecA target includes the mecC sequence of type XI.",
+      next: "Compare mecA/mecC with AMRFinderPlus's call in the summary card; check the per-target hits when the type is missing (a ccr gene at a contig end is a common reason).",
+      mistakes: [
+        "Reading 'mecA +' as mecA only: sccmec's target includes mecC.",
+        "Taking a type without subtype as a full typing.",
+      ],
+      limitations: "The schemas cover types I–XV and subtypes Ia, Ib, IIa–IIe, III, IVa–IVd, IVg, IVi–IVn, Va–Vc and VI–XV as whole cassettes (IVe, IVf, IVh are not in schema 1.2.0). Cassettes split across contigs lower the coverage. Results on SYNTHETIC genomes are not biology.",
+    },
+    es: {
+      title: "Tipado de SCCmec",
+      what: "El SCCmec (casete cromosómico estafilocócico mec) es el elemento móvil que lleva mecA (o mecC), el gen de la resistencia a meticilina en los estafilococos. Su tipo (I a XV) se nombra por la combinación de su complejo ccr (los genes de recombinasa que lo movilizan) y la clase de su complejo mec (mecA con sus reguladores y secuencias de inserción); los subtipos (IIa, IVa, …) difieren en el resto del casete (IWG-SCC 2009).",
+      why: "El tipo de SCCmec forma parte del nombre habitual de un linaje de MRSA (ST8-MRSA-IV, ST5-MRSA-II) y ayuda a distinguir clones hospitalarios de comunitarios.",
+      how: "ARVA ejecuta sccmec 1.2.0 (R.A. Petit III) sobre los contigs del ensamblaje. Busca con blastn las dianas ccr, mec e IS de su esquema (tipo = el complejo ccr y la clase mec cuyas dianas se encuentran todas, con las exclusiones del esquema) y los casetes de referencia completos (subtipo = el casete cubierto por encima del umbral). ARVA pasa de forma explícita los cuatro archivos del esquema y los cuatro umbrales (dianas 90 % de identidad y 80 % de cobertura; casetes 85 % y 83 %), registra la suma de comprobación de los esquemas y nombra los complejos ccr y las clases mec con los alias del propio esquema.",
+      interpret: "Un tipo con subtipo es la asignación más completa. Un tipo sin subtipo significa que ningún casete alcanzó el umbral de cobertura. mecA encontrado sin tipo indica un casete nuevo, compuesto o fragmentado. Varios tipos se informan como tales, nunca como uno. La diana mecA de sccmec incluye la secuencia mecC del tipo XI.",
+      next: "Compara mecA/mecC con la asignación de AMRFinderPlus en la tarjeta de resumen; revisa los aciertos por diana cuando falta el tipo (un gen ccr en un extremo de contig es un motivo frecuente).",
+      mistakes: [
+        "Leer «mecA +» como solo mecA: la diana de sccmec incluye mecC.",
+        "Tomar un tipo sin subtipo por un tipado completo.",
+      ],
+      limitations: "Los esquemas cubren los tipos I–XV y los subtipos Ia, Ib, IIa–IIe, III, IVa–IVd, IVg, IVi–IVn, Va–Vc y VI–XV como casetes completos (IVe, IVf e IVh no están en el esquema 1.2.0). Los casetes partidos entre contigs reducen la cobertura. Los resultados con genomas SINTÉTICOS no son biología.",
+    },
+  },
+  {
+    id: "spa_typing",
+    references: [REF.harmsen2003, REF.ridomPolicy, REF.spatyper],
+    en: {
+      title: "spa typing",
+      what: "spa typing describes S. aureus by the variable X region of the protein A gene (spa): a succession of short repeats, each with a Ridom number (r01, r02, …). Each distinct succession has a spa type (t002, t008, …) assigned by the Ridom SpaServer (Harmsen et al. 2003).",
+      why: "spa types are widely used for surveillance and outbreak investigation; with the ST and the SCCmec type they name the common MRSA clones.",
+      how: "ARVA runs spaTyper 0.3.3 on the contigs (staged in upper case, because spaTyper matches repeats case-sensitively) with the Ridom files you downloaded and registered (sparepeats.fasta and spatypes.txt, passed with -r and -o). spaTyper scans each contig for exact repeat matches and looks the succession up in spatypes.txt. ARVA never downloads, copies or ships the Ridom files; the copies spaTyper's package bundles are removed at installation.",
+      interpret: "A t-number is a known type. A succession with no type in your files is reported as a new repeat succession (newer files may know it, or it can be submitted to the SpaServer). 'xx' in the succession is a gap: a repeat not in your files or a break in the region; repeats on several contigs are reported as such. In every one of these cases no spa type is given.",
+      next: "Keep your Ridom files recent (the date you register them is recorded with every run), and compare spa types across the project.",
+      mistakes: [
+        "Reading a new succession as a new type: only the SpaServer assigns types.",
+        "Using old Ridom files: newer types are then 'new successions'.",
+      ],
+      limitations: "Ridom GmbH owns the nomenclature data; individuals may download them for non-commercial use only. A spa region split across contigs, or collapsed repeats in a short-read assembly, cannot be typed reliably.",
+    },
+    es: {
+      title: "Tipado spa",
+      what: "El tipado spa describe S. aureus por la región variable X del gen de la proteína A (spa): una sucesión de repeticiones cortas, cada una con un número de Ridom (r01, r02, …). Cada sucesión distinta tiene un tipo spa (t002, t008, …) asignado por el Ridom SpaServer (Harmsen et al. 2003).",
+      why: "Los tipos spa se usan mucho en vigilancia e investigación de brotes; junto con el ST y el tipo de SCCmec nombran los clones de MRSA habituales.",
+      how: "ARVA ejecuta spaTyper 0.3.3 sobre los contigs (preparados en mayúscula, porque spaTyper compara las repeticiones distinguiendo mayúsculas) con los archivos de Ridom que descargaste y registraste (sparepeats.fasta y spatypes.txt, pasados con -r y -o). spaTyper busca en cada contig coincidencias exactas con las repeticiones y busca la sucesión en spatypes.txt. ARVA nunca descarga, copia ni distribuye los archivos de Ridom; las copias que incluye el paquete de spaTyper se eliminan al instalarlo.",
+      interpret: "Un número t es un tipo conocido. Una sucesión sin tipo en tus archivos se informa como sucesión de repeticiones nueva (archivos más recientes pueden conocerla, o puede enviarse al SpaServer). «xx» en la sucesión es un hueco: una repetición que no está en tus archivos o una rotura de la región; las repeticiones en varios contigs se informan como tales. En todos estos casos no se da ningún tipo spa.",
+      next: "Mantén recientes tus archivos de Ridom (la fecha con que los registras se guarda con cada ejecución) y compara los tipos spa del proyecto.",
+      mistakes: [
+        "Leer una sucesión nueva como un tipo nuevo: solo el SpaServer asigna tipos.",
+        "Usar archivos de Ridom antiguos: los tipos más nuevos aparecen entonces como «sucesiones nuevas».",
+      ],
+      limitations: "Ridom GmbH es propietaria de los datos de nomenclatura; las personas pueden descargarlos solo para uso no comercial. Una región spa partida entre contigs, o repeticiones colapsadas en un ensamblaje de lecturas cortas, no pueden tiparse con fiabilidad.",
+    },
+  },
+  {
+    id: "agr",
+    references: [REF.agrvate2022],
+    en: {
+      title: "agr typing",
+      what: "The accessory gene regulator (agr) controls many S. aureus virulence genes. Its operon (agrB, agrD, agrC, agrA) exists in four allelic groups (agr I–IV), defined by agrB, agrD and agrC; mutations that disrupt the operon (frameshifts) leave the system non-functional.",
+      why: "The agr group follows the clonal lineage, and a disrupted agr is associated with persistent infections; both are useful context next to the ST.",
+      how: "ARVA runs AgrVATE 1.0.2 (Raghuram et al. 2022). The agr group comes from the number of group-specific k-mers found with blastn at 100 % identity (its match score). The operon is then extracted and its variants called with snippy against the group's reference. AgrVATE's default extraction needs usearch11 as a 32-bit binary that ARVA does not install, so ARVA always runs the documented MUMmer mode (-m), records it, and reports how much of AgrVATE's group-I reference operon aligned.",
+      interpret: "A group with a match score above 4 is typed; 1–4 is AgrVATE's 'low confidence' (shown with ?); 0 is untypeable; k-mers of several groups are reported as multiple. The variant list is AgrVATE's own (frameshifts and other effects it keeps); 'not determined' when no operon was extracted.",
+      next: "Read a partly aligned operon (groups II–IV align only in part to the group-I reference in MUMmer mode) as a limit of the variant search, not of the agr group.",
+      mistakes: [
+        "Reading 0 frameshifts in MUMmer mode as proof of an intact operon.",
+      ],
+      limitations: "MUMmer mode may not detect frameshifts outside the aligned fragments (AgrVATE's own warning). snippy, called by AgrVATE without --cpus, uses up to 8 threads. No linux-aarch64 build of AgrVATE's dependencies exists in Bioconda.",
+    },
+    es: {
+      title: "Tipado agr",
+      what: "El regulador de genes accesorios (agr) controla muchos genes de virulencia de S. aureus. Su operón (agrB, agrD, agrC, agrA) existe en cuatro grupos alélicos (agr I–IV), definidos por agrB, agrD y agrC; las mutaciones que interrumpen el operón (desplazamientos del marco de lectura) dejan el sistema sin función.",
+      why: "El grupo agr sigue al linaje clonal, y un agr interrumpido se asocia a infecciones persistentes; ambos son un contexto útil junto al ST.",
+      how: "ARVA ejecuta AgrVATE 1.0.2 (Raghuram et al. 2022). El grupo agr se obtiene del número de k-meros específicos de grupo encontrados con blastn al 100 % de identidad (su puntuación). Después se extrae el operón y se buscan sus variantes con snippy frente a la referencia del grupo. La extracción predeterminada de AgrVATE necesita usearch11 como binario de 32 bits, que ARVA no instala, así que ARVA usa siempre el modo MUMmer documentado (-m), lo registra e informa qué parte del operón de referencia del grupo I de AgrVATE se alineó.",
+      interpret: "Un grupo con puntuación superior a 4 está tipado; 1–4 es la «baja confianza» de AgrVATE (se muestra con ?); 0 es no tipable; los k-meros de varios grupos se informan como múltiples. La lista de variantes es la de AgrVATE (desplazamientos del marco y otros efectos que conserva); «no determinado» cuando no se extrajo el operón.",
+      next: "Lee un operón alineado en parte (en modo MUMmer, los grupos II–IV solo se alinean en parte con la referencia del grupo I) como un límite de la búsqueda de variantes, no del grupo agr.",
+      mistakes: [
+        "Leer 0 desplazamientos en modo MUMmer como prueba de un operón intacto.",
+      ],
+      limitations: "El modo MUMmer puede no detectar desplazamientos fuera de los fragmentos alineados (aviso del propio AgrVATE). snippy, llamado por AgrVATE sin --cpus, usa hasta 8 hilos. Bioconda no tiene compilación linux-aarch64 de las dependencias de AgrVATE.",
+    },
+  },
+  {
+    id: "staph_typing_summary",
+    references: [REF.iwgscc2009, REF.harmsen2003, REF.agrvate2022, REF.diep2006],
+    en: {
+      title: "S. aureus typing summary",
+      what: "The summary card sets side by side, each with its source, the MLST call (mlst), the SCCmec type (sccmec), the spa type (spaTyper), the agr group (AgrVATE) and the mecA/mecC, PVL (lukS-PV and lukF-PV), tst, enterotoxin and exfoliative toxin genes AMRFinderPlus found with --plus. It never merges two sources into one call.",
+      why: "The conventional shorthand (for example ST8-MRSA-IVa, t008, agr I, PVL+ for the USA300 clone, Diep et al. 2006) is how S. aureus lineages are named in the literature.",
+      how: "ARVA builds the shorthand only from determined parts: the ST from a saureus MLST call, MRSA when mecA or mecC is found (MSSA only when AMRFinderPlus searched and found neither), the SCCmec type or subtype after MRSA, the spa type, the agr group, and PVL+/PVL- from AMRFinderPlus's lukS-PV and lukF-PV. A part whose evidence is partial or disputed (an inexact MLST status, a type without subtype, sccmec and AMRFinderPlus disagreeing, a low-confidence agr call, one PVL gene only) carries '?' and is listed with the reason.",
+      interpret: "A missing part was not determined (no run, or no call); 'not searched' and 'none found' are different. MRSA and MSSA here name the genotype, not a susceptibility test.",
+      next: "Run the missing steps; confirm methicillin resistance phenotypically when it matters.",
+      mistakes: [
+        "Reading MRSA in the shorthand as a susceptibility result.",
+        "Comparing shorthands built from different Ridom files or tool versions without checking the sources.",
+      ],
+      limitations: "Only as good as each part: see SCCmec, spa and agr typing. Toxin genes found are genotype; expression is not tested.",
+    },
+    es: {
+      title: "Resumen del tipado de S. aureus",
+      what: "La tarjeta de resumen muestra lado a lado, cada uno con su fuente, la asignación de MLST (mlst), el tipo de SCCmec (sccmec), el tipo spa (spaTyper), el grupo agr (AgrVATE) y los genes mecA/mecC, PVL (lukS-PV y lukF-PV), tst, de enterotoxinas y de toxinas exfoliativas que AMRFinderPlus encontró con --plus. Nunca fusiona dos fuentes en una sola asignación.",
+      why: "La abreviatura convencional (por ejemplo ST8-MRSA-IVa, t008, agr I, PVL+ para el clon USA300, Diep et al. 2006) es como la bibliografía nombra los linajes de S. aureus.",
+      how: "ARVA construye la abreviatura solo con partes determinadas: el ST de una asignación de MLST del esquema saureus, MRSA cuando se encuentra mecA o mecC (MSSA solo cuando AMRFinderPlus buscó y no encontró ninguno), el tipo o subtipo de SCCmec tras MRSA, el tipo spa, el grupo agr y PVL+/PVL- según lukS-PV y lukF-PV de AMRFinderPlus. Una parte con evidencia parcial o en disputa (un estado de MLST inexacto, un tipo sin subtipo, sccmec y AMRFinderPlus en desacuerdo, un agr de baja confianza, un solo gen de PVL) lleva «?» y se enumera con su motivo.",
+      interpret: "Una parte ausente no está determinada (sin ejecución o sin asignación); «no buscado» y «ninguno encontrado» son distintos. MRSA y MSSA nombran aquí el genotipo, no una prueba de sensibilidad.",
+      next: "Ejecuta los pasos que faltan; confirma la resistencia a meticilina con una prueba fenotípica cuando importe.",
+      mistakes: [
+        "Leer MRSA en la abreviatura como un resultado de sensibilidad.",
+        "Comparar abreviaturas hechas con archivos de Ridom o versiones de herramientas distintas sin revisar las fuentes.",
+      ],
+      limitations: "Vale lo que vale cada parte: consulta el tipado de SCCmec, spa y agr. Los genes de toxinas encontrados son genotipo; no se prueba su expresión.",
     },
   },
 ];

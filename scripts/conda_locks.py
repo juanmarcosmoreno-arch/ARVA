@@ -68,8 +68,7 @@ def read_spec(tool: str) -> list[str]:
     path = LOCKS / tool / "spec.txt"
     if not path.is_file():
         raise SystemExit(f"{path} does not exist")
-    specs = [ln.split("#", 1)[0].strip() for ln in path.read_text().splitlines()]
-    return [s for s in specs if s]
+    return read_lines(path)
 
 
 def parse_lock(path: Path) -> list[dict[str, str]]:
@@ -175,6 +174,24 @@ def verify_env(tool: str, prefix: Path, plat: str) -> None:
     print(f"{prefix}: {len(found)} packages, identical to {tool}/{plat}.lock (URL and sha256)")
 
 
+def remove_listed(tool: str, prefix: Path) -> None:
+    """Delete the files docker/conda-locks/<tool>/remove-after-install.txt names (globs relative to the environment):
+    data a package bundles that ARVA must not ship, such as the Ridom SpaServer copies in spatyper's package."""
+    listing = LOCKS / tool / "remove-after-install.txt"
+    if not listing.is_file():
+        return
+    for pattern in read_lines(listing):
+        for path in sorted(prefix.glob(pattern)):
+            if path.is_file() or path.is_symlink():
+                path.unlink()
+                print(f"{tool}: removed {path.relative_to(prefix)} ({listing.name})")
+
+
+def read_lines(path: Path) -> list[str]:
+    lines = [ln.split("#", 1)[0].strip() for ln in path.read_text().splitlines()]
+    return [ln for ln in lines if ln]
+
+
 def cmd_install(args: argparse.Namespace) -> None:
     mm = micromamba(args.micromamba)
     plat = machine_platform()
@@ -198,6 +215,7 @@ def cmd_install(args: argparse.Namespace) -> None:
         shutil.rmtree(prefix, ignore_errors=True)
         raise SystemExit(f"micromamba could not create {prefix}:\n{proc.stdout[-3000:]}\n{proc.stderr[-3000:]}")
     verify_env(args.tool, prefix, plat)
+    remove_listed(args.tool, prefix)
     size = sum(f.stat().st_size for f in prefix.rglob("*") if f.is_file() and not f.is_symlink())
     print(f"{args.tool}: installed at {prefix} ({size / 1e6:.0f} MB)")
 

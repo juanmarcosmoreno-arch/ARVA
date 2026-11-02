@@ -1,0 +1,4 @@
+# Pinned spec of ARVA's spaTyper environment; scripts/conda_locks.py update spatyper solves it for each platform.
+# spaTyper 0.3.3 (Mitchell Sullivan, LGPL-3.0). ARVA passes the Ridom SpaServer files the user downloaded and
+# registered (-r, -o) and never lets spaTyper download them.
+spatyper=0.3.3=pyhdfd78af_3

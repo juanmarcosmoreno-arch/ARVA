@@ -400,19 +400,28 @@ KINDS: tuple[DatabaseKind, ...] = (
         description="The spa repeat sequences and spa types of Staphylococcus aureus from the Ridom SpaServer, "
                     "for spa typing. Download them yourself from the SpaServer: ARVA never downloads, copies or "
                     "redistributes them.",
-        tools=(ToolUse("spaTyper", "spaTyper 0.3.3 reads sparepeats.fasta and spatypes.txt"),),
+        tools=(ToolUse("spaTyper", "spaTyper 0.3.3 reads sparepeats.fasta (-r) and spatypes.txt (-o)",
+                       integrated=True),),
         source_url="https://spa.ridom.de/",
-        licence="Not stated by the SpaServer; ARVA treats the files as provided by you, for your use only",
+        licence="Ridom SpaServer policy: the nomenclature data belong to Ridom GmbH; individuals may download and use "
+                "them for non-commercial purposes only; no database-driven web server from copies without permission; "
+                "acknowledge the website and cite Harmsen et al. 2003",
+        licence_url="https://spa.ridom.de/policy.shtml",
         citation="Harmsen D. et al. (2003) Typing of methicillin-resistant Staphylococcus aureus in a university "
                  "hospital setting by using novel software for spa repeat determination and database management. "
                  "Journal of Clinical Microbiology 41(12), doi:10.1128/JCM.41.12.5442-5448.2003.",
         recognise="sparepeats.fasta (FASTA) and spatypes.txt (one \"type,repeats\" line per spa type).",
         version_from="Not stated in the files: declared by you (the date you downloaded them).",
-        typical_size="Small text files.",
+        typical_size="Small text files (about 30 kB and 830 kB on 2026-11-02).",
         download="register",
-        download_note="User-provided only: ARVA never redistributes the Ridom files.",
+        download_note="User-provided only: ARVA never redistributes the Ridom files. Download them from the "
+                      "SpaServer (Repeats page: \"Download repeat sequences (FASTA)\", "
+                      "https://spa.ridom.de/dynamic/sparepeats.fasta; Spa-types page: \"Download spa-types (CSV)\", "
+                      "https://spa.ridom.de/dynamic/spatypes.txt) into one folder, then register that folder.",
         user_provided_only=True,
-        sources=("spaTyper 0.3.3 wheel: spaTyper/utils.py, spaTyper/spa_typing.py",),
+        sources=("spaTyper 0.3.3 wheel: spaTyper/utils.py, spaTyper/spa_typing.py",
+                 "https://spa.ridom.de/policy.shtml, https://spa.ridom.de/repeats.shtml, "
+                 "https://spa.ridom.de/spatypes.shtml (2026-11-02)"),
     ),
     DatabaseKind(
         key="mlst_schemes",

@@ -611,7 +611,7 @@ reset of the data folder; the API and the worker must see it at the same path. T
 circular views, the annotation charts and the report's genome map need no further tools or databases: they are
 drawn by ARVA from the annotator's files.
 
-### Bioconda tools from pinned locks (micromamba): mlst, FastANI, skani, Mash, sylph, GTDB-Tk, AMRFinderPlus, Bakta, ABRicate, MOB-suite, IntegronFinder, ISEScan, geNomad
+### Bioconda tools from pinned locks (micromamba): mlst, FastANI, skani, Mash, sylph, GTDB-Tk, AMRFinderPlus, Bakta, ABRicate, MOB-suite, IntegronFinder, ISEScan, geNomad, sccmec, spaTyper, AgrVATE
 
 Tools that are not packaged by the distribution or PyPI come from Bioconda (with conda-forge), one environment per
 tool, created **only** from the explicit lock files checked in under `docker/conda-locks/<tool>/` — one per
@@ -650,6 +650,9 @@ python3 scripts/conda_locks.py verify-env mlst ~/.arva-tools/conda/mlst
 | IntegronFinder | `integron_finder=2.0.6=pyhdfd78af_0` (GPL-3.0; HMMER 3.3.2, Infernal 1.1.4, Prodigal 2.6.3) | 75 packages | none: Bioconda has no HMMER ≤ 3.3.2 for linux-aarch64 | 0.72 GB |
 | ISEScan | `isescan=1.7.3` (GPL-3.0) | 83 packages | none: no isescan 1.7.3 build for linux-aarch64 | not installed here (342 MB to download): not validated |
 | geNomad | `genomad=1.13.0=pyhdfd78af_0` (MIT) | 161 packages | 148 packages | not installed here (983 MB to download on linux-64, 634 MB on linux-aarch64): not validated |
+| sccmec | `sccmec=1.2.0=hdfd78af_0`, `blast=2.16.0` (MIT; camlhmp 1.1.4, schemas sccmec_targets/regions 1.2.0) | 94 packages | 92 packages (solved, not installed here) | 1,040 MB (BLAST+ 423 MB of it); 298 MB downloaded |
+| spaTyper | `spatyper=0.3.3=pyhdfd78af_3` (LGPL-3.0 per Bioconda; its help says GPLv3) | 28 packages | 28 packages (solved, not installed here) | 168 MB; 46 MB downloaded. Its package bundles copies of the Ridom SpaServer files (2021-10-01), deleted by `conda_locks.py install` (`remove-after-install.txt`) |
+| AgrVATE | `agrvate=1.0.2=hdfd78af_0`, `blast=2.16.0` (MIT; snippy 4.6.0 with snpEff 5.0 and OpenJDK 22, MUMmer 3.23, HMMER 3.4, samtools 1.20) | 264 packages | none: snippy's dependencies (vcflib, freebayes, htslib, libzlib) cannot be solved together for linux-aarch64 (`linux-aarch64.unavailable`) | 2,661 MB; 771 MB downloaded |
 
 ```bash
 python3 scripts/conda_locks.py install amrfinderplus ~/.arva-tools/conda/amrfinderplus
@@ -675,6 +678,32 @@ python3 scripts/conda_locks.py install genomad ~/.arva-tools/conda/genomad     #
 # Optional: environments share many identical files (BLAST+, Perl, Python); util-linux's hardlink merges them
 hardlink -o -t ~/.arva-tools/conda      # saved about 1.8 GB across the environments installed here
 ```
+
+S. aureus typing (Phase 5E): SCCmec, spa and agr.
+
+```bash
+for t in sccmec spatyper agrvate; do python3 scripts/conda_locks.py install $t ~/.arva-tools/conda/$t; done
+export ARVA_TOOL_SCCMEC=~/.arva-tools/conda/sccmec/bin/sccmec \
+       ARVA_TOOL_SPATYPER=~/.arva-tools/conda/spatyper/bin/spaTyper \
+       ARVA_TOOL_AGRVATE=~/.arva-tools/conda/agrvate/bin/agrvate        # AgrVATE: linux-64 only
+hardlink -o -t ~/.arva-tools/conda      # the three share BLAST+ and Python files with the others (1.3 GB saved here)
+```
+
+* **sccmec** carries its schemas (types I–XV, subtypes as whole reference cassettes); ARVA passes them and the four
+  thresholds explicitly and records their checksum.
+* **spaTyper needs the Ridom SpaServer files, which you download yourself**: on https://spa.ridom.de/repeats.shtml
+  the link "Download repeat sequences (FASTA)" (`https://spa.ridom.de/dynamic/sparepeats.fasta`) and on
+  https://spa.ridom.de/spatypes.shtml the link "Download spa-types (CSV)" (`https://spa.ridom.de/dynamic/spatypes.txt`).
+  Put both in one folder (about 30 kB and 830 kB on 2026-11-02) and register it in the Database Manager (kind
+  *spa types*, declare the download date as its version). The SpaServer's policy (https://spa.ridom.de/policy.shtml):
+  the nomenclature data belong to Ridom GmbH; individuals may download the database and use it for non-commercial
+  purposes only; copies may not be used to build a database-driven web server without permission; publications
+  acknowledge the website and cite Harmsen et al. 2003. ARVA never downloads, copies or ships these files, and
+  deletes the copies spaTyper's Bioconda package bundles. Without them the spa step says so and does not run.
+* **AgrVATE** runs in its documented MUMmer mode (`-m`): its default mode needs `usearch11.0.667_i86linux32`, a 32-bit
+  binary from drive5.com that is not in the package and that ARVA does not download. snippy, which AgrVATE calls
+  without `--cpus`, uses up to 8 threads. No linux-aarch64 lock: on an arm64 (Apple Silicon) image the agr step is
+  listed as missing, with the reason.
 
 `conda_locks.py install` lets micromamba hard-link files from its package cache (so one install needs little more
 than its own size) and passes `--skip-run-link-scripts`: MOB-suite's post-link script runs `mob_init`, which downloads

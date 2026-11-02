@@ -19,14 +19,15 @@ import { MlstCard } from "./MlstResult";
 import { MobileContigCard, MobileRunCard } from "./MobileResult";
 import { VirulenceCard } from "./Virulence";
 import { SpeciesCard } from "./SpeciesResult";
+import { TypingSection } from "./StaphTyping";
 
 const active = (jobs: AnalysisJobDetail[]) => jobs.filter((j) => j.status === "pending" || j.status === "running");
 const stopped = (jobs: AnalysisJobDetail[]) => jobs.filter((j) => j.status === "failed" || j.status === "cancelled").slice(0, 3);
 
 /** The sample's genomic analyses on its assemblies: species identification, MLST, AMR/virulence genes (AMRFinderPlus),
- * virulence factors from both sources side by side, and plasmids and mobile elements (the rest of Phase 5 is listed
- * as planned). */
-export function GenomicTab({ sampleId, jobs, onMlst, onSpecies, onAmr, onMobile, onVirulence }: {
+ * virulence factors from both sources side by side, plasmids and mobile elements, and species-specific typing (the
+ * rest of Phase 5 is listed as planned). */
+export function GenomicTab({ sampleId, jobs, onMlst, onSpecies, onAmr, onMobile, onVirulence, onTyping }: {
   sampleId: string;
   jobs: AnalysisJobDetail[];
   onMlst: () => void;
@@ -34,6 +35,7 @@ export function GenomicTab({ sampleId, jobs, onMlst, onSpecies, onAmr, onMobile,
   onAmr: () => void;
   onMobile: () => void;
   onVirulence: () => void;
+  onTyping: () => void;
 }) {
   const t = useT();
   const mlst = useTool("mlst");
@@ -238,6 +240,7 @@ export function GenomicTab({ sampleId, jobs, onMlst, onSpecies, onAmr, onMobile,
           </EmptyState>
         )}
       </section>
+      <TypingSection sampleId={sampleId} jobs={jobs} onStart={onTyping} />
       <p className="text-xs text-muted-foreground">{t("genomic.plannedNote")}</p>
     </div>
   );

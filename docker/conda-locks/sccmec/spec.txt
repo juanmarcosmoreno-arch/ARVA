@@ -1,0 +1,5 @@
+# Pinned spec of ARVA's sccmec environment; scripts/conda_locks.py update sccmec solves it for each platform.
+# sccmec 1.2.0 (Robert A. Petit III, MIT): SCCmec typing of S. aureus assemblies through camlhmp.
+sccmec=1.2.0=hdfd78af_0
+# The same BLAST+ on both platforms (2.17.0 has no linux-aarch64 build in Bioconda when this was pinned).
+blast=2.16.0

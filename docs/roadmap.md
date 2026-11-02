@@ -378,7 +378,7 @@ as inline SVG (escaped names), a sequence table and the charts' numbers; the JSO
   `search` against pre-sketched databases are not offered; the linux-aarch64 environments were solved, not
   installed; the Docker image was not built.
 
-**Next**: 5E — InterProScan protein domains, BLAST searches of chosen sequences and Kraken2 read classification.
+**Next** (after 5D): species-specific typing (5E, below); InterProScan protein domains, BLAST searches of chosen sequences and Kraken2 read classification remain after Phase 5.
 
 ## AMR genes and Bakta CDS (5D1) ✅
 
@@ -438,6 +438,43 @@ Not validated here: ISEScan and geNomad (their environments, and geNomad's datab
 disk; parsers tested on constructed files and every run is labelled as not validated); the linux-aarch64
 environments of ABRicate and geNomad (solved, not installed); the Docker image (not built).
 
+## Species-specific typing: S. aureus (5E) ✅ — Phase 5 complete
+
+- **Typing-module framework** (`app/services/typing_modules.py`): a module declares the taxa it applies to (species
+  names from species identification, MLST scheme names), its steps (tool and database kind, or data bundled with the
+  tool) and its guide entries. For each assembly the Genomic analysis tab shows the module's applicability
+  (applicable, conflicting, not applicable, no evidence, with the evidence), and per step whether the tool and the
+  database are here and how to install or register them. A module the evidence does not support runs only with an
+  explicit override, which the result records. Results go to `typing_results` (migration `b8d3f1a6c2e4`), one row per
+  step and job (`species_typing`).
+- **S. aureus module**: SCCmec with sccmec 1.2.0 (types I–XV, subtypes from whole cassettes; ccr complexes and mec
+  classes from the schema's aliases; per-target hits), spa with spaTyper 0.3.3 and the Ridom SpaServer files the user
+  downloads and registers (kind *spa types*; never shipped; "new repeat succession" for unknown successions), agr with
+  AgrVATE 1.0.2 in MUMmer mode (group I–IV, match score, agrD, variants, the extracted share of the reference operon).
+  A summary card sets them beside MLST and AMRFinderPlus's mecA/mecC, PVL, tst, enterotoxin and exfoliative toxin
+  genes, each with its source, cross-checks mecA/mecC, and builds the shorthand (e.g. ST8-MRSA-IVa, t008, agr I,
+  PVL+) from determined parts only, marking uncertain parts with "?". Project table with CSV, report sections (HTML,
+  JSON, CSV), guide entries `sccmec`, `spa_typing`, `agr`, `staph_typing_summary`.
+- **Pinned tools**: sccmec and spaTyper have linux-64 and linux-aarch64 locks; AgrVATE linux-64 only (snippy cannot be
+  solved for linux-aarch64). spaTyper's bundled copies of the Ridom files are deleted at installation.
+- **Validated** on NCBI's S. aureus N315 (sccmec II/IIa, spa t002, agr II; mlst ST5) and USA300_FPR3757 (IV/IVa, t008,
+  agr I, PVL+ by AMRFinderPlus; mlst ST8), and ARVA's SYNTHETIC genome (not typeable); spa typing with the Ridom
+  files downloaded on 2026-11-02 (not kept) and with CONSTRUCTED Ridom-format files in the tests.
+- Test storage: every run of the API suite now removes its storage folder, also when stopped by SIGTERM or SIGHUP;
+  a folder left by a SIGKILL is removed by the next run.
+
+Not validated here: the linux-aarch64 environments of sccmec and spaTyper (solved, not installed); AgrVATE's usearch
+mode (needs a binary ARVA does not install); frameshift detection on a real agr-defective genome; the Docker image
+(not built).
+
+### What remains after Phase 5
+
+- InterProScan (protein domains) and BLAST search; Kraken 2 read classification.
+- Validation of ISEScan and geNomad with real runs (their environments and geNomad's database did not fit the test
+  machine), and of GTDB-Tk (its data and memory needs).
+- Other species modules on the same framework: Klebsiella pneumoniae (Kleborate), E. coli serotyping, Salmonella
+  (SISTR), with their own validation genomes.
+
 ## Performance profiles (P1) ✅
 
 - Host detection (`app/services/host.py`): usable CPUs (affinity, cgroup v2/v1 quota), memory (cgroup limit or
@@ -471,7 +508,8 @@ environments of ABRicate and geNomad (solved, not installed); the Docker image (
 | 5C1 ✅ | Pinned Bioconda environments (micromamba, checksummed locks for linux-64 and linux-aarch64); MLST with mlst and its bundled PubMLST schemes |
 | 5C2 ✅ | Species identification: FastANI and skani against reference genome collections (validated), Mash and sylph (test databases only), GTDB-Tk (not validated, memory-gated); collections from NCBI Datasets; consistency with MLST and the annotation's organism |
 | 5D ✅ | AMRFinderPlus (AMR and virulence rings), Bakta with CDS; VFDB (ABRicate); plasmids (MOB-suite, PlasmidFinder) and mobile elements (IntegronFinder; ISEScan and geNomad not validated) with their rings |
-| 5E | InterProScan, BLAST; Kraken2 |
+| 5E ✅ | Species-specific typing framework; S. aureus SCCmec (sccmec), spa (spaTyper with the user's Ridom files), agr (AgrVATE) and the summary card |
+| After 5 | InterProScan, BLAST, Kraken 2; ISEScan, geNomad and GTDB-Tk validation; Klebsiella, E. coli and Salmonella typing modules |
 | 6 | Comparative genomics: ANI, synteny, dot plots, Genome Region Explorer |
 | 7 | Pangenome (Panaroo), alignments (MAFFT), phylogeny (IQ-TREE), Tree Explorer |
 | 8 | Workflow Builder (Nextflow DSL2), batch processing beyond QC (first step: batch QC, Phase 3), mobilome, variants, ARVA Discover, full reports, optional ARVA Assist, multi-user |

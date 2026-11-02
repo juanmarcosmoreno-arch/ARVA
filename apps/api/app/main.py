@@ -34,6 +34,7 @@ from app.api.routes import (
     species,
     system,
     tools,
+    typing,
 )
 from app.api.storage_guard import StorageGuard, storage_unavailable_response
 from app.core import errorlog
@@ -139,7 +140,7 @@ def create_app() -> FastAPI:
 
     for module in (dashboard, projects, samples, files, imports, metadata, analyses, tools, reports, overview,
                    assemblies, annotations, explorer, amr, mobile_elements, databases, mlst, species, system,
-                   diagnostics):
+                   diagnostics, typing):
         app.include_router(module.router, prefix=settings.api_v1_prefix)
     return app
 

@@ -95,3 +95,18 @@ def test_script_check_command():
     out = subprocess.run(["python3", "-I", str(ROOT / "scripts" / "conda_locks.py"), "check"], capture_output=True,
                          text=True, check=True).stdout
     assert "mlst linux-64:" in out and "mlst linux-aarch64:" in out
+
+
+def test_ridom_copies_bundled_by_spatyper_are_removed_after_install(tmp_path, capsys):
+    for rel in ("bin/sparepeats.fasta", "bin/spatypes.txt", "share/spatyper-0.3.3/sparepeats.fasta",
+                "share/spatyper-0.3.3/spatypes.txt", "bin/spaTyper"):
+        (tmp_path / rel).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / rel).write_text("x")
+    conda_locks.remove_listed("spatyper", tmp_path)
+    left = sorted(str(p.relative_to(tmp_path)) for p in tmp_path.rglob("*") if p.is_file())
+    assert left == ["bin/spaTyper"]
+    assert capsys.readouterr().out.count("removed") == 4
+    d = detect("spatyper", refresh=True)
+    if d.path:
+        prefix = Path(os.path.realpath(d.path)).parent.parent
+        assert not list(prefix.glob("bin/spa*.fasta")) and not list(prefix.glob("share/spatyper-*/spatypes.txt"))

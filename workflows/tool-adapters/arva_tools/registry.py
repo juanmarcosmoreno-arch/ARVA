@@ -4,6 +4,7 @@ from __future__ import annotations
 import time
 
 from arva_tools.abricate import AbricateAdapter
+from arva_tools.agrvate import AgrvateAdapter
 from arva_tools.amrfinderplus import AmrfinderplusAdapter
 from arva_tools.bakta import BaktaAdapter
 from arva_tools.base import DetectedTool, ToolAdapter
@@ -27,9 +28,11 @@ from arva_tools.pilon import PilonAdapter
 from arva_tools.prokka import ProkkaAdapter
 from arva_tools.quast import QuastAdapter
 from arva_tools.racon import RaconAdapter
+from arva_tools.sccmec import SccmecAdapter
 from arva_tools.seqkit import SeqkitAdapter
 from arva_tools.skani import SkaniAdapter
 from arva_tools.spades import SpadesAdapter
+from arva_tools.spatyper import SpatyperAdapter
 from arva_tools.sylph import SylphAdapter
 from arva_tools.unicycler import UnicyclerAdapter
 
@@ -40,7 +43,7 @@ ADAPTERS: dict[str, ToolAdapter] = {
               Minimap2Adapter(), BwaAdapter(), SamtoolsAdapter(), DnadiffAdapter(), BaktaAdapter(), ProkkaAdapter(),
               MlstAdapter(), FastaniAdapter(), SkaniAdapter(), MashAdapter(), SylphAdapter(), GtdbtkAdapter(),
               AmrfinderplusAdapter(), AbricateAdapter(), MobsuiteAdapter(), IntegronfinderAdapter(), IsescanAdapter(),
-              GenomadAdapter())
+              GenomadAdapter(), SccmecAdapter(), SpatyperAdapter(), AgrvateAdapter())
 }
 
 _CACHE: dict[str, tuple[float, DetectedTool]] = {}

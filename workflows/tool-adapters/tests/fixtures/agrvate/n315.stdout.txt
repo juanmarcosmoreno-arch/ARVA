@@ -1,0 +1,9 @@
+Processing contigs.fasta ...
+<conda>/agrvate/bin/agrvate_databases/ is valid
+agr typing successful, gp2
+Mummer successful
+Extracting agr operon from mummer output
+Mummer alignment is not contiguous, extracted all fragments
+agr operon extraction successful
+Snippy successful
+No frameshifts found

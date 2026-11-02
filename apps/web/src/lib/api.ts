@@ -1,6 +1,7 @@
 import { translator } from "@/i18n";
 import { reportApiFailure } from "@/lib/errorReporting";
 import { messageText } from "@/lib/messages";
+import type { TypingMethod, TypingModuleInfo, TypingPlan, TypingProject, TypingRequest, TypingSample } from "@/lib/typing";
 import { useSettings } from "@/store/settings";
 import type {
   AmrAnnotationHits,
@@ -411,6 +412,14 @@ export const api = {
   mobileProject: (projectId: string) => request<MobileProjectOverview>(`/projects/${projectId}/mobile-elements`),
   mobileFileUrl: (jobId: string, kind: string) => `${BASE}/mobile-elements/runs/${jobId}/files/${encodeURIComponent(kind)}`,
   annotationMobile: (annotationId: string) => request<MobileAnnotationElements>(`/annotations/${annotationId}/mobile-elements`),
+  typingModules: () => request<TypingModuleInfo[]>("/typing/modules"),
+  typingPreview: (assemblyId: string, module: string, method: TypingMethod, databaseId: string | null) =>
+    request<TypingPlan>(`/assemblies/${assemblyId}/typing/${module}/preview`, json("POST", { method, database_id: databaseId })),
+  runTyping: (assemblyId: string, module: string, body: TypingRequest) => request<AnalysisJob>(`/assemblies/${assemblyId}/typing/${module}`, json("POST", body)),
+  typingSample: (sampleId: string) => request<TypingSample>(`/samples/${sampleId}/typing`),
+  typingProject: (projectId: string, module: string) => request<TypingProject>(`/projects/${projectId}/typing/${module}`),
+  typingProjectCsvUrl: (projectId: string, module: string) => `${BASE}/projects/${projectId}/typing/${module}.csv`,
+  typingFileUrl: (jobId: string, name: string) => `${BASE}/typing/runs/${jobId}/files/${name.split("/").map(encodeURIComponent).join("/")}`,
   virulencePreview: (assemblyId: string) => request<VirulencePlan>(`/assemblies/${assemblyId}/virulence/preview`, json("POST", {})),
   runVirulence: (assemblyId: string, body: VirulenceRequest) => request<AnalysisJob>(`/assemblies/${assemblyId}/virulence`, json("POST", body)),
   virulenceSample: (sampleId: string) => request<VirulenceSample>(`/samples/${sampleId}/virulence`),

@@ -1,0 +1,5 @@
+# Pinned spec of ARVA's AgrVATE environment; scripts/conda_locks.py update agrvate solves it for each platform.
+# AgrVATE 1.0.2 (Vishnu Raghuram, MIT): agr group and agr operon variants of S. aureus assemblies.
+agrvate=1.0.2=hdfd78af_0
+# The same BLAST+ on both platforms (2.17.0 has no linux-aarch64 build in Bioconda when this was pinned).
+blast=2.16.0

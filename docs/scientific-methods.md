@@ -1719,6 +1719,79 @@ SYNTHETIC genome; the downloaded genomes were deleted afterwards.
 - IntegronFinder: R388's class 1 integron, complete, 29,666–32,156 with two attC sites; none in N315.
 - ARVA's SYNTHETIC genome: nothing from any of them (MOB-suite calls both sequences 'chromosome').
 
+## Species-specific typing: Staphylococcus aureus (Phase 5E)
+
+**When it runs.** A typing module declares the taxa it applies to. For the S. aureus module these are the species
+*Staphylococcus aureus* (as species identification names it) and the MLST scheme `saureus`. For each assembly ARVA
+reads the most recent species identification that named a species and the most recent MLST call with a scheme:
+*applicable* when one matches and neither names another taxon; *conflicting* when one matches and the other does
+not; *not applicable* when the evidence names another taxon only; *no evidence* when there is none. Only an
+applicable module runs without more; otherwise the user must confirm an override, and the result records the
+evidence it overrode and carries a warning. Each step (SCCmec, spa, agr) is its own job on the assembly's contigs,
+staged with descriptions removed and in upper case; tool, version, every option, the data read (with their
+checksums) and the SHA-256 of the input and of every output are recorded.
+
+- **SCCmec: sccmec 1.2.0** (R.A. Petit III; MIT; through camlhmp 1.1.4 and BLAST+ 2.16.0). Two searches against the
+  schemas it ships: *targets* (ccr genes ccrA1–4, ccrB1–4, ccrB6, ccrC1–2; mecA, mecI, mecR1, blaZ; IS431, IS1272,
+  IS12960D), where a type I–XV is the ccr complex and mec class (the schema's aliases) whose targets are all found,
+  with the schema's exclusions; and *regions* (32 reference cassettes), where the subtype is the cassette covered over
+  the threshold. ARVA passes the four schema files and the thresholds explicitly (targets: 90 % identity, 80 %
+  coverage; regions: 85 % and 83 %, the schemas' own values and the `--help` defaults) and reads sccmec's result
+  table, its per-type and per-cassette tables and the targets' BLAST hits (best hit per target). ARVA's reading:
+  *typed* (type and subtype), *type only*, *several types*, *mec gene without a type* (mecA found, no type: a novel,
+  composite or fragmented cassette) or *not typeable*. sccmec's "mecA" target includes the mecC sequence of type XI
+  (FR821779.1), so its mecA + means mecA or mecC. Nomenclature: IWG-SCC (2009).
+- **spa: spaTyper 0.3.3** (Sanchez-Herrero & Sullivan; LGPL-3.0 per Bioconda). spaTyper scans each contig, on both
+  strands, for exact matches to the repeats of the Ridom file `sparepeats.fasta`, writes the succession of repeat
+  numbers (non-adjacent matches joined by "xx") and looks it up in `spatypes.txt`. ARVA passes the two files the user
+  downloaded from the Ridom SpaServer and registered (`-r`, `-o`), never lets spaTyper fall back to its own copies
+  or download them (the copies in its Bioconda package are deleted at installation), and does not offer `-e` (PCR
+  enrichment), whose results spaTyper 0.3.3 writes to standard output only. spaTyper compares the contigs as written
+  (a lower-case genome finds no repeat), hence the upper-case staging. ARVA's reading: *typed* (one contig, a known
+  t-number), *new repeat succession* (every repeat known, no type has the succession), *gap or unknown repeat*
+  ("xx" in the succession), *several contigs* or *no spa repeats*; only *typed* gives a spa type. spa nomenclature:
+  Harmsen et al. 2003; Ridom SpaServer policy: non-commercial use, acknowledgement and citation.
+- **agr: AgrVATE 1.0.2** (Raghuram et al. 2022; MIT). The agr group is the group of the k-mers
+  (`gp1234_all_motifs.fna`) found with blastn at 100 % identity and 100 % query coverage; the number found is the
+  match score: 0 is untypeable (nhmmer then looks for a non-canonical agrD), 1–4 is AgrVATE's "low confidence", and
+  k-mers of several groups are reported as several. The operon is then extracted and its variants called with snippy
+  (`--minqual 1 --mincov 2`) against the group's reference GenBank file; AgrVATE keeps the CDS variants that its
+  filter does not remove (frameshifts and some other effects). AgrVATE's default extraction is an in-silico PCR with
+  `usearch11.0.667_i86linux32`, a 32-bit binary not distributed with it; ARVA runs the documented MUMmer mode (`-m`):
+  dnadiff aligns a group-I reference operon (3,482 bp) and samtools extracts the aligned parts. ARVA records the mode
+  and reports the share of the reference operon that aligned: on N315 (agr II) two fragments covering 64 %, on
+  USA300 (agr I) the whole operon.
+- **Summary card.** Beside the three calls: the MLST call (mlst, Phase 5C1), and from the assembly's most recent
+  AMRFinderPlus run (Phase 5D1) mecA and mecC, PVL (lukS-PV and lukF-PV), tst, the genes whose AMRFinderPlus name
+  contains "staphylococcal enterotoxin" and those named "exfoliative toxin" (database 2026-08-07.1: eta and etb; no
+  etd); toxin genes are "not searched" when that run was made without `--plus`. Each part keeps its tool, version and
+  job. mecA/mecC is cross-checked between sccmec and AMRFinderPlus (agree, disagree, unavailable). The shorthand is
+  built only from determined parts: STn from a `saureus` call; MRSA when mecA or mecC is found (by either tool), MSSA
+  only when AMRFinderPlus searched and found neither; the SCCmec type or subtype after MRSA; the spa type; agr I–IV;
+  PVL+ when both PVL genes are found complete, PVL- when the `--plus` run found neither. A part whose evidence is
+  partial or disputed carries "?" and is listed with the reason (an mlst status other than PERFECT, a type without
+  subtype, a disagreement on mecA/mecC, a mec gene found only in part, a low-confidence agr call, one PVL gene only or
+  a partial one). MRSA and MSSA name the genotype, not a susceptibility test.
+
+**Validation.** Real runs on NCBI genomes, downloaded from E-utilities and deleted afterwards (accessions and
+checksums in `workflows/tool-adapters/tests/fixtures/{sccmec,spatyper,agrvate}/README.md`):
+
+| Genome | sccmec | spaTyper (Ridom files of 2026-11-02) | AgrVATE (MUMmer mode) | mlst / AMRFinderPlus | Published |
+|---|---|---|---|---|---|
+| S. aureus N315 (GCF_000009645.1) | II, IIa (cassette 100 % covered) | t002 (26-23-17-34-17-20-17-12-17-16) | agr II, score 15, 0 variants | ST5 / mecA, tst, no PVL | SCCmec II (Ito et al. 1999; Kuroda et al. 2001), ST5; agr II (used as the agr-II prototype, Frontiers in Microbiology 2022, doi:10.3389/fmicb.2022.700894); t002 matches the SpaServer's table, no N315-specific publication checked |
+| S. aureus USA300_FPR3757 (GCF_000013465.1) | IV, IVa (94.12 %) | t008 (11-19-12-21-17-34-24-34-22-25) | agr I, score 13, 0 variants | ST8 / mecA, lukS-PV, lukF-PV | ST8, SCCmec IVa, PVL+ (Diep et al. 2006); t008 and agr I are those reported for the USA300 clone |
+| ARVA's SYNTHETIC genome | not typeable | no repeats | untypeable | — | untypeable by construction |
+
+The summary card gives "ST8-MRSA-IVa, t008, agr I, PVL+" for USA300 and "ST5-MRSA-IIa, t002, agr II, PVL-" for
+N315 from these outputs (API tests replay them). spa typing was also run with CONSTRUCTED Ridom-format files (three
+made-up repeats, one made-up type) to test a known type, a new succession, a gap, two contigs and a lower-case genome.
+
+**Limitations.** The schemas, k-mers and reference operons are those shipped with sccmec 1.2.0 and AgrVATE 1.0.2;
+subtypes IVe, IVf and IVh are not in sccmec's regions schema. Cassettes or spa regions split across contigs, and
+repeats collapsed in short-read assemblies, lower or prevent typing. spa types are as current as the user's Ridom
+files. In MUMmer mode AgrVATE may miss frameshifts outside the aligned fragments (its own warning); no agr-defective
+genome was tested here. Typing a genome of another species (after an override) gives calls without meaning.
+
 ## What ARVA does not do yet
 
 - No pass/fail thresholds: suitability depends on technology, chemistry and purpose.
@@ -1840,3 +1913,11 @@ specification 13.1 (QNAME convention); NCBI sra-tools wiki "HowTo: fasterq-dump"
 - Chaumeil P-A, Mussig AJ, Hugenholtz P, Parks DH. GTDB-Tk v2: memory friendly classification with the genome taxonomy database. *Bioinformatics* 2022;38(23):5315–5316. doi:10.1093/bioinformatics/btac672
 - Varghese NJ et al. Microbial species delineation using whole genome sequences. *Nucleic Acids Res* 2015;43:6761–6771. doi:10.1093/nar/gkv657
 - NCBI Datasets v2 API (OpenAPI document, https://www.ncbi.nlm.nih.gov/datasets/docs/v2/openapi3/openapi3.docs.yaml, fetched 2026-10-29).
+
+S. aureus typing: International Working Group on the Classification of Staphylococcal Cassette Chromosome Elements
+(IWG-SCC) (2009) Antimicrob Agents Chemother 53(12):4961–4967, doi:10.1128/AAC.00579-09; sccmec,
+https://github.com/rpetit3/sccmec; Harmsen D. et al. (2003) J Clin Microbiol 41(12):5442–5448,
+doi:10.1128/JCM.41.12.5442-5448.2003; Ridom SpaServer policy, https://spa.ridom.de/policy.shtml; spaTyper,
+doi:10.5281/zenodo.4063625; Raghuram V. et al. (2022) Microbiology Spectrum 10(1), doi:10.1128/spectrum.01334-21
+(AgrVATE); Diep B.A. et al. (2006) Lancet 367:731–739 (PMID 16517273); Kuroda M. et al. (2001) Lancet 357:1225–1240;
+Ito T. et al. (1999) Antimicrob Agents Chemother 43(6):1449–1458.

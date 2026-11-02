@@ -411,6 +411,22 @@ ARVA's origin can neither be scripted nor carries ARVA's origin. Sample names an
 MultiQC are still reduced to letters, digits and a few punctuation marks (MultiQC does not escape
 them), and the UI opens the report in a new tab with `rel="noopener noreferrer"`.
 
+## Species-specific typing modules
+
+`app/services/typing_modules.py` holds a small registry: a `TypingModule` names the taxa it applies to (species names
+as species identification reports them, MLST scheme names as mlst reports them), its `Step`s (each a tool adapter id
+and the database kind it reads, or `None` when the tool's package carries its data) and its guide entries.
+`evidence()` reads the assembly's latest species call and MLST scheme; `applicability()` turns them into
+applicable / conflicting / not_applicable / no_evidence; `requirements()` lists, per step, the tool's detection with
+its install command and the registered databases. Jobs are `species_typing` with `{module, method}` parameters
+(`app/tasks/typing.py`), one `typing_results` row per job. Only the S. aureus module exists
+(`app/services/staph_typing.py`: plan, summary card, project table, CSV, report section).
+
+A new module (for example Klebsiella pneumoniae with Kleborate, E. coli serotyping, Salmonella with SISTR) adds its
+adapters under `arva_tools`, a `TypingModule` in the registry, its step runners in `app/tasks/typing.py`, a service for
+its summary like `staph_typing.py`, its routes' module key, interface texts in both languages and its own validation
+genomes; the applicability rules, the override, the results table and the requirements panel are shared.
+
 ## Planned extension points
 
 - **Nextflow DSL2** (`workflows/nextflow/`): multi-step pipelines (assembly, annotation) executed by a

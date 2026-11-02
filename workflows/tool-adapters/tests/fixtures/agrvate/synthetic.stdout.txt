@@ -1,0 +1,7 @@
+Processing contigs.fasta ...
+<conda>/agrvate/bin/agrvate_databases/ is valid
+Unable to agr type
+Unable to find agrD
+Mummer successful
+Extracting agr operon from mummer output
+Unable to find agr operon, check contigs-results/contigs-mummer-log.txt

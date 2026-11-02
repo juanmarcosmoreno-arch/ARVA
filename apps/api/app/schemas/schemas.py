@@ -3381,3 +3381,107 @@ class VirulenceSampleRead(BaseModel):
 class VirulenceAnnotationRead(BaseModel):
     run: dict[str, Any] | None
     hits: list[dict[str, Any]]
+
+
+# --- Species-specific typing (typing modules; S. aureus) ---------------------------------------------------------
+
+TypingMethod = Literal["sccmec", "spa", "agr"]
+
+
+class SccmecSettingsIn(BaseModel):
+    """sccmec's thresholds (each passed explicitly; sccmec 1.2.0's defaults, the values of its schemas)."""
+    model_config = ConfigDict(extra="forbid")
+
+    min_targets_pident: int = Field(default=90, ge=1, le=100)
+    min_targets_coverage: int = Field(default=80, ge=1, le=100)
+    min_regions_pident: int = Field(default=85, ge=1, le=100)
+    min_regions_coverage: int = Field(default=83, ge=1, le=100)
+
+
+class NoSettingsIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+
+TYPING_SETTINGS: dict[str, type[BaseModel]] = {"sccmec": SccmecSettingsIn, "spa": NoSettingsIn, "agr": NoSettingsIn}
+
+
+class TypingPreviewRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    method: TypingMethod
+    database_id: str | None = Field(default=None, max_length=36)
+
+
+class TypingRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    method: TypingMethod
+    settings: dict[str, int] = Field(default={}, description="The step's settings (SccmecSettingsIn for sccmec; "
+                                     "spaTyper and AgrVATE take none)")
+    database_id: str | None = Field(default=None, max_length=36)
+    override_applicability: bool = Field(default=False, description="Run although the species evidence does not "
+                                         "support the module (recorded on the result)")
+    confirmed: bool
+
+
+class TypingToolRead(AnnotationToolRead):
+    id: str
+    name: str
+    install: dict[str, str] = {}
+    platforms: list[str] = []
+
+
+class TypingPlanRead(BaseModel):
+    module: str
+    method: str
+    tool: TypingToolRead
+    database: dict[str, Any] | None
+    databases: list[dict[str, Any]]
+    bundled: dict[str, Any] | None = Field(description="The data the tool's package carries, when it reads no "
+                                           "registered database")
+    defaults: dict[str, str] = Field(description="ARVA's settings, each passed explicitly")
+    tool_defaults: dict[str, str]
+    defaults_match: bool | None
+    assembly: dict[str, Any]
+    applicability: dict[str, Any]
+    problems: list[AmrProblem]
+
+
+class TypingResultRead(BaseModel):
+    id: str
+    job_id: str
+    sample_id: str
+    assembly_id: str
+    module: str
+    method: str
+    tool: str
+    tool_version: str
+    database_kind: str | None
+    database_name: str | None
+    database_version: str | None
+    database_checksum: str | None
+    parameters: dict[str, Any]
+    status: str
+    call: str | None
+    details: dict[str, Any]
+    applicability: dict[str, Any]
+    warnings: list[dict[str, Any]]
+    files: dict[str, Any]
+    created_at: dt.datetime
+
+
+class TypingSampleRead(BaseModel):
+    modules: list[dict[str, Any]] = Field(description="Each typing module with its taxa and, per step, the tool and "
+                                          "database it needs and what is missing here")
+    assemblies: list[dict[str, Any]] = Field(description="Per assembly: each module's applicability and the S. aureus "
+                                             "summary card")
+    results: list[TypingResultRead]
+
+
+class TypingProjectRead(BaseModel):
+    project_id: str
+    project_name: str
+    is_demo: bool
+    module: str
+    samples: list[dict[str, Any]]
+    typed: int

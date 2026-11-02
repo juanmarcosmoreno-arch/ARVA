@@ -30,6 +30,7 @@ from app.services import crosscheck, genome_explorer, qc_data
 from app.services import mlst as mlst_svc
 from app.services import mobile_elements as mobile_svc
 from app.services import species as species_svc
+from app.services import staph_typing as typing_svc
 from app.services import virulence as virulence_svc
 from app.services.annotation import describe_step
 from app.services.circular_svg import circular_map_svg
@@ -206,6 +207,7 @@ def collect_report_data(db: Session, sample: Sample) -> dict[str, Any]:
         "amr": _amr(db, sample),
         "mobile": _mobile(db, sample),
         "virulence": _virulence(db, sample),
+        "typing": _typing(db, sample),
         "limitations": LIMITATIONS,
     }
 
@@ -431,6 +433,20 @@ def _virulence(db: Session, sample: Sample) -> dict[str, Any]:
                      "warnings": [{**w, "text": virulence_svc.warning_text(w)} for w in run["warnings"]],
                      "job": _job_facts(job)})
     return {"runs": runs, "assemblies": view["assemblies"]} if runs else {}
+
+
+def _typing(db: Session, sample: Sample) -> dict[str, Any]:
+    """The S. aureus typing of the sample: per typed assembly the summary card, and every step's call, oldest first
+    (with its warnings, database or bundled data, settings and the job's commands)."""
+    view = typing_svc.sample_view(db, sample.id)
+    if not view["results"]:
+        return {}
+    calls = []
+    for r in reversed(view["results"]):
+        calls.append({**{k: v for k, v in r.items() if k != "created_at"}, "created_at": r["created_at"].isoformat(),
+                      "warnings": [{**w, "text": typing_svc.warning_text(w)} for w in r["warnings"]],
+                      "job": _job_facts(db.get(AnalysisJob, r["job_id"]))})
+    return {"summaries": [a["summary"] for a in view["assemblies"] if a["summary"]], "calls": calls}
 
 
 def _annotation_figures(db: Session, sample: Sample, a: Annotation) -> dict[str, Any]:
@@ -804,6 +820,10 @@ CSV_COLUMNS = [
     "virulence_job_id", "virulence_gene", "virulence_factor", "virulence_category", "virulence_hit_kind",
     "virulence_identity", "virulence_coverage", "virulence_reference_range", "virulence_contig", "virulence_start",
     "virulence_end", "virulence_strand", "virulence_accession", "virulence_database", "virulence_database_checksum",
+    # S. aureus typing rows: record_type "typing" (one per step's call: SCCmec, spa, agr; the call empty when not
+    # determined) and "typing_summary" (one per typed assembly: the shorthand from the determined parts only).
+    "typing_job_id", "typing_module", "typing_method", "typing_status", "typing_call", "typing_details",
+    "typing_warnings", "typing_database", "typing_database_checksum", "typing_shorthand", "typing_uncertain",
 ]
 
 
@@ -992,6 +1012,25 @@ def render_csv(data: dict[str, Any]) -> str:
                 "virulence_contig": sanitize_spreadsheet_cell(h["contig"] or ""), "virulence_start": h["start"],
                 "virulence_end": h["end"], "virulence_strand": h["strand"] or "",
                 "virulence_accession": sanitize_spreadsheet_cell(h["accession"] or "")})
+    typing = data.get("typing") or {}
+    for c in typing.get("calls", []):
+        writer.writerow({
+            "sample_code": sanitize_spreadsheet_cell(data["sample"]["sample_code"]), "tool": c["tool"],
+            "tool_version": sanitize_spreadsheet_cell(c["tool_version"]), "job_id": c["job_id"],
+            "finished_at": (c["job"] or {}).get("finished_at") or c["created_at"], "record_type": "typing",
+            "assembly_id": c["assembly_id"], "typing_job_id": c["job_id"], "typing_module": c["module"],
+            "typing_method": c["method"], "typing_status": c["status"], "typing_call": c["call"] or "",
+            "typing_details": sanitize_spreadsheet_cell(_typing_details(c)),
+            "typing_warnings": "; ".join(w["code"] for w in c["warnings"]),
+            "typing_database": sanitize_spreadsheet_cell(" ".join(x for x in (c["database_name"],
+                                                                             c["database_version"]) if x)),
+            "typing_database_checksum": c["database_checksum"] or ""})
+    for sm in typing.get("summaries", []):
+        writer.writerow({
+            "sample_code": sanitize_spreadsheet_cell(data["sample"]["sample_code"]), "record_type": "typing_summary",
+            "assembly_id": sm["assembly_id"], "typing_module": sm["module"],
+            "typing_shorthand": sanitize_spreadsheet_cell(sm["shorthand"] or "not determined"),
+            "typing_uncertain": "; ".join(f"{u['part']} ({u['reason']})" for u in sm["uncertain"])})
     for sp in data.get("species", []):
         best, other = sp["interpretation"].get("best") or {}, sp["interpretation"].get("runner_up") or {}
         writer.writerow({
@@ -1014,6 +1053,21 @@ def render_csv(data: dict[str, Any]) -> str:
             "species_database_checksum": sp["database"]["checksum"] or "",
         })
     return out.getvalue()
+
+
+def _typing_details(c: dict[str, Any]) -> str:
+    d = c["details"]
+    if c["method"] == "sccmec":
+        return (f"type {d.get('type') or '-'}; subtype {d.get('subtype') or '-'}; mecA {'+' if d.get('mecA') else '-'}; "
+                f"ccr {', '.join(d.get('ccr_complexes') or []) or '-'}; mec {', '.join(d.get('mec_classes') or []) or '-'}; "
+                f"targets {','.join(d.get('targets') or []) or '-'}")
+    if c["method"] == "spa":
+        return f"repeats {d.get('repeats') or '-'}; contigs with repeats {len(d.get('rows') or [])}"
+    align = d.get("operon_alignment") or {}
+    extracted = "-" if align.get("covered_fraction") is None else f"{align['covered_fraction'] * 100:.1f}%"
+    return (f"agr group {d.get('agr_group') or 'u'}; match score {d.get('match_score')}; agrD {d.get('canonical_agrD')};"
+            f" frameshifts {'not determined' if d.get('frameshifts') is None else d['frameshifts']}; mode "
+            f"{d.get('mode')}; operon extracted {extracted}")
 
 
 def _mlst_cc(cc: dict[str, Any]) -> str:
@@ -1681,6 +1735,56 @@ def _mobile_html(data: dict[str, Any]) -> str:
             "MOB-suite's 'chromosome' means not assigned to a plasmid.</p>" + "".join(tables) + "".join(sections))
 
 
+def _typing_html(data: dict[str, Any]) -> str:
+    typing = data.get("typing") or {}
+    if not typing:
+        return ""
+    cards = []
+    for sm in typing["summaries"]:
+        def src(part: dict[str, Any] | None) -> str:
+            if not part:
+                return "not determined (no run)"
+            so = part["source"]
+            return f"{so['tool']} {so['version']} (job {so['job_id']})"
+
+        mlst, amr = sm["mlst"] or {}, sm["amr"]
+        rows = [("MLST", f"ST {mlst.get('st') or '-'} ({mlst.get('scheme') or 'no scheme'}, {mlst.get('status', '')})"
+                 if sm["mlst"] else "not determined", src(sm["mlst"]))]
+        for key, label in (("sccmec", "SCCmec"), ("spa", "spa type"), ("agr", "agr group")):
+            part = sm[key]
+            rows.append((label, f"{part['call'] or 'not determined'} ({part['status']})" if part else "not determined",
+                         src(part)))
+        if amr is None:
+            rows.append(("mecA / mecC, PVL, toxins", "not searched (no AMRFinderPlus run)", ""))
+        else:
+            rows.append(("mecA / mecC (AMRFinderPlus)", typing_svc.genes_text(amr["mecA"] + amr["mecC"]), src(amr)))
+            for key, label in (("pvl", "PVL (lukS-PV, lukF-PV)"), ("tst", "tst (TSST-1)"),
+                               ("enterotoxins", "Enterotoxin genes"), ("exfoliative_toxins", "Exfoliative toxin genes")):
+                rows.append((label, typing_svc.genes_text(amr[key]) if amr[key] is not None
+                             else "not searched (run without --plus)", src(amr)))
+        cross = sm["mec_crosscheck"]
+        rows.append(("mec cross-check (sccmec vs AMRFinderPlus)", cross["status"], ""))
+        body = "".join(f"<tr><th>{escape(a)}</th><td>{escape(b)}</td><td class='muted'>{escape(c)}</td></tr>"
+                       for a, b, c in rows)
+        uncertain = "".join(f"<li>{escape(u['part'])}: {escape(u['reason'])}</li>" for u in sm["uncertain"])
+        cards.append(f"<p class='muted'>Assembly <code>{escape(sm['assembly_id'])}</code> · species evidence: "
+                     f"{escape(sm['applicability']['status'])}</p>"
+                     f"<p><strong>{escape(sm['shorthand'] or 'Shorthand not determined')}</strong></p>"
+                     + (f"<div class='warn'><strong>Uncertain parts (marked ?)</strong><ul>{uncertain}</ul></div>"
+                        if uncertain else "")
+                     + f"<table class='grid'><tr><th>Part</th><th>Value</th><th>Source</th></tr>{body}</table>")
+    calls = []
+    for c in typing["calls"]:
+        calls.append(f"<h3>{escape(c['method'])} · {escape(c['tool'])} {escape(c['tool_version'])}</h3>"
+                     f"<p class='muted'>Run <code>{escape(c['job_id'])}</code> of assembly "
+                     f"<code>{escape(c['assembly_id'])}</code> · {escape(c['created_at'])}</p>"
+                     f"<p>{escape(c['status'])}: <strong>{escape(c['call'] or 'not determined')}</strong> · "
+                     f"{escape(_typing_details(c))}</p>" + _run_footer(c))
+    return ("<h2>Staphylococcus aureus typing</h2><p>Each part keeps its own source; the shorthand is built only from "
+            "determined parts, and MRSA/MSSA name the mecA/mecC genotype, not a susceptibility test.</p>"
+            + "".join(cards) + "".join(calls))
+
+
 def _virulence_html(data: dict[str, Any]) -> str:
     vir = data.get("virulence") or {}
     if not vir:
@@ -1853,6 +1957,19 @@ MOBILE_LIMITATIONS = [
     "chromosomes, and small plasmids may carry none. No contig is called a plasmid from its size.",
     "ISEScan and geNomad were not validated with ARVA on real data (they were not installed on its test machine).",
 ]
+_TYPING_METHODS = (
+    "<p>Staphylococcus aureus typing ran on the assembly's contigs (staged in upper case), every option passed "
+    "explicitly (Settings): SCCmec with sccmec (R.A. Petit III, https://github.com/rpetit3/sccmec; through camlhmp), "
+    "which assigns the type from its ccr and mec targets and the subtype from the coverage of reference cassettes "
+    "(nomenclature: IWG-SCC, Antimicrob Agents Chemother 2009;53:4961-4967); spa types with spaTyper (doi:10.5281/"
+    "zenodo.4063625) and the Ridom SpaServer files registered by the user (this publication made use of the spa "
+    "typing website, https://spaserver.ridom.de/, developed by Ridom GmbH and curated by SeqNet.org; Harmsen D. et "
+    "al. J Clin Microbiol 2003;41:5442-5448); agr groups with AgrVATE (Raghuram V. et al. Microbiol Spectr 2022, "
+    "doi:10.1128/spectrum.01334-21) in MUMmer mode. The summary sets each call beside the MLST call and the "
+    "AMRFinderPlus genes, each with its own source.</p>"
+)
+
+
 _VIRULENCE_METHODS = (
     "<p>Virulence-factor genes were searched with ABRicate (T. Seemann, https://github.com/tseemann/abricate) against "
     "the VFDB core set A nucleotides bundled in its package (index date and content checksum shown; Liu B. et al. "
@@ -1866,6 +1983,20 @@ VIRULENCE_LIMITATIONS = [
     "expressed or that the isolate is virulent. VFDB's download page states no licence for its files.",
     "A gene split across contigs is reported only where each piece reaches the minimum coverage; below it the gene "
     "is not reported at all.",
+]
+
+TYPING_LIMITATIONS = [
+    "S. aureus typing runs only when species identification or the MLST scheme supports S. aureus, unless you "
+    "overrode it (the result says so); on another species its calls have no meaning.",
+    "SCCmec types come from sccmec's schemas (types I-XV; subtypes Ia, Ib, IIa-IIe, III, IVa-IVd, IVg, IVi-IVn, Va-Vc "
+    "and VI-XV as whole cassettes); a novel, composite or fragmented cassette may be typed partly or not at all.",
+    "spa types are as current as the Ridom SpaServer files you registered; a new repeat succession is reported as "
+    "such, never given a type. A spa region broken across contigs cannot be typed.",
+    "AgrVATE ran in MUMmer mode (its usearch mode needs a 32-bit binary ARVA does not install): the agr group comes "
+    "from k-mers and is unaffected, but variants are called only on the part of the operon that aligned to its "
+    "group-I reference.",
+    "The shorthand uses MRSA and MSSA for mecA/mecC found or not found (genotype), not for a susceptibility test; "
+    "PVL+ means both lukS-PV and lukF-PV were found complete by AMRFinderPlus.",
 ]
 
 
@@ -2102,7 +2233,8 @@ def render_html(data: dict[str, Any]) -> str:
                           + (SPECIES_LIMITATIONS if data.get("species") else [])
                           + (AMR_LIMITATIONS if data.get("amr") else [])
                           + (MOBILE_LIMITATIONS if data.get("mobile") else [])
-                          + (VIRULENCE_LIMITATIONS if data.get("virulence") else []))
+                          + (VIRULENCE_LIMITATIONS if data.get("virulence") else [])
+                          + (TYPING_LIMITATIONS if data.get("typing") else []))
     steps = "".join(
         f"<h3>{escape(st['tool'])} {escape(st['tool_version'])}</h3>"
         f"<p class='muted'>Inputs: {escape(', '.join(st['inputs']))} · finished {escape(st['finished_at'] or '')}"
@@ -2161,6 +2293,7 @@ Generated {escape(data['generated_at'])} · ARVA {escape(data['arva_version'])}<
 {_amr_html(data)}
 {_virulence_html(data)}
 {_mobile_html(data)}
+{_typing_html(data)}
 {('<h2>Processing and independent checks</h2>' + steps) if steps else ''}
 <h2>Methods</h2>
 <p>Each file was streamed in full by the ARVA scientific core (<code>arva-core.seqstats</code>), which
@@ -2181,6 +2314,7 @@ technology recorded for the sample.</p>
 {_AMR_METHODS if data.get("amr") else ""}
 {_VIRULENCE_METHODS if data.get("virulence") else ""}
 {_MOBILE_METHODS if data.get("mobile") else ""}
+{_TYPING_METHODS if data.get("typing") else ""}
 {_RESOURCES_METHODS if with_resources else ""}
 <h2>Limitations</h2><ul>{limitations}</ul>
 <footer>This report is descriptive. It contains values computed from the input files and does not

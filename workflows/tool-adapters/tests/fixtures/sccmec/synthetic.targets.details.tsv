@@ -1,0 +1,16 @@
+sample	type	status	targets	missing	schema	schema_version	camlhmp_version	params	comment
+sccmec	I	False		ccrA1,ccrB1,IS431,mecA,mecR1,IS1272	sccmec_targets	1.2.0	1.1.4	min-coverage=90;min-pident=80	
+sccmec	II	False		ccrA2,ccrB2,IS431,mecA,mecR1,mecI	sccmec_targets	1.2.0	1.1.4	min-coverage=90;min-pident=80	
+sccmec	III	False		ccrA3,ccrB3,IS431,mecA,mecR1,mecI	sccmec_targets	1.2.0	1.1.4	min-coverage=90;min-pident=80	
+sccmec	IV	False		ccrA2,ccrB2,IS431,mecA,mecR1,IS1272	sccmec_targets	1.2.0	1.1.4	min-coverage=90;min-pident=80	
+sccmec	V	False		ccrC1,IS431_1,mecA,mecR1,IS431_2	sccmec_targets	1.2.0	1.1.4	min-coverage=90;min-pident=80	
+sccmec	VI	False		ccrA4,ccrB4,IS431,mecA,mecR1,IS1272	sccmec_targets	1.2.0	1.1.4	min-coverage=90;min-pident=80	
+sccmec	VII	False		ccrC1,IS431_1,mecA,mecR1,IS431_2,IS12960D	sccmec_targets	1.2.0	1.1.4	min-coverage=90;min-pident=80	
+sccmec	VIII	False		ccrA4,ccrB4,IS431,mecA,mecR1,mecI	sccmec_targets	1.2.0	1.1.4	min-coverage=90;min-pident=80	
+sccmec	IX	False		ccrA1,ccrB1,IS431_1,mecA,mecR1,IS431_2	sccmec_targets	1.2.0	1.1.4	min-coverage=90;min-pident=80	
+sccmec	X	False		ccrA1,ccrB6,IS431_1,mecA,mecR1,IS431_2	sccmec_targets	1.2.0	1.1.4	min-coverage=90;min-pident=80	
+sccmec	XI	False		ccrA1,ccrB3,blaZ,mecA,mecR1,mecI	sccmec_targets	1.2.0	1.1.4	min-coverage=90;min-pident=80	
+sccmec	XII	False		ccrC2,IS431_1,mecA,mecR1,IS431_2	sccmec_targets	1.2.0	1.1.4	min-coverage=90;min-pident=80	
+sccmec	XIII	False		ccrC2,IS431,mecA,mecR1,mecI	sccmec_targets	1.2.0	1.1.4	min-coverage=90;min-pident=80	
+sccmec	XIV	False		ccrC1,IS431,mecA,mecR1,mecI	sccmec_targets	1.2.0	1.1.4	min-coverage=90;min-pident=80	
+sccmec	XV	False		ccrA1,ccrB6,IS431,mecA,mecR1,mecI	sccmec_targets	1.2.0	1.1.4	min-coverage=90;min-pident=80	

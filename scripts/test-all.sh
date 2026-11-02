@@ -17,7 +17,8 @@ fi
 for spec in MLST:mlst/bin/mlst FASTANI:fastani/bin/fastANI SKANI:skani/bin/skani MASH:mash/bin/mash \
   SYLPH:sylph/bin/sylph GTDBTK:gtdbtk/bin/gtdbtk AMRFINDERPLUS:amrfinderplus/bin/amrfinder BAKTA:bakta/bin/bakta \
   ABRICATE:abricate/bin/abricate MOBSUITE:mobsuite/bin/mob_recon INTEGRONFINDER:integronfinder/bin/integron_finder \
-  ISESCAN:isescan/bin/isescan.py GENOMAD:genomad/bin/genomad; do
+  ISESCAN:isescan/bin/isescan.py GENOMAD:genomad/bin/genomad SCCMEC:sccmec/bin/sccmec SPATYPER:spatyper/bin/spaTyper \
+  AGRVATE:agrvate/bin/agrvate; do
   var="ARVA_TOOL_${spec%%:*}"
   exe="$HOME/.arva-tools/conda/${spec#*:}"
   if [ -z "${!var:-}" ] && [ -x "$exe" ]; then

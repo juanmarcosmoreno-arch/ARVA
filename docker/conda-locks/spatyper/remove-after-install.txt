@@ -1,0 +1,8 @@
+# spatyper's Bioconda package bundles copies of the Ridom SpaServer files (sparepeats.fasta, spatypes.txt; dated
+# 2021-10-01 in spatyper-0.3.3-pyhdfd78af_3). The SpaServer's policy allows individuals to download them for
+# non-commercial use; ARVA never ships, copies or uses them: every run passes the files the user downloaded and
+# registered (-r, -o). scripts/conda_locks.py install deletes these copies after creating the environment.
+bin/sparepeats.fasta
+bin/spatypes.txt
+share/spatyper-*/sparepeats.fasta
+share/spatyper-*/spatypes.txt

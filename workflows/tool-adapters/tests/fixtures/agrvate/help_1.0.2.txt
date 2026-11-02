@@ -1,0 +1,17 @@
+
+AgrVATE: Agr Variant Assessment & Typing Engine 
+
+VERSION: agrvate v1.0.2 
+
+USAGE:   agrvate [options] -i filename.fasta 
+
+FLAGS: 
+  -i | --input           Input S. aureus genome in FASTA format
+  -t | --typing-only     Does agr typing only (skips agr operon extraction and frameshift detection)
+  -m | --mummer          Uses mummer instead of usearch (May not perform frameshift detection)
+  -f | --force           Force overwrite existing results directory
+  -d | --databases       Path to agrvate_databases (Not required if installed using Conda)
+  -h | --help            Print this help message and exit
+  -v | --version         Print version and exit
+
+SOURCE:  https://github.com/VishnuRaghuram94/AgrVATE

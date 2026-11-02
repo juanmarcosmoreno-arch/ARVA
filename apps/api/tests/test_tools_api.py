@@ -45,7 +45,7 @@ def test_tools_listing(client):
     assert set(tools) == {"seqkit", "fastqc", "fastp", "filtlong", "multiqc", "nanoplot", "flye", "spades", "unicycler",
                           "quast", "racon", "pilon", "minimap2", "bwa", "samtools", "dnadiff", "bakta", "prokka",
                           "mlst", "fastani", "skani", "mash", "sylph", "gtdbtk", "amrfinderplus", "abricate", "mobsuite",
-                          "integronfinder", "isescan", "genomad"}
+                          "integronfinder", "isescan", "genomad", "sccmec", "spatyper", "agrvate"}
     for t in tools.values():
         assert t["status"] in ("available", "not_installed", "incompatible", "failed")
         assert t["license"] and t["citation_url"].startswith("https://")

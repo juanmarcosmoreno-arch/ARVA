@@ -1,0 +1,2 @@
+sample	type	subtype	mecA	targets	regions	coverage	hits	target_schema	target_schema_version	region_schema	region_schema_version	camlhmp_version	params	target_comment	region_comment	comment
+sccmec	-	-	-					sccmec_targets	1.2.0	sccmec_regions	1.2.0	1.1.4	min-targets-coverage=80;min-targets-pident=90;min-regions-coverage=83;min-regions-pident=85	A type could not be determined	A type could not be determined	A type could not be determined based on the target matches or cassette coverage

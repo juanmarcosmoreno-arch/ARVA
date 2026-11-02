@@ -2,13 +2,72 @@ import atexit
 import json
 import os
 import shutil
+import signal
 import subprocess
+import sys
 import tempfile
+import time
 from pathlib import Path
 
-_STORAGE = tempfile.mkdtemp(prefix="arva-test-storage-")
-# Every run stores its uploads and tool outputs here (about 20 MB, more with the real annotators).
-atexit.register(shutil.rmtree, _STORAGE, ignore_errors=True)
+_PREFIX = "arva-test-storage-"
+
+
+def _pid_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def _remove(path: str) -> None:
+    def retry(func, p, _exc):
+        os.chmod(os.path.dirname(p), 0o700)
+        if os.path.isdir(p) and not os.path.islink(p):
+            os.chmod(p, 0o700)
+        func(p)
+
+    shutil.rmtree(path, onexc=retry)
+
+
+def _sweep_stale() -> None:
+    """Remove the storage folders of earlier runs that were killed before their exit handler ran (a timeout's SIGKILL,
+    a closed terminal): those whose process no longer exists, and day-old ones from before the folder named its
+    process."""
+    tmp = Path(tempfile.gettempdir())
+    for folder in tmp.glob(f"{_PREFIX}*"):
+        owner = folder.name[len(_PREFIX):].split("-", 1)[0]
+        stale = not _pid_alive(int(owner)) if owner.isdigit() else time.time() - folder.stat().st_mtime > 86400
+        if stale and folder.is_dir():
+            try:
+                _remove(str(folder))
+            except OSError as exc:
+                print(f"conftest: could not remove the stale test storage {folder}: {exc}", file=sys.stderr)
+
+
+def _cleanup() -> None:
+    try:
+        _remove(_STORAGE)
+    except FileNotFoundError:
+        pass
+    except OSError as exc:
+        print(f"conftest: could not remove the test storage {_STORAGE}: {exc}", file=sys.stderr)
+
+
+def _interrupted(signum, _frame):
+    # SIGTERM and SIGHUP end Python without running atexit handlers; as KeyboardInterrupt pytest stops cleanly and the
+    # storage below is removed. SIGKILL cannot be caught: the next run's sweep removes that folder.
+    raise KeyboardInterrupt(f"stopped by {signal.Signals(signum).name}")
+
+
+_sweep_stale()
+_STORAGE = tempfile.mkdtemp(prefix=f"{_PREFIX}{os.getpid()}-")
+# Every run stores its uploads and tool outputs here (about 20 MB, about 300 MB with the real tools).
+atexit.register(_cleanup)
+for _sig in (signal.SIGTERM, signal.SIGHUP):
+    signal.signal(_sig, _interrupted)
 os.environ["ARVA_DATABASE_URL"] = os.environ.get(
     "ARVA_TEST_DATABASE_URL",
     "postgresql+psycopg://postgres:arva_dev_password@localhost:5432/arva_test",

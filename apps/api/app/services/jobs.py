@@ -72,6 +72,7 @@ SPECIES_JOB = "species_identification"
 AMR_JOB = "amr_detection"
 MOBILE_JOB = "mobile_elements"
 VIRULENCE_JOB = "virulence_screen"
+TYPING_JOB = "species_typing"
 
 
 class ToolUnavailableError(RuntimeError):
@@ -732,6 +733,37 @@ def create_virulence_job(db: Session, sample: Sample, assembly: Assembly, params
     db.add(job)
     db.commit()
     _enqueue([job], run_virulence_job)
+    db.refresh(job)
+    return job
+
+
+def create_typing_job(db: Session, sample: Sample, assembly: Assembly, module: str, method: str, params,
+                      record: ReferenceDatabase | None, bundled: dict | None, provenance: dict) -> AnalysisJob:
+    """One step of a species-specific typing module on an assembly (for S. aureus: sccmec, spaTyper or AgrVATE):
+    record_use keeps the registered database's kind, version, checksum and path (the Ridom files); for the data a
+    tool bundles, their name and checksum are recorded the same way."""
+    from app.services.databases import record_use
+    from app.services.staph_typing import ADAPTERS, METHODS
+    from app.tasks.typing import run_typing_job
+
+    tool_id = METHODS[method]["tool"]
+    tool = require_tool(tool_id)
+    res = effective_resources(db)
+    params.threads = res.cap_threads(params.threads)
+    params.validate()
+    _check_flags(ADAPTERS[method].help_options, tool, tuple(METHODS[method]["flags"](params)), tool.path or tool_id)
+    parameters = {"module": module, "method": method, "settings": params.as_dict(),
+                  "assembly": assembly_record(assembly), **provenance}
+    job = _tool_job(sample, TYPING_JOB, tool, parameters, [], res.record(params.threads))
+    if record is not None:
+        record_use(job, record)
+    elif bundled is not None:
+        job.database_kind, job.database_key, job.database_name = bundled["kind"], bundled["kind"], bundled["name"]
+        job.database_version, job.database_checksum = tool.version, bundled["checksum"]
+        job.database_path = bundled["path"]
+    db.add(job)
+    db.commit()
+    _enqueue([job], run_typing_job)
     db.refresh(job)
     return job
 
