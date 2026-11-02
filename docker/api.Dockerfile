@@ -67,16 +67,18 @@ RUN --mount=type=bind,source=scripts,target=/build/scripts \
 # number, so ARVA reads it from dpkg.
 # Annotation: Prokka and the programs it calls (Debian's), which are also what the PyPI Bakta of arm64 images runs:
 # there Bookworm's older versions fail Bakta's own minimums and ARVA's start-up checks skip the steps that need them,
-# saying so in each run: tRNAscan-SE 2.0.10 (< 2.0.12: tRNA), Aragorn 1.2.38 (< 1.2.41: tmRNA), Infernal 1.1.4
+# saying so in each run: tRNAscan-SE (not installed: tRNA), Aragorn 1.2.38 (< 1.2.41: tmRNA), Infernal 1.1.4
 # (< 1.1.5: rRNA and ncRNA), DIAMOND 2.1.3 and no AMRFinderPlus package (CDS, sORF), BLAST+ 2.12.0 (< 2.17.0:
 # oriC/oriV/oriT). On amd64 Bakta comes from its conda environment with all of its programs (CDS validated there).
 # Bookworm's prokka 1.14.6+dfsg-4 lacks the kingdom protein sets, so ARVA reports Prokka as unable to annotate.
-# trnascan-se, infernal, hmmer (so barrnap), prokka, spades and unicycler are amd64-only in bookworm (Debian's
-# package lists, checked with qa.debian.org/madison.php): arm64 images have no SPAdes, Unicycler or Prokka.
+# infernal, hmmer (so barrnap), prokka, spades and unicycler are amd64-only in bookworm (Debian's package lists,
+# checked with qa.debian.org/madison.php): arm64 images have no SPAdes, Unicycler or Prokka. Debian's trnascan-se is
+# in non-free, which the image does not enable; Prokka does not depend on it, and Bakta on amd64 has its own
+# tRNAscan-SE 2.0.13 in its conda environment.
 # Variant calling: bcftools (mpileup, call, norm, filter, csq) with BWA or minimap2 and samtools; ARVA validated
 # bcftools 1.19 (Ubuntu); bookworm ships 1.16, which ARVA runs after checking every option in its usage texts.
 RUN set -eu; extra=""; \
-    if [ "$(dpkg --print-architecture)" = "amd64" ]; then extra="trnascan-se infernal hmmer barrnap prokka spades unicycler"; fi; \
+    if [ "$(dpkg --print-architecture)" = "amd64" ]; then extra="infernal hmmer barrnap prokka spades unicycler"; fi; \
     apt-get update \
     && apt-get install -y --no-install-recommends seqkit fastp filtlong fastqc flye samtools minimap2 \
        racon ncbi-blast+ pilon bwa mummer default-jre-headless \
@@ -90,7 +92,8 @@ RUN set -eu; extra=""; \
 # QUAST 5.2.0 is a source package: it imports distutils (setuptools provides it on Python 3.12) and is built with
 # that pinned setuptools; its optional parts (gene finding, BUSCO, read analysis) are neither built nor downloaded.
 # Bakta 1.12.2 from PyPI with its direct requirements (about 0.32 GB as a venv) only when there is no conda
-# Bakta environment for this architecture (arm64). Its database is not part of the image: install it from the
+# Bakta environment for this architecture (arm64). isal (xopen's compression library) is pinned to 1.8.0, which has
+# linux-aarch64 wheels: 1.9.0 (2026-11-02) came without them, and building it needs make and nasm. Its database is not part of the image: install it from the
 # Database Manager into ARVA_DB_DIR (/databases), like the AMRFinderPlus database release its CDS step reads.
 # The environments stay at the prefix they were created with (/opt/arva-tools/conda/<tool>): conda writes it into
 # scripts and libraries, so they cannot be moved. mlst's PubMLST schemes are inside its environment
@@ -110,7 +113,7 @@ RUN set -eu; for tool in $ARVA_PYTHON_TOOLS; do \
                python -m venv /opt/arva-tools/bakta \
                && /opt/arva-tools/bakta/bin/pip install "bakta==1.12.2" "biopython==1.88" "xopen==2.1.0" \
                   "requests==2.34.2" "alive-progress==3.3.0" "PyYAML==6.0.3" "pyrodigal==3.7.1" "pyhmmer==0.12.3" \
-                  "pyCirclize==1.10.1" ;; \
+                  "pyCirclize==1.10.1" "isal==1.8.0" ;; \
         *) echo "Unknown ARVA_PYTHON_TOOLS entry: $tool" >&2; exit 1 ;; \
       esac; \
     done; \
