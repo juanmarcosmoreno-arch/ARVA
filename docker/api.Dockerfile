@@ -1,6 +1,6 @@
 # ARVA API and worker image (same image, different command).
-# External QC tools come from Debian's signed repositories (multi-architecture:
-# amd64 and arm64, so the image also runs on Apple Silicon).
+# External tools come from Debian's signed repositories and from Bioconda locks; the image builds for amd64 and arm64,
+# and some tools exist for amd64 only (below; docs/installation.md, Apple silicon).
 
 FROM python:3.12.7-slim-bookworm
 
@@ -71,14 +71,15 @@ RUN --mount=type=bind,source=scripts,target=/build/scripts \
 # (< 1.1.5: rRNA and ncRNA), DIAMOND 2.1.3 and no AMRFinderPlus package (CDS, sORF), BLAST+ 2.12.0 (< 2.17.0:
 # oriC/oriV/oriT). On amd64 Bakta comes from its conda environment with all of its programs (CDS validated there).
 # Bookworm's prokka 1.14.6+dfsg-4 lacks the kingdom protein sets, so ARVA reports Prokka as unable to annotate.
-# trnascan-se, infernal, hmmer (so barrnap) and prokka are amd64-only in bookworm.
+# trnascan-se, infernal, hmmer (so barrnap), prokka, spades and unicycler are amd64-only in bookworm (Debian's
+# package lists, checked with qa.debian.org/madison.php): arm64 images have no SPAdes, Unicycler or Prokka.
 # Variant calling: bcftools (mpileup, call, norm, filter, csq) with BWA or minimap2 and samtools; ARVA validated
 # bcftools 1.19 (Ubuntu); bookworm ships 1.16, which ARVA runs after checking every option in its usage texts.
 RUN set -eu; extra=""; \
-    if [ "$(dpkg --print-architecture)" = "amd64" ]; then extra="trnascan-se infernal hmmer barrnap prokka"; fi; \
+    if [ "$(dpkg --print-architecture)" = "amd64" ]; then extra="trnascan-se infernal hmmer barrnap prokka spades unicycler"; fi; \
     apt-get update \
     && apt-get install -y --no-install-recommends seqkit fastp filtlong fastqc flye samtools minimap2 \
-       spades unicycler racon ncbi-blast+ pilon bwa mummer default-jre-headless \
+       racon ncbi-blast+ pilon bwa mummer default-jre-headless \
        aragorn pilercr diamond-aligner prodigal mafft fasttree snp-sites bcftools $extra \
        libpango-1.0-0 libpangoft2-1.0-0 libharfbuzz-subset0 fonts-dejavu-core \
     && rm -rf /var/lib/apt/lists/*
