@@ -365,14 +365,14 @@ words (QUAST field names and log warnings, FastQC's pass/warn/fail, option value
 `--cov-cutoff off|auto` and Unicycler's `--mode`), NCBI's COG category names, annotation products, reference titles
 and the tools' own HTML reports.
 
-**Reports** (`GET /samples/{id}/report`, HTML/JSON/CSV) and the circular map inside the HTML report are English
-only: they are written by the API (`app/services/reports.py`, about 1,500 lines with some 110 HTML fragments and
-30 explanatory notes; `app/services/circular_svg.py`, its legend and caption) and the API has no language
-parameter. Following the interface language would take a `lang` query parameter passed by the interface, a
-server-side EN/ES catalogue for the HTML text with a parity test against the web dictionary, the HTML `lang`
-attribute and locale number formatting in the HTML; JSON keys and CSV headers would stay English (machine-readable)
-and the free-text fields of the JSON would carry codes. Figures exported from the interface (charts, the circular
-map's SVG with its legend and caption) already follow the interface language.
+**Reports**: the full project report (`GET /projects/{id}/report?lang=en|es`, `app/services/project_report.py`)
+follows the interface language in HTML and PDF: the interface passes its language, the server keeps an EN/ES
+catalogue of the report's labels, notes and limitations (a test checks both have the same keys), sets the HTML `lang`
+attribute and writes numbers in the locale (thin-space thousands and decimal comma in Spanish); JSON keys and CSV
+headers stay English (machine-readable), and tool output texts (product names, tool messages) stay as written. The
+sample report (`GET /samples/{id}/report`, `app/services/reports.py`, about 1,500 lines of HTML fragments) and the
+comparative and phylogenetic reports are still English only; moving them to the same catalogue is the remaining step.
+Figures exported from the interface already follow the interface language.
 
 ## External tools
 
@@ -436,6 +436,19 @@ adapters under `arva_tools`, a `TypingModule` in the registry, its step runners 
 its summary like `staph_typing.py`, its routes' module key, interface texts in both languages and its own validation
 genomes; the applicability rules, the override, the results table and the requirements panel are shared.
 
+## Comparative genomics
+
+`app/services/comparative.py` holds comparison sets (`comparison_sets` kept in one project, `comparison_members` with
+position and label, any assembly of any project), the plans of the two project-level jobs (`comparative_ani`,
+`comparative_alignment`, created by `create_comparative_job` from the confirmed plan) and the result views and CSV
+exports. The worker (`app/tasks/comparative.py`) checks each genome's contigs SHA-256, stages them as
+`input/g<N>.fna`, runs the tools (`arva_tools.skani`, `fastani`, `mapping.Minimap2Adapter.assembly_argv`, `nucmer`,
+`dnadiff`), writes `alignment.json` (genomes with contigs, compact blocks per pair, conservation windows) next to the
+tools' own files, removes the staged copies and stores one `comparison_results` row with the genome snapshot, the
+summary (ANI matrix and order, or per-pair summaries and dnadiff's features) and the file checksums. Pure helpers
+(matrix, UPGMA order, layouts, pair summaries, conservation) are in `arva_core.comparative`. The comparative report
+(`app/services/comparative_report.py`) and the sample report's section are built from stored results only.
+
 ## Planned extension points
 
 - **Nextflow DSL2** (`workflows/nextflow/`): multi-step pipelines (assembly, annotation) executed by a
@@ -489,7 +502,10 @@ statuses) alone. `scripts/diagnostics.sh` covers the case where the API is not r
 
 ## Security
 
-- API and web bind to `127.0.0.1` by default; nothing is exposed to the network.
+- API and web bind to `127.0.0.1` by default; nothing is exposed to the network. Optional accounts with roles,
+  project sharing, CSRF protection and an access audit log are described under "Accounts and access control".
+- Nothing leaves the machine unless the user acts: ARVA Assist is off, ships no provider and logs every request it
+  sends; PDF rendering refuses every external resource.
 - Error log entries and diagnostic reports pass `app/core/redaction.py` (no sequences, secrets, e-mail addresses,
   serial numbers or home folder names); the report is built only when asked and never sent anywhere. What the browser
   posts to `/system/client-errors` is size-, field- and rate-bounded and redacted before it is kept.
@@ -529,3 +545,119 @@ statuses) alone. `scripts/diagnostics.sh` covers the case where the API is not r
 - External tools run from argument vectors only (no shell), with a credential-free environment,
   timeouts and process-group termination. User-supplied names appear in commands only inside
   single arguments (sanitised paths within the storage root), so they cannot inject options or commands.
+
+## Accounts and access control
+
+Optional (`ARVA_AUTH_ENABLED`). Tables `users`, `user_sessions`, `project_shares`, `audit_events` and
+`projects.owner_id` (migration `b6e2d4f8a1c3`). Every router is included with the dependency `app.api.access.guard`:
+
+1. With accounts off it only marks the request as the local user (nothing else changes).
+2. With them on: a session cookie (random token; only its SHA-256 is stored), the CSRF token in `X-CSRF-Token` for
+   every change (compared with its stored hash), role rules (viewers change nothing; `ADMIN_ONLY` routes and changes to
+   databases, tools and system settings need an administrator), then project access: each path parameter, id-like
+   query parameter and id in a JSON body is resolved to its project (`RESOLVERS`: project, sample, assembly,
+   annotation, file, job, comparison set and result, MLST and species results, variant runs, batch runs). The route's
+   project needs write access for a change and read access otherwise; other projects a body names need read access.
+   A path parameter that is neither resolvable nor declared global is refused to non-administrators, and a test
+   checks every route's parameters, so a new route cannot bypass the check. Unscoped lists either filter their rows
+   with `visible_projects(request)` (`FILTERED`) or show no project data (`GLOBAL_READS`); others are for
+   administrators.
+3. Refusals, every allowed change and every report or file download are written to `audit_events` with the user, the
+   route template, the project and the outcome (never request values). Sign-ins (and failures), sign-outs, account
+   and sharing changes are recorded by their routes.
+
+Passwords: Argon2id via argon2-cffi's `PasswordHasher` defaults (RFC 9106 low-memory profile), rehashed on sign-in
+when the parameters change; unknown user names are verified against a dummy hash so both cases take as long; a
+locked account is refused even with the right password. Changing a role, deactivating an account or changing a
+password revokes the account's sessions. The worker runs jobs without a user.
+
+## ARVA Assist (integration point)
+
+`app/services/assist.py`: `AssistProvider` (`ask(payload, config) -> str`) and a registry (`register`,
+`unregister`); no provider is included. Settings live in `app_settings["assist"]` (enabled, provider, endpoint,
+model); the key in `<storage>/secrets/assist-key`. `build_payload` is the only place where outgoing content is built:
+fixed instructions (answer only from the given data, label Observed / Interpretation / Hypothesis, never invent
+results), the question, guide excerpts the interface sends (bounded), the project report's data without personal
+fields, and sequences only when the request carries `sequence_consent` (otherwise refused with
+`assist_sequence_consent`). `POST /assist/preview` returns the payload without sending it; `POST /assist/ask` records
+the exact payload, its SHA-256, the provider, endpoint host and model in `assist_requests` before returning the answer;
+a provider failure is recorded and answered with `assist_provider_failed`, never a 500.
+
+## Region Explorer and gene investigation
+
+`app/services/regions.py` holds the saved queries (`gene_queries`), the gene lookup across a set's annotations and
+the plans of the `region_explorer` and `gene_investigation` jobs (created by `create_region_job` from the confirmed
+plan). Their results are `comparison_results` rows with `analysis` "region" or "gene" (the drawing data in
+`region.json` / `gene.json` beside the tools' outputs). The worker (`app/tasks/regions.py`) checks each genome's
+contigs SHA-256, stages them renamed `contig_N` (BLAST rewrites some identifiers), stages annotated proteins as
+`f<feature id>` after checking the protein file's SHA-256, runs `makeblastdb`/`blastn`/`tblastn`/`blastp`, MAFFT and
+IQ-TREE or FastTree, and removes the staged copies. Pure rules (match chaining, windows, relative coordinates,
+homology groups, links) are in `arva_core.region`, Newick reading and writing in `arva_core.newick`. The figure is a
+list of primitives (`apps/web/src/lib/regions.ts`) drawn as SVG and written as a vector PDF (`lib/pdf.ts`).
+
+## Pangenome
+
+`app/services/pangenome.py` builds the plan of the `pangenome` job (each genome's latest annotation and its GFF3
+SHA-256, the annotation consistency, Panaroo's or PPanGGOLiN's settings, the category thresholds and curve sampling;
+`create_pangenome_job` records them) and serves the result: the family explorer reads one line of `members.jsonl` by
+the byte offset kept in `pangenome.json` and each member's row of Panaroo's `gene_data.csv` by its offset, so a
+family opens without reading whole files; metadata groups and associations are computed on request from the stored
+matrix and the samples' current metadata. The worker (`app/tasks/pangenome.py`) links the GFF3 files as
+`input/g<N>.gff3`, runs Panaroo with its environment's `bin/` first in PATH and relative paths only, removes Panaroo's
+intermediate files and writes ARVA's summaries (`arva_core.pangenome`). Results are `comparison_results` rows with
+`analysis` "pangenome"; alignments are listed with their SHA-256 in `alignments.sha256` rather than one entry each.
+
+## Phylogeny
+
+`app/services/phylogeny.py` lists what the set's results offer as tree sources, builds the plan of the `phylogeny`
+job (the source result, file and SHA-256, the leaves with their genomes, the method's settings, the constant-site
+handling and the rooting; `create_phylogeny_job` records them) and serves the result: the tree rooted as the saved
+view (`phylo_tree_views`) says, Newick downloads, leaf metadata (sample fields, MLST, AMR genes) and Robinson-Foulds
+comparisons. The worker (`app/tasks/phylogeny.py`) re-checks the source file, writes it with sequences renamed
+s1..sN, runs SNP-sites, IQ-TREE or FastTree (or ARVA's neighbour joining), renames the leaves back and keeps the
+tools' files. Tree operations are in `arva_core.phylo`; the Tree Explorer (`apps/web/src/components/comparative/
+TreeView.tsx`, layouts in `lib/phylo.ts`) draws with the same primitives as the Region Explorer, so SVG, PNG and PDF
+exports show exactly what is drawn; it is ARVA's own SVG rather than a library such as phylotree.js, to keep one
+figure model for drawing and vector PDF export, avoid a d3 dependency and control every label's translation.
+`app/services/phylogeny_report.py` writes the phylogenetic report.
+
+## Variant analysis and consolidated mobilome
+
+`app/services/variants.py` offers the references (ARVA's assemblies; genomes of registered reference collections),
+builds the plan of a `variant_calling` job (the reference's snapshot with the SHA-256 of the FASTA as the aligner reads
+it, the reads by role, the technology's aligner and bcftools profile, the filters, whether effects are annotated;
+`create_variant_job` records them) and serves the results: runs per sample, records filtered and paged, CSV, the SNP
+matrix and distances across a project's samples, and the Genome Explorer's Variants track. The worker
+(`app/tasks/variants.py`) re-checks the reference, aligns (BWA-MEM or minimap2, reusing the polishing task's helpers),
+runs samtools and the bcftools chain (`arva_tools.bcftools`), writes the csq GFF3 from the annotation, and stores the
+parsed records and low-depth intervals in `variants.json.gz` next to the VCF; a `variant_calls` row keeps the summary
+and file checksums (like annotations, records are not database rows). `arva_core.variants` parses VCF and BCSQ, writes
+the GFF3 for csq, computes the summaries and the SNP matrix. `app/services/mobilome.py` reads the existing
+mobile-element, AMR and virulence rows and places genes relative to elements by coordinates (no new table);
+`app/services/variants_report.py` writes the report sections and the project's variant report.
+
+
+## Workflows and batch runs
+
+- `scientific-core/arva_core/workflow.py`: the node catalogue (ports, scope, tools by method), graph validation
+  (types, scopes, single/collection inputs, cycles, required inputs), topological order, the definition checksum,
+  node signatures for branch reuse, parameter differences and the predefined workflows. Pure, no I/O.
+- `apps/api/app/services/workflow_nodes.py`: per node kind, the request model of its analysis (parameters are that
+  model minus the fields ARVA fills), how a source picks data (ARVA's rule or the user's binding), how the node is
+  launched (the analysis's POST route function, so all its checks apply) and what it produced (assembly, annotation,
+  derived reads, comparison result).
+- `apps/api/app/services/batches.py`: versions, runs and the queue. `dispatch()` holds a PostgreSQL advisory lock on
+  its own connection; a call made while the same thread dispatches (a job run synchronously by its launch, as in the
+  tests) makes the running call loop again. It is called at the end of `run_job`, after a job cancellation, on run
+  changes and when a worker starts. Items record the job of each attempt; jobs launched by a run carry the run's
+  correlation id, so the error log lists them with the run.
+- Tables: `workflows`, `workflow_versions` (definitions never rewritten), `batch_runs` (snapshot of the definition
+  and of the tools, queue settings, branch parent and changes), `batch_items` (node × sample, dependencies, job ids,
+  outputs, reason, reservation, reused item).
+- Routes: `/workflows` (catalogue, validate, CRUD, versions, duplicate, import, export), `/batches` (preview, start,
+  list, queue, detail, pause, resume, cancel, settings, branch, compare, errors, export.json, table.csv,
+  report.html) and `/samples/{id}/batches` (timeline branches).
+- Web: `/workflows` (list, predefined workflows, runs dashboard), `/workflows/:id` (editor, `@xyflow/react` 12.12.0),
+  `/workflows/runs/:id`, `/workflows/compare`; `SampleBranches` on the sample page.
+- Parallelism: the queue hands at most the allowed number of jobs to RQ; they run in parallel only with as many
+  worker processes (for example `docker compose up --scale worker=2`).

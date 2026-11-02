@@ -200,7 +200,23 @@ def test_integrons_on_r388_n315_and_synthetic():
     assert itf.parse_integrons(read("integronfinder", "synthetic.integrons")) == []
 
 
-# --- ISEScan and geNomad (CONSTRUCTED files; the tools are not installed here) ----------------------------------
+# --- ISEScan (REAL run on N315, and a CONSTRUCTED edge case) and geNomad (CONSTRUCTED; not installed here) ------
+
+def test_isescan_parser_and_help_on_the_real_n315_run():
+    rows = ise.parse_tsv(read("isescan", "N315_GCF_000009645.1.tsv"))
+    assert len(rows) == 23
+    assert sum(r["completeness"] == "complete" for r in rows) == 14
+    families = {r["family"] for r in rows}
+    assert {"IS21", "IS3", "ISL3", "IS1182", "new"} == families
+    first = rows[0]
+    assert (first["seqID"], first["family"], first["isBegin"], first["isEnd"], first["completeness"],
+            first["has_tir"]) == ("NC_002745.2", "IS21", 96, 1879, "partial", True)
+    assert {r["seqID"] for r in rows} == {"NC_002745.2"}
+    total = read("isescan", "N315_GCF_000009645.1.sum").strip().splitlines()[-1].split()
+    assert total[1:3] == ["total", "23"]
+    assert {"--seqfile", "--output", "--nthread", "--removeShortIS"} <= ise.help_options(
+        read("isescan", "isescan_help_1.7.3.txt"))
+
 
 def test_isescan_parser_on_a_constructed_file():
     rows = ise.parse_tsv(read("isescan", "constructed.tsv"))

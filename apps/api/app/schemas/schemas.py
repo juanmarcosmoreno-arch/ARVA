@@ -2,7 +2,14 @@
 import datetime as dt
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_serializer, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    field_serializer,
+    field_validator,
+    model_validator,
+)
 
 from app.models import (
     AssemblyMode,
@@ -3536,3 +3543,577 @@ class TypingProjectRead(BaseModel):
     module: str
     samples: list[dict[str, Any]]
     typed: int
+
+
+# --- Comparative genomics -------------------------------------------------------------------------------------------
+
+class ComparisonSetIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    project_id: str = Field(max_length=36, description="The project that keeps the set, its jobs and its report "
+                            "section; the assemblies may come from any project")
+    name: str = Field(min_length=1, max_length=200)
+    description: str | None = Field(default=None, max_length=5000)
+    assembly_ids: list[Annotated[str, Field(max_length=36)]] = Field(min_length=2, max_length=200)
+    labels: dict[str, Annotated[str, Field(max_length=100)]] = Field(
+        default={}, description="Label per assembly id, shown in plots and tables (default: sample code and "
+        "assembler)")
+
+
+class ComparisonSetRead(BaseModel):
+    id: str
+    project_id: str
+    project_name: str | None
+    name: str
+    description: str | None
+    created_at: dt.datetime
+    updated_at: dt.datetime
+    members: list[dict[str, Any]]
+    results: list[dict[str, Any]]
+    jobs: list[dict[str, Any]]
+
+
+class ComparisonSetBrief(BaseModel):
+    id: str
+    name: str
+    description: str | None
+    project_id: str
+    project_name: str | None
+    genomes: int
+    labels: list[str]
+    has_results: bool
+    updated_at: dt.datetime
+
+
+class ComparisonAniIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    method: Literal["skani", "fastani"] = "skani"
+    threads: int | None = Field(default=None, ge=1, le=256)
+    confirmed: bool = False
+
+
+class NucmerSettingsIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    anchors: Literal["mumreference", "mum", "maxmatch"] = "mumreference"
+    breaklen: int = Field(default=200, ge=1, le=100_000)
+    mincluster: int = Field(default=65, ge=1, le=100_000)
+    maxgap: int = Field(default=90, ge=1, le=100_000)
+    minmatch: int = Field(default=20, ge=1, le=100_000)
+
+
+class ComparisonAlignmentIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    aligner: Literal["minimap2", "nucmer"] = "minimap2"
+    preset: Literal["asm5", "asm10", "asm20"] = Field(default="asm5", description="minimap2 preset by expected "
+                                                      "divergence: asm5 ~0.1 %, asm10 ~1 %, asm20 ~5 %")
+    nucmer: NucmerSettingsIn = NucmerSettingsIn()
+    order: list[Annotated[str, Field(max_length=36)]] | None = Field(
+        default=None, description="Assembly ids of the set in the order to compare; the first is the reference "
+        "(default: the set's order)")
+    dnadiff: bool = Field(default=True, description="Also run dnadiff of each genome against the reference")
+    threads: int | None = Field(default=None, ge=1, le=256)
+    confirmed: bool = False
+
+
+class PanarooSettingsIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    clean_mode: Literal["strict", "moderate", "sensitive"] = "strict"
+    identity: float = Field(default=0.98, description="-c: sequence identity threshold")
+    family_threshold: float = Field(default=0.7, description="-f: protein family identity threshold")
+    length_difference: float = Field(default=0.98, description="--len_dif_percent")
+    family_length_difference: float = Field(default=0.0, description="--family_len_dif_percent")
+    merge_paralogs: bool = False
+    remove_invalid_genes: bool = False
+    search_radius: int = 5000
+    refind_prop_match: float = 0.2
+    refind_mode: Literal["default", "strict", "off"] = "default"
+    length_outlier_support_proportion: float = 0.1
+    high_var_flag: int = 5
+    alignment: Literal["none", "core", "pan"] = Field(default="none", description="-a: align the core families, "
+                                                      "every family, or none")
+    aligner: Literal["mafft"] = "mafft"
+    core_threshold: float = Field(default=0.95, description="--core_threshold: genomes share for the core alignment")
+    codon_table: int = 11
+
+
+class PpanggolinSettingsIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    identity: float = 0.8
+    coverage: float = 0.8
+    clustering_mode: Literal["0", "1", "2", "3"] = "1"
+    partitions: int = -1
+    translation_table: int = 11
+    kingdom: Literal["bacteria", "archaea"] = "bacteria"
+
+
+class PangenomeCategoriesIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    core: float = Field(default=0.99, description="Share of genomes for core (Panaroo's summary threshold)")
+    soft_core: float = 0.95
+    shell: float = 0.15
+
+
+class PangenomeCurvesIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    permutations: int = Field(default=100, description="Random genome orders for the accumulation curves")
+    seed: int = 12345
+
+
+class PangenomeIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    method: Literal["panaroo", "ppanggolin"] = "panaroo"
+    genomes: list[Annotated[str, Field(max_length=36)]] | None = Field(
+        default=None, description="Assembly ids of the set to include (default: all)")
+    panaroo: PanarooSettingsIn = PanarooSettingsIn()
+    ppanggolin: PpanggolinSettingsIn = PpanggolinSettingsIn()
+    categories: PangenomeCategoriesIn = PangenomeCategoriesIn()
+    curves: PangenomeCurvesIn = PangenomeCurvesIn()
+    threads: int | None = Field(default=None, ge=1, le=256)
+    confirmed: bool = False
+
+
+class PhyloSourceIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["core_alignment", "snp_alignment", "family_alignment", "gene_alignment", "ani_matrix"]
+    result_id: str = Field(max_length=36)
+    core: Literal["all", "filtered"] = "all"
+    family: str | None = Field(default=None, max_length=200)
+
+
+class PhyloIqtreeIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    model: str = Field(default="MFP", max_length=60, description="MFP (ModelFinder) or an IQ-TREE model name")
+    ufboot: int = Field(default=1000, ge=0, le=100_000, description="UFBoot replicates (0: none, else >= 1000)")
+    alrt: int = Field(default=1000, ge=0, le=100_000, description="SH-aLRT replicates (0: none, else >= 1000)")
+    seed: int = Field(default=12345, ge=1, le=2_147_483_647)
+
+
+class PhyloRootingIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    method: Literal["none", "midpoint", "outgroup"] = "midpoint"
+    outgroup: list[Annotated[str, Field(max_length=300)]] = Field(default_factory=list, max_length=500)
+
+
+class PhylogenyIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    source: PhyloSourceIn
+    method: Literal["iqtree", "fasttree", "nj"] = "iqtree"
+    iqtree: PhyloIqtreeIn = PhyloIqtreeIn()
+    constant_sites: Literal["fconst", "asc", "none"] = Field(
+        default="fconst", description="SNP alignments: -fconst with SNP-sites' counts, +ASC, or no correction")
+    distance: Literal["p", "jc69"] = Field(default="jc69", description="Neighbour joining on an alignment")
+    rooting: PhyloRootingIn = PhyloRootingIn()
+    threads: int | None = Field(default=None, ge=1, le=256)
+    confirmed: bool = False
+
+
+class PhyloStyleIn(BaseModel):
+    """The Tree Explorer's display: clades are named by a hash of their sorted leaf names (computed by the web
+    client), so a saved colour or collapse follows the clade while the rooting keeps it."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    layout: Literal["rectangular", "circular"] = "rectangular"
+    collapsed: list[Annotated[str, Field(max_length=64)]] = Field(default_factory=list, max_length=5000)
+    branch_colors: dict[Annotated[str, Field(max_length=64)],
+                        Annotated[str, Field(pattern=r"^#[0-9a-fA-F]{6}$")]] = Field(default_factory=dict)
+    leaf_color_field: str | None = Field(default=None, max_length=200)
+    bands: list[Annotated[str, Field(max_length=200)]] = Field(default_factory=list, max_length=12)
+    show_support: bool = True
+    support_min: float = Field(default=0, ge=0, le=100)
+    show_lengths: bool = False
+    ladderize: bool = True
+    align_labels: bool = False
+    font_size: int = Field(default=11, ge=6, le=24)
+
+    @field_validator("branch_colors")
+    @classmethod
+    def _few_colors(cls, v: dict[str, str]) -> dict[str, str]:
+        if len(v) > 5000:
+            raise ValueError("at most 5000 coloured clades")
+        return v
+
+
+class PhyloViewIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    rooting: PhyloRootingIn
+    style: PhyloStyleIn = PhyloStyleIn()
+
+
+class ComparisonPlanRead(BaseModel):
+    analysis: str
+    method: str
+    set_id: str
+    tool: dict[str, Any]
+    tools: dict[str, Any] = {}
+    anchor: dict[str, Any] | None = None
+    query: dict[str, Any] | None = None
+    unannotated: list[str] = []
+    dnadiff_tool: dict[str, Any] | None = None
+    settings: dict[str, Any]
+    dnadiff: bool | None = None
+    genomes: list[dict[str, Any]]
+    reference: str | None = None
+    pairs: list[dict[str, Any]] = []
+    comparisons: int | None = None
+    preset_divergence: dict[str, str] = {}
+    annotation_consistency: dict[str, Any] | None = None
+    source: dict[str, Any] | None = None
+    problems: list[dict[str, Any]]
+    notes: list[str] = []
+
+
+class ComparisonResultRead(BaseModel):
+    id: str
+    set_id: str
+    job_id: str
+    analysis: str
+    method: str
+    tool: str
+    tool_version: str
+    parameters: dict[str, Any]
+    genomes: list[dict[str, Any]]
+    summary: dict[str, Any]
+    warnings: list[dict[str, Any]]
+    files: dict[str, Any]
+    created_at: dt.datetime
+    alignment: dict[str, Any] | None = None
+    alignment_missing: bool | None = None
+    data: dict[str, Any] | None = None
+    data_missing: bool | None = None
+
+
+class GeneQueryIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str | None = Field(default=None, max_length=100)
+    description: str | None = Field(default=None, max_length=2000)
+    molecule: Literal["nucleotide", "protein"]
+    fasta: str = Field(min_length=1, max_length=200_000, description="One FASTA record or a bare sequence")
+    source: Literal["paste", "upload"] = "paste"
+
+
+class GeneQueryFromFeatureIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    annotation_id: str = Field(max_length=36)
+    feature_id: int = Field(ge=1)
+    molecule: Literal["nucleotide", "protein"]
+    name: str | None = Field(default=None, max_length=100)
+
+
+class GeneQueryRead(BaseModel):
+    id: str
+    name: str
+    description: str | None
+    molecule: str
+    length: int
+    sha256: str
+    source: dict[str, Any]
+    created_at: dt.datetime
+    sequence: str | None = None
+
+
+class RegionAnchorIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    annotation_id: str | None = Field(default=None, max_length=36)
+    feature_id: int | None = Field(default=None, ge=1)
+    assembly_id: str | None = Field(default=None, max_length=36)
+    contig: str | None = Field(default=None, max_length=300)
+    start: int | None = Field(default=None, ge=1)
+    end: int | None = Field(default=None, ge=1)
+    strand: Literal["+", "-"] | None = None
+
+
+class RegionLocateIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    min_identity: float = Field(default=70, description="ARVA default: % identity of the homologue (a level that keeps "
+                                "paralogues of a gene family out; lower it to follow the family)")
+    min_coverage: float = Field(default=70, description="ARVA default: % of both proteins (or of the gene) covered")
+    evalue: float = 1e-10
+
+
+class RegionGroupsIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    min_identity: float = 30
+    min_coverage: float = 50
+
+
+class RegionLinksIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    min_identity: float = 70
+    min_length: int = 100
+
+
+class RegionExplorerIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    anchor: RegionAnchorIn
+    genomes: list[Annotated[str, Field(max_length=36)]] = Field(description="Assembly ids of the set to compare, "
+                                                                "in track order (the gene's genome comes first)")
+    flank: int = Field(default=10_000, description="bp on each side of the gene")
+    locate: RegionLocateIn = RegionLocateIn()
+    groups: RegionGroupsIn = RegionGroupsIn()
+    links: RegionLinksIn = RegionLinksIn()
+    threads: int | None = Field(default=None, ge=1, le=256)
+    confirmed: bool = False
+
+
+class GeneThresholdsIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    min_identity: float = 80
+    min_coverage: float = 50
+    complete_coverage: float = 90
+    evalue: float = 1e-10
+    max_gap: int = 5_000
+
+
+class GeneAlignmentIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = True
+    strategy: Literal["linsi", "fftns2"] = "linsi"
+    kinds: list[Literal["complete", "partial", "split"]] = ["complete"]
+    include_query: bool = True
+
+
+class GeneTreeIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = False
+    method: Literal["iqtree", "fasttree"] = "iqtree"
+    model: str = Field(default="MFP", max_length=60)
+    ufboot: int = Field(default=1000, ge=1000, le=100_000)
+    seed: int = Field(default=12345, ge=1)
+
+
+class GeneInvestigationIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    query_id: str = Field(max_length=36)
+    genomes: list[Annotated[str, Field(max_length=36)]]
+    task: str | None = Field(default=None, max_length=20, description="blastn: blastn, blastn-short, dc-megablast "
+                             "or megablast; tblastn: tblastn or tblastn-fast (default: blastn / tblastn)")
+    thresholds: GeneThresholdsIn = GeneThresholdsIn()
+    mobile_distance: int = Field(default=10_000, description="bp around a match searched for mobile elements")
+    alignment: GeneAlignmentIn = GeneAlignmentIn()
+    tree: GeneTreeIn = GeneTreeIn()
+    threads: int | None = Field(default=None, ge=1, le=256)
+    confirmed: bool = False
+
+
+class VariantReferenceIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["assembly", "collection"]
+    assembly_id: str | None = Field(default=None, max_length=36)
+    database_id: str | None = Field(default=None, max_length=36)
+    genome_key: str | None = Field(default=None, max_length=1000)
+
+
+class VariantSettingsIn(BaseModel):
+    """The caller's settings; None takes the technology's profile (bcftools' -X values, written out) or ARVA's
+    default (Snippy 4.6.0's thresholds for the filters)."""
+    model_config = ConfigDict(extra="forbid")
+
+    min_mapq: int = Field(default=60, ge=0, le=60)
+    min_baseq: int | None = Field(default=None, ge=0, le=60)
+    max_depth: int = Field(default=1000, ge=10, le=100_000)
+    call_indels: bool | None = None
+    prior: float = Field(default=1.1e-3, gt=0, lt=1)
+    min_qual: float = Field(default=100.0, ge=0, le=10_000)
+    min_depth: int = Field(default=10, ge=0, le=10_000)
+    min_alt_fraction: float = Field(default=0.9, ge=0, le=1)
+
+
+class VariantsIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    technology: Literal["illumina", "ont", "pacbio_hifi"]
+    reference: VariantReferenceIn
+    inputs: dict[Literal["r1", "r2", "unpaired", "long"], Annotated[str, Field(max_length=36)] | None]
+    settings: VariantSettingsIn = VariantSettingsIn()
+    effects: bool = Field(default=True, description="Annotate effects with bcftools csq when the reference has an "
+                                                    "ARVA annotation")
+    keep_alignment: bool = Field(default=False, description="Keep the sorted BAM and its index with the results")
+    threads: int | None = Field(default=None, ge=1, le=256)
+    confirmed: bool = False
+
+
+# --- Workflow Builder and batch runs (spec sections 24, 25 and 27) ---
+
+class ReadsSourceIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    include_derived: bool = Field(default=False, description="Also consider reads ARVA derived (filtered files)")
+
+
+class AssemblySourceIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    prefer: Literal["latest", "latest_polished"] = Field(
+        default="latest_polished", description="The sample's newest assembly, or its newest polished one when it has "
+        "one")
+
+
+class SetSourceIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    set_id: str = Field(max_length=36)
+
+
+class CollectSetIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str | None = Field(default=None, max_length=200, description="Default: the run's name")
+    require_all: bool = Field(default=True, description="Stop when a sample's genome is missing; otherwise compare "
+                              "the genomes that exist (at least 2) and record the missing samples")
+
+
+class PhylogenyNodeIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    source_kind: Literal["core_alignment", "snp_alignment", "family_alignment", "gene_alignment"] = "core_alignment"
+    core: Literal["all", "filtered"] = "all"
+    family: str | None = Field(default=None, max_length=200)
+    method: Literal["iqtree", "fasttree", "nj"] = "iqtree"
+    iqtree: PhyloIqtreeIn = PhyloIqtreeIn()
+    constant_sites: Literal["fconst", "asc", "none"] = "fconst"
+    distance: Literal["p", "jc69"] = "jc69"
+    rooting: PhyloRootingIn = PhyloRootingIn()
+    threads: int | None = Field(default=None, ge=1, le=256)
+
+
+class WorkflowNodeIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(min_length=1, max_length=64, pattern=r"^[A-Za-z0-9_.-]+$")
+    kind: str = Field(max_length=64)
+    label: str | None = Field(default=None, max_length=100)
+    params: dict[str, Any] = {}
+    position: dict[str, float] = {}
+
+
+class WorkflowEdgeIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str | None = Field(default=None, max_length=100)
+    source: str = Field(max_length=64)
+    source_port: str = Field(max_length=64)
+    target: str = Field(max_length=64)
+    target_port: str = Field(max_length=64)
+
+
+class WorkflowDefinitionIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    format: Literal["arva-workflow"] = "arva-workflow"
+    format_version: Literal[1] = 1
+    nodes: list[WorkflowNodeIn] = Field(max_length=60)
+    edges: list[WorkflowEdgeIn] = Field(max_length=200)
+
+
+class WorkflowCreateIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=200)
+    description: str | None = Field(default=None, max_length=5000)
+    template_key: str | None = Field(default=None, max_length=64)
+    definition: WorkflowDefinitionIn | None = None
+
+
+class WorkflowVersionIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    definition: WorkflowDefinitionIn
+    note: str | None = Field(default=None, max_length=2000)
+    name: str | None = Field(default=None, min_length=1, max_length=200)
+    description: str | None = Field(default=None, max_length=5000)
+
+
+class WorkflowDuplicateIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=200)
+    version: int | None = Field(default=None, ge=1)
+
+
+class BatchSettingsIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    priority: int = Field(default=0, ge=-10, le=10, description="Higher runs first; equal priorities run in order of "
+                          "creation")
+    max_concurrent: int = Field(default=1, ge=1, le=64, description="Jobs of this run in the task queue at once")
+    threads_per_job: int | None = Field(default=None, ge=1, le=256, description="Default: the performance profile's "
+                                        "threads per job")
+    memory_per_job_gb: int | None = Field(default=None, ge=1, le=4096, description="Default: the performance "
+                                          "profile's memory per job; passed to the tools that take a memory limit")
+    max_retries: int = Field(default=0, ge=0, le=3, description="New attempts of a job that failed while running "
+                             "(a launch refused by a check is never retried)")
+
+
+class BatchRunIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    project_id: str = Field(max_length=36)
+    workflow_id: str = Field(max_length=36)
+    version: int | None = Field(default=None, ge=1, description="Default: the newest version")
+    sample_ids: list[Annotated[str, Field(max_length=36)]] = Field(min_length=1, max_length=1000)
+    name: str | None = Field(default=None, max_length=200)
+    settings: BatchSettingsIn = BatchSettingsIn()
+    bindings: dict[str, dict[str, dict[str, Any]]] = Field(
+        default={}, description="Per sample id and source node id, the data to use instead of ARVA's rule "
+        "(reads: {file_ids} or {r1, r2}; assembly: {assembly_id}; annotation: {annotation_id})")
+    confirmed: bool = False
+
+
+class BatchBranchIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    node_id: str = Field(max_length=64)
+    params: dict[str, Any]
+    name: str | None = Field(default=None, max_length=200)
+    confirmed: bool = False
+
+
+class BatchSettingsUpdateIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    priority: int | None = Field(default=None, ge=-10, le=10)
+    max_concurrent: int | None = Field(default=None, ge=1, le=64)
+
+
+class BaktaNodeSettingsIn(BaktaSettingsIn):
+    locus_tag: str | None = Field(default=None, pattern=_LOCUS_TAG, description="Unset: ARVA's suggestion from each "
+                                  "sample's code (the dialog's suggestion)")
+
+
+class BaktaNodeIn(BaktaRequest):
+    settings: BaktaNodeSettingsIn = BaktaNodeSettingsIn()
+
+
+class ProkkaNodeSettingsIn(ProkkaSettingsIn):
+    locus_tag: str | None = Field(default=None, pattern=_LOCUS_TAG, description="Unset: ARVA's suggestion from each "
+                                  "sample's code (the dialog's suggestion)")
+
+
+class ProkkaNodeIn(ProkkaRequest):
+    settings: ProkkaNodeSettingsIn = ProkkaNodeSettingsIn()

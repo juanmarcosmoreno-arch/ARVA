@@ -1,0 +1,4 @@
+"Gene","Non-unique Gene name","Annotation","No. isolates","No. sequences","Avg sequences per isolate","Accessory Fragment","Genome Fragment","Order within Fragment","Accessory Order with Fragment","QC","Min group size nuc","Max group size nuc","Avg group size nuc","g1","g2","g3"
+"famA","persistent","DNA gyrase subunit A, GyrA","3","3","1.0","NA","NA","","","","2663","2663","2663.0","1","1","1"
+"famB","shell","hypothetical protein","2","3","1.5","NA","NA","","","","299","302","300.0","2","1","0"
+"famC","cloud","phage protein","1","1","1.0","NA","NA","","","","149","149","149.0","0","0","1"

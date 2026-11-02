@@ -2,11 +2,11 @@
 transposases (bundled in its package), FragGeneScan and HMMER, and terminal inverted repeat (TIR) detection.
 
 Written from ISEScan 1.7.3's source (isescan.py, isPredict.py, pred.py outputIS4multipleSeqOneFile, tools.py of
-xiezhq/ISEScan, version string 1.7.3) and ARVA's lock (docker/conda-locks/isescan/, linux-64 only); NOT VALIDATED
-HERE: its environment (342 MB to download, about 0.9 GB unpacked) did not fit the test machine's disk next to
-MOB-suite's database, so the parser is tested on a constructed file in that format (tests/fixtures/isescan,
-labelled CONSTRUCTED). MOB-suite's own repetitive-element search (mge.report.txt) reports known IS elements and is
-validated.
+xiezhq/ISEScan, version string 1.7.3) and ARVA's lock (docker/conda-locks/isescan/, linux-64 only), and VALIDATED
+with a real run of 1.7.3 from that lock on S. aureus N315 (GCF_000009645.1; 23 IS elements, 14 complete and 9
+partial; about 9 minutes with 3 threads): its .tsv and .sum are in tests/fixtures/isescan. The environment must be
+first in PATH: isescan.py starts with `#!/usr/bin/env python3` and loads libssw.so through ctypes, which another
+Python does not find (env_for).
 
 * `isescan.py --seqfile <FASTA> --output <folder> --nthread <n>`; --removeShortIS drops partial IS elements (length
   < 400 bp, or a single copy without a perfect TIR); --no-FragGeneScan (experimental) reads GenBank proteins instead.
@@ -120,7 +120,7 @@ class IsescanAdapter(ToolAdapter):
         input_formats=("fasta",),
         output_formats=("tsv",),
         min_version="1.7.3",
-        tested_versions=(),
+        tested_versions=("1.7.3",),
         install={"conda_lock": "python3 scripts/conda_locks.py install isescan ~/.arva-tools/conda/isescan"
                                "  # then ARVA_TOOL_ISESCAN=~/.arva-tools/conda/isescan/bin/isescan.py"},
         conda_platforms=("linux-64",),

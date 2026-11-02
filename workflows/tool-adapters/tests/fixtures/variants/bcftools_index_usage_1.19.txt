@@ -1,0 +1,18 @@
+index: invalid option -- 'h'
+
+About:   Index bgzip compressed VCF/BCF files for random access.
+Usage:   bcftools index [options] <in.bcf>|<in.vcf.gz>
+
+Indexing options:
+    -c, --csi                generate CSI-format index for VCF/BCF files [default]
+    -f, --force              overwrite index if it already exists
+    -m, --min-shift INT      set minimal interval size for CSI indices to 2^INT [14]
+    -o, --output FILE        optional output index file name
+    -t, --tbi                generate TBI-format index for VCF files
+        --threads INT        use multithreading with INT worker threads [0]
+
+Stats options:
+    -a, --all            with --stats, print stats for all contigs even when zero
+    -n, --nrecords       print number of records based on existing index file
+    -s, --stats          print per contig stats based on existing index file
+

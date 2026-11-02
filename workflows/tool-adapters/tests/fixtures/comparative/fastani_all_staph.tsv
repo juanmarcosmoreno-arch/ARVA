@@ -1,0 +1,16 @@
+in/mu50.fna	in/mu50.fna	100	965	967
+in/mu50.fna	in/n315.fna	99.9032	924	967
+in/mu50.fna	in/usa300.fna	98.8481	898	967
+in/mu50.fna	in/sepi.fna	79.5729	323	967
+in/n315.fna	in/n315.fna	100	940	946
+in/n315.fna	in/mu50.fna	99.9143	929	946
+in/n315.fna	in/usa300.fna	98.8948	897	946
+in/n315.fna	in/sepi.fna	79.53	324	946
+in/sepi.fna	in/sepi.fna	100	851	852
+in/sepi.fna	in/usa300.fna	79.8504	327	852
+in/sepi.fna	in/mu50.fna	79.5874	328	852
+in/sepi.fna	in/n315.fna	79.5149	329	852
+in/usa300.fna	in/usa300.fna	100	971	971
+in/usa300.fna	in/n315.fna	98.85	889	971
+in/usa300.fna	in/mu50.fna	98.7987	903	971
+in/usa300.fna	in/sepi.fna	79.7364	331	971

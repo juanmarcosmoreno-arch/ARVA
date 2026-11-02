@@ -7,8 +7,9 @@ import { cn } from "@/lib/utils";
 import { useSettings, type GuideLevel } from "@/store/settings";
 import { GuideArticle } from "./GuideArticle";
 
-/** The "What does this mean?" button attached to every metric and chart. */
-export function Explain({ id, compact = false, className }: { id: GuideId; compact?: boolean; className?: string }) {
+/** The "What does this mean?" button attached to every metric and chart; `titled` shows the topic's title instead,
+ * for places with several buttons side by side. */
+export function Explain({ id, compact = false, titled = false, className }: { id: GuideId; compact?: boolean; titled?: boolean; className?: string }) {
   const [open, setOpen] = useState(false);
   const t = useT();
   const language = useSettings((s) => s.language);
@@ -27,7 +28,7 @@ export function Explain({ id, compact = false, className }: { id: GuideId; compa
         aria-label={`${t("common.whatDoesThisMean")} — ${localized(entry, language).title}`}
       >
         <HelpCircle className="h-3.5 w-3.5" />
-        {!compact && <span>{t("common.whatDoesThisMean")}</span>}
+        {!compact && <span>{titled ? localized(entry, language).title : t("common.whatDoesThisMean")}</span>}
       </button>
       <Dialog open={open} onOpenChange={setOpen} title={localized(entry, language).title} className="max-w-xl">
         <div className="mb-4 flex gap-1 rounded-lg bg-muted p-1 text-xs" role="radiogroup" aria-label={t("settings.guideLevel")}>

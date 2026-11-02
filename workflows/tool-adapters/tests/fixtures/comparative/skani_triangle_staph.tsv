@@ -1,0 +1,4 @@
+Ref_file	Query_file	ANI	Align_fraction_ref	Align_fraction_query	Ref_name	Query_name
+in/mu50.fna	in/n315.fna	99.90	95.96	98.13	NC_002758.2 Staphylococcus aureus subsp. aureus Mu50, complete sequence	NC_002745.2 Staphylococcus aureus subsp. aureus N315, complete sequence
+in/mu50.fna	in/usa300.fna	98.86	91.85	91.41	NC_002758.2 Staphylococcus aureus subsp. aureus Mu50, complete sequence	NC_007793.1 Staphylococcus aureus subsp. aureus USA300_FPR3757, complete sequence
+in/n315.fna	in/usa300.fna	98.97	93.70	91.19	NC_002745.2 Staphylococcus aureus subsp. aureus N315, complete sequence	NC_007793.1 Staphylococcus aureus subsp. aureus USA300_FPR3757, complete sequence

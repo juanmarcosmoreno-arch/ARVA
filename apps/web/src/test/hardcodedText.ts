@@ -51,7 +51,7 @@ export const TECHNICAL_WORDS = new Set([
   "Mbp", "Gbp", "pb", "kpb", "Mpb", "Gpb", "nm", "µm", "contig", "contigs", "English", "Español", "DEMO", "TXT", "EC", "GO", "doi",
   "VFDB", "mlst", "MLST", "PubMLST", "ST", "BLAST", "FastANI", "skani", "Mash", "sylph", "GTDB", "Tk", "ANI",
   "AMRFinderPlus", "AMR", "HMM", "StxTyper", "ABRicate", "MPF", "oriT", "MOB-suite", "PlasmidFinder", "IntegronFinder", "ISEScan", "geNomad",
-  "SCCmec", "mecA", "mecC", "PVL", "lukS", "lukF", "PV", "tst", "TSST", "spaTyper", "AgrVATE", "agr", "Ridom", "SpaServer",
+  "blastn", "blastp", "tblastn", "SCCmec", "mecA", "mecC", "PVL", "lukS", "lukF", "PV", "tst", "TSST", "spaTyper", "AgrVATE", "agr", "Ridom", "SpaServer",
 ]);
 
 const LETTER = /\p{L}/u;

@@ -1,0 +1,34 @@
+
+USAGE: show-diff  [options]  <deltafile>
+
+-f            Output diff information as AMOS features
+-h            Display help information
+-H            Do not show header
+-q            Show diff information for queries
+-r            Show diff information for references (default)
+
+  Outputs a list of structural differences for each sequence in
+the reference and query, sorted by position. For a reference
+sequence R, and its matching query sequence Q, differences are
+categorized as GAP (gap between two mutually consistent alignments),
+DUP (inserted duplication), BRK (other inserted sequence), JMP
+(rearrangement), INV (rearrangement with inversion), SEQ
+(rearrangement with another sequence). The first five columns of
+the output are seq ID, feature type, feature start, feature end,
+and feature length. Additional columns are added depending on the
+feature type. Negative feature lengths indicate overlapping adjacent
+alignment blocks.
+  IDR GAP gap-start gap-end gap-length-R gap-length-Q gap-diff
+  IDR DUP dup-start dup-end dup-length
+  IDR BRK gap-start gap-end gap-length
+  IDR JMP gap-start gap-end gap-length
+  IDR INV gap-start gap-end gap-length
+  IDR SEQ gap-start gap-end gap-length prev-sequence next-sequence
+Positions always reference the sequence with the given ID. The
+sum of the fifth column (ignoring negative values) is the total
+amount of inserted sequence. Summing the fifth column after removing
+DUP features is total unique inserted sequence. Note that unaligned
+sequence are not counted, and could represent additional "unique"
+sequences. See documentation for tips on how to interpret these
+alignment break features.
+

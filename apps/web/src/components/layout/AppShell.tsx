@@ -2,6 +2,7 @@ import { Menu, Moon, Sun, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Outlet, useLocation } from "react-router-dom";
 import { ArvaMark } from "@/components/brand/ArvaLogo";
+import { AuthGate, UserMenu } from "@/components/platform/Accounts";
 import { Button } from "@/components/ui/button";
 import { useT } from "@/i18n";
 import { resolveDark, useSettings } from "@/store/settings";
@@ -69,6 +70,7 @@ export function AppShell() {
           <ArvaMark className="h-7 w-7 lg:hidden" />
           <GlobalSearch />
           <div className="ml-auto flex items-center gap-1">
+            <UserMenu />
             <Button
               variant="ghost"
               size="sm"
@@ -89,7 +91,9 @@ export function AppShell() {
           </div>
         </header>
         <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-6 sm:px-6 lg:px-8">
-          <Outlet />
+          <AuthGate>
+            <Outlet />
+          </AuthGate>
         </main>
       </div>
     </div>

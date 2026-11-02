@@ -23,7 +23,7 @@ const ALLOWED: { file: string; text: string; why: string }[] = [
 
 /** Words written the same in Spanish (or names) that may make a Spanish text identical to the English one. */
 const SAME_IN_SPANISH = new Set([
-  "Software", "bytes", "Megabases", "Contigs", "Bases", "bases", "Base", "Total", "Genes", "genes", "Contig", "Circular", "circular",
+  "Software", "Phi", "BH", "Discover", "bytes", "Megabases", "Contigs", "Bases", "bases", "Base", "Total", "Genes", "genes", "Contig", "Circular", "circular",
   "no", "original", "error", "Pseudogenes", "Chip", "Desktop", "Locus", "tag", "tags", "pass", "warn", "fail",
   "Illumina", "CASAVA", "bcl2fastq", "BCL", "Convert", "Element", "Biosciences", "bases2fastq", "pod5", "lib_pod5",
   "Oxford", "Excel", "xlsx", "openpyxl", "CLR", "SNP", "oriC", "oriV", "oriT", "Mycoplasma", "Spiroplasma", "Debian",

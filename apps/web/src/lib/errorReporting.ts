@@ -41,7 +41,7 @@ export function reportClientError(r: ClientErrorReport): Promise<string | null> 
     client_commit: __ARVA_COMMIT__,
     user_agent: clip(navigator.userAgent, 300),
   };
-  const result = fetch(ENDPOINT, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
+  const result = fetch(ENDPOINT, { method: "POST", headers: { "Content-Type": "application/json", ...csrfCookieHeader() }, body: JSON.stringify(body) })
     .then(async (res) => (res.ok ? ((await res.json()) as { id: string }).id : null))
     .catch(() => null);
   seen.set(key, result);
@@ -79,4 +79,9 @@ export function installErrorReporting() {
 export function resetErrorReporting() {
   sent = 0;
   seen.clear();
+}
+
+function csrfCookieHeader(): Record<string, string> {
+  const match = typeof document === "undefined" ? null : document.cookie.match(/(?:^|;\s*)arva_csrf=([^;]+)/);
+  return match ? { "X-CSRF-Token": decodeURIComponent(match[1]) } : {};
 }

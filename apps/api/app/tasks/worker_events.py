@@ -47,6 +47,10 @@ def on_work_horse_killed(rq_job, retpid: int, ret_val: int, rusage) -> None:
 def started(queue: str, worker_class: str) -> None:
     errorlog.info("worker_started", "Worker started", component="worker", queue=queue, worker_class=worker_class,
                   **errorlog.build())
+    from app.services.batches import dispatch_quietly
+
+    # Runs interrupted by a restart continue: lost tasks are ended and the queue launches what may start.
+    dispatch_quietly("worker started")
 
 
 def stopped(exc: BaseException) -> None:

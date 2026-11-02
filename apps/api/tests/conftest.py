@@ -115,8 +115,8 @@ def clean_tables():
     yield
     with engine.begin() as conn:
         conn.execute(
-            text("TRUNCATE annotations, qc_results, analysis_jobs, raw_files, samples, projects, reference_databases, "
-                 "app_settings CASCADE")
+            text("TRUNCATE workflows, annotations, qc_results, analysis_jobs, raw_files, samples, projects, reference_databases, "
+                 "app_settings, users, audit_events, assist_requests CASCADE")
         )
 
 

@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { FlaskConical, Pencil, Plus, Trash2, UploadCloud } from "lucide-react";
+import { FlaskConical, Pencil, Plus, Telescope, Trash2, UploadCloud } from "lucide-react";
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { BulkImportDialog } from "@/components/domain/BulkImportDialog";
@@ -7,6 +7,8 @@ import { MetadataSection } from "@/components/domain/MetadataImport";
 import { ProjectAssemblies } from "@/components/domain/ProjectAssemblies";
 import { ProjectAmr } from "@/components/genomic/ProjectAmr";
 import { ProjectMobile } from "@/components/genomic/ProjectMobile";
+import { ProjectMobilome } from "@/components/genomic/Mobilome";
+import { ProjectVariants } from "@/components/genomic/ProjectVariants";
 import { ProjectTyping } from "@/components/genomic/StaphTyping";
 import { ProjectMlst } from "@/components/genomic/ProjectMlst";
 import { ProjectBatchQc } from "@/components/domain/ProjectBatchQc";
@@ -14,6 +16,8 @@ import { ProjectFormDialog } from "@/components/domain/ProjectFormDialog";
 import { ProjectQcOverview } from "@/components/domain/ProjectQcOverview";
 import { ProjectQcReport } from "@/components/domain/ProjectQcReport";
 import { SampleFormDialog } from "@/components/domain/SampleForm";
+import { ProjectSharing } from "@/components/platform/Accounts";
+import { AssistPanel, ProjectReportCard } from "@/components/platform/AssistAndReports";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -70,6 +74,9 @@ export function ProjectDetailPage() {
             <Button variant="ghost" onClick={() => setConfirmDelete(true)} aria-label={t("projects.delete")}>
               <Trash2 className="h-4 w-4" />
             </Button>
+            <Link to={`/discover/${p.id}`} className="inline-flex h-9 items-center gap-1.5 rounded-lg border bg-surface px-3 text-sm font-medium hover:bg-muted">
+              <Telescope className="h-4 w-4" /> {t("discover.open")}
+            </Link>
             <Button variant="outline" onClick={() => setBulk(true)}>
               <UploadCloud className="h-4 w-4" /> {t("bulk.button")}
             </Button>
@@ -102,9 +109,14 @@ export function ProjectDetailPage() {
       {!!samples.data?.length && <ProjectMlst projectId={p.id} />}
       {!!samples.data?.length && <ProjectAmr projectId={p.id} />}
       {!!samples.data?.length && <ProjectMobile projectId={p.id} />}
+      {!!samples.data?.length && <ProjectMobilome projectId={p.id} />}
+      {!!samples.data?.length && <ProjectVariants projectId={p.id} />}
       {!!samples.data?.length && <ProjectTyping projectId={p.id} />}
       {!!samples.data?.length && <ProjectQcReport projectId={p.id} samples={samples.data} />}
       <MetadataSection projectId={p.id} />
+      {!!samples.data?.length && <ProjectReportCard projectId={p.id} />}
+      <ProjectSharing projectId={p.id} />
+      <AssistPanel projectId={p.id} />
 
       <ProjectFormDialog open={editing} onOpenChange={setEditing} project={p} />
       <SampleFormDialog open={creating} onOpenChange={setCreating} projectId={p.id} />

@@ -291,3 +291,10 @@ def run_job(
         if token is not None:
             errorlog.correlation.reset(token)
         db.close()
+        _batch_queue()
+
+
+def _batch_queue() -> None:
+    from app.services.batches import dispatch_quietly
+
+    dispatch_quietly("job finished")

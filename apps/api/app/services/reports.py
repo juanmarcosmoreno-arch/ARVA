@@ -26,7 +26,7 @@ from app.models import (
 )
 from app.services import amr as amr_svc
 from app.services import annotation as annotation_svc
-from app.services import crosscheck, genome_explorer, qc_data
+from app.services import crosscheck, genome_explorer, qc_data, variants_report
 from app.services import mlst as mlst_svc
 from app.services import mobile_elements as mobile_svc
 from app.services import species as species_svc
@@ -34,6 +34,7 @@ from app.services import staph_typing as typing_svc
 from app.services import virulence as virulence_svc
 from app.services.annotation import describe_step
 from app.services.circular_svg import circular_map_svg
+from app.services.comparative_report import sample_comparisons, sample_section_html
 from app.services.jobs import (
     FASTP_JOB,
     FASTQ_STATS_JOB,
@@ -208,6 +209,8 @@ def collect_report_data(db: Session, sample: Sample) -> dict[str, Any]:
         "mobile": _mobile(db, sample),
         "virulence": _virulence(db, sample),
         "typing": _typing(db, sample),
+        "comparative": sample_comparisons(db, sample),
+        "variants": variants_report.sample_data(db, sample),
         "limitations": LIMITATIONS,
     }
 
@@ -2234,7 +2237,8 @@ def render_html(data: dict[str, Any]) -> str:
                           + (AMR_LIMITATIONS if data.get("amr") else [])
                           + (MOBILE_LIMITATIONS if data.get("mobile") else [])
                           + (VIRULENCE_LIMITATIONS if data.get("virulence") else [])
-                          + (TYPING_LIMITATIONS if data.get("typing") else []))
+                          + (TYPING_LIMITATIONS if data.get("typing") else [])
+                          + variants_report.limitations(data))
     steps = "".join(
         f"<h3>{escape(st['tool'])} {escape(st['tool_version'])}</h3>"
         f"<p class='muted'>Inputs: {escape(', '.join(st['inputs']))} · finished {escape(st['finished_at'] or '')}"
@@ -2294,6 +2298,8 @@ Generated {escape(data['generated_at'])} · ARVA {escape(data['arva_version'])}<
 {_virulence_html(data)}
 {_mobile_html(data)}
 {_typing_html(data)}
+{variants_report.sample_html(data)}
+{sample_section_html(data.get('comparative') or [])}
 {('<h2>Processing and independent checks</h2>' + steps) if steps else ''}
 <h2>Methods</h2>
 <p>Each file was streamed in full by the ARVA scientific core (<code>arva-core.seqstats</code>), which
@@ -2315,6 +2321,7 @@ technology recorded for the sample.</p>
 {_VIRULENCE_METHODS if data.get("virulence") else ""}
 {_MOBILE_METHODS if data.get("mobile") else ""}
 {_TYPING_METHODS if data.get("typing") else ""}
+{variants_report.methods_html(data)}
 {_RESOURCES_METHODS if with_resources else ""}
 <h2>Limitations</h2><ul>{limitations}</ul>
 <footer>This report is descriptive. It contains values computed from the input files and does not

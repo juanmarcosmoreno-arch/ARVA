@@ -1,0 +1,1 @@
+60:ERROR: modelfactory.cpp:1131: virtual bool ModelFactory::initFromNestedModel(std::map<std::__cxx11::basic_string<char>, std::vector<std::__cxx11::basic_string<char> > >): Assertion `itr != checkpoint->end()' failed.

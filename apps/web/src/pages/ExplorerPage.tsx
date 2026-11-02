@@ -130,8 +130,8 @@ export function ExplorerPage() {
         })}
         actions={
           <>
-            <Explain id="genome_explorer" />
-            <Explain id="gc_skew" />
+            <Explain id="genome_explorer" titled />
+            <Explain id="gc_skew" titled />
           </>
         }
       />

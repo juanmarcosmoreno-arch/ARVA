@@ -4,6 +4,11 @@ import { useT } from "@/i18n";
 import { cn } from "@/lib/utils";
 import { NAV } from "./nav";
 
+// Phylogeny and Pangenome open the Comparative genomics page too; only the first entry for a page is highlighted.
+const FIRST_FOR_PAGE = new Set(
+  NAV.flatMap((s) => s.items).filter((item, i, all) => all.findIndex((o) => o.to === item.to) === i).map((item) => item.key),
+);
+
 export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const t = useT();
   return (
@@ -26,14 +31,17 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
                     to={item.to}
                     end={item.to === "/"}
                     onClick={onNavigate}
-                    className={({ isActive }) =>
-                      cn(
+                    className={({ isActive: matched }) => {
+                      const isActive = matched && FIRST_FOR_PAGE.has(item.key);
+                      return cn(
                         "group flex items-center gap-3 rounded-lg px-3 py-2 text-[13px] transition-colors",
                         isActive ? "bg-white/10 text-white" : "text-slate-300 hover:bg-white/5 hover:text-white",
-                      )
-                    }
+                      );
+                    }}
                   >
-                    {({ isActive }) => (
+                    {({ isActive: matched }) => {
+                      const isActive = matched && FIRST_FOR_PAGE.has(item.key);
+                      return (
                       <>
                         <item.icon className={cn("h-4 w-4 shrink-0", isActive ? "text-arva-teal" : "text-slate-400")} />
                         <span className="flex-1 truncate">{t(item.label)}</span>
@@ -43,7 +51,8 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
                           </span>
                         )}
                       </>
-                    )}
+                      );
+                    }}
                   </NavLink>
                 </li>
               ))}

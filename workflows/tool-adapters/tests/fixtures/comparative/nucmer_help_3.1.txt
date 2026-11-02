@@ -1,0 +1,57 @@
+
+  USAGE: nucmer  [options]  <Reference>  <Query>
+
+  DESCRIPTION:
+    nucmer generates nucleotide alignments between two mutli-FASTA input
+    files. The out.delta output file lists the distance between insertions
+    and deletions that produce maximal scoring alignments between each
+    sequence. The show-* utilities know how to read this format.
+
+  MANDATORY:
+    Reference       Set the input reference multi-FASTA filename
+    Query           Set the input query multi-FASTA filename
+
+  OPTIONS:
+    --mum           Use anchor matches that are unique in both the reference
+                    and query
+    --mumcand       Same as --mumreference
+    --mumreference  Use anchor matches that are unique in in the reference
+                    but not necessarily unique in the query (default behavior)
+    --maxmatch      Use all anchor matches regardless of their uniqueness
+
+    -b|breaklen     Set the distance an alignment extension will attempt to
+                    extend poor scoring regions before giving up (default 200)
+    --[no]banded    Enforce absolute banding of dynamic programming matrix
+                    based on diagdiff parameter EXPERIMENTAL (default no)
+    -c|mincluster   Sets the minimum length of a cluster of matches (default 65)
+    --[no]delta     Toggle the creation of the delta file (default --delta)
+    --depend        Print the dependency information and exit
+    -D|diagdiff     Set the maximum diagonal difference between two adjacent
+                    anchors in a cluster (default 5)
+    -d|diagfactor   Set the maximum diagonal difference between two adjacent
+                    anchors in a cluster as a differential fraction of the gap
+                    length (default 0.12)
+    --[no]extend    Toggle the cluster extension step (default --extend)
+    -f
+    --forward       Use only the forward strand of the Query sequences
+    -g|maxgap       Set the maximum gap between two adjacent matches in a
+                    cluster (default 90)
+    -h
+    --help          Display help information and exit
+    -l|minmatch     Set the minimum length of a single match (default 20)
+    -o
+    --coords        Automatically generate the original NUCmer1.1 coords
+                    output file using the 'show-coords' program
+    --[no]optimize  Toggle alignment score optimization, i.e. if an alignment
+                    extension reaches the end of a sequence, it will backtrack
+                    to optimize the alignment score instead of terminating the
+                    alignment at the end of the sequence (default --optimize)
+    -p|prefix       Set the prefix of the output files (default "out")
+    -r
+    --reverse       Use only the reverse complement of the Query sequences
+    --[no]simplify  Simplify alignments by removing shadowed clusters. Turn
+                    this option off if aligning a sequence to itself to look
+                    for repeats (default --simplify)
+    -V
+    --version       Display the version information and exit
+    

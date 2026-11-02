@@ -7,6 +7,12 @@ Verified against minimap2 2.26 (Ubuntu 2.26+dfsg-1build1; Debian bookworm ships 
 * minimap2: -x map-ont / map-pb / map-hifi are the presets for Nanopore, PacBio CLR and PacBio HiFi reads against a
   reference (map-hifi since 2.19). Threads default to 3, so ARVA passes -t. Without -a it writes PAF (the overlaps
   Racon takes); with -a it writes SAM with NM tags.
+* minimap2 genome against genome: -x asm5 / asm10 / asm20 are the presets "for ~0.1/1/5% sequence divergence"
+  (usage text). Without -c the PAF rows are approximate chains (column 10 is then not a base count); with -c minimap2
+  computes base-level alignments, so column 10 is the number of matching bases and column 11 the alignment block
+  length including gaps, and ARVA reads identity as their ratio. The tp tag marks each row P (primary), S
+  (secondary) or I/i (inversion, from the inversion Z-drop). PAF coordinates are 0-based, end-exclusive, and the query
+  coordinates are on its forward strand whatever the strand column says.
 * bwa mem: -K fixes how many input bases are processed per batch "regardless of nThreads (for reproducibility)":
   without it the insert-size statistics, and so the pairing, depend on the thread count. ARVA passes -K 100000000.
   bwa mem writes SAM to stdout; ARVA gzips it and samtools reads the gzip-compressed SAM directly.
@@ -28,7 +34,44 @@ from arva_tools.base import ToolAdapter, ToolInfo
 SORT_MEMORY_DEFAULT_MB = 768
 
 LONG_READ_PRESETS = ("map-ont", "map-pb", "map-hifi")
+ASSEMBLY_PRESETS = ("asm5", "asm10", "asm20")
+_TAG = re.compile(r"^tp:A:(\S)$")
+
+
+def parse_paf(text: str) -> list[dict[str, Any]]:
+    """minimap2 -c PAF rows as alignment blocks in 1-based, inclusive coordinates (reference = target)."""
+    rows = []
+    for n, line in enumerate(text.splitlines(), 1):
+        if not line.strip():
+            continue
+        f = line.split("\t")
+        if len(f) < 12:
+            raise ValueError(f"PAF line {n} has {len(f)} columns; a PAF row has at least 12")
+        try:
+            qlen, qs, qe, tlen, ts, te, matches, block, mapq = (int(x) for x in (*f[1:4], *f[6:12]))
+        except ValueError:
+            raise ValueError(f"PAF line {n} has a coordinate or count that is not an integer") from None
+        if f[4] not in "+-" or len(f[4]) != 1 or not (0 <= qs < qe <= qlen and 0 <= ts < te <= tlen) or \
+                block <= 0 or not 0 <= matches <= block:
+            raise ValueError(f"PAF line {n} has values out of range")
+        kind = next((m.group(1) for t in f[12:] if (m := _TAG.match(t))), None)
+        rows.append({"ref": f[5], "ref_length": tlen, "ref_start": ts + 1, "ref_end": te, "query": f[0],
+                     "query_length": qlen, "query_start": qs + 1, "query_end": qe, "strand": f[4],
+                     "identity": round(100 * matches / block, 3), "length": block, "mapq": mapq,
+                     "primary": kind == "P"})
+    return rows
 BWA_BATCH_BASES = 100_000_000
+_RG_ID = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
+
+
+def read_group_line(rg_id: str, sample: str) -> str:
+    """A SAM @RG line as minimap2 -R and bwa mem -R take it: both expand the two-character escape \\t into a tab.
+    The ID and the sample name (SM, the VCF's sample column) are limited to letters, digits, '.', '_' and '-'."""
+    if not (_RG_ID.match(rg_id) and _RG_ID.match(sample)):
+        raise ValueError("read-group ID and sample may only hold letters, digits, '.', '_' and '-' (1 to 64)")
+    return f"@RG\\tID:{rg_id}\\tSM:{sample}"
+
+
 _SN = re.compile(r"^SN\t([^:]+):\t([^\t]+)")
 _ID = re.compile(r"^ID\t(\d+)\t(\d+)\t(\d+)")
 SN_FIELDS = {
@@ -70,12 +113,23 @@ class Minimap2Adapter(ToolAdapter):
 
     @staticmethod
     def argv(executable: str, preset: str, threads: int, target: Path, reads: Path, out: Path | None,
-             sam: bool = False) -> list[str]:
-        """PAF (or SAM with `sam`) to `out`, or to stdout when `out` is None."""
+             sam: bool = False, read_group: str | None = None) -> list[str]:
+        """PAF (or SAM with `sam`) to `out`, or to stdout when `out` is None; `read_group` is a SAM @RG line
+        (read_group_line) given with -R."""
         if preset not in LONG_READ_PRESETS:
             raise ValueError(f"preset must be one of {', '.join(LONG_READ_PRESETS)}")
         return [executable, *(["-a"] if sam else []), "-x", preset, "-t", str(threads),
+                *(["-R", read_group] if read_group else []),
                 *(["-o", str(out)] if out is not None else []), str(target), str(reads)]
+
+    @staticmethod
+    def assembly_argv(executable: str, preset: str, threads: int, reference: Path, query: Path, out: Path) -> list[str]:
+        """Base-level (-c) alignment of a query assembly to a reference assembly, as PAF."""
+        if preset not in ASSEMBLY_PRESETS:
+            raise ValueError(f"preset must be one of {', '.join(ASSEMBLY_PRESETS)}")
+        if not 1 <= threads <= 256:
+            raise ValueError("threads must be between 1 and 256")
+        return [executable, "-x", preset, "-c", "-t", str(threads), "-o", str(out), str(reference), str(query)]
 
 
 class BwaAdapter(ToolAdapter):
@@ -106,10 +160,12 @@ class BwaAdapter(ToolAdapter):
         return [executable, "index", "-p", str(prefix), str(fasta)]
 
     @staticmethod
-    def mem_argv(executable: str, prefix: Path, reads: list[Path], threads: int) -> list[str]:
+    def mem_argv(executable: str, prefix: Path, reads: list[Path], threads: int,
+                 read_group: str | None = None) -> list[str]:
         if len(reads) not in (1, 2):
             raise ValueError("bwa mem takes one file of unpaired reads or the two files of a pair")
-        return [executable, "mem", "-t", str(threads), "-K", str(BWA_BATCH_BASES), str(prefix), *map(str, reads)]
+        return [executable, "mem", "-t", str(threads), "-K", str(BWA_BATCH_BASES),
+                *(["-R", read_group] if read_group else []), str(prefix), *map(str, reads)]
 
 
 DEPTH_OPTIONS = ("-aa", "-Q", "0", "-q", "0", "-l", "0", "-G", "UNMAP,SECONDARY,QCFAIL,DUP")
@@ -148,6 +204,17 @@ class SamtoolsAdapter(ToolAdapter):
     @staticmethod
     def index_argv(executable: str, bam: Path) -> list[str]:
         return [executable, "index", str(bam)]
+
+    @staticmethod
+    def faidx_argv(executable: str, fasta: Path) -> list[str]:
+        return [executable, "faidx", str(fasta)]
+
+    @staticmethod
+    def filtered_depth_argv(executable: str, bam: Path, min_mapq: int, min_baseq: int) -> list[str]:
+        """Per-base depth at every position (-aa) counting only reads with mapping quality >= min_mapq and bases
+        with base quality >= min_baseq (the floors the variant caller used); deletions are not counted."""
+        return [executable, "depth", "-aa", "-Q", str(min_mapq), "-q", str(min_baseq), "-l", "0", "-G",
+                "UNMAP,SECONDARY,QCFAIL,DUP", str(bam)]
 
     @staticmethod
     def stats_argv(executable: str, bam: Path) -> list[str]:

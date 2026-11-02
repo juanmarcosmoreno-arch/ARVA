@@ -14,6 +14,10 @@ Verified against skani 0.4.0 (Bioconda skani-0.4.0-hec9b1f2_0, ARVA's lock docke
 * Output (-o): a header Ref_file, Query_file, ANI, Align_fraction_ref, Align_fraction_query, Ref_name, Query_name;
   aligned fractions are percentages; the names are each file's first sequence header. A query with no reported pair
   writes only the header.
+* `skani triangle -l LIST -E` (`skani triangle --help`) compares every pair of the list's genomes once and, with -E
+  (--sparse), writes the rows "in the same form as `skani dist`" (the header above, the first genome of a pair as
+  Ref_file), only for pairs with aligned fraction > --min-af; self comparisons are left out (no --diagonal). It takes
+  the same -t, -c, -m, -s and --min-af with the same defaults. Pairs screened out by -s or --min-af have no row.
 """
 from __future__ import annotations
 
@@ -30,6 +34,8 @@ OUTPUT = "skani.tsv"
 LOG = "skani.log"
 HEADER = ["Ref_file", "Query_file", "ANI", "Align_fraction_ref", "Align_fraction_query", "Ref_name", "Query_name"]
 LEARNED = "Learned ANI mode detected"
+TRIANGLE_FLAGS = ("-l", "-o", "-t", "-c", "-m", "-s", "--min-af", "-E")
+TRIANGLE_OUTPUT = "skani_triangle.tsv"
 _DEFAULT = re.compile(r"\[default:\s*([^\]]+)\]")
 
 
@@ -137,3 +143,18 @@ class SkaniAdapter(ToolAdapter):
         return [executable, "dist", "-q", str(query), "--rl", str(ref_list), "-o", str(out_dir / OUTPUT),
                 "-t", str(params.threads), "-c", str(params.c), "-m", str(params.m), "-s", f"{params.s:g}",
                 "--min-af", f"{params.min_af:g}"]
+
+    @staticmethod
+    def triangle_help_text(executable: str) -> str:
+        return read_help(executable, ("triangle", "--help"))
+
+    @staticmethod
+    def triangle_argv(executable: str, params: SkaniParams, genome_list: Path, out_dir: Path,
+                      supported: frozenset[str]) -> list[str]:
+        """All-vs-all ANI of the genomes listed (one path per line), as sparse rows."""
+        params.validate()
+        if missing := [f for f in TRIANGLE_FLAGS if f not in supported]:
+            raise ValueError(f"this skani version does not offer {', '.join(missing)} (not in its triangle --help)")
+        return [executable, "triangle", "-l", str(genome_list), "-o", str(out_dir / TRIANGLE_OUTPUT),
+                "-t", str(params.threads), "-c", str(params.c), "-m", str(params.m), "-s", f"{params.s:g}",
+                "--min-af", f"{params.min_af:g}", "-E"]

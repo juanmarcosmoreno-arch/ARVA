@@ -5,7 +5,9 @@ import { AppShell } from "@/components/layout/AppShell";
 import { SplashScreen } from "@/components/layout/SplashScreen";
 import { Toaster } from "@/components/layout/Toaster";
 import { ApiError } from "@/lib/api";
+import { ComparativePage } from "@/pages/ComparativePage";
 import { DashboardPage } from "@/pages/DashboardPage";
+import { DiscoverPage } from "@/pages/DiscoverPage";
 import { ExplorerListPage, ExplorerPage } from "@/pages/ExplorerPage";
 import { GenomicPage } from "@/pages/GenomicPage";
 import { GuidePage } from "@/pages/GuidePage";
@@ -17,6 +19,7 @@ import { SampleDetailPage } from "@/pages/SampleDetailPage";
 import { SamplesPage } from "@/pages/SamplesPage";
 import { SettingsPage } from "@/pages/SettingsPage";
 import { ToolsPage } from "@/pages/ToolsPage";
+import { ComparePage, RunPage, WorkflowEditorPage, WorkflowsPage } from "@/pages/WorkflowsPage";
 import { useToasts } from "@/store/toasts";
 
 /** An unexpected server error (one the API kept in its error log) is also shown as a toast with its error id. */
@@ -49,7 +52,15 @@ export const routes = [
       { path: "tools", element: <ToolsPage /> },
       { path: "explorer", element: <ExplorerListPage /> },
       { path: "genomic", element: <GenomicPage /> },
+      { path: "comparative", element: <ComparativePage /> },
+      { path: "comparative/:setId", element: <ComparativePage /> },
       { path: "explorer/:annotationId", element: <ExplorerPage /> },
+      { path: "discover", element: <DiscoverPage /> },
+      { path: "discover/:projectId", element: <DiscoverPage /> },
+      { path: "workflows", element: <WorkflowsPage /> },
+      { path: "workflows/compare", element: <ComparePage /> },
+      { path: "workflows/runs/:runId", element: <RunPage /> },
+      { path: "workflows/:workflowId", element: <WorkflowEditorPage /> },
       { path: "modules/:key", element: <PlannedModulePage /> },
       { path: "*", element: <NotFoundPage /> },
     ],

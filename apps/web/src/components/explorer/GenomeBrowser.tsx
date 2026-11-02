@@ -161,6 +161,28 @@ export function GenomeBrowser(p: Props) {
   const gapPixels = useMemo(() => mergePixels(gaps, v, plotW), [gaps, v, plotW]);
 
   const tile = trackRequest(v, length, plotW);
+  const variantRun = useQuery({
+    queryKey: ["annotationVariants", p.annotationId, p.contig.id, tile.start, tile.end],
+    queryFn: () => api.annotationVariants(p.annotationId, p.contig.id, tile.start, tile.end),
+    placeholderData: keepPreviousData,
+    staleTime: 60_000,
+  });
+  const variantItems = useMemo<TrackItem[]>(
+    () =>
+      (variantRun.data?.variants ?? []).map((r) => ({
+        id: `${r.pos}:${r.ref}:${r.alt}`,
+        start: r.pos,
+        end: r.end,
+        whole: r.pass,
+        featureId: null,
+        title: [`${r.ref} → ${r.alt} · ${t(`variants.type.${r.type}` as TranslationKey)}`, r.pass ? t("variants.passing") : r.filters.join(", "),
+          `${t("variants.col.depth")} ${r.depth ?? "?"} · ${t("variants.col.af")} ${r.alt_fraction == null ? "?" : fmtNum(r.alt_fraction, 2)}`,
+          r.effect ? `${r.effect}${r.consequences[0]?.gene ? ` · ${r.consequences[0].gene}` : ""}${r.consequences[0]?.aa_change ? ` ${r.consequences[0].aa_change}` : ""}` : "",
+          `${fmtInt(r.pos)}`].filter(Boolean).join("\n"),
+      })),
+    [variantRun.data, t],
+  );
+  const variantLabel = variantRun.data?.runs.find((r) => r.id === variantRun.data?.run_id)?.sample_code;
   const tracks = useQuery({
     queryKey: ["explorerTracks", p.annotationId, p.contig.id, tile.start, tile.end, tile.bins, p.gc.window, p.gc.step],
     queryFn: () => api.annotationTracks(p.annotationId, { contig: p.contig.id, ...tile, window: p.gc.window, step: p.gc.step }),
@@ -189,7 +211,9 @@ export function GenomeBrowser(p: Props) {
   const vfdbH = vfdbRun.data?.run ? LANE_H + 4 : 0;
   const yMobile = yVfdb + vfdbH + (vfdbH ? GAP : 0);
   const mobileH = Object.values(mobileRun.data?.runs ?? {}).some(Boolean) ? LANE_H + 4 : 0;
-  const yGc = yMobile + mobileH + (mobileH ? GAP : 0);
+  const yVariants = yMobile + mobileH + (mobileH ? GAP : 0);
+  const variantsH = variantRun.data?.runs.length ? LANE_H + 4 : 0;
+  const yGc = yVariants + variantsH + (variantsH ? GAP : 0);
   const ySkew = yGc + LINE_H + GAP;
   const yCov = ySkew + LINE_H + GAP;
   const covH = trackData?.coverage.available ? LINE_H : MSG_H;
@@ -426,6 +450,7 @@ export function GenomeBrowser(p: Props) {
             />
           )}
           {vfdbH > 0 && <ElementTrack track="vfdb" y={yVfdb} items={vfdbItems} x={x} colour={amrColour(theme, "virulence")} theme={theme} label={t("explorer.track.vfdb")} onSelect={(id) => { const f = features.find((x) => x.id === id); if (f) p.onSelect(f); }} />}
+          {variantsH > 0 && <ElementTrack track="variants" y={yVariants} items={variantItems} x={x} colour={theme.series[4] ?? theme.series[0]} theme={theme} label={variantLabel ? t("explorer.track.variantsOf", { sample: variantLabel }) : t("explorer.track.variants")} onSelect={() => undefined} />}
           {mobileH > 0 && <ElementTrack track="mobile" y={yMobile} items={mobileItems} x={x} colour={theme.series[1]} theme={theme} label={t("explorer.track.mobile")} onSelect={(id) => { const f = features.find((x) => x.id === id); if (f) p.onSelect(f); }} />}
           <g clipPath="url(#explorer-plot)">
             <line x1={GUTTER} x2={GUTTER + plotW} y1={yMid + (nMid * LANE_H) / 2} y2={yMid + (nMid * LANE_H) / 2} stroke={theme.axis} />

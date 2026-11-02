@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, Biohazard, Microscope, Orbit, Plus, ScanSearch, ShieldAlert } from "lucide-react";
+import { AlertTriangle, Biohazard, GitCompareArrows, Microscope, Orbit, Plus, ScanSearch, ShieldAlert } from "lucide-react";
 import { Link } from "react-router-dom";
 import { FailedCard, RunningCard } from "@/components/assembly/RunMonitor";
 import { Explain } from "@/components/guide/Explain";
@@ -20,6 +20,9 @@ import { MobileContigCard, MobileRunCard } from "./MobileResult";
 import { VirulenceCard } from "./Virulence";
 import { SpeciesCard } from "./SpeciesResult";
 import { TypingSection } from "./StaphTyping";
+import { MobilomeSection } from "./Mobilome";
+import { VariantCard } from "./VariantResult";
+import { VARIANT_JOB } from "@/lib/variants";
 
 const active = (jobs: AnalysisJobDetail[]) => jobs.filter((j) => j.status === "pending" || j.status === "running");
 const stopped = (jobs: AnalysisJobDetail[]) => jobs.filter((j) => j.status === "failed" || j.status === "cancelled").slice(0, 3);
@@ -27,7 +30,7 @@ const stopped = (jobs: AnalysisJobDetail[]) => jobs.filter((j) => j.status === "
 /** The sample's genomic analyses on its assemblies: species identification, MLST, AMR/virulence genes (AMRFinderPlus),
  * virulence factors from both sources side by side, plasmids and mobile elements, and species-specific typing (the
  * rest of Phase 5 is listed as planned). */
-export function GenomicTab({ sampleId, jobs, onMlst, onSpecies, onAmr, onMobile, onVirulence, onTyping }: {
+export function GenomicTab({ sampleId, jobs, onMlst, onSpecies, onAmr, onMobile, onVirulence, onTyping, onVariants }: {
   sampleId: string;
   jobs: AnalysisJobDetail[];
   onMlst: () => void;
@@ -36,6 +39,7 @@ export function GenomicTab({ sampleId, jobs, onMlst, onSpecies, onAmr, onMobile,
   onMobile: () => void;
   onVirulence: () => void;
   onTyping: () => void;
+  onVariants: () => void;
 }) {
   const t = useT();
   const mlst = useTool("mlst");
@@ -56,6 +60,9 @@ export function GenomicTab({ sampleId, jobs, onMlst, onSpecies, onAmr, onMobile,
   const list = results.data ?? [];
   const speciesList = species.data ?? [];
   const hasAssembly = (assemblies.data ?? []).length > 0;
+  const variantJobs = jobs.filter((j) => j.job_type === VARIANT_JOB);
+  const variants = useQuery({ queryKey: ["variants", sampleId], queryFn: () => api.variantRuns(sampleId) });
+  const variantList = variants.data ?? [];
 
   return (
     <div className="space-y-8">
@@ -237,6 +244,45 @@ export function GenomicTab({ sampleId, jobs, onMlst, onSpecies, onAmr, onMobile,
         {!active(mobileRuns).length && !(mobile.data?.runs ?? []).length && !stopped(mobileRuns).length && (
           <EmptyState icon={<Orbit className="h-7 w-7" />} title={t("mobile.empty")}>
             {hasAssembly ? t("mobile.emptyHint") : t("mlst.noAssembly")}
+          </EmptyState>
+        )}
+      </section>
+      <section className="space-y-4" aria-labelledby="mobilome-section">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="max-w-2xl space-y-1">
+            <h3 id="mobilome-section" className="text-sm font-semibold">{t("mobilome.sectionTitle")}</h3>
+            <p className="text-sm text-muted-foreground">{t("mobilome.intro")}</p>
+          </div>
+          <Explain id="mobilome" />
+        </div>
+        <MobilomeSection sampleId={sampleId} />
+      </section>
+      <section className="space-y-4" aria-labelledby="variants-section">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="max-w-2xl space-y-1">
+            <h3 id="variants-section" className="text-sm font-semibold">{t("variants.sectionTitle")}</h3>
+            <p className="text-sm text-muted-foreground">{t("variants.intro")}</p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Explain id="variant_calling" />
+            <Button onClick={onVariants}>
+              <Plus className="h-4 w-4" /> {t("variants.start")}
+            </Button>
+          </div>
+        </div>
+        {active(variantJobs).map((j) => (
+          <RunningCard key={j.id} job={j} names={new Map()} />
+        ))}
+        {variantList.map((r) => (
+          <VariantCard key={r.id} run={r} />
+        ))}
+        <ErrorNote error={variants.error} />
+        {stopped(variantJobs).map((j) => (
+          <FailedCard key={j.id} job={j} />
+        ))}
+        {!active(variantJobs).length && !variantList.length && !stopped(variantJobs).length && (
+          <EmptyState icon={<GitCompareArrows className="h-7 w-7" />} title={t("variants.empty")}>
+            {t("variants.emptyHint")}
           </EmptyState>
         )}
       </section>

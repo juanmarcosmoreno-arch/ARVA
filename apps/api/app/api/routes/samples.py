@@ -1,7 +1,8 @@
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
+from app.api.access import visible_projects
 from app.api.deps import project_or_404, sample_or_404
 from app.db.session import get_db
 from app.models import RawFile, Sample
@@ -40,10 +41,12 @@ def _ensure_unique_code(db: Session, project_id: str, code: str, exclude_id: str
 
 
 @router.get("/samples", response_model=list[SampleRead])
-def list_all_samples(db: Session = Depends(get_db)):
-    samples = db.scalars(
-        select(Sample).options(selectinload(Sample.project)).order_by(Sample.updated_at.desc())
-    ).all()
+def list_all_samples(request: Request, db: Session = Depends(get_db)):
+    q = select(Sample).options(selectinload(Sample.project)).order_by(Sample.updated_at.desc())
+    visible = visible_projects(request)
+    if visible is not None:
+        q = q.where(Sample.project_id.in_(visible))
+    samples = db.scalars(q).all()
     return to_sample_read(db, list(samples))
 
 

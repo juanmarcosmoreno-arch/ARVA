@@ -19,7 +19,31 @@ control**, **visual first**, **reproducibility** and **modularity**.
 > reports and the ARVA Guide are functional: from raw reads to an assembled, annotated genome. Phase 5 adds MLST,
 > species identification, AMR/virulence genes with AMRFinderPlus, VFDB virulence factors and plasmids and mobile
 > elements (MOB-suite, PlasmidFinder, IntegronFinder) and species-specific typing (S. aureus: SCCmec, spa, agr and a summary card); Bakta, from its pinned Bioconda environment, annotates CDS
-> (validated on Linux against NCBI's annotation of S. aureus N315). Later modules (InterProScan, Kraken2, among
+> (validated on Linux against NCBI's annotation of S. aureus N315). Phase 6A adds comparative genomics: saved comparison
+> sets of assemblies from any project, ANI matrices (skani, FastANI), whole-genome alignments (minimap2, NUCmer) with
+> dot plots, synteny, conservation along a reference and dnadiff's structural differences, and a comparative report.
+> Phase 6B adds the Genome Region Explorer (gene neighbourhoods across genomes, exported as SVG, PNG or PDF figures)
+> and Custom Gene Investigation (BLAST+ search of a gene in many genomes, copies, partial and split matches, nearby
+> mobile elements, MAFFT alignment and IQ-TREE / FastTree gene trees). Phase 7A adds the pangenome: Panaroo on the
+> genomes' Bakta or Prokka annotations, core / soft-core / shell / cloud with stated thresholds, accumulation curves,
+> a family explorer and exploratory associations with metadata (PPanGGOLiN has an adapter but is not validated). Phase 7B
+> adds phylogeny: IQ-TREE (ModelFinder, UFBoot, SH-aLRT) or FastTree on the core-genome alignment, its SNPs
+> (SNP-sites, with -fconst or +ASC) or one gene, neighbour-joining distance trees labelled as such, midpoint or outgroup
+> rooting, Robinson-Foulds comparison, and the Tree Explorer (rectangular or circular, metadata bands, SVG, PNG, PDF and
+> Newick exports) with a phylogenetic report. Phase 8A
+> adds variant analysis (BWA-MEM or minimap2 and haploid bcftools calling against an ARVA assembly or a reference
+> collection genome, stated filters, bcftools csq effects, SNP matrix and pairwise SNP distances, a Variants track) and a
+> consolidated mobilome view (plasmids, IS elements, integrons and phage calls with the resistance and virulence genes
+> placed on or near them by coordinates); ISEScan is now validated. Phase 8B adds the Workflow Builder (a node editor
+> with typed ports whose nodes are ARVA's own analyses, versioned workflows, the predefined workflows of the
+> specification and a reproducible JSON export) and batch runs (a queue with priority, concurrency within the
+> performance profile, retries, pause, resume and cancellation, progress dashboards, run comparison and timeline
+> branches that never overwrite results). Phase 8C completes Phase 8 with ARVA Discover (exploratory gene–metadata
+> associations with effect sizes, intervals, Benjamini-Hochberg correction and a lineage-stratified view,
+> co-occurrence networks, clustered heatmaps and PCA, all labelled exploratory), the full project report (HTML, PDF,
+> JSON, CSV; English or Spanish), an ARVA Assist integration point that is off by default and ships no provider, and
+> optional accounts (admin / analyst / viewer, project sharing, CSRF protection, access audit log). Later
+> modules (InterProScan, Kraken2, among
 > others) are listed in the interface as *planned* and never show simulated results. See
 > [docs/roadmap.md](docs/roadmap.md).
 

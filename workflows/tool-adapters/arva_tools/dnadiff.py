@@ -17,6 +17,13 @@ known edits (fixtures/polishing/known_edits.*: 7 substitutions, 4 insertions of 
   groups them into events.
 * <prefix>.1coords: one row per one-to-one alignment (reference start/end, query start/end, lengths, identity,
   contig lengths, names), from which ARVA reads the reference bases left unaligned at each contig end.
+* <prefix>.rdiff / .qdiff: `show-diff -rH` / `-qH` of the M-to-M alignments (delta-filter -m), the structural
+  differences located on the reference / query sequences (`show-diff -h`): GAP (gap between two mutually consistent
+  alignments: start, end, gap length in R, in Q, difference), DUP (inserted duplication), BRK (other inserted
+  sequence), JMP (rearrangement), INV (rearrangement with inversion), SEQ (rearrangement with another sequence: plus
+  the previous and next sequence). Negative lengths mean overlapping adjacent alignments. dnadiff's report counts
+  from these rows: a row inserts max(length, GAP difference) bases when positive ("Insertions"), INV rows are
+  "Inversions", JMP rows "Relocations" and SEQ rows "Translocations".
 * Differences outside the one-to-one alignments (unaligned ends, rearrangements) are not in the .snps file; they
   appear as unaligned bases and breakpoints in the report.
 """
@@ -31,6 +38,9 @@ from arva_tools.base import ToolAdapter, ToolInfo
 from arva_tools.runner import isolated_home, tool_environment
 
 OUTPUT_SUFFIXES = ("report", "snps", "1coords")
+COMPARISON_SUFFIXES = ("report", "rdiff", "qdiff", "1coords")
+DIFF_TYPES = {"GAP": 7, "DUP": 5, "BRK": 5, "JMP": 5, "INV": 5, "SEQ": 7}
+DIFF_CATEGORIES = {"INV": "inversion", "JMP": "relocation", "SEQ": "translocation"}
 _SAFE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,80}")
 _ROW = re.compile(r"^(\S+)\s+(\S+)\s+(\S+)\s*$")
 _VALUE = re.compile(r"^(-?\d+(?:\.\d+)?)(?:\(([\d.]+)%\))?$")
@@ -225,3 +235,31 @@ class DnadiffAdapter(ToolAdapter):
             span["unaligned_start"] = span["start"] - 1
             span["unaligned_end"] = span["length"] - span["end"]
         return list(spans.values())
+
+    @staticmethod
+    def parse_diff(text: str) -> list[dict[str, Any]]:
+        """show-diff -H rows (.rdiff or .qdiff), each with dnadiff's own reading: `inserted` the bases its report
+        counts as an insertion (0 when none) and `category` inversion / relocation / translocation / insertion, or
+        None for a row that is none of these (e.g. a gap of overlapping alignments)."""
+        rows = []
+        for n, line in enumerate(text.splitlines(), 1):
+            if not line.strip():
+                continue
+            f = line.split("\t")
+            if len(f) < 5 or f[1] not in DIFF_TYPES or len(f) != DIFF_TYPES[f[1]]:
+                raise ValueError(f"show-diff line {n} is not a GAP/DUP/BRK/JMP/INV/SEQ row of its documented width")
+            try:
+                start, end, length = int(f[2]), int(f[3]), int(f[4])
+                extra = [int(x) for x in f[5:7]] if f[1] == "GAP" else []
+            except ValueError:
+                raise ValueError(f"show-diff line {n} has a position or length that is not an integer") from None
+            inserted = max(length, extra[1]) if extra else length
+            row: dict[str, Any] = {"sequence": f[0], "type": f[1], "start": start, "end": end, "length": length,
+                                   "inserted": max(inserted, 0)}
+            if extra:
+                row["gap_other"], row["gap_difference"] = extra
+            if f[1] == "SEQ":
+                row["previous_sequence"], row["next_sequence"] = f[5], f[6]
+            row["category"] = DIFF_CATEGORIES.get(f[1]) or ("insertion" if inserted > 0 else None)
+            rows.append(row)
+        return rows

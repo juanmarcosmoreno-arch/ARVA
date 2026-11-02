@@ -14,6 +14,8 @@ Verified against FastANI 1.34 (Bioconda fastani-1.34-hb66fcc3_7, ARVA's lock doc
   with no reported pair leaves the file empty.
 * FastANI's options start at the beginning of their --help line ("-r, --ref <value>"), so ARVA reads them with its
   own pattern rather than the indented-options one.
+* All-vs-all (`--ql LIST --rl LIST`, both in --help): one line per ordered pair (query, reference), self pairs
+  included; ANI is not symmetric, so A against B and B against A are separate lines with their own fragments.
 """
 from __future__ import annotations
 
@@ -27,6 +29,8 @@ from arva_tools.base import ToolAdapter, ToolInfo, read_help
 DEFAULTS = {"kmer": "16", "threads": "1", "fragLen": "3,000", "minFraction": "0.2", "maxRatioDiff": "10.0"}
 FLAGS = ("-q", "--rl", "-o", "-t", "-k", "--fragLen", "--minFraction", "--maxRatioDiff")
 OUTPUT = "fastani.tsv"
+ALL_FLAGS = ("--ql", "--rl", "-o", "-t", "-k", "--fragLen", "--minFraction", "--maxRatioDiff")
+ALL_OUTPUT = "fastani_all.tsv"
 LOG = "fastani.log"
 _OPTION = re.compile(r"^(--?[A-Za-z][\w-]*)(?:,\s+(--[A-Za-z][\w-]*))?(?=[\s,]|$)")
 _DEFAULT = re.compile(r"\[default\s*:\s*([^\]]+)\]")
@@ -139,5 +143,15 @@ class FastaniAdapter(ToolAdapter):
         if missing := [f for f in FLAGS if f not in supported]:
             raise ValueError(f"this FastANI version does not offer {', '.join(missing)} (not in its --help)")
         return [executable, "-q", str(query), "--rl", str(ref_list), "-o", str(out_dir / OUTPUT),
+                "-t", str(params.threads), "-k", str(params.kmer), "--fragLen", str(params.frag_len),
+                "--minFraction", f"{params.min_fraction:g}", "--maxRatioDiff", f"{params.max_ratio_diff:.1f}"]
+
+    @staticmethod
+    def all_vs_all_argv(executable: str, params: FastaniParams, genome_list: Path, out_dir: Path,
+                        supported: frozenset[str]) -> list[str]:
+        params.validate()
+        if missing := [f for f in ALL_FLAGS if f not in supported]:
+            raise ValueError(f"this FastANI version does not offer {', '.join(missing)} (not in its --help)")
+        return [executable, "--ql", str(genome_list), "--rl", str(genome_list), "-o", str(out_dir / ALL_OUTPUT),
                 "-t", str(params.threads), "-k", str(params.kmer), "--fragLen", str(params.frag_len),
                 "--minFraction", f"{params.min_fraction:g}", "--maxRatioDiff", f"{params.max_ratio_diff:.1f}"]

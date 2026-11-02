@@ -1,10 +1,11 @@
 from arva_tools.bakta import BaktaParams
 from arva_tools.prokka import ProkkaParams
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import FileResponse, Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.api.access import keep_visible, visible_projects
 from app.api.deps import get_or_404, sample_or_404
 from app.api.routes.tools import _tool_call
 from app.db.session import get_db
@@ -156,9 +157,9 @@ def list_sample_annotations(sample_id: str, db: Session = Depends(get_db)):
 
 
 @router.get("/annotations", response_model=list[AnnotationListRow])
-def list_annotations(limit: int = Query(default=200, ge=1, le=1000), db: Session = Depends(get_db)):
+def list_annotations(request: Request, limit: int = Query(default=200, ge=1, le=1000), db: Session = Depends(get_db)):
     """Every annotation, newest first, with its sample, project and assembly (the Genome Explorer's list)."""
-    return explorer.list_annotations(db, limit)
+    return keep_visible(explorer.list_annotations(db, limit), visible_projects(request))
 
 
 @router.get("/annotations/{annotation_id}", response_model=AnnotationRead)

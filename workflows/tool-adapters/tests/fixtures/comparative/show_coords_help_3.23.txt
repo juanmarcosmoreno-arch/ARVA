@@ -1,0 +1,34 @@
+
+USAGE: show-coords  [options]  <deltafile>
+
+-b          Merges overlapping alignments regardless of match dir
+            or frame and does not display any idenitity information.
+-B          Switch output to btab format
+-c          Include percent coverage information in the output
+-d          Display the alignment direction in the additional
+            FRM columns (default for promer)
+-g          Deprecated option. Please use 'delta-filter' instead
+-h          Display help information
+-H          Do not print the output header
+-I float    Set minimum percent identity to display
+-k          Knockout (do not display) alignments that overlap
+            another alignment in a different frame by more than 50%
+            of their length, AND have a smaller percent similarity
+            or are less than 75% of the size of the other alignment
+            (promer only)
+-l          Include the sequence length information in the output
+-L long     Set minimum alignment length to display
+-o          Annotate maximal alignments between two sequences, i.e.
+            overlaps between reference and query sequences
+-q          Sort output lines by query IDs and coordinates
+-r          Sort output lines by reference IDs and coordinates
+-T          Switch output to tab-delimited format
+
+  Input is the .delta output of either the "nucmer" or the
+"promer" program passed on the command line.
+  Output is to stdout, and consists of a list of coordinates,
+percent identity, and other useful information regarding the
+alignment data contained in the .delta file used as input.
+  NOTE: No sorting is done by default, therefore the alignments
+will be ordered as found in the <deltafile> input.
+

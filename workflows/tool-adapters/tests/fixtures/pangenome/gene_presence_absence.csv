@@ -1,0 +1,15 @@
+Gene,Non-unique Gene name,Annotation,g1,g2,g3,g4,g5
+group_2430,,Oxidoreductase;hypothetical protein,P000009645_01841,P000009665_01954,P000013465_01956,P000011265_01890,P000011525_01870;P000011525_01869
+group_2415,,DUF771 domain-containing protein,P000009645_01838,P000009665_01950,P000013465_01953,P000011265_01886,P000011525_01865
+lpl8,lpl8;,tandem-type lipoprotein Lpl8;tandem-type lipoprotein;Uncharacterized lipoprotein SA0399,P000009645_00408,P000009665_00430,P000013465_00418,P000011265_00394,P000011525_00391
+group_2427,,Phage protein,P000009645_01840,P000009665_01953,,P000011265_01889,P000011525_01868
+group_2421,,DUF4888 domain-containing protein,P000009645_01859,P000009665_01970,P000013465_00811,P000011265_00747,
+group_2429,,Pathogenicity island protein,,P000009665_00765,P000013465_00801,P000011265_00737,
+group_2428,,Phage protein,,,P000013465_01441,P000011265_01407,P000011525_00878
+group_2451,,Mobilization protein,P000009645_02587,,,,P000011525_02547
+group_2450,,hypothetical protein;HTH cro/C1-type domain-containing protein,P000009645_02590,,,,P000011525_02550
+arsC,arsC,thioredoxin-dependent arsenate reductase,P000009645_02581,,,,
+group_2441,,Putative transposon Tn552 DNA-invertase bin3,P000009645_02578,,,,
+group_2440,,DNA invertase,,,,,P000011525_02565
+group_2039,,hypothetical protein,0_refound_1_pseudo,1_refound_3_pseudo,P000013465_00587,P000011265_00560,P000011525_00556
+lpl5~~~lpl1,lpl5;lpl1,tandem-type lipoprotein Lpl5;tandem-type lipoprotein Lpl1,P000009645_00399,P000009665_00421,P000013465_00411,P000011265_00391,P000011525_00388

@@ -19,8 +19,8 @@
 # about 2.2 GB) and IntegronFinder 2.0.6 (HMMER 3.3.2, Infernal, Prodigal; about 0.7 GB) for linux-64 only (Bioconda
 # has no BLAST+ < 2.16 or HMMER <= 3.3.2 for linux-aarch64). MOB-suite's post-link script, which runs mob_init (a
 # download with TLS verification off), is not run: scripts/conda_locks.py passes --skip-run-link-scripts. ISEScan
-# 1.7.3 (linux-64) and geNomad 1.13.0 (both architectures) have locks but were not validated with a real run and are
-# not built by default: add "isescan" or "genomad" to ARVA_CONDA_TOOLS to include them. S. aureus typing: sccmec
+# 1.7.3 (linux-64; validated with a real run, about 1.4 GB unpacked) and geNomad 1.13.0 (both architectures; not
+# validated) are not built by default: add "isescan" or "genomad" to ARVA_CONDA_TOOLS to include them. S. aureus typing: sccmec
 # 1.2.0 (camlhmp 1.1.4, BLAST+ 2.16.0; about 1.0 GB) and spaTyper 0.3.3 (about 0.17 GB) have locks for both
 # architectures; AgrVATE 1.0.2 (snippy 4.6.0, MUMmer 3.23, HMMER, BLAST+; about 2.6 GB) for linux-64 only (snippy's
 # dependencies cannot be solved for linux-aarch64). spaTyper's package bundles copies of the Ridom SpaServer files,
@@ -28,7 +28,7 @@
 # ships them. A tool without a lock for the image's architecture is left out.
 # Build with --build-arg ARVA_CONDA_TOOLS="" for an image without them.
 FROM python:3.12.7-slim-bookworm AS conda-tools
-ARG ARVA_CONDA_TOOLS="mlst fastani skani mash sylph amrfinderplus bakta abricate mobsuite integronfinder sccmec spatyper agrvate"
+ARG ARVA_CONDA_TOOLS="mlst fastani skani mash sylph amrfinderplus bakta abricate mobsuite integronfinder sccmec spatyper agrvate iqtree panaroo"
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl bzip2 \
     && rm -rf /var/lib/apt/lists/*
 COPY scripts/install-micromamba.sh scripts/conda_locks.py /build/scripts/
@@ -71,12 +71,15 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 # oriC/oriV/oriT). On amd64 Bakta comes from the conda-tools stage with all of its programs (CDS validated there).
 # Bookworm's prokka 1.14.6+dfsg-4 lacks the kingdom protein sets, so ARVA reports Prokka as unable to annotate.
 # trnascan-se, infernal, hmmer (so barrnap) and prokka are amd64-only in bookworm.
+# Variant calling: bcftools (mpileup, call, norm, filter, csq) with BWA or minimap2 and samtools; ARVA validated
+# bcftools 1.19 (Ubuntu); bookworm ships 1.16, which ARVA runs after checking every option in its usage texts.
 RUN set -eu; extra=""; \
     if [ "$(dpkg --print-architecture)" = "amd64" ]; then extra="trnascan-se infernal hmmer barrnap prokka"; fi; \
     apt-get update \
     && apt-get install -y --no-install-recommends seqkit fastp filtlong fastqc flye samtools minimap2 \
        spades unicycler racon ncbi-blast+ pilon bwa mummer default-jre-headless \
-       aragorn pilercr diamond-aligner prodigal $extra \
+       aragorn pilercr diamond-aligner prodigal mafft fasttree snp-sites bcftools $extra \
+       libpango-1.0-0 libpangoft2-1.0-0 libharfbuzz-subset0 fonts-dejavu-core \
     && rm -rf /var/lib/apt/lists/*
 
 # Python report tools, each in its own virtual environment with the versions validated with ARVA.
@@ -133,7 +136,9 @@ ENV ARVA_TOOL_AMRFINDERPLUS=/opt/arva-tools/conda/amrfinderplus/bin/amrfinder \
     ARVA_TOOL_GENOMAD=/opt/arva-tools/conda/genomad/bin/genomad \
     ARVA_TOOL_SCCMEC=/opt/arva-tools/conda/sccmec/bin/sccmec \
     ARVA_TOOL_SPATYPER=/opt/arva-tools/conda/spatyper/bin/spaTyper \
-    ARVA_TOOL_AGRVATE=/opt/arva-tools/conda/agrvate/bin/agrvate
+    ARVA_TOOL_AGRVATE=/opt/arva-tools/conda/agrvate/bin/agrvate \
+    ARVA_TOOL_IQTREE=/opt/arva-tools/conda/iqtree/bin/iqtree3 \
+    ARVA_TOOL_PANAROO=/opt/arva-tools/conda/panaroo/bin/panaroo
 
 # /databases: reference databases (ARVA_DB_DIR); a new named volume takes this folder's owner.
 RUN groupadd --system arva && useradd --system --gid arva --home /opt/arva arva \

@@ -1,6 +1,6 @@
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, String, Text
+from sqlalchemy import Boolean, ForeignKey, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, TimestampMixin, new_uuid
@@ -18,6 +18,9 @@ class Project(TimestampMixin, Base):
     institution: Mapped[str | None] = mapped_column(String(255), nullable=True)
     researcher: Mapped[str | None] = mapped_column(String(255), nullable=True)
     is_demo: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # The account that created it while authentication was on (None: created without authentication).
+    owner_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("users.id", ondelete="SET NULL", name="fk_projects_owner_id"), nullable=True)
 
     samples: Mapped[list["Sample"]] = relationship(
         "Sample", back_populates="project", cascade="all, delete-orphan"

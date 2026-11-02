@@ -247,5 +247,6 @@ it("lists the Genome Explorer in the sidebar as available, other planned modules
   const explorer = ALL_NAV_ITEMS.find((i) => i.key === "explorer")!;
   expect(explorer.to).toBe("/explorer");
   expect(explorer.plannedPhase).toBeUndefined();
-  expect(ALL_NAV_ITEMS.find((i) => i.key === "comparative")?.plannedPhase).toBe(6);
+  expect(ALL_NAV_ITEMS.find((i) => i.key === "phylogeny")?.plannedPhase).toBeUndefined();
+  expect(ALL_NAV_ITEMS.find((i) => i.key === "workflows")?.plannedPhase).toBeUndefined();
 });

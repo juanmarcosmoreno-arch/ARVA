@@ -1,7 +1,8 @@
-from fastapi import APIRouter, Depends, Response, status
+from fastapi import APIRouter, Depends, Request, Response, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.api.access import current_user, visible_projects
 from app.api.deps import project_or_404
 from app.db.session import get_db
 from app.models import Project, Sample
@@ -30,14 +31,19 @@ def to_project_read(db: Session, projects: list[Project]) -> list[ProjectRead]:
 
 
 @router.get("", response_model=list[ProjectRead])
-def list_projects(db: Session = Depends(get_db)):
-    projects = db.scalars(select(Project).order_by(Project.updated_at.desc())).all()
+def list_projects(request: Request, db: Session = Depends(get_db)):
+    q = select(Project).order_by(Project.updated_at.desc())
+    visible = visible_projects(request)
+    if visible is not None:
+        q = q.where(Project.id.in_(visible))
+    projects = db.scalars(q).all()
     return to_project_read(db, list(projects))
 
 
 @router.post("", response_model=ProjectRead, status_code=status.HTTP_201_CREATED)
-def create_project(payload: ProjectCreate, db: Session = Depends(get_db)):
-    project = Project(**payload.model_dump())
+def create_project(payload: ProjectCreate, request: Request, db: Session = Depends(get_db)):
+    user = current_user(request)
+    project = Project(**payload.model_dump(), owner_id=user.id if user else None)
     db.add(project)
     db.commit()
     db.refresh(project)

@@ -1,6 +1,13 @@
 import { translator } from "@/i18n";
 import { reportApiFailure } from "@/lib/errorReporting";
 import { messageText } from "@/lib/messages";
+import type { AlignmentRequest, AniRequest, ComparisonCandidate, ComparisonPlan, ComparisonResultRead, ComparisonSet, ComparisonSetBrief, ComparisonSetIn } from "@/lib/comparative";
+import type { GeneLookupRow, GeneQuery, GeneRequest, RegionPlan, RegionRequest } from "@/lib/regions";
+import type { Associations, FamilyDetail, MetadataField, PangenomePlan, PangenomeRequest } from "@/lib/pangenome";
+import type { LeafMetadata, PhyloData, PhyloRequest, PhyloSourceOption, PhyloStyle, RfResult, Rooting } from "@/lib/phylo";
+import type { CollectionGenome, ExplorerVariants, ProjectMobilome, ProjectVariants, SampleMobilome, SnpMatrix, VariantOptions, VariantPlan, VariantRecords, VariantRequest, VariantRun } from "@/lib/variants";
+import type { ErrorEntry } from "@/lib/diagnostics";
+import type { BatchRunRequest, Catalogue, Definition, QueueOverview, RunComparison, RunDetail, RunPlan, RunSummary, SampleBranch, ValidationResult, WorkflowRead } from "@/lib/workflows";
 import type { TypingMethod, TypingModuleInfo, TypingPlan, TypingProject, TypingRequest, TypingSample } from "@/lib/typing";
 import { useSettings } from "@/store/settings";
 import type {
@@ -168,9 +175,23 @@ export async function apiError(res: Response, method = "GET"): Promise<ApiError>
   return err;
 }
 
+/** The session's CSRF token (the arva_csrf cookie, set at sign-in when accounts are on), sent on every change. */
+export function csrfHeaders(): Record<string, string> {
+  const match = typeof document === "undefined" ? null : document.cookie.match(/(?:^|;\s*)arva_csrf=([^;]+)/);
+  return match ? { "X-CSRF-Token": decodeURIComponent(match[1]) } : {};
+}
+
+function withCsrf(init?: RequestInit): RequestInit | undefined {
+  const method = (init?.method ?? "GET").toUpperCase();
+  if (method === "GET" || method === "HEAD") return init;
+  const headers = new Headers(init?.headers);
+  for (const [k, v] of Object.entries(csrfHeaders())) headers.set(k, v);
+  return { ...init, headers };
+}
+
 async function send(path: string, init?: RequestInit): Promise<Response> {
   try {
-    return await fetch(BASE + path, init);
+    return await fetch(BASE + path, withCsrf(init));
   } catch (err) {
     reportApiFailure(init?.method ?? "GET", BASE + path, 0, err instanceof Error ? err.message : String(err));
     throw err;
@@ -215,6 +236,7 @@ function uploadFiles(sampleId: string, files: File[], onProgress?: (p: UploadPro
     const xhr = new XMLHttpRequest();
     xhr.open("POST", `${BASE}/samples/${sampleId}/files`);
     xhr.responseType = "json";
+    for (const [k, v] of Object.entries(csrfHeaders())) xhr.setRequestHeader(k, v);
     xhr.upload.onprogress = (e) => onProgress?.({ loaded: e.loaded, total: e.total });
     xhr.onload = () => {
       if (xhr.status >= 200 && xhr.status < 300) resolve(xhr.response as UploadResult);
@@ -413,6 +435,51 @@ export const api = {
   mobileProject: (projectId: string) => request<MobileProjectOverview>(`/projects/${projectId}/mobile-elements`),
   mobileFileUrl: (jobId: string, kind: string) => `${BASE}/mobile-elements/runs/${jobId}/files/${encodeURIComponent(kind)}`,
   annotationMobile: (annotationId: string) => request<MobileAnnotationElements>(`/annotations/${annotationId}/mobile-elements`),
+  comparisonCandidates: () => request<ComparisonCandidate[]>("/comparisons/candidates"),
+  comparisons: (projectId?: string) => request<ComparisonSetBrief[]>(`/comparisons${projectId ? `?${new URLSearchParams({ project_id: projectId })}` : ""}`),
+  comparison: (id: string) => request<ComparisonSet>(`/comparisons/${id}`),
+  createComparison: (body: ComparisonSetIn) => request<ComparisonSet>("/comparisons", json("POST", body)),
+  updateComparison: (id: string, body: ComparisonSetIn) => request<ComparisonSet>(`/comparisons/${id}`, json("PUT", body)),
+  deleteComparison: (id: string) => request<void>(`/comparisons/${id}`, { method: "DELETE" }),
+  aniPreview: (id: string, body: AniRequest) => request<ComparisonPlan>(`/comparisons/${id}/ani/preview`, json("POST", body)),
+  runAni: (id: string, body: AniRequest) => request<AnalysisJob>(`/comparisons/${id}/ani`, json("POST", body)),
+  alignmentPreview: (id: string, body: AlignmentRequest) => request<ComparisonPlan>(`/comparisons/${id}/alignment/preview`, json("POST", body)),
+  runAlignment: (id: string, body: AlignmentRequest) => request<AnalysisJob>(`/comparisons/${id}/alignment`, json("POST", body)),
+  comparisonResult: (id: string) => request<ComparisonResultRead>(`/comparisons/results/${id}`),
+  comparisonCsvUrl: (id: string, table: "ani" | "blocks" | "differences" | "conservation" | "hits" | "neighbourhood") => `${BASE}/comparisons/results/${id}/${table}.csv`,
+  geneQueries: () => request<GeneQuery[]>("/gene-queries"),
+  createGeneQuery: (body: { name: string | null; description: string | null; molecule: "nucleotide" | "protein"; fasta: string; source: "paste" | "upload" }) =>
+    request<GeneQuery>("/gene-queries", json("POST", body)),
+  geneQueryFromFeature: (body: { annotation_id: string; feature_id: number; molecule: "nucleotide" | "protein"; name: string | null }) =>
+    request<GeneQuery>("/gene-queries/from-feature", json("POST", body)),
+  deleteGeneQuery: (id: string) => request<void>(`/gene-queries/${id}`, { method: "DELETE" }),
+  geneLookup: (setId: string, q: string) => request<GeneLookupRow[]>(`/comparisons/${setId}/gene-lookup?${new URLSearchParams({ q })}`),
+  regionPreview: (id: string, body: RegionRequest) => request<RegionPlan>(`/comparisons/${id}/region/preview`, json("POST", body)),
+  runRegion: (id: string, body: RegionRequest) => request<AnalysisJob>(`/comparisons/${id}/region`, json("POST", body)),
+  genePreview: (id: string, body: GeneRequest) => request<RegionPlan>(`/comparisons/${id}/gene/preview`, json("POST", body)),
+  runGene: (id: string, body: GeneRequest) => request<AnalysisJob>(`/comparisons/${id}/gene`, json("POST", body)),
+  comparisonFileUrl: (id: string, name: string) => `${BASE}/comparisons/results/${id}/files/${name.split("/").map(encodeURIComponent).join("/")}`,
+  comparisonReportUrl: (id: string, format: "html" | "json") => `${BASE}/comparisons/${id}/report.${format}`,
+  pangenomePreview: (id: string, body: PangenomeRequest) => request<PangenomePlan>(`/comparisons/${id}/pangenome/preview`, json("POST", body)),
+  runPangenome: (id: string, body: PangenomeRequest) => request<AnalysisJob>(`/comparisons/${id}/pangenome`, json("POST", body)),
+  pangenomeFamily: (id: string, index: number) => request<FamilyDetail>(`/comparisons/results/${id}/families/${index}`),
+  pangenomeFamilyFastaUrl: (id: string, index: number, molecule: "nucleotide" | "protein") =>
+    `${BASE}/comparisons/results/${id}/families/${index}.fasta?${new URLSearchParams({ molecule })}`,
+  pangenomePresenceUrl: (id: string) => `${BASE}/comparisons/results/${id}/pangenome/presence.Rtab`,
+  pangenomeFamiliesCsvUrl: (id: string) => `${BASE}/comparisons/results/${id}/families.csv`,
+  pangenomeMetadata: (id: string) => request<{ genomes: string[]; fields: MetadataField[] }>(`/comparisons/results/${id}/pangenome/metadata`),
+  pangenomeAssociations: (id: string, field: string, minGroup: number) =>
+    request<Associations>(`/comparisons/results/${id}/pangenome/associations?${new URLSearchParams({ field, min_group: String(minGroup) })}`),
+  phyloSources: (id: string) => request<PhyloSourceOption[]>(`/comparisons/${id}/phylogeny/sources`),
+  phyloPreview: (id: string, body: PhyloRequest) => request<ComparisonPlan>(`/comparisons/${id}/phylogeny/preview`, json("POST", body)),
+  runPhylogeny: (id: string, body: PhyloRequest) => request<AnalysisJob>(`/comparisons/${id}/phylogeny`, json("POST", body)),
+  savePhyloView: (id: string, rooting: Rooting, style: PhyloStyle) =>
+    request<PhyloData>(`/comparisons/results/${id}/phylogeny/view`, json("PUT", { rooting, style })),
+  phyloMetadata: (id: string) => request<LeafMetadata>(`/comparisons/results/${id}/phylogeny/metadata`),
+  phyloCompare: (a: string, b: string, by: "leaf" | "genome") =>
+    request<RfResult>(`/comparisons/phylogeny/compare?${new URLSearchParams({ a, b, by })}`),
+  phyloNewickUrl: (id: string, rooted: boolean) => `${BASE}/comparisons/results/${id}/phylogeny/tree.nwk?rooted=${rooted}`,
+  phyloReportUrl: (id: string) => `${BASE}/comparisons/results/${id}/phylogeny/report.html`,
   typingModules: () => request<TypingModuleInfo[]>("/typing/modules"),
   typingPreview: (assemblyId: string, module: string, method: TypingMethod, databaseId: string | null) =>
     request<TypingPlan>(`/assemblies/${assemblyId}/typing/${module}/preview`, json("POST", { method, database_id: databaseId })),
@@ -484,12 +551,64 @@ export const api = {
   /** Selected features, or those overlapping a region, as a file the browser saves (POST, so the ids do not go into a URL). */
   exportAnnotationFeatures: async (id: string, format: AnnotationExportFormat, selection: number[] | AnnotationRegion) => {
     const body = Array.isArray(selection) ? { format, feature_ids: selection } : { format, region: selection };
-    const res = await fetch(`${BASE}/annotations/${id}/export`, json("POST", body));
+    const res = await fetch(`${BASE}/annotations/${id}/export`, withCsrf(json("POST", body)));
     if (!res.ok) throw await apiError(res, "POST");
     const name = /filename="([^"]+)"/.exec(res.headers.get("Content-Disposition") ?? "")?.[1] ?? `annotation_${format}.txt`;
     return { blob: await res.blob(), name };
   },
+  variantOptions: (sampleId: string) => request<VariantOptions>(`/samples/${sampleId}/variants/options`),
+  collectionGenomes: (databaseId: string, q: string) => request<CollectionGenome[]>(`/variants/collections/${databaseId}/genomes?${new URLSearchParams({ q })}`),
+  variantPreview: (sampleId: string, body: VariantRequest) => request<VariantPlan>(`/samples/${sampleId}/variants/preview`, json("POST", body)),
+  runVariants: (sampleId: string, body: VariantRequest) => request<AnalysisJob>(`/samples/${sampleId}/variants`, json("POST", body)),
+  variantRuns: (sampleId: string) => request<VariantRun[]>(`/samples/${sampleId}/variants`),
+  variantRecords: (runId: string, filters: { status?: string; type?: string; effect?: string; contig?: string; q?: string; offset?: number; limit?: number }) => {
+    const qs = new URLSearchParams(Object.entries(filters).filter(([, v]) => v !== undefined && v !== "").map(([k, v]) => [k, String(v)]));
+    return request<VariantRecords>(`/variants/runs/${runId}/records?${qs}`);
+  },
+  variantCsvUrl: (runId: string) => `${BASE}/variants/runs/${runId}/variants.csv`,
+  variantFileUrl: (runId: string, kind: string) => `${BASE}/variants/runs/${runId}/files/${kind}`,
+  projectVariants: (projectId: string) => request<ProjectVariants>(`/projects/${projectId}/variants`),
+  snpMatrix: (projectId: string, reference: string) => request<SnpMatrix>(`/projects/${projectId}/variants/matrix?${new URLSearchParams({ reference })}`),
+  snpMatrixUrl: (projectId: string, reference: string, format: "csv" | "distances" | "fasta") =>
+    `${BASE}/projects/${projectId}/variants/matrix?${new URLSearchParams({ reference, format })}`,
+  variantReportUrl: (projectId: string) => `${BASE}/projects/${projectId}/variants/report.html`,
+  annotationVariants: (annotationId: string, contig: string, start: number, end: number, run?: string | null) =>
+    request<ExplorerVariants>(`/annotations/${annotationId}/variants?${new URLSearchParams({ contig, start: String(start), end: String(end), ...(run ? { run } : {}) })}`),
+  sampleMobilome: (sampleId: string, window: number) => request<SampleMobilome>(`/samples/${sampleId}/mobilome?window=${window}`),
+  projectMobilome: (projectId: string) => request<ProjectMobilome>(`/projects/${projectId}/mobilome`),
   /** `name` is a file name, or a path below the job's folder (kept with its slashes so the page's relative links work). */
   jobOutputUrl: (jobId: string, name: string, download = false) =>
     `${BASE}/jobs/${jobId}/outputs/${name.split("/").map(encodeURIComponent).join("/")}${download ? "?download=true" : ""}`,
+  workflowCatalogue: () => request<Catalogue>("/workflows/catalogue"),
+  workflows: () => request<WorkflowRead[]>("/workflows"),
+  workflow: (id: string, version?: number) => request<WorkflowRead>(`/workflows/${id}${version ? `?version=${version}` : ""}`),
+  createWorkflow: (body: { name: string; description?: string | null; template_key?: string | null; definition?: Definition | null }) =>
+    request<WorkflowRead>("/workflows", json("POST", body)),
+  saveWorkflowVersion: (id: string, body: { definition: Definition; note?: string | null; name?: string | null }) =>
+    request<WorkflowRead>(`/workflows/${id}/versions`, json("POST", body)),
+  duplicateWorkflow: (id: string, body: { name: string; version?: number | null }) =>
+    request<WorkflowRead>(`/workflows/${id}/duplicate`, json("POST", body)),
+  deleteWorkflow: (id: string) => request<void>(`/workflows/${id}`, { method: "DELETE" }),
+  importWorkflow: (name: string, body: unknown) =>
+    request<WorkflowRead>(`/workflows/import?${new URLSearchParams({ name })}`, json("POST", body)),
+  validateWorkflow: (definition: Definition) => request<ValidationResult>("/workflows/validate", json("POST", definition)),
+  workflowExportUrl: (id: string, version?: number) => `${BASE}/workflows/${id}/export${version ? `?version=${version}` : ""}`,
+  batchPreview: (body: BatchRunRequest) => request<RunPlan>("/batches/preview", json("POST", body)),
+  startBatch: (body: BatchRunRequest) => request<RunDetail>("/batches", json("POST", body)),
+  batches: (projectId?: string) => request<RunSummary[]>(`/batches${projectId ? `?project_id=${projectId}` : ""}`),
+  batchQueue: () => request<QueueOverview>("/batches/queue"),
+  batch: (id: string) => request<RunDetail>(`/batches/${id}`),
+  batchAction: (id: string, action: "cancel" | "pause" | "resume") => request<RunDetail>(`/batches/${id}/${action}`, { method: "POST" }),
+  batchSettings: (id: string, body: { priority?: number; max_concurrent?: number }) =>
+    request<RunDetail>(`/batches/${id}/settings`, json("PUT", body)),
+  branchBatch: (id: string, body: { node_id: string; params: Record<string, unknown>; name?: string | null; confirmed: boolean }) =>
+    request<RunDetail>(`/batches/${id}/branch`, json("POST", body)),
+  compareBatches: (a: string, b: string) => request<RunComparison>(`/batches/compare?${new URLSearchParams({ a, b })}`),
+  batchErrors: (id: string) => request<ErrorEntry[]>(`/batches/${id}/errors`),
+  batchExportUrl: (id: string) => `${BASE}/batches/${id}/export.json`,
+  batchTableUrl: (id: string) => `${BASE}/batches/${id}/table.csv`,
+  batchReportUrl: (id: string) => `${BASE}/batches/${id}/report.html`,
+  sampleBranches: (sampleId: string) => request<SampleBranch[]>(`/samples/${sampleId}/batches`),
 };
+
+export { request as apiRequest, json as jsonInit };

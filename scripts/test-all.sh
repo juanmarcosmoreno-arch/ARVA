@@ -18,13 +18,17 @@ for spec in MLST:mlst/bin/mlst FASTANI:fastani/bin/fastANI SKANI:skani/bin/skani
   SYLPH:sylph/bin/sylph GTDBTK:gtdbtk/bin/gtdbtk AMRFINDERPLUS:amrfinderplus/bin/amrfinder BAKTA:bakta/bin/bakta \
   ABRICATE:abricate/bin/abricate MOBSUITE:mobsuite/bin/mob_recon INTEGRONFINDER:integronfinder/bin/integron_finder \
   ISESCAN:isescan/bin/isescan.py GENOMAD:genomad/bin/genomad SCCMEC:sccmec/bin/sccmec SPATYPER:spatyper/bin/spaTyper \
-  AGRVATE:agrvate/bin/agrvate; do
+  AGRVATE:agrvate/bin/agrvate IQTREE:iqtree/bin/iqtree3 PANAROO:panaroo/bin/panaroo PPANGGOLIN:ppanggolin/bin/ppanggolin; do
   var="ARVA_TOOL_${spec%%:*}"
   exe="$HOME/.arva-tools/conda/${spec#*:}"
   if [ -z "${!var:-}" ] && [ -x "$exe" ]; then
     export "$var=$exe"
   fi
 done
+# The comparative genomics tests on NCBI genomes read ARVA_TEST_GENOMES (default /root/.arva-testdata/genomes, see
+# workflows/tool-adapters/tests/fixtures/comparative/README.md) and skip without the genomes.
+# The phylogeny tests read Panaroo's cached core-genome alignment in ARVA_TEST_GENOMES/panaroo-1.8.1-core (see
+# workflows/tool-adapters/tests/fixtures/phylogeny/README.md) and skip without it.
 # The species identification tests on NCBI genomes need ARVA_TEST_SPECIES_GENOMES (see
 # workflows/tool-adapters/tests/fixtures/species/README.md); without it they are skipped.
 

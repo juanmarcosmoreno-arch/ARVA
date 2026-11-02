@@ -17,6 +17,10 @@ dependencies = [
     # Reads .xlsx sample-metadata tables (MIT; its dependency et_xmlfile is MIT AND PSF-2.0). Pinned: ARVA reads
     # a private attribute of its read-only worksheet.
     "openpyxl==3.1.5",
+    # Password hashes (Argon2id) for the optional accounts (MIT).
+    "argon2-cffi==25.1.0",
+    # PDF reports from ARVA's own HTML, with every external resource refused (BSD-3-Clause; needs Pango).
+    "weasyprint==66.0",
     "arva-core",
     "arva-tools",
 ]
@@ -30,6 +34,8 @@ dev = [
     "httpx>=0.27.2",
     "fakeredis>=2.26",
     "ruff>=0.7.0",
+    # Reference values for the Discover statistics tests (BSD-3-Clause).
+    "scipy==1.18.1",
 ]
 
 [tool.setuptools.packages.find]

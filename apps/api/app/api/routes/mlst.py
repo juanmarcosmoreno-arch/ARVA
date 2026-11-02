@@ -1,9 +1,10 @@
 from arva_tools.mlst import DEFAULT_EXCLUDE, MlstParams
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import FileResponse, JSONResponse, Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.api.access import keep_visible, visible_projects
 from app.api.deps import get_or_404, project_or_404, sample_or_404
 from app.api.routes.tools import _tool_call
 from app.core.messages import render
@@ -110,9 +111,11 @@ def project_csv(project_id: str, db: Session = Depends(get_db)):
 
 
 @router.get("/mlst", response_model=MlstOverviewRead)
-def overview(limit: int = Query(default=100, ge=1, le=1000), db: Session = Depends(get_db)):
+def overview(request: Request, limit: int = Query(default=100, ge=1, le=1000), db: Session = Depends(get_db)):
     """Every project with how many samples have an MLST result, and the most recent results across projects."""
-    return svc.overview(db, limit)
+    data = svc.overview(db, limit)
+    visible = visible_projects(request)
+    return {**data, "projects": keep_visible(data["projects"], visible), "recent": keep_visible(data["recent"], visible)}
 
 
 @router.get("/mlst/{result_id}", response_model=MlstResultRead)

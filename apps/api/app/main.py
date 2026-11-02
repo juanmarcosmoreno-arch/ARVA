@@ -2,7 +2,7 @@ import json
 import threading
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request, status
+from fastapi import Depends, FastAPI, Request, status
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
@@ -10,6 +10,7 @@ from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 
 from app import __version__
+from app.api import access
 from app.api.capacity import UploadCapacityGuard, insufficient_storage_response
 from app.api.metadata_limit import MetadataUploadLimit
 from app.api.request_context import HEADER, RequestContext, route_of
@@ -18,9 +19,13 @@ from app.api.routes import (
     analyses,
     annotations,
     assemblies,
+    assist,
+    auth,
+    comparative,
     dashboard,
     databases,
     diagnostics,
+    discover,
     explorer,
     files,
     imports,
@@ -28,17 +33,24 @@ from app.api.routes import (
     mlst,
     mobile_elements,
     overview,
+    pangenome,
+    phylogeny,
     projects,
+    regions,
     reports,
     samples,
     species,
     system,
     tools,
     typing,
+    variants,
+    workflows,
 )
 from app.api.storage_guard import StorageGuard, storage_unavailable_response
 from app.core import errorlog
 from app.core.config import get_settings
+from app.services import assist as assist_service
+from app.services import auth as auth_service
 from app.services import locations, startup
 from app.services.capacity import InsufficientStorageError
 from app.services.import_roots import ImportPathError
@@ -111,6 +123,21 @@ def create_app() -> FastAPI:
                                      "params": {"error_id": error_id}, "error_id": error_id},
                             headers={HEADER: cid} if cid else None)
 
+    @app.exception_handler(access.AccessDenied)
+    async def access_denied(_: Request, exc: access.AccessDenied):
+        return JSONResponse(status_code=exc.status, content={"detail": access.MESSAGES[exc.code], "code": exc.code,
+                                                             "params": {}})
+
+    @app.exception_handler(auth_service.AuthError)
+    async def auth_error(_: Request, exc: auth_service.AuthError):
+        return JSONResponse(status_code=exc.status, content={"detail": auth_service.message(exc), "code": exc.code,
+                                                             "params": exc.params})
+
+    @app.exception_handler(assist_service.AssistError)
+    async def assist_error(_: Request, exc: assist_service.AssistError):
+        return JSONResponse(status_code=exc.status, content={"detail": assist_service.message(exc), "code": exc.code,
+                                                             "params": exc.params})
+
     @app.exception_handler(StoragePathError)
     @app.exception_handler(ImportPathError)
     async def storage_path_error(_: Request, exc: ValueError):
@@ -140,8 +167,9 @@ def create_app() -> FastAPI:
 
     for module in (dashboard, projects, samples, files, imports, metadata, analyses, tools, reports, overview,
                    assemblies, annotations, explorer, amr, mobile_elements, databases, mlst, species, system,
-                   diagnostics, typing):
-        app.include_router(module.router, prefix=settings.api_v1_prefix)
+                   diagnostics, typing, comparative, regions, pangenome, phylogeny, variants, workflows, auth, discover,
+                   assist):
+        app.include_router(module.router, prefix=settings.api_v1_prefix, dependencies=[Depends(access.guard)])
     return app
 
 

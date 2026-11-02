@@ -475,6 +475,276 @@ mode (needs a binary ARVA does not install); frameshift detection on a real agr-
 - Other species modules on the same framework: Klebsiella pneumoniae (Kleborate), E. coli serotyping, Salmonella
   (SISTR), with their own validation genomes.
 
+## Comparative genomics core (6A) ✅
+
+- **Comparison sets** (`comparison_sets`, `comparison_members`, `comparison_results`, migration `c4e7a2d9f1b3`):
+  named, reusable selections of 2 to 200 assemblies from any sample of any project (polished or not), in an order and
+  with a label per genome, kept in one project (its jobs, results and report section). Results keep a snapshot of the
+  genomes they compared (labels, contigs SHA-256), so a set can change without losing them.
+- **ANI matrix** (`comparative_ani` job): skani 0.4.0 `triangle -E` (every pair once; default) or FastANI 1.34
+  all-vs-all (`--ql`/`--rl`, both directions), every option passed explicitly; unreported pairs stay empty. Heatmap
+  ordered by average-linkage (UPGMA) clustering of 100 − ANI, labelled as similarity clustering, not a phylogeny;
+  table and CSV.
+- **Whole-genome alignment** (`comparative_alignment` job, up to 12 genomes in a chosen order; the first is the
+  reference): minimap2 2.26 `-x asm5|asm10|asm20 -c` or NUCmer 3.1 (`--mumreference|--mum|--maxmatch -b -c -g -l`) with
+  `show-coords -rclTH`, every genome against the reference and each against the next; dnadiff 1.3 against the
+  reference (report counts, show-diff rows from `.rdiff`/`.qdiff` with coordinates, classified exactly as dnadiff
+  counts them). Interactive dot plot (contig boundaries, strand colours, zoom), synteny plot across the order (links
+  coloured by identity), conservation along the reference (ARVA's window summary of the blocks), structural
+  differences table with links into the Genome Explorer of annotated genomes; SVG/PNG exports; CSV of blocks,
+  conservation windows and differences; the tools' own files.
+- **Report**: a comparative report per set (HTML with the heatmap and conservation strips, JSON) and a "Comparative
+  genomics" section in the sample report; guide entries `ani_matrix`, `genome_alignment`, `synteny_plot`,
+  `structural_differences` (EN + ES). The sidebar's Comparative genomics area is live.
+- **Validated** on four NCBI RefSeq genomes (S. aureus N315, Mu50, USA300_FPR3757; S. epidermidis ATCC 12228;
+  `workflows/tool-adapters/tests/fixtures/comparative/README.md`): skani 99.90 / 98.97 / 98.86 % between the S. aureus
+  strains and no reported pair with S. epidermidis; dnadiff N315–Mu50 5/8 relocations, 4/2 inversions and 29/40
+  inserted regions (59,724 / 123,208 bases), which ARVA's reading of `.rdiff`/`.qdiff` reproduces exactly; and on
+  ARVA's SYNTHETIC genome (identical-genome edge case).
+
+Not validated here: FastANI all-vs-all through the job (its adapter and parser are tested on a real all-vs-all
+output), linux-aarch64, the Docker image (not built), the Genome Explorer links on annotated real genomes (no Bakta
+run on these genomes here). Not in 6A: the Genome Region Explorer (gene neighbourhoods), locus comparison, BLAST.
+
+## Genome Region Explorer and Custom Gene Investigation (6B) ✅
+
+- **Tools**: BLAST+ 2.12.0 (apt `ncbi-blast+`, already present), MAFFT 7.505 and FastTree 2.1.11 (apt), IQ-TREE 3.0.1
+  (pinned Bioconda lock `docker/conda-locks/iqtree`, linux-64 and linux-aarch64; the apt package pulls about 100 MB of
+  MPI/ROCm libraries). Adapters `arva_tools.blast`, `mafft`, `phylo` (IQ-TREE, FastTree), options checked against the
+  usage texts; minimal tree adapters that phase 7 extends.
+- **Region Explorer** (`region_explorer` job on a comparison set, up to 20 genomes): a gene (name, locus tag, product,
+  or an AMR / virulence hit) or coordinates, a window of 1-50 kbp on each side; the homologue in each genome by blastp
+  on its annotated proteins (or blastn of the gene when the gene is not a CDS or the genome is not annotated), best
+  hit above explicit thresholds (default 70 % identity over 70 % of both proteins, so paralogues stay out). Homology
+  groups by all-against-all blastp (single linkage), blastn identity bands between neighbouring tracks, AMR / virulence
+  / mobile-element marks from each genome's latest runs. Interactive figure (hover, click to detail and Genome
+  Explorer, reorder, flip, labels) exported as SVG, PNG and vector PDF with legend and caption; feature CSV.
+- **Custom Gene Investigation** (`gene_investigation` job): saved queries (`gene_queries`, migration `d7a3e5c1f9b2`:
+  pasted or uploaded FASTA, validated and size-bounded, or an annotated feature's protein / nucleotide), blastn or
+  tblastn (code 11) on every chosen genome's contigs, ARVA's chaining into complete / partial / split matches with
+  explicit identity, coverage, complete-coverage, e-value and gap thresholds, contig-edge flags, the annotated gene each
+  match overlaps, mobile elements within a chosen distance (latest 5D runs) and MOB-suite plasmid contigs; optional
+  MAFFT alignment (L-INS-i or FFT-NS-2; exported FASTA) and IQ-TREE (ModelFinder, UFBoot) or FastTree gene tree
+  (Newick, drawn and exported); "compare neighbourhoods" opens the Region Explorer on a match.
+- **Report** sections for both analyses (HTML with the neighbourhood figure, hits tables, the tree in Newick, every
+  command), hits and neighbourhood CSV, guide entries `region_explorer`, `gene_investigation`, `gene_tree` (EN + ES).
+  Every view, the guide and the report state that similarity alone does not show horizontal transfer.
+- **Validated** on NCBI RefSeq S. aureus MW2, MSSA476, N315 and USA300_FPR3757 (`fixtures/region/README.md`): the seh
+  protein (WP_000608674.1) is found complete at 100 % identity in MW2 and MSSA476 only; at 30 % identity the
+  superantigen paralogues of all four genomes appear (partial and split matches) and IQ-TREE builds their tree; the
+  Region Explorer on Prokka annotations of MW2, MSSA476 and N315 draws the seh neighbourhood in MW2 and MSSA476 and
+  reports no homologue in N315 and USA300. API tests on the annotation fixture genome cover reverse-complemented
+  genomes, unannotated genomes, links, groups, mobile elements nearby and the exports.
+
+Not validated here: Bakta annotations as Region Explorer input (Prokka was used), AMR / virulence marks on real runs
+(no AMRFinderPlus or ABRicate run on these genomes in this environment), linux-aarch64, the Docker image (not built),
+IQ-TREE runs on large alignments (hundreds of sequences). Prokka's Debian database names the seh locus "sep_1"
+(enterotoxin P): gene names are the annotator's, which is why a curated FASTA query is the reliable way to ask for a
+gene.
+
+## Pangenome (7A) ✅
+
+- **Tools**: Panaroo 1.8.1 (pinned Bioconda lock `docker/conda-locks/panaroo`, linux-64 and linux-aarch64; in the
+  Docker image's conda-tools stage) validated on real genomes; PPanGGOLiN 2.3.2: lock, adapter, parsers and job path,
+  not installed (about 1 GB) and not validated. Every Panaroo option ARVA passes was checked against its usage text and
+  source, including the mode-dependent values its clean mode sets for the number of genomes (computed and passed
+  explicitly) and `--length_outlier_support_proportion`, whose help says 0.01 while the code uses 0.1 (ARVA passes 0.1).
+- **Job** `pangenome` on a comparison set (3-200 genomes, each with a Bakta or Prokka annotation with CDS): the plan
+  shows each genome's annotator, version and database and warns when they differ; the worker re-checks each GFF3's
+  SHA-256 and its ##FASTA section, stages them as `g1..gN` and runs Panaroo (strict / moderate / sensitive; optional
+  MAFFT alignment of core or all families). The result is a `comparison_results` row (`analysis` "pangenome"; no new
+  table or migration) with `pangenome.json` and `members.jsonl` beside Panaroo's own files.
+- **ARVA's summaries** (`arva_core.pangenome`): core / soft core / shell / cloud with the thresholds chosen (default
+  99 / 95 / 15 %, Panaroo's summary thresholds; Panaroo's own counts kept beside them), the family-frequency
+  distribution, pan and core accumulation curves over random genome orders (number and seed stated), a Jaccard UPGMA
+  ordering of genomes for the heatmap (labelled not a phylogeny), per-group statistics and exploratory associations
+  with a metadata field (Fisher's exact test, Benjamini-Hochberg, Wilson and Woolf intervals; no lineage correction,
+  stated).
+- **Interface**: Pangenome dialog and result view in the Comparative genomics area: category tiles, curves,
+  distribution, accessory heatmap, family table with search and category filter, family explorer (members with
+  locations, flags, lengths, refound genes, neighbouring families, Panaroo's alignment when made, FASTA nt/aa, link to
+  the Region Explorer), metadata groups and associations; exports: families CSV, presence/absence Rtab with labels,
+  Panaroo's files. Report section (HTML with the curve figure, JSON) and a pangenome table in the sample report; guide
+  entries `pangenome`, `pangenome_curves` (EN + ES).
+- **Validated** with Panaroo 1.8.1 on five NCBI S. aureus genomes (N315, Mu50, USA300_FPR3757, MW2, MSSA476) annotated
+  with Bakta 1.12.2 (light database 6.0): 3,090 families, 2,310 in all five; ARVA's categories reproduce Panaroo's
+  summary_statistics.txt exactly; a three-genome run end to end through the API.
+
+Not validated here: PPanGGOLiN (not installed), Prokka annotations as Panaroo input on real genomes (the Bakta GFF3
+was used; Prokka's GFF has the same layout), `-a pan` alignments through the job, linux-aarch64, the Docker image (not
+built), large sets (hundreds of genomes).
+
+## Phylogeny and Tree Explorer (7B) ✅
+
+- **Tools**: IQ-TREE 3.0.1 (its pinned lock, from 6B) with ModelFinder, UFBoot (`-B`) and SH-aLRT (`--alrt`), `-fconst`
+  and `+ASC` checked against its usage text and real runs; FastTree 2.1.11 (apt); SNP-sites 2.5.1 (apt `snp-sites`,
+  about 80 KB). IQ-TREE 3.0.1 aborts on `-m MFP+ASC` (a ModelFinder assertion, reproduced with 1 and 4 threads), so
+  ARVA asks for a stated model with +ASC.
+- **Job** `phylogeny` on a comparison set, from the set's own results: Panaroo's core-genome alignment (all core genes
+  or Panaroo's entropy-filtered set), its SNPs (SNP-sites; constant sites added back with `-fconst` and SNP-sites'
+  counts, or `+ASC` on A/C/G/T-only columns, or no correction with a warning), one aligned gene family, a gene
+  investigation's MAFFT alignment, or an ANI matrix. Methods: IQ-TREE, FastTree, or neighbour joining computed by ARVA
+  (p or Jukes-Cantor distances with pairwise deletion, or 1 − ANI/100; always labelled a distance tree, and the ANI
+  one a similarity dendrogram). The source file is re-checked against its recorded SHA-256 and sequences renamed
+  s1..sN. Results are `comparison_results` rows (`analysis` "phylogeny") with the tools' files, `phylogeny.nwk` and
+  `phylogeny.json`; the rooting and display live in the new table `phylo_tree_views` (migration `e8b4f2a6c3d1`).
+- **ARVA's tree operations** (`arva_core.phylo`): midpoint and outgroup rooting that keep supports on their
+  bipartitions, Robinson-Foulds distance on shared leaves (checked against IQ-TREE's `-rf`), neighbour joining
+  (Studier-Keppler), alignment statistics; Newick reading of "SH-aLRT/UFBoot" labels.
+- **Tree Explorer** (own SVG, no extra library): rectangular and circular layouts, zoom (wheel, buttons) and pan,
+  collapse clades, colour clades, colour leaves by a field, up to 12 metadata bands (sample type, host, origin,
+  organism, year, MLST, custom fields, AMR genes of the latest AMRFinderPlus run, pangenome family presence), support
+  values with a threshold, branch lengths, aligned labels, ladderize, scale bar, search, patristic distance between
+  two leaves, root on a clade or leaf, comparison with another tree (RF, differing bipartitions dashed), exports SVG,
+  PNG (3×), vector PDF and Newick (rooted or as inferred); the view is saved per tree. A "Gene tree" button in the
+  pangenome family explorer starts a tree of that family.
+- **Reports**: a phylogenetic report per tree (figure, source and checksum, method, model, supports, settings,
+  commands, files with SHA-256, limitations, references) and a phylogeny section in the comparative report; guide
+  entry `phylo_tree` (EN + ES).
+- **Validated** on the five NCBI S. aureus genomes of 7A (Panaroo `-a core`: 2,310 core genes, 2,186,160 columns,
+  30,888 variable): IQ-TREE on the core alignment and on its SNPs with `-fconst` (TIM2+F+I, 100/100 supports),
+  FastTree on the SNPs and ARVA's neighbour joining on Jukes-Cantor distances give the same topology
+  (N315, Mu50 | USA300 | MW2, MSSA476); ARVA's RF equals IQ-TREE's `-rf`. Not validated: trees with hundreds of
+  genomes (FastTree took 6 min 43 s on the 2.2 Mb × 5 alignment); the SNP-site FASTA of 8A's SNP matrix is not yet
+  offered as a tree source.
+
+## Variant analysis and consolidated mobilome (8A) ✅
+
+- **Tools**: bcftools 1.19 (Ubuntu `bcftools`, already installed; added to the Docker image, where bookworm ships
+  1.16), with BWA 0.7.17, minimap2 2.26 and samtools 1.19.2 (from 3B2). New adapter `arva_tools/bcftools.py`
+  (registered as `bcftools`): mpileup, call, norm, filter, csq and index, every option checked against the usage texts
+  saved in `fixtures/variants`. minimap2 and BWA gained read groups (`-R`), samtools `faidx` and a depth with quality
+  floors. Not integrated: BWA-MEM2 (not in Ubuntu's archive), FreeBayes (not in Ubuntu's archive) and Snippy as
+  callers; Snippy 4.6.0 and FreeBayes 1.3.6 exist on this machine only inside AgrVATE's environment and were used
+  once to cross-check ARVA's calls (below).
+- **Facts confirmed** (bcftools 1.19 usage, manual and `csq.c`): the `-X` profiles are shorthands (ont = `-B -Q5
+  --max-BQ 30 -I`, pacbio-ccs = `-D -Q5 --max-BQ 50 -F0.1 -o25 -e1 --delta-BQ 10 -M99999`); ARVA writes them out.
+  Without `--ploidy` bcftools assumes diploid; `--ploidy 1` makes every site haploid. mpileup skips reads of pairs
+  that are not properly paired unless `-A`. csq needs an Ensembl-style GFF3 and translates with the standard code
+  only: it reports start_lost only for ATG starts, so ARVA marks changes of GTG/TTG start codons.
+- **Job** `variant_calling` on a sample: technology (Illumina → BWA-MEM; Nanopore → minimap2 map-ont, no indels;
+  PacBio HiFi → minimap2 map-hifi), reference (any ARVA assembly, or a genome of a registered reference collection;
+  its SHA-256 is recorded and checked again by the worker), reads by role, filters (Snippy 4.6.0's QUAL 100, depth
+  10, alternative-allele fraction 0.9, MAPQ 60, stated as such), effects with bcftools csq when the reference has an
+  ARVA annotation, alignment kept on request. New table `variant_calls` (migration `f3c9a1e7b5d2`, on `e8b4f2a6c3d1`;
+  upgrade, downgrade and upgrade checked); the records stay in the run's `variants.json.gz` next to the VCF.
+- **Views**: per sample on the Genomic analysis tab (counts, callable fraction, mapped reads, genomic distribution,
+  depth and alternative-allele fraction at variable sites, effects, filterable records, VCF/index/CSV/GFF3/BAM
+  downloads); per project the most recent run per sample and reference, the SNP matrix and pairwise SNP distances
+  (heatmap, CSV, SNP-site FASTA, HTML report); a Variants track in the Genome Explorer of the reference; report
+  sections in the sample report.
+- **Consolidated mobilome**: per sample and project, the plasmids (MOB-suite), IS elements (ISEScan, MOB-suite's
+  repetitive elements), integrons and geNomad calls of the most recent runs, with the AMRFinderPlus and VFDB genes
+  inside them, near them (distance chosen, 10 kb by default) or on a plasmid's contigs. Labelled as co-location only.
+- **ISEScan 1.7.3 validated** (installed from its lock, about 350 MB of new disk after hard-linking): a real run on
+  S. aureus N315 (23 IS elements, 9 min with 3 threads) is now the parser's fixture. geNomad stays not validated
+  (its database and environment did not fit the disk).
+- **Validated** on SIMULATED reads with known truth (planted SNPs and indels recovered; the polishing draft's 7
+  substitutions, 4 insertions and 5 deletions found in the API test) and on three real public Illumina read sets
+  (ENA DRR250760, DRR257875, DRR272507) against S. aureus USA300_FPR3757: 161 to 50,557 passing variants per
+  sample, 68–122 s per run with 4 threads; on DRR250760 ARVA's passing SNPs and Snippy 4.6.0's substitutions share
+  45,852 sites (Jaccard 0.89) (`fixtures/variants/README.md`). Not validated: Nanopore and HiFi calling on real
+  reads (only simulated), reference-collection genomes as references in a real run, geNomad.
+
+## Batch processing and Workflow Builder (8B) ✅
+
+- **Editor**: `@xyflow/react` 12.12.0 (React Flow; MIT, maintained by xyflow, pinned exactly) for the node editor:
+  it gives custom nodes with several typed handles, connection validation before an edge is drawn, drag-and-drop,
+  minimap and keyboard deletion without ARVA re-implementing a canvas. Nodes have typed ports (long / short reads,
+  assembly, annotation, comparison set, alignment, tree) and a scope (per sample, or per run through the comparison
+  set's collection input); incompatible connections are refused with the reason. Graph rules live in
+  `scientific-core/arva_core/workflow.py` (also used by the API on every save) and are mirrored for the editor in
+  `apps/web/src/lib/workflows.ts`.
+- **Nodes = the analyses' own actions**: each node kind maps to the POST route of its analysis
+  (`app/services/workflow_nodes.py`): fastp, Filtlong, Flye, SPAdes, Unicycler, polishing (Racon / Pilon / hybrid),
+  QUAST, Bakta, Prokka, MLST, species, AMRFinderPlus, virulence (ABRicate VFDB), plasmids and mobile elements, a
+  comparison set of the run's genomes, ANI, whole-genome alignment, pangenome, phylogeny and gene investigation. The
+  parameter panel is built from the same request models as the dialogs (their JSON schema) and the API checks every
+  parameter with them; defaults are stored explicitly. Each node becomes an ordinary analysis job with its usual
+  provenance; Bakta's skipped steps come from its preview at launch, and the locus-tag prefix from the sample's code
+  unless set.
+- **Workflows**: versioned (`workflows`, `workflow_versions`), duplicated, imported, exported as a reproducible JSON
+  definition (every parameter, SHA-256 of the graph, tool versions, Bioconda lock and installed-environment
+  checksums). The twelve workflows of spec §25 are predefined; those whose tools are missing here are shown as
+  unavailable with the tool, and options that depend on the data (Flye's read type, Racon's preset) are left to the
+  user. **No Nextflow DSL2 export**: a node is not only a command but ARVA's checks, launch-time choices and record
+  keeping, which a Nextflow process could not reproduce faithfully; the run export lists every executed command.
+- **Batch queue** (`batch_runs`, `batch_items`; migration `a7d2c5e9b1f4` on `f3c9a1e7b5d2`, upgrade, downgrade and
+  upgrade checked): priority, jobs at once per run, threads and memory per job reserved against the performance
+  profile's budget, retries of jobs that fail while running (never of refused launches), pause, resume (re-queues
+  failed, cancelled, skipped and interrupted steps; completed ones keep their results), cancel; lost tasks after a
+  restart are ended and resumable. The queue advances when a job ends, a job is cancelled, a run changes and the
+  worker starts.
+- **Views**: runs dashboard (active runs, queue, reserved threads/memory, global progress chart), run page (progress on
+  the graph, per-sample grid, run times per sample, error summary with the run's error-log entries, consolidated CSV,
+  JSON export with every job's commands, HTML report), comparison of two runs (parameter differences, statuses,
+  versions, times, recorded output values), and on each sample the timeline's **branches**: changing a step's
+  parameters creates a new run that reuses the unchanged upstream results and runs the rest as new jobs, never
+  overwriting earlier results.
+- **Validated** with the real queue and two workers on SIMULATED genomes (`scripts/make_synthetic_genome.py`, seeds
+  1–3, 30x): Flye 2.9.3 → Racon 1.5.0 → QUAST 5.2.0 on three Nanopore samples and fastp → SPAdes 3.15.5 → QUAST on
+  three Illumina samples (all completed, at most two jobs at once, the higher-priority run served first), and a branch
+  with two Racon rounds that reused the Flye jobs. Failures seen and reported as such: SPAdes stops on the 5x example
+  reads (`Invalid kmer coverage histogram`) and Flye assembles nothing from them. Not run through a workflow
+  here: the annotation, characterisation, pangenome, phylogeny and gene-investigation nodes (they call the same API
+  actions as the dialogs, already tested in their parts; the API tests cover the comparison-set node and the queue
+  with substitute launchers), real-data batches of hundreds of samples, and more than two workers.
+
+## Discover, full reports, ARVA Assist and accounts (8C) ✅ — Phase 8 complete
+
+- **ARVA Discover** (`scientific-core/arva_core/stats.py`, `discover.py`; `app/services/discover.py`; page
+  `/discover/:projectId`): exploratory analyses over a project's stored results and metadata. Fields: species, ST,
+  clonal complex, origin, host, sample type, year, organism and every custom metadata column (phenotypes); features:
+  AMRFinderPlus genes, VFDB genes and PlasmidFinder replicons from each sample's latest run (a sample without a run is
+  "not searched", left out of the test, never "absent"), and any field as one-hot features. Analyses: gene–metadata
+  associations (Fisher's exact test, Benjamini-Hochberg q, Wilson shares, Newcombe difference, Woolf odds ratio with
+  Haldane-Anscombe correction; a lineage-stratified Cochran-Mantel-Haenszel test with the Mantel-Haenszel odds ratio
+  and Robins-Breslow-Greenland interval, which reports when group and lineage coincide), co-occurrence network
+  (pairwise Fisher, q, phi, Jaccard), distribution by lineage, clustered presence heatmap (UPGMA on Jaccard), PCA when
+  at least 3 complete samples and 2 varying features exist. Every result carries its sample sizes, the correction, the
+  caveats (not causal, phylogenetic dependence, multiple testing, unsearched samples) and the label "exploratory, not
+  confirmatory"; CSV export. Statistics tested against SciPy 1.18.1 (installed in the API venv as a test dependency)
+  and R's documented `mantelhaen.test(UCBAdmissions)` and Newcombe's published example.
+- **Full project report** (`GET /projects/{id}/report?format=html|pdf|json|csv&lang=en|es`,
+  `app/services/project_report.py`): metadata, read QC, assembly, species and typing, AMR matrix and prevalence
+  chart, virulence, replicons, comparison sets with their ANI / alignment / pangenome / phylogeny results and links to
+  the comparative and phylogenetic reports, methods (tools, versions, databases, citations from the adapters'
+  `ToolInfo`) and limitations. HTML and PDF follow the interface language (server-side EN/ES catalogue with a parity
+  test); PDF rendered by **WeasyPrint 66.0** (PyPI, BSD-3-Clause; Pango from the system) with every external resource
+  refused. Archived under `reports/<project>/`.
+- **ARVA Assist** (`app/services/assist.py`): an integration point only, disabled by default. A provider is code that
+  implements `AssistProvider` and is registered with `assist.register()`; ARVA bundles none and calls none in tests
+  (a fake provider). Settings → ARVA Assist (administrators): provider, endpoint (https, or http on this computer
+  only), model, key (owner-only file `<storage>/secrets/assist-key`, never returned). The context builder sends fixed
+  instructions, the question, ARVA Guide excerpts and the project report's data without personal fields; sequences
+  only with per-request consent. `assist_requests` logs exactly what was sent (and its SHA-256), the answer or the
+  failure.
+- **Accounts** (optional, `ARVA_AUTH_ENABLED=true`): users with roles admin / analyst / viewer, Argon2id hashes
+  (**argon2-cffi 25.1.0**), first administrator through a one-time setup token in `<storage>/secrets/`, server-side
+  sessions (HttpOnly SameSite=Strict cookie), CSRF token on every change, lockout after repeated failures, project
+  owners and sharing (read / write), access control on every route (`app/api/access.py`: path, query and JSON-body ids
+  resolved to projects; unknown route parameters refused for non-administrators, enforced by a test over every
+  route), unscoped lists filtered to the caller's projects, and an audit log of sign-ins, account and sharing changes,
+  refusals, changes and report downloads (route templates only). Migration `b6e2d4f8a1c3` on `a7d2c5e9b1f4`
+  (upgrade, downgrade, upgrade checked).
+- **Screenshots** were taken on six NCBI RefSeq genomes (five S. aureus, S. epidermidis ATCC 12228) with real
+  mlst 2.35.0, AMRFinderPlus 4.2.7 (database 2026-08-07.1), ABRicate 1.4.0 (VFDB, PlasmidFinder) and skani 0.4.0 runs.
+
+### What remains after Phase 8
+
+- Discover: numeric comparisons between groups (rank tests with effect sizes), pangenome families as Discover
+  features, phylogeny-aware methods (e.g. phylogenetic logistic regression, treeWAS-style tests); stratification by
+  a lineage label is only a coarse correction.
+- Reports: the sample report still follows English only; the per-sample sequencing, quality, assembly, annotation
+  and characterisation reports are sections of it rather than separate documents; Excel export, publication-mode
+  figures (size, resolution, fonts) are not done.
+- Assist: no provider is included; streaming answers, tool use and guide retrieval beyond the excerpts the interface
+  sends are not designed yet.
+- Accounts: no single sign-on, e-mail password reset or two-factor authentication; jobs run by the worker carry no
+  user; existing projects have no owner until shared.
+- Validation still open from earlier parts: geNomad and GTDB-Tk real runs, PPanGGOLiN real runs, a Mac host, Docker
+  image builds with the new libraries.
+
 ## Performance profiles (P1) ✅
 
 - Host detection (`app/services/host.py`): usable CPUs (affinity, cgroup v2/v1 quota), memory (cgroup limit or
@@ -495,8 +765,8 @@ mode (needs a binary ARVA does not install); frameshift detection on a real agr-
   warnings, database-manager failures, catalogue texts), translated by the interface with the English text as
   fallback; a test of the sources keeps interface text inside the dictionaries.
 - Still English: the API's HTTP error details, uncoded job failures (mostly the tools' own error lines), job logs,
-  the tools' own words, and the reports (HTML/JSON/CSV), which the API writes in English only; see "Interface
-  language" in `architecture.md` for the list and what following the interface language in reports would take.
+  the tools' own words, and the sample and comparative reports, which the API writes in English only; the full
+  project report (8C) follows the interface language. See "Interface language" in `architecture.md`.
 
 ## Later phases
 
@@ -510,6 +780,9 @@ mode (needs a binary ARVA does not install); frameshift detection on a real agr-
 | 5D ✅ | AMRFinderPlus (AMR and virulence rings), Bakta with CDS; VFDB (ABRicate); plasmids (MOB-suite, PlasmidFinder) and mobile elements (IntegronFinder; ISEScan and geNomad not validated) with their rings |
 | 5E ✅ | Species-specific typing framework; S. aureus SCCmec (sccmec), spa (spaTyper with the user's Ridom files), agr (AgrVATE) and the summary card |
 | After 5 | InterProScan, BLAST, Kraken 2; ISEScan, geNomad and GTDB-Tk validation; Klebsiella, E. coli and Salmonella typing modules |
-| 6 | Comparative genomics: ANI, synteny, dot plots, Genome Region Explorer |
-| 7 | Pangenome (Panaroo), alignments (MAFFT), phylogeny (IQ-TREE), Tree Explorer |
-| 8 | Workflow Builder (Nextflow DSL2), batch processing beyond QC (first step: batch QC, Phase 3), mobilome, variants, ARVA Discover, full reports, optional ARVA Assist, multi-user |
+| 6A ✅ | Comparative genomics core: comparison sets, ANI matrices (skani, FastANI), whole-genome alignment (minimap2, NUCmer), dot plots, synteny, conservation, dnadiff structural differences, comparative report |
+| 6B ✅ | Genome Region Explorer (gene neighbourhoods across genomes, SVG/PNG/PDF figures) and Custom Gene Investigation (BLAST+, MAFFT, IQ-TREE / FastTree gene trees) |
+| 7 ✅ | Pangenome (Panaroo; 7A), phylogeny (IQ-TREE, FastTree, SNP-sites, neighbour joining) and Tree Explorer (7B) |
+| 8A ✅ | Variant analysis (BWA-MEM / minimap2 + bcftools, csq effects, SNP matrix and distances, Variants track) and the consolidated mobilome; ISEScan validated |
+| 8B ✅ | Workflow Builder (typed ports, versions, predefined workflows, JSON export; no Nextflow export, see above), batch queue (priority, concurrency within the profile's budget, retries, pause, resume, cancel), run dashboards and comparison, timeline branches |
+| 8C ✅ | ARVA Discover (associations with lineage stratification, co-occurrence, heatmap, PCA), full project report (HTML/PDF/JSON/CSV, EN/ES), ARVA Assist integration point (no provider bundled), optional accounts with roles, sharing, CSRF and audit log |

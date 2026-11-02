@@ -1,9 +1,10 @@
 from arva_core.seqstats import StatsParameters
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from fastapi.responses import PlainTextResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
+from app.api.access import visible_projects
 from app.api.deps import job_or_404, project_or_404, sample_or_404
 from app.db.session import get_db
 from app.models import AnalysisJob, FileFormat, JobStatus, RawFile
@@ -91,8 +92,12 @@ def list_jobs(
     status_filter: JobStatus | None = Query(default=None, alias="status"),
     limit: int = Query(default=50, ge=1, le=500),
     db: Session = Depends(get_db),
+    request: Request = None,
 ):
     query = select(AnalysisJob).order_by(AnalysisJob.created_at.desc()).limit(limit)
+    visible = visible_projects(request)
+    if visible is not None:
+        query = query.where(AnalysisJob.project_id.in_(visible))
     if status_filter is not None:
         query = query.where(AnalysisJob.status == status_filter)
     return db.scalars(query).all()
@@ -140,11 +145,16 @@ def cancel(job_id: str, db: Session = Depends(get_db)):
     outputs; the job log is kept. Cancelling a stopped Flye run after its first stages keeps its work folder so it
     can be resumed."""
     try:
-        return cancel_job(db, job_id)
+        job = cancel_job(db, job_id)
     except LookupError:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Analysis job not found") from None
     except JobStateError as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+    from app.services.batches import dispatch_quietly
+
+    dispatch_quietly("job cancelled")
+    db.refresh(job)
+    return job
 
 
 @router.post("/jobs/{job_id}/resume", response_model=AnalysisJobRead, status_code=status.HTTP_202_ACCEPTED)

@@ -1823,6 +1823,310 @@ repeats collapsed in short-read assemblies, lower or prevent typing. spa types a
 files. In MUMmer mode AgrVATE may miss frameshifts outside the aligned fragments (its own warning); no agr-defective
 genome was tested here. Typing a genome of another species (after an override) gives calls without meaning.
 
+## Comparative genomics (Phase 6A)
+
+**Comparison sets.** A set lists assemblies (any project, polished or not) in an order with a label each. Every job
+records the genomes it compared: assembly id, label, sample, contigs SHA-256 (checked again by the worker before the
+run) and the SHA-256 of the staged copy (`stage_genome`: names kept, descriptions removed, sequences unchanged).
+
+**ANI.** skani 0.4.0 `skani triangle -l <list> -o <out> -t <threads> -c 125 -m 1000 -s 80 --min-af 15 -E`
+(`skani triangle --help`: -E writes sparse rows "in the same form as `skani dist`"; only pairs with aligned fraction
+above --min-af; no self rows without --diagonal). FastANI 1.34 `fastANI --ql <list> --rl <list> -o <out> -t -k 16
+--fragLen 3000 --minFraction 0.2 --maxRatioDiff 10.0` (each ordered pair and the self pairs). ARVA keeps the values as
+reported: a pair a tool did not report is empty, never estimated. The heatmap order is ARVA's average-linkage (UPGMA)
+clustering of 100 − ANI (`arva_core.comparative.similarity_order`; unreported pairs at distance 100 and FastANI's two
+directions averaged, for the order only). It is **similarity clustering, not a phylogeny**.
+
+**Alignment.** The first genome of the chosen order is the reference; every other genome is aligned to it, and each
+genome to the next one. minimap2 2.26: `minimap2 -x asm5|asm10|asm20 -c -t <threads> -o <pair>.paf <reference>
+<query>` (presets "for ~0.1/1/5% sequence divergence", usage text; -c gives base-level alignments, so PAF column 10 is
+matching bases and column 11 the block length including gaps; identity = column 10 / column 11; the `tp` tag marks
+primary alignments). NUCmer 3.1: `nucmer --mumreference|--mum|--maxmatch -b 200 -c 65 -g 90 -l 20 -p pair ref.fna
+qry.fna` (defaults from `nucmer -h`, passed explicitly) and `show-coords -rclTH pair.delta` (all alignments, % IDY).
+NUCmer and dnadiff build shell strings from their arguments, so they run in a folder holding links named `ref.fna`
+and `qry.fna`. Per pair ARVA reports the bases of each genome covered by at least one (primary) block, overlaps counted
+once, and the block-length-weighted mean identity.
+
+**Conservation along the reference** (ARVA, `arva_core.comparative.conservation`): windows of at least 1 kb (at most
+2,000 per genome); per window, the share of reference bases covered by a primary block and the mean, over those
+bases, of the highest identity of a block covering each base.
+
+**Structural differences.** dnadiff 1.3 (`dnadiff -p dnadiff ref.fna qry.fna`) runs NUCmer --maxmatch, delta-filter
+-1 and -m and `show-diff -rH` / `-qH` on the M-to-M alignments. Each `.rdiff`/`.qdiff` row is a feature located on
+that genome: GAP, DUP, BRK, JMP, INV, SEQ (`show-diff -h`). ARVA classifies the rows exactly as dnadiff's report
+counts them (a row inserts max(length, GAP difference) bases when positive: "Insertions"; INV: inversions; JMP:
+relocations; SEQ: translocations); on N315 vs Mu50 the recount equals the report (29/40 insertions, 59,724/123,208
+bases, 5/8 relocations, 4/2 inversions). Sequence "absent from the other genome" on a genome's side is an insertion in
+that genome, i.e. a deletion in the other; the comparison alone does not tell which happened, nor any horizontal
+transfer.
+
+**Limits.** ANI and alignment identity measure similarity; they say nothing about ancestry, direction of change or
+transfer. Repeats (IS elements, rRNA operons), assembly gaps, collapsed repeats and contig ends produce alignment
+breaks that are not rearrangements. minimap2's and NUCmer's identities are computed differently and are not
+comparable.
+
+## Genome Region Explorer and Custom Gene Investigation (Phase 6B)
+
+**Finding the homologous region.** In each genome other than the gene's own, the homologue is the best blastp hit
+(BLAST+ `-task blastp -seg yes -comp_based_stats 2`, e-value threshold given) of the gene's protein among that
+genome's annotated proteins, accepted when its identity and the covered share of both proteins reach the thresholds
+(ARVA default 70 % and 70 %, chosen to keep paralogues of a gene family out; lower them to follow the family). When the
+gene is not a CDS, the genome is not annotated, or the anchor is a coordinate range, blastn (`-task blastn -dust yes
+-strand both`) of the gene's nucleotides against the genome's contigs is used and the best chained match (below) is
+taken. BLAST+ rather than DIAMOND: these are a few searches of one protein against a few thousand and a few hundred
+proteins all against all, where BLAST's full sensitivity costs seconds (DIAMOND is designed for millions of queries);
+minimap2 is designed for long, near-identical sequences and gives no reliable alignment of one divergent gene. Only
+the best homologue is drawn; the number of homologues passing the thresholds is reported.
+
+**Neighbourhoods.** Each window is `flank` bp on each side of the homologue, read linearly (a window at a contig end is
+clipped and flagged). Features are placed so that the gene of interest starts at 0 and points right (tracks whose
+homologue is on the minus strand are read reversed). Homology groups are single-linkage clusters of all-against-all
+blastp HSPs among the windows' proteins with at least the given identity over the given share of both proteins
+(default 30 % and 50 %); groups found in at least two genomes are coloured (Okabe-Ito, then Tol's muted palette),
+others are grey. A colour is shared similarity above the thresholds, not orthology. Bands between neighbouring tracks
+are blastn HSPs between the two window sequences (default ≥ 70 % identity, ≥ 100 bp), as Easyfig draws comparisons;
+their shade scales with identity. AMR (AMRFinderPlus), virulence (ABRicate VFDB) and mobile-element calls (MOB-suite,
+PlasmidFinder, IntegronFinder, ISEScan, geNomad) of each genome's latest runs are marked under the gene they overlap.
+
+**Gene investigation.** A query is one sequence of 30-50,000 bp or 10-10,000 aa, checked against the nucleotide (IUPAC)
+or protein alphabet; it is saved with its SHA-256 and its source. Nucleotide queries are searched with blastn
+(`-task blastn` by default; megablast, dc-megablast or blastn-short on request), protein queries with tblastn
+(`-task tblastn -db_gencode 11 -seg yes -comp_based_stats 2`) against a BLAST database of each genome's contigs;
+`-evalue` and `-max_target_seqs 500` are passed, `-max_hsps` is not (every HSP is kept). ARVA's chaining
+(`arva_core.region.chain_matches`): HSPs below the identity threshold are dropped; the remaining ones, best first,
+join an existing match of the same sequence and strand when they continue it in the same order on query and genome,
+overlap it by at most 20 % of the shorter piece and lie at most `max_gap` bp away; an HSP over bases a better match
+already uses is not counted. A match is *complete* (one piece covering at least the complete-coverage share of the
+query), *partial* (less) or *split* (several pieces: an insertion such as an IS element, a frameshift or stop codon, or
+an assembly break; the HSPs alone do not say which), and is reported when the union of its pieces covers at least the
+minimum coverage. Identity is identical positions over aligned columns of all pieces. A match within 20 bp of a
+sequence end is flagged. Mobile elements are those of the genome's latest runs on the same contig within the given
+distance; MOB-suite's plasmid call of the contig is shown. These are observations, not evidence of mobility.
+
+**Alignment and gene tree.** The matched sequences (pieces of a split match joined in query order, reverse-complemented
+on the minus strand; optionally the nucleotide query) are aligned with MAFFT 7.505 (`--nuc` and L-INS-i
+`--localpair --maxiterate 1000`, which its usage text recommends for up to about 200 sequences, or FFT-NS-2
+`--retree 2 --maxiterate 0`; gap penalties are MAFFT's defaults). ARVA does not switch strategy by itself: more than
+200 sequences with L-INS-i is refused with a note. Trees need at least four sequences: IQ-TREE 3.0.1 (`--seqtype DNA
+-m MFP` (ModelFinder Plus, BIC) or a given model, `-B 1000` UFBoot, `--seed`, `-T`) or FastTree 2.1.11 (`-nt -gtr
+-gamma -boot 1000 -seed`, SH-like local supports). Sequences are renamed s1..sN for the tools (both refuse duplicate
+names) and the names are mapped back in the Newick file. The tree is unrooted and drawn from the file's base node.
+Identical sequences are reported, since a tree cannot resolve them.
+
+**Interpretation.** Presence of a similar gene in several genomes, a conserved neighbourhood, a nearby IS element or
+an incongruent gene tree do not by themselves show horizontal transfer: common descent, gene loss, convergent
+assembly artefacts and sampling explain the same patterns. Gene names come from the annotator: Prokka's Debian
+database names the S. aureus seh locus "sep_1" (enterotoxin P), while NCBI's annotation calls it seh; a curated query
+sequence avoids depending on names.
+
+## Pangenome (Phase 7A)
+
+**Input.** Each genome's latest annotation (Bakta or Prokka GFF3 with the sequence after ##FASTA), checked by
+SHA-256 when the job runs. Gene families are only as good as these annotations: genomes annotated with different
+annotators, versions or databases call genes differently, so the plan lists each genome's annotator and the result
+warns when they differ.
+
+**Panaroo 1.8.1** clusters the proteins (cd-hit at the sequence identity `-c` and length difference
+`--len_dif_percent`, then families at `-f`), builds the gene graph and, depending on `--clean-mode`, merges
+fragmented genes, re-finds genes the annotator missed (`--refind-mode`, `--search_radius`, `--refind_prop_match`) and
+removes likely contaminants. ARVA passes every result-changing option, including the values the clean mode would set
+for the number of genomes (strict: `--min_trailing_support` max(2, ceil(0.05 n)), `--edge_support_threshold` and
+`--min_edge_support_sv` max(2, ceil(0.01 n)), `--trailing_recursive` 99999999, `--remove_by_consensus True`; moderate
+and sensitive as in Panaroo's `set_default_args`). Panaroo's help gives 0.01 as the default of
+`--length_outlier_support_proportion`; its code uses 0.1, which ARVA passes.
+
+**Categories** are ARVA's: the share of genomes holding a family against the thresholds chosen — core ≥ core,
+soft core ≥ soft core, shell ≥ shell, cloud below. The defaults (99, 95, 15 %) are those of Panaroo's
+summary_statistics.txt (after Roary), which ARVA keeps and shows beside its own counts. With few genomes the
+categories are coarse (with five genomes a family is core or in at most four, so soft core is empty).
+
+**Accumulation curves**: for R random orders of the genomes (numpy `default_rng(seed)`; R and the seed stated), the
+number of families in at least one of the first k genomes (pan) and in all of them (core, strict), with the mean,
+SD, minimum and maximum at each k. A curve still rising at the last genome means more genomes would add families; ARVA
+does not fit a model or call the pangenome open or closed.
+
+**Heatmap ordering**: average-linkage (UPGMA) clustering of the Jaccard distance between genomes' family sets, to
+place similar gene repertoires together; it is not a phylogeny. Families are ordered by genome count, then by their
+pattern along the genome order.
+
+**Family explorer**: members are Panaroo's (gene_presence_absence.csv), with the flags it writes (`_len`: length far
+from the family's mode; `_pseudo`: not a valid gene), the sequences from its gene_data.csv, the location from ARVA's
+annotation feature with the same ID (or Panaroo's location for a refound gene), neighbouring families (genes next to
+the members on the same contig, counted in genomes) and Panaroo's alignment when one was made.
+
+**Associations with metadata** (exploratory): for a field (sample type, host, origin, organism, collection year, MLST
+type or a custom field), each group against the other genomes with a value, for families whose presence varies among
+them: Fisher's exact test (two-sided, the sum of the probabilities of tables no more probable than the observed one,
+relative tolerance 1e-7), Benjamini-Hochberg q-values over all tests of the field, Wilson 95 % intervals for the
+shares and the odds ratio with a Woolf 95 % interval (0.5 added to every cell when one is 0). Sample sizes are shown;
+genomes without a value are left out. Genomes are not independent: related genomes share families by descent, so
+lineage alone produces associations, and ARVA makes no correction for population structure. An association is a
+hypothesis, not a cause.
+
+## Phylogeny (Phase 7B)
+
+**Sources.** A tree is built from a file another result of the set holds, re-checked against its SHA-256: Panaroo's
+core-genome alignment (`core_gene_alignment.aln`: for each core gene and genome, the copy with the fewest gaps; a
+missing gene is gaps; or `core_gene_alignment_filtered.aln`, without the genes whose alignment entropy is above
+Panaroo's automatic threshold Q3 + 1.5 IQR, at least 0.01), the SNPs of that alignment, one family alignment, a gene
+investigation's MAFFT alignment, or an ANI matrix.
+
+**SNP alignments.** SNP-sites 2.5.1 keeps the columns with at least two of A, C, G, T (`-m`; gaps and N are not a
+state), or only columns made of A, C, G and T (`-c`). A tree on variable columns alone overestimates branch lengths,
+so ARVA either adds the constant columns back as constant patterns (`-fconst a,c,g,t` with SNP-sites' `-C` counts,
+in which a constant column with gaps counts as constant) or applies ascertainment bias correction (`+ASC` on `-c`
+output, with a stated model because IQ-TREE 3.0.1 aborts when ModelFinder runs with +ASC). "No correction" is
+allowed, with a warning that branch lengths are per variable site.
+
+**Maximum likelihood.** IQ-TREE 3.0.1: `-m MFP` (ModelFinder Plus, BIC) or a stated model, UFBoot (`-B`, ≥ 1000
+replicates) and/or SH-aLRT (`--alrt`, ≥ 1000), `--seed`, `-T`; nodes labelled "SH-aLRT/UFBoot" when both are run.
+FastTree 2.1.11: `-nt -gtr -gamma`, SH-like local supports from 1000 resamples (`-boot 1000`), `-seed`. IQ-TREE's
+documentation reads UFBoot ≥ 95 % and SH-aLRT ≥ 80 % as strong support; ARVA shows the values and does not classify
+branches.
+
+**Distance trees.** Neighbour joining (Saitou & Nei 1987, Studier & Keppler's formulas) computed by ARVA on p-distances
+or Jukes-Cantor distances (−3/4 ln(1 − 4p/3), refused for p ≥ 0.75), both with pairwise deletion (only columns with
+A, C, G or T in both sequences), or on 1 − ANI/100 (the mean of both directions when a tool reported both; a missing
+pair stops the job). Negative branch-length estimates are set to 0 and counted. These are labelled distance trees;
+the ANI one is a similarity dendrogram and is never presented as a phylogeny.
+
+**Rooting.** The tools infer unrooted trees; ARVA keeps them as inferred and roots only the drawing: midpoint (the
+middle of the longest leaf-to-leaf path, ties broken by leaf names; it assumes roughly equal rates) or an outgroup
+(the branch whose one side is exactly the outgroup's leaves; otherwise refused as not monophyletic). The root is
+placed at the middle of that branch: its position is not estimated. Supports belong to bipartitions and move with them
+when the tree is re-rooted.
+
+**Tree comparison.** Robinson-Foulds distance (Robinson & Foulds 1981) on unrooted bipartitions with at least two
+leaves on each side, over the leaves both trees share (or matched by genome when each genome has one leaf),
+normalised by the number of bipartitions of both trees; tested against IQ-TREE's `-rf`. Branch lengths and supports
+are not compared.
+
+**Reading the tree.** A tree describes the aligned sequences under the method's assumptions. Recombination and
+horizontal transfer make parts of bacterial genomes follow different histories; a core-genome tree averages them and
+leaves out the accessory genome. Gene trees may differ from the genome tree. Metadata drawn on a tree show patterns,
+not causes; closeness on a tree does not establish transmission or horizontal transfer.
+
+## Variant analysis (Phase 8A)
+
+**Reference.** An assembly in ARVA (any sample or project) or a genome of a registered reference collection. ARVA
+copies it (uncompressing if needed), checks its SHA-256 against the value recorded when the job was queued and
+indexes it (`samtools faidx`). Variants are differences from this reference: their number depends on how close it is,
+and regions absent from it cannot show variants.
+
+**Alignment.** Short reads: BWA-MEM 0.7.17 (`-K 100000000` so that results do not depend on the thread count), pairs
+or unpaired reads; long reads: minimap2 2.26 `-a -x map-ont` or `-x map-hifi`. A read group names the sample
+(`-R @RG\tID:…\tSM:<sample>`, letters, digits, `.`, `_`, `-` only). samtools sorts and indexes; `samtools stats` and
+`coverage` give the mapped reads and the mean depth, and a depth profile is kept.
+
+**Calling.** bcftools 1.19 `mpileup -f ref -q MAPQ -Q BQ --max-BQ --delta-BQ -d 1000 [-B|-D] [-I] -F -m -o -e -h -M
+-a FORMAT/AD,FORMAT/DP` with the values of bcftools' own `-X` profile for the technology written out (illumina: its
+defaults; ont: `-B -Q5 --max-BQ 30 -I`, i.e. no BAQ and no indels; pacbio-ccs: `-D -Q5 --max-BQ 50 -F0.1 -o25 -e1
+--delta-BQ 10 -M99999`), ARVA's minimum base quality 13 for Illumina (Snippy's), and minimum mapping quality 60
+(Snippy's; both aligners give 60 to uniquely placed reads). Reads of pairs that are not properly paired, unmapped,
+secondary, QC-failed and duplicate reads are skipped (bcftools' defaults, kept). `call --ploidy 1 -m -P 1.1e-3 -v`
+(haploid; the multiallelic caller with its default prior). `norm -f ref -m -any -c e` left-aligns indels, splits
+multiallelic records and stops if a REF allele does not match the reference.
+
+**Filters.** Soft (`bcftools filter -s NAME -e EXPR`, later ones with `-m +`): LowQual `QUAL < 100`, LowDepth
+`FORMAT/DP < 10`, LowAltFraction `AD[alt] < 0.9 × (AD[ref] + AD[alt])`. The values are Snippy 4.6.0's defaults
+(bin/snippy: --mapqual 60, --mincov 10, --minqual 100; its README: "Values of 10 and 0.9 are commonly used" for
+--mincov and --minfrac); the user can change them and they are recorded. Snippy's QUAL comes from FreeBayes;
+bcftools' QUAL is another model (it rarely exceeds about 228), so the same number is not an equivalent threshold.
+
+**Effects.** When the reference is an ARVA assembly with an annotation, ARVA writes its CDS (and sORFs) as an
+Ensembl-style GFF3 (`ID=gene:`, `transcript:` with `biotype=protein_coding`, CDS phase 0), leaving out and counting
+pseudogenes, features crossing a circular origin, lengths not a multiple of three and unknown sequences, and runs
+`bcftools csq -f ref -g gff -p a -n 15`. csq is haplotype-aware (the variants of one codon are evaluated together;
+the others point to it with `@position`) and translates with the standard genetic code only (csq.c): it reports
+start_lost only for ATG starts, so a change in a GTG or TTG start codon (bacterial code 11) is reported as missense or
+synonymous; ARVA marks those records with the reference start codon.
+
+**Callable positions.** `samtools depth -aa -Q MAPQ -q BQ` counts, at each position, the reads and bases above the
+caller's quality floors; positions with depth below the minimum depth are stored as low-depth intervals. The
+callable fraction is the share of the reference at or above the minimum depth.
+
+**SNP matrix and distances.** For the samples of a project, each sample's most recent run against the same reference
+(same SHA-256). The sites are those where at least one sample has a passing SNP (one REF and one ALT base). At each
+site a sample has its ALT base (passing SNP), the reference base (callable and no record there) or N (low depth, a
+record that failed a filter, or inside a passing indel or complex record). The SNP distance of two samples counts the
+sites where both have a base and they differ (pairwise deletion); the number of sites compared is reported, as are the
+sites with a base in every sample. The heatmap orders samples by nearest neighbour for display only. SNP distances are
+not a phylogeny; indels, recombination and regions absent from the reference are not counted, and runs with different
+filters are flagged.
+
+**Validation.** Simulated reads (labelled SIMULATED; error-free pairs and long reads from a constructed genome with
+planted SNPs and indels, and the synthetic polishing draft with 7 substitutions, 4 insertions and 5 deletions) recover
+every planted variant; real public Illumina runs (ENA DRR250760, DRR257875, DRR272507) against S. aureus
+USA300_FPR3757 were cross-checked with Snippy 4.6.0 (`workflows/tool-adapters/tests/fixtures/variants/README.md`).
+
+## Consolidated mobilome (Phase 8A)
+
+For each assembly searched for mobile elements, ARVA gathers the most recent run of each method (MOB-suite plasmids
+and repetitive elements, PlasmidFinder replicons, ISEScan IS elements, IntegronFinder integrons, geNomad plasmid,
+virus and provirus calls) and the most recent AMRFinderPlus and VFDB (ABRicate) genes on that assembly. A gene is
+"inside" an element when their coordinates overlap, "near" when it lies on the same contig within the chosen distance
+(10 kb by default, the flanks of the Region Explorer, spec §16), and "on plasmid" when its contig was assigned by
+MOB-suite to that plasmid. Whole-contig calls (geNomad plasmids and viruses) relate by contig. These are statements
+about coordinates on the assembly only: co-location is not evidence of mobilisation or horizontal transfer, a
+fragmented assembly can separate a gene from its element, and an element not searched is absent, not "none".
+
+## Workflows and batch runs (Phase 8B)
+
+- A workflow node runs exactly the analysis it names, through the same API action and checks as its dialog; nothing
+  about a tool's options or outputs changes inside a workflow. Every result-changing option is stored explicitly in
+  the version (the request model's defaults are written out when the workflow is saved) and recorded in each job.
+- Options that depend on the data are not chosen for the user: Flye's read type and Racon's minimap2 preset stay
+  unset in the predefined workflows that may receive any long reads; the Nanopore workflow sets Racon's map-ont.
+  Filtlong's `--min_length 1000 --keep_percent 90` in the predefined long-read workflows is the example of Filtlong's
+  README, shown and editable; on small read sets it can remove too much for Flye (seen on ARVA's 5x example reads).
+- Sources follow stated rules (one valid R1/R2 pair; one valid FASTQ without a mate, never for an Illumina sample;
+  the newest assembly or newest polished one; the newest annotation of that assembly); ambiguous or missing data
+  make the sample's steps fail or be skipped with the reason rather than guessing. The run preview lists what each
+  sample's sources picked.
+- Bakta's skipped steps are those its preview reports when the step is launched; the locus-tag prefix is ARVA's
+  suggestion from each sample's code unless set (the dialog's suggestion).
+- Concurrency, threads and memory per job are ARVA's scheduling settings and estimates within the performance
+  profile's budget, not measurements. Run times are the jobs' recorded durations.
+- A branch re-runs the changed step and everything downstream as new jobs and reuses only completed upstream results
+  whose kind, parameters and upstream graph are identical (compared by signature). Comparing two runs lists
+  parameter, version, time and recorded-value differences; it does not attribute a difference to a cause.
+- No Nextflow DSL2 file is exported: a node is not only a command but ARVA's input checks against its database,
+  choices made at launch and the parsing of outputs into its records, which a Nextflow process could not reproduce
+  faithfully. The run export (JSON) lists every job's tool, version, parameters, inputs, outputs and the exact
+  argument vectors it executed.
+
+## ARVA Discover (Phase 8C)
+
+Exploratory analyses of a project's stored results; every result is labelled "exploratory, not confirmatory".
+
+- **Data**: one row per sample. Fields: species, ST (scheme:ST), clonal complex, origin, host, sample type, collection
+  year, organism, custom metadata columns. Features (0/1): AMRFinderPlus genes (type AMR), VFDB genes and PlasmidFinder
+  replicons from the latest completed run of each source per sample; a sample without a run is *not searched* and is
+  left out of every test of that feature. Samples whose features come from different assemblies are listed.
+- **Associations**: for each group of a field (against the other samples with a value; with two values only one of
+  the two mirror comparisons is tested) and each feature that varies among the samples used, the 2×2 table, Fisher's
+  exact test (two-sided, R's tolerance 1e-7), Benjamini-Hochberg q over all tests of the run, shares with Wilson 95 %
+  intervals, the difference with Newcombe's hybrid score interval (method 10), and the sample odds ratio with Woolf's
+  interval (0.5 added to every cell when one is 0). Groups below the minimum size are listed, not tested.
+- **Lineage stratification**: the same tables within each value of a lineage field (ST, clonal complex or any field),
+  the Cochran-Mantel-Haenszel test with continuity correction (as R's `mantelhaen.test`), the Mantel-Haenszel common
+  odds ratio and the Robins-Breslow-Greenland 95 % interval; strata with fewer than 2 samples are left out, and when
+  no stratum varies in both group and feature ARVA reports that group and lineage coincide instead of a test. This is
+  a coarse correction for population structure, not a phylogenetic comparative method.
+- **Co-occurrence**: Fisher's exact test for each pair of features over the samples where both were searched, BH q over
+  all pairs, odds ratio (Woolf), phi and Jaccard; network edges are pairs with q ≤ alpha, solid when the odds ratio is
+  ≥ 1 and dashed otherwise. At most 150 features.
+- **Distribution by lineage**: carriers among the lineage's searched samples with Wilson intervals.
+- **Heatmap**: samples and features ordered by average linkage (UPGMA) on Jaccard distances (similarity clustering,
+  not a phylogeny); samples with an unsearched feature are left out.
+- **PCA**: SVD of the centred 0/1 matrix of complete samples and varying features, run only with at least 3 samples
+  and 2 features; signs fixed so each component's largest loading is positive. A descriptive projection.
+- **Verification**: `scientific-core/tests/test_discover.py` compares with SciPy 1.18.1 (`fisher_exact`,
+  `false_discovery_control`, `binomtest(...).proportion_ci(method="wilson")`, `contingency.odds_ratio(kind="sample")`,
+  `chi2.sf`, `linkage(method="average")`), with R's documented `mantelhaen.test(UCBAdmissions)` (X² 1.4269,
+  p 0.2323; uncorrected 1.5246, p 0.2169; common OR 0.9046968, 95 % CI 0.7719074–1.0603298) and with Newcombe's (1998)
+  example 56/70 − 48/80 (0.0524 to 0.3339).
+
 ## What ARVA does not do yet
 
 - No pass/fail thresholds: suitability depends on technology, chemistry and purpose.
@@ -1832,7 +2136,8 @@ genome was tested here. Typing a genome of another species (after an override) g
 - No basecalling: POD5 raw signal must be basecalled outside ARVA (Dorado or MinKNOW).
 - No resistance or virulence phenotype: AMR and virulence results are genes and mutations found, not a prediction
   of resistance, susceptibility or virulence; plasmid and mobile-element calls are the tools' (MOB-suite,
-  PlasmidFinder, IntegronFinder; ISEScan and geNomad not validated here), never inferred from contig size.
+  PlasmidFinder, IntegronFinder, ISEScan; geNomad not validated here), never inferred from contig size.
+- No structural variants, large indels or copy-number calls from reads; no diploid or mixed-population calling.
 
 ## Validation
 
@@ -1873,6 +2178,16 @@ safe execution (no shell, no secrets in the tool environment, timeouts) and runs
 the synthetic data; `apps/api/tests/test_tools_api.py` runs complete jobs, lineage and reports.
 
 ## References
+
+- Saitou N, Nei M. The neighbor-joining method: a new method for reconstructing phylogenetic trees. Mol Biol Evol 1987;4:406-425.
+- Robinson DF, Foulds LR. Comparison of phylogenetic trees. Math Biosci 1981;53:131-147.
+- Page AJ, Taylor B, Delaney AJ, et al. SNP-sites: rapid efficient extraction of SNPs from multi-FASTA alignments. Microb Genom 2016;2:e000056.
+- Kalyaanamoorthy S, Minh BQ, Wong TKF, et al. ModelFinder: fast model selection for accurate phylogenetic estimates. Nat Methods 2017;14:587-589.
+- Guindon S, Dufayard JF, Lefort V, et al. New algorithms and methods to estimate maximum-likelihood phylogenies: assessing the performance of PhyML 3.0. Syst Biol 2010;59:307-321.
+- Danecek P, Bonfield JK, Liddle J, et al. Twelve years of SAMtools and BCFtools. GigaScience 2021;10(2):giab008.
+- Danecek P, McCarthy SA. BCFtools/csq: haplotype-aware variant consequences. Bioinformatics 2017;33(13):2037-2039.
+- Seemann T. Snippy: rapid haploid variant calling and core genome alignment, v4.6.0. https://github.com/tseemann/snippy (source of ARVA's default filter thresholds).
+- Xie Z, Tang H. ISEScan: automated identification of insertion sequence elements in prokaryotic genomes. Bioinformatics 2017;33(21):3340-3347.
 
 POD5: Oxford Nanopore Technologies, POD5 file format specification (pod5-file-format 0.3.49,
 `docs/SPECIFICATION.md` and `docs/tables/run_info.toml`),

@@ -73,6 +73,11 @@ AMR_JOB = "amr_detection"
 MOBILE_JOB = "mobile_elements"
 VIRULENCE_JOB = "virulence_screen"
 TYPING_JOB = "species_typing"
+COMPARATIVE_JOBS = ("comparative_ani", "comparative_alignment")
+REGION_JOBS = ("region_explorer", "gene_investigation")
+PANGENOME_JOB = "pangenome"
+PHYLOGENY_JOB = "phylogeny"
+VARIANT_JOB = "variant_calling"
 
 
 class ToolUnavailableError(RuntimeError):
@@ -769,6 +774,137 @@ def create_typing_job(db: Session, sample: Sample, assembly: Assembly, module: s
 
 
 # --- Cancellation and resuming ---------------------------------------------------------------------------------
+
+def create_comparative_job(db: Session, project: Project, job_type: str, plan: dict) -> AnalysisJob:
+    """One project-level job on a comparison set (app.services.comparative): the genomes, their order and every
+    setting are recorded in `parameters` from the confirmed plan."""
+    from app.tasks.comparative import run_comparative_alignment_job, run_comparative_ani_job
+
+    tool = require_tool(plan["tool"]["id"])
+    settings = plan["settings"]
+    parameters = {"set_id": plan["set_id"], "method": plan["method"], "settings": settings,
+                  "genomes": plan["genomes"]}
+    if job_type == COMPARATIVE_JOBS[1]:
+        parameters["dnadiff"] = plan["dnadiff"]
+        if plan["dnadiff"]:
+            dd = require_tool("dnadiff")
+            parameters["dnadiff_tool"] = {"name": dd.info.name, "version": dd.version, "path": dd.path}
+    job = AnalysisJob(project_id=project.id, sample_id=None, job_type=job_type, tool_name=tool.info.name,
+                      tool_version=tool.version or "unknown", tool_path=tool.path, parameters=parameters,
+                      input_raw_file_ids=[], status=JobStatus.pending, log_text="",
+                      resources=effective_resources(db).record(settings["threads"]))
+    db.add(job)
+    db.commit()
+    _enqueue([job], run_comparative_ani_job if job_type == COMPARATIVE_JOBS[0] else run_comparative_alignment_job)
+    db.refresh(job)
+    return job
+
+
+def create_region_job(db: Session, project: Project, job_type: str, plan: dict) -> AnalysisJob:
+    """A Region Explorer or Custom Gene Investigation job on a comparison set (app.services.regions): the genomes,
+    the gene or query and every setting are recorded in `parameters` from the confirmed plan."""
+    from app.tasks.regions import run_gene_investigation_job, run_region_explorer_job
+
+    tool = require_tool("blast")
+    settings = plan["settings"]
+    parameters = {"set_id": plan["set_id"], "method": plan["method"], "settings": settings,
+                  "genomes": plan["genomes"]}
+    if job_type == REGION_JOBS[0]:
+        parameters["anchor"] = plan["anchor"]
+    else:
+        parameters["query"] = plan["query"]
+        for key in ("mafft", "tree"):
+            if key in plan["tools"]:
+                d = require_tool(plan["tools"][key]["id"])
+                parameters[f"{key}_tool"] = {"name": d.info.name, "version": d.version, "path": d.path}
+    job = AnalysisJob(project_id=project.id, sample_id=None, job_type=job_type, tool_name=tool.info.name,
+                      tool_version=tool.version or "unknown", tool_path=tool.path, parameters=parameters,
+                      input_raw_file_ids=[], status=JobStatus.pending, log_text="",
+                      resources=effective_resources(db).record(settings["threads"]))
+    db.add(job)
+    db.commit()
+    _enqueue([job], run_region_explorer_job if job_type == REGION_JOBS[0] else run_gene_investigation_job)
+    db.refresh(job)
+    return job
+
+
+def create_pangenome_job(db: Session, project: Project, plan: dict) -> AnalysisJob:
+    """The pangenome job of a comparison set (app.services.pangenome): the genomes with their annotations' GFF3
+    checksums, the annotation consistency and every setting are recorded in `parameters` from the confirmed plan."""
+    from app.tasks.pangenome import run_pangenome_job
+
+    tool = require_tool(plan["tool"]["id"])
+    settings = plan["settings"]
+    parameters = {"set_id": plan["set_id"], "method": plan["method"], "settings": settings,
+                  "genomes": plan["genomes"], "annotation_consistency": plan["annotation_consistency"]}
+    job = AnalysisJob(project_id=project.id, sample_id=None, job_type=PANGENOME_JOB, tool_name=tool.info.name,
+                      tool_version=tool.version or "unknown", tool_path=tool.path, parameters=parameters,
+                      input_raw_file_ids=[], status=JobStatus.pending, log_text="",
+                      resources=effective_resources(db).record(settings["threads"]))
+    db.add(job)
+    db.commit()
+    _enqueue([job], run_pangenome_job)
+    db.refresh(job)
+    return job
+
+
+def create_phylogeny_job(db: Session, project: Project, plan: dict) -> AnalysisJob:
+    """A tree of a comparison set (app.services.phylogeny): the source (result, file and its SHA-256, leaves), the
+    method and every setting are recorded in `parameters` from the confirmed plan. Neighbour joining is ARVA's own
+    computation (arva_core.phylo), recorded with ARVA's scientific-core version."""
+    import arva_core
+
+    from app.tasks.phylogeny import run_phylogeny_job
+
+    settings = plan["settings"]
+    parameters = {"set_id": plan["set_id"], "method": plan["method"], "settings": settings, "source": plan["source"],
+                  "genomes": plan["genomes"], "notes": plan["notes"]}
+    if plan["method"] == "nj":
+        name, version, path = "ARVA neighbour joining", arva_core.__version__, None
+    else:
+        tool = require_tool(plan["tool"]["id"])
+        name, version, path = tool.info.name, tool.version or "unknown", tool.path
+    if "snp" in plan["tools"]:
+        snp = require_tool("snp-sites")
+        parameters["snp_tool"] = {"name": snp.info.name, "version": snp.version, "path": snp.path}
+    job = AnalysisJob(project_id=project.id, sample_id=None, job_type=PHYLOGENY_JOB, tool_name=name,
+                      tool_version=version, tool_path=path, parameters=parameters, input_raw_file_ids=[],
+                      status=JobStatus.pending, log_text="",
+                      resources=effective_resources(db).record(settings["threads"]))
+    db.add(job)
+    db.commit()
+    _enqueue([job], run_phylogeny_job)
+    db.refresh(job)
+    return job
+
+
+
+def create_variant_job(db: Session, sample: Sample, plan: dict, inputs, params, keep_alignment: bool) -> AnalysisJob:
+    """One variant-calling run of the sample's reads against the reference in `plan` (services.variants.plan): the
+    reference's snapshot (with its SHA-256, checked again by the worker), the reads by role, the settings and whether
+    effects are annotated. The job is recorded under bcftools, the caller; the aligner and samtools are recorded with
+    the run."""
+    from app.tasks.variants import run_variant_job
+
+    tool = require_tool("bcftools")
+    for helper in (plan["aligner"]["tool"], "samtools"):
+        require_tool(helper)
+    res = effective_resources(db)
+    params.threads = res.cap_threads(params.threads)
+    params.validate()
+    files = inputs.by_role()
+    parameters = {"technology": plan["technology"], "settings": params.as_dict(), "reference": plan["reference"],
+                  "inputs": inputs.ids(), "effects": plan["effects"], "keep_alignment": keep_alignment,
+                  "read_group_sample": plan["read_group_sample"], "aligner": plan["aligner"],
+                  "reads": [{"role": r, "file_id": f.id, "name": f.original_filename, "sha256": f.checksum_sha256}
+                            for r, f in files.items()]}
+    job = _tool_job(sample, VARIANT_JOB, tool, parameters, [f.id for f in files.values()],
+                    res.record(params.threads))
+    db.add(job)
+    db.commit()
+    _enqueue([job], run_variant_job)
+    db.refresh(job)
+    return job
 
 ACTIVE = (JobStatus.pending, JobStatus.running)
 # RQ statuses of a task no worker is executing any more.

@@ -71,6 +71,21 @@ class Settings(BaseSettings):
     # NCBI's dated taxonomy archives, read to build MOB-suite's taxa.sqlite. Tests point it at a local server.
     ncbi_taxonomy_url: str = "https://ftp.ncbi.nlm.nih.gov/pub/taxonomy/taxdump_archive"
 
+    # Optional accounts (admin / analyst / viewer) with project sharing. Off: one local user with every permission,
+    # as before; the API should then stay bound to 127.0.0.1.
+    auth_enabled: bool = False
+    session_hours: int = Field(default=12, ge=1, le=24 * 30)
+    # Send the session cookie only over HTTPS: set it when ARVA is served behind TLS.
+    cookie_secure: bool = False
+    login_max_failures: int = Field(default=5, ge=1)
+    login_lockout_seconds: int = Field(default=300, ge=1)
+
+    @property
+    def secrets_dir(self) -> Path:
+        """Owner-only folder (0700) for the ARVA Assist key and the first-administrator setup token; kept out of the
+        database so that metadata backups and diagnostics never contain them."""
+        return self.storage_root / "secrets"
+
     @property
     def raw_dir(self) -> Path:
         return self.storage_root / "raw"

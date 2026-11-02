@@ -1,0 +1,3 @@
+# Pinned spec of ARVA's PPanGGOLiN environment; scripts/conda_locks.py update ppanggolin solves it for each platform.
+# PPanGGOLiN 2.3.2 (Gautreau et al. 2020, CeCILL-2.1): partitioned pangenome graphs (persistent / shell / cloud).
+ppanggolin=2.3.2

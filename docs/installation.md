@@ -648,7 +648,7 @@ python3 scripts/conda_locks.py verify-env mlst ~/.arva-tools/conda/mlst
 | ABRicate | `abricate=1.4.0=h05cac1d_0`, `blast=2.16.0` (GPL-2.0; bundles VFDB and PlasmidFinder) | 180 packages | 263 packages (solved, not installed here) | 1.3 GB |
 | MOB-suite | `mob_suite=3.1.9=pyhdfd78af_1`, `blast=2.15.0` (Apache-2.0; this build needs BLAST+ < 2.16) | 178 packages | none: Bioconda has no BLAST+ < 2.16 for linux-aarch64 | 2.2 GB (with Mash 2.3, ete3 3.1.3) |
 | IntegronFinder | `integron_finder=2.0.6=pyhdfd78af_0` (GPL-3.0; HMMER 3.3.2, Infernal 1.1.4, Prodigal 2.6.3) | 75 packages | none: Bioconda has no HMMER ≤ 3.3.2 for linux-aarch64 | 0.72 GB |
-| ISEScan | `isescan=1.7.3` (GPL-3.0) | 83 packages | none: no isescan 1.7.3 build for linux-aarch64 | not installed here (342 MB to download): not validated |
+| ISEScan | `isescan=1.7.3` (GPL-3.0) | 83 packages | none: no isescan 1.7.3 build for linux-aarch64 | 1,356 MB unpacked (342 MB downloaded), about 350 MB of new disk after `hardlink -t ~/.arva-tools/conda`; validated (8A, N315). `isescan.py` starts with `#!/usr/bin/env python3` and loads `libssw.so` through ctypes: run it with the environment's `bin/` first in PATH (ARVA does) |
 | geNomad | `genomad=1.13.0=pyhdfd78af_0` (MIT) | 161 packages | 148 packages | not installed here (983 MB to download on linux-64, 634 MB on linux-aarch64): not validated |
 | sccmec | `sccmec=1.2.0=hdfd78af_0`, `blast=2.16.0` (MIT; camlhmp 1.1.4, schemas sccmec_targets/regions 1.2.0) | 94 packages | 92 packages (solved, not installed here) | 1,040 MB (BLAST+ 423 MB of it); 298 MB downloaded |
 | spaTyper | `spatyper=0.3.3=pyhdfd78af_3` (LGPL-3.0 per Bioconda; its help says GPLv3) | 28 packages | 28 packages (solved, not installed here) | 168 MB; 46 MB downloaded. Its package bundles copies of the Ridom SpaServer files (2021-10-01), deleted by `conda_locks.py install` (`remove-after-install.txt`) |
@@ -672,7 +672,7 @@ for t in abricate mobsuite integronfinder; do python3 scripts/conda_locks.py ins
 export ARVA_TOOL_ABRICATE=~/.arva-tools/conda/abricate/bin/abricate \
        ARVA_TOOL_MOBSUITE=~/.arva-tools/conda/mobsuite/bin/mob_recon \
        ARVA_TOOL_INTEGRONFINDER=~/.arva-tools/conda/integronfinder/bin/integron_finder
-# Not validated with ARVA (adapters written from their source): ISEScan (linux-64) and geNomad
+# ISEScan (linux-64) is validated (8A); geNomad is not validated with ARVA (adapter written from its source)
 python3 scripts/conda_locks.py install isescan ~/.arva-tools/conda/isescan     # ARVA_TOOL_ISESCAN=.../bin/isescan.py
 python3 scripts/conda_locks.py install genomad ~/.arva-tools/conda/genomad     # ARVA_TOOL_GENOMAD=.../bin/genomad
 # Optional: environments share many identical files (BLAST+, Perl, Python); util-linux's hardlink merges them
@@ -784,6 +784,57 @@ PubMLST's API now needs an account. Under PubMLST's terms (https://pubmlst.org/t
 redistributed. 108 of the 162 schemes were last updated after 31 December 2024 and may hold such data; the
 Pasteur schemes' terms were not checked. Cite PubMLST (Jolley KA, Bray JE, Maiden MCJ. Wellcome Open Res
 2018;3:124) and mlst.
+
+### Comparative genomics (skani, FastANI, minimap2, MUMmer)
+
+The Comparative genomics area uses tools already installed for earlier steps: skani and FastANI from their pinned
+locks (above) for ANI matrices, minimap2 (`apt install minimap2`; validated 2.26-r1175) and MUMmer's `nucmer`,
+`show-coords` and `dnadiff` (`apt install mummer`; validated NUCmer 3.1, DNAdiff 1.3) for whole-genome alignments.
+`show-coords` is taken from the folder that holds `nucmer`. Nothing else is downloaded. The real-genome tests read
+four NCBI RefSeq genomes from `ARVA_TEST_GENOMES` (default `/root/.arva-testdata/genomes`; accessions and checksums in
+`workflows/tool-adapters/tests/fixtures/comparative/README.md`) and skip without them.
+
+### Region Explorer and gene investigation (BLAST+, MAFFT, IQ-TREE, FastTree)
+
+`apt install ncbi-blast+ mafft fasttree` (validated BLAST+ 2.12.0, MAFFT 7.505, FastTree 2.1.11; about 4 MB for MAFFT
+and FastTree). IQ-TREE comes from its pinned lock: `python3 scripts/conda_locks.py install iqtree
+~/.arva-tools/conda/iqtree` (5 packages, 40 MB before hard-linking shared libraries) and
+`ARVA_TOOL_IQTREE=~/.arva-tools/conda/iqtree/bin/iqtree3`. Ubuntu's `iqtree` package is not used: it depends on
+OpenMPI and ROCm libraries (about 100 MB). The real-genome tests also read MW2 (GCF_000011265.1) and MSSA476
+(GCF_000011525.1) from `ARVA_TEST_GENOMES` (`workflows/tool-adapters/tests/fixtures/region/README.md`).
+
+### Pangenome (Panaroo; PPanGGOLiN optional, not validated)
+
+Panaroo comes from its pinned lock: `python3 scripts/conda_locks.py install panaroo ~/.arva-tools/conda/panaroo`
+(Panaroo 1.8.1 with cd-hit, MAFFT, PRANK and Mash in its own environment; 131 packages, 206 MB to download, 937 MB
+installed, about 590 MB after `hardlink -t ~/.arva-tools/conda`) and
+`ARVA_TOOL_PANAROO=~/.arva-tools/conda/panaroo/bin/panaroo`. ARVA puts that environment's `bin/` first in PATH when it
+runs Panaroo, which calls cd-hit and the aligner by name. A pangenome needs each genome annotated by Bakta or Prokka
+(ARVA's annotation jobs) with the CDS step run.
+
+PPanGGOLiN 2.3.2 has a pinned lock too (`docker/conda-locks/ppanggolin`, linux-64 and linux-aarch64) but is not
+installed here and is not in the Docker image: its environment adds graph-tool, GTK and Boost (214 packages, 314 MB
+to download, roughly 1 GB more on disk). Install it with `python3 scripts/conda_locks.py install ppanggolin
+~/.arva-tools/conda/ppanggolin` and `ARVA_TOOL_PPANGGOLIN=~/.arva-tools/conda/ppanggolin/bin/ppanggolin`; ARVA's
+adapter for it has not been validated against a real run.
+
+The real-tool tests read five NCBI S. aureus genomes annotated with Bakta from
+`ARVA_TEST_GENOMES/bakta-1.12.2-light6` (`workflows/tool-adapters/tests/fixtures/pangenome/README.md` gives the exact
+Bakta command) and skip without them.
+
+### Phylogeny (IQ-TREE, FastTree, SNP-sites)
+
+IQ-TREE and FastTree are those of the Region Explorer (above). SNP-based trees also need SNP-sites:
+`apt install --no-install-recommends snp-sites` (validated 2.5.1, about 80 KB with its library; in the Docker image).
+Trees from Panaroo's core-genome alignment need a pangenome run with "Align core genes" (`-a core`).
+
+### Variant calling (BWA / minimap2, samtools, bcftools)
+
+Variant calling uses BWA and minimap2 with samtools (installed for polishing) and bcftools:
+`apt install --no-install-recommends bcftools` (validated 1.19, Ubuntu's package; in the Docker image, where Debian
+bookworm ships 1.16 and ARVA checks every option it passes in that version's usage texts). Effects need the reference
+to be an ARVA assembly with an annotation (Bakta or Prokka). BWA-MEM2, FreeBayes and Snippy are not used (the first two
+are not in Ubuntu's archive).
 
 ### Optional: POD5 run metadata (pod5 library)
 
@@ -1021,6 +1072,32 @@ is not connected (or another disk is in its place), nothing is written there: en
 (`docker compose logs api`), which `scripts/diagnostics.sh` shows. The commit is recorded when the images are built by
 `scripts/start.sh --build` (`unknown` otherwise).
 
+## Batch runs and parallel jobs
+
+The batch queue (Workflows → Runs) hands at most "jobs at once" jobs of a run to the task queue, within the threads
+and memory the performance profile lets ARVA use. Jobs only run in parallel with as many worker processes: with
+Docker, `docker compose up -d --scale worker=2` starts two; without Docker, start `apps/workers/run_worker.py` more than
+once. Each worker started also resumes runs that a restart interrupted.
+
+## Accounts, PDF reports and ARVA Assist
+
+- **Accounts** are off by default. To share one ARVA among several people on a lab network, set
+  `ARVA_AUTH_ENABLED=true`, restart, open ARVA and create the first administrator with the token from
+  `<storage>/secrets/auth-setup-token` (readable only by the account running ARVA). Keep the backend on the local
+  network or behind a TLS proxy (`ARVA_COOKIE_SECURE=true`); accounts do not make it safe to expose to the Internet.
+  Passwords are hashed with Argon2id (`argon2-cffi` 25.1.0, MIT, PyPI). Projects created before accounts were turned
+  on have no owner: administrators see them and can share them.
+- **PDF reports** use WeasyPrint 66.0 (PyPI, BSD-3-Clause), which needs Pango and HarfBuzz from the system
+  (Debian/Ubuntu: `libpango-1.0-0 libpangoft2-1.0-0 libharfbuzz-subset0`, plus a font such as `fonts-dejavu-core`;
+  the API image installs them). Without them the PDF format answers `report_pdf_unavailable` and the HTML report can be
+  printed to PDF from the browser. WeasyPrint is given no network access: every external resource is refused.
+- **ARVA Assist** is off and ARVA ships no provider. An administrator who adds a provider module (a class with
+  `ask(payload, config) -> str`, registered with `app.services.assist.register(name, factory)` at start-up) can
+  enable it in Settings → ARVA Assist with an endpoint (https, or http on this computer) and a key; the key is kept in
+  `<storage>/secrets/assist-key` (mode 600), never in the database or in backups and diagnostics, and never shown again.
+- The Discover statistics tests compare with SciPy 1.18.1, installed in the API's virtual environment as a test
+  dependency (`pip install -e "apps/api[dev]"`); ARVA itself does not need SciPy.
+
 ## Configuration
 
 Environment variables (prefix `ARVA_`), also read from `apps/api/.env`:
@@ -1049,6 +1126,10 @@ Environment variables (prefix `ARVA_`), also read from `apps/api/.env`:
 | `ARVA_HOST_*` | — | Facts about the computer, set by `scripts/start.sh` on a Mac (`PLATFORM`, `MODEL_NAME`, `MODEL_ID`, `CHIP`, `PERF_CORES`, `EFF_CORES`, `PHYSICAL_CORES`, `LOGICAL_CPUS`, `MEMORY_BYTES`, `OS_VERSION`, `ARCH`, `DOCKER_CPUS`, `DOCKER_MEMORY_BYTES`), and the host folders it mounted with their filesystems (`DATA_DIR`, `DATA_FS`, `DATABASES_DIR`, `DATABASES_FS`, `IMPORT_DIR`, `IMPORT_FS`, `EXTERNAL_DB_<n>`, `EXTERNAL_DB_<n>_FS`); validated and bounded, unknown when empty, only displayed |
 | `ARVA_TOOL_TIMEOUT_SECONDS` | 43200 | A tool run is stopped after this time |
 | `ARVA_STARTUP_CHECKS` | `true` | At API start-up, look for pending migrations, unusable tools and databases whose folder is missing, and keep what is found in the [error log](#reporting-a-problem) |
+| `ARVA_AUTH_ENABLED` | `false` | Optional accounts (admin / analyst / viewer) with project sharing and an audit log; off: one local user with every permission. On the first start with it on, ARVA writes a one-time setup token to `<storage>/secrets/auth-setup-token` (owner-only) that the first administrator types in the interface |
+| `ARVA_SESSION_HOURS` | 12 | How long a sign-in lasts |
+| `ARVA_COOKIE_SECURE` | `false` | Send the session cookies only over HTTPS; set it when ARVA is served behind TLS |
+| `ARVA_LOGIN_MAX_FAILURES` / `ARVA_LOGIN_LOCKOUT_SECONDS` | 5 / 300 | Failed sign-ins before an account is locked, and for how long |
 | `ARVA_GIT_COMMIT` | — | The commit recorded in error log entries and reports; set in the images at build time (`scripts/start.sh` passes it); a checkout's own commit when run from one |
 
 ## Running tests
