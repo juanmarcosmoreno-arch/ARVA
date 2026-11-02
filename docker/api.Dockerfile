@@ -2,10 +2,19 @@
 # External QC tools come from Debian's signed repositories (multi-architecture:
 # amd64 and arm64, so the image also runs on Apple Silicon).
 
+FROM python:3.12.7-slim-bookworm
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    ARVA_STORAGE_ROOT=/data \
+    ARVA_DB_DIR=/databases
+
 # Bioconda tools: micromamba (conda-forge's package, SHA-256 pinned in scripts/install-micromamba.sh) creates one
 # environment per tool from the checked-in lock of the image's architecture (docker/conda-locks/<tool>/
 # linux-64.lock or linux-aarch64.lock: exact package URLs with their SHA-256; micromamba refuses any other file).
-# Only the environments are copied into the final image; micromamba and its package cache stay in this stage.
+# micromamba, its package cache and the build inputs exist only during this RUN (bind mounts and a temporary folder),
+# so the layer holds the environments alone, once: a stage of its own would store them twice in the build cache.
 # mlst 2.35.0 with BLAST+ 2.16.0 has locks for both architectures (about 0.95 GB installed, measured on linux-64);
 # so have FastANI 1.34 (95 MB), skani 0.4.0 (31 MB), Mash 2.3 (135 MB) and sylph 1.0.0 (30 MB), the species
 # identification tools, and AMRFinderPlus 4.2.7 with BLAST+ 2.16.0 and HMMER 3.4 (0.87 GB). Bakta 1.12.2 with every
@@ -27,32 +36,24 @@
 # which conda_locks.py deletes after installing (docker/conda-locks/spatyper/remove-after-install.txt): ARVA never
 # ships them. A tool without a lock for the image's architecture is left out.
 # Build with --build-arg ARVA_CONDA_TOOLS="" for an image without them.
-FROM python:3.12.7-slim-bookworm AS conda-tools
 ARG ARVA_CONDA_TOOLS="mlst fastani skani mash sylph amrfinderplus bakta abricate mobsuite integronfinder sccmec spatyper agrvate iqtree panaroo"
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl bzip2 \
-    && rm -rf /var/lib/apt/lists/*
-COPY scripts/install-micromamba.sh scripts/conda_locks.py /build/scripts/
-COPY docker/conda-locks /build/docker/conda-locks
-RUN set -eu; mkdir -p /opt/arva-tools/conda; \
+RUN --mount=type=bind,source=scripts,target=/build/scripts \
+    --mount=type=bind,source=docker/conda-locks,target=/build/docker/conda-locks \
+    set -eu; mkdir -p /opt/arva-tools/conda; \
     plat=linux-64; if [ "$(uname -m)" = "aarch64" ]; then plat=linux-aarch64; fi; \
     if [ -n "$ARVA_CONDA_TOOLS" ]; then \
-      /build/scripts/install-micromamba.sh /opt/micromamba; \
+      apt-get update && apt-get install -y --no-install-recommends ca-certificates curl bzip2 \
+        && rm -rf /var/lib/apt/lists/*; \
+      mm=$(mktemp -d); /build/scripts/install-micromamba.sh "$mm"; \
       for tool in $ARVA_CONDA_TOOLS; do \
         if [ ! -f "/build/docker/conda-locks/$tool/$plat.lock" ]; then \
           echo "No $plat lock for $tool (docker/conda-locks/$tool/$plat.unavailable); left out"; continue; \
         fi; \
-        python3 -I /build/scripts/conda_locks.py --micromamba /opt/micromamba/bin/micromamba install "$tool" \
+        python3 -I /build/scripts/conda_locks.py --micromamba "$mm/bin/micromamba" install "$tool" \
           "/opt/arva-tools/conda/$tool"; \
       done; \
+      rm -rf "$mm"; \
     fi
-
-FROM python:3.12.7-slim-bookworm
-
-ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=1 \
-    ARVA_STORAGE_ROOT=/data \
-    ARVA_DB_DIR=/databases
 
 # Flye calls flye-samtools; when the flye package lacks it (Ubuntu's 2.9.3 does), ARVA links it to samtools per run.
 # minimap2 is the aligner QUAST uses with a reference (bookworm: 2.24, the version QUAST 5.2.0 bundles).
@@ -68,7 +69,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 # there Bookworm's older versions fail Bakta's own minimums and ARVA's start-up checks skip the steps that need them,
 # saying so in each run: tRNAscan-SE 2.0.10 (< 2.0.12: tRNA), Aragorn 1.2.38 (< 1.2.41: tmRNA), Infernal 1.1.4
 # (< 1.1.5: rRNA and ncRNA), DIAMOND 2.1.3 and no AMRFinderPlus package (CDS, sORF), BLAST+ 2.12.0 (< 2.17.0:
-# oriC/oriV/oriT). On amd64 Bakta comes from the conda-tools stage with all of its programs (CDS validated there).
+# oriC/oriV/oriT). On amd64 Bakta comes from its conda environment with all of its programs (CDS validated there).
 # Bookworm's prokka 1.14.6+dfsg-4 lacks the kingdom protein sets, so ARVA reports Prokka as unable to annotate.
 # trnascan-se, infernal, hmmer (so barrnap) and prokka are amd64-only in bookworm.
 # Variant calling: bcftools (mpileup, call, norm, filter, csq) with BWA or minimap2 and samtools; ARVA validated
@@ -87,13 +88,12 @@ RUN set -eu; extra=""; \
 # 1.7 GB; QUAST about 0.15 GB, measured as an installed venv outside Docker).
 # QUAST 5.2.0 is a source package: it imports distutils (setuptools provides it on Python 3.12) and is built with
 # that pinned setuptools; its optional parts (gene finding, BUSCO, read analysis) are neither built nor downloaded.
-# Bakta 1.12.2 from PyPI with its direct requirements (about 0.32 GB as a venv) only when the conda-tools stage has no
+# Bakta 1.12.2 from PyPI with its direct requirements (about 0.32 GB as a venv) only when there is no conda
 # Bakta environment for this architecture (arm64). Its database is not part of the image: install it from the
 # Database Manager into ARVA_DB_DIR (/databases), like the AMRFinderPlus database release its CDS step reads.
-# The environments keep the prefix they were created with (/opt/arva-tools/conda/<tool>): conda writes it into
-# scripts and libraries, so they are copied to the same path. mlst's PubMLST schemes are inside its environment
+# The environments stay at the prefix they were created with (/opt/arva-tools/conda/<tool>): conda writes it into
+# scripts and libraries, so they cannot be moved. mlst's PubMLST schemes are inside its environment
 # (db/), read in place; ARVA lists them as a bundled, read-only database.
-COPY --from=conda-tools /opt/arva-tools/conda /opt/arva-tools/conda
 ARG ARVA_PYTHON_TOOLS="multiqc nanoplot quast bakta"
 RUN set -eu; for tool in $ARVA_PYTHON_TOOLS; do \
       case "$tool" in \

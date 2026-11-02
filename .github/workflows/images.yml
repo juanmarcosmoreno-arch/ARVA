@@ -1,0 +1,187 @@
+# ARVA's container images: build the API and web images for linux/amd64 and linux/arm64, smoke-test each one
+# (scripts/ci/smoke-images.sh), then publish them to GitHub Container Registry as
+#   ghcr.io/<owner>/arva-api and ghcr.io/<owner>/arva-web
+# with the tags <version> and <version>-<short commit> (multi-architecture manifests) and, per architecture,
+# <version>-<short commit>-<arch>. New packages are private; their owner decides visibility on GitHub.
+# arm64 builds on GitHub's native arm64 runner; set the repository variable ARVA_ARM64_RUNNER to ubuntu-24.04 to
+# build it on an x86-64 runner under QEMU instead (much slower).
+name: Container images
+
+on:
+  push:
+    branches: [main, claude/affectionate-darwin-oknu0k]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: images-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build and test (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ${{ vars.ARVA_ARM64_RUNNER || 'ubuntu-24.04-arm' }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 330
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Free disk space
+        run: scripts/ci/free-disk.sh
+
+      - name: Names and tags
+        id: meta
+        run: |
+          version=$(sed -n 's/^__version__ = "\([0-9a-z.]*\)".*/\1/p' apps/api/app/__init__.py)
+          test -n "$version"
+          owner=${GITHUB_REPOSITORY_OWNER,,}
+          {
+            echo "version=$version"
+            echo "commit=${GITHUB_SHA::12}"
+            echo "api=ghcr.io/$owner/arva-api"
+            echo "web=ghcr.io/$owner/arva-web"
+            echo "tag=$version-${GITHUB_SHA::7}-${{ matrix.arch }}"
+          } >> "$GITHUB_OUTPUT"
+          echo "Runner: ${{ runner.os }} ${{ runner.arch }} (${{ matrix.runner }}) for linux/${{ matrix.arch }}"
+
+      - name: QEMU (arm64 on an x86-64 runner)
+        if: matrix.arch == 'arm64' && runner.arch != 'ARM64'
+        uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+        with:
+          platforms: arm64
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Build web image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: docker/web.Dockerfile
+          platforms: linux/${{ matrix.arch }}
+          build-args: ARVA_GIT_COMMIT=${{ steps.meta.outputs.commit }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ steps.meta.outputs.version }}
+          tags: ${{ steps.meta.outputs.web }}:${{ steps.meta.outputs.tag }}
+          load: true
+          cache-from: type=gha,scope=web-${{ matrix.arch }}
+          cache-to: type=gha,scope=web-${{ matrix.arch }},mode=max,ignore-error=true
+
+      - name: Build API image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: docker/api.Dockerfile
+          platforms: linux/${{ matrix.arch }}
+          build-args: ARVA_GIT_COMMIT=${{ steps.meta.outputs.commit }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ steps.meta.outputs.version }}
+          tags: ${{ steps.meta.outputs.api }}:${{ steps.meta.outputs.tag }}
+          load: true
+          cache-from: type=gha,scope=api-${{ matrix.arch }}
+          cache-to: type=gha,scope=api-${{ matrix.arch }},mode=max,ignore-error=true
+
+      - name: Image sizes
+        run: |
+          docker image ls --format '{{.Repository}}:{{.Tag}} {{.Size}}' | grep arva-
+          df -h / /mnt 2>/dev/null || df -h /
+
+      - name: Smoke test
+        run: >-
+          scripts/ci/smoke-images.sh "${{ steps.meta.outputs.api }}:${{ steps.meta.outputs.tag }}"
+          "${{ steps.meta.outputs.web }}:${{ steps.meta.outputs.tag }}" "${{ steps.meta.outputs.commit }}"
+          "$RUNNER_TEMP/smoke"
+
+      - name: Container logs
+        if: failure()
+        run: |
+          for f in "$RUNNER_TEMP"/smoke/*.log; do
+            if [ -f "$f" ]; then echo "::group::$f"; tail -n 200 "$f"; echo "::endgroup::"; fi
+          done
+
+      - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # The same builds again, all from the builder's cache, now pushed: the pushed layers are the tested ones.
+      - name: Push web image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: docker/web.Dockerfile
+          platforms: linux/${{ matrix.arch }}
+          build-args: ARVA_GIT_COMMIT=${{ steps.meta.outputs.commit }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ steps.meta.outputs.version }}
+          tags: ${{ steps.meta.outputs.web }}:${{ steps.meta.outputs.tag }}
+          push: true
+
+      - name: Push API image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: docker/api.Dockerfile
+          platforms: linux/${{ matrix.arch }}
+          build-args: ARVA_GIT_COMMIT=${{ steps.meta.outputs.commit }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ steps.meta.outputs.version }}
+          tags: ${{ steps.meta.outputs.api }}:${{ steps.meta.outputs.tag }}
+          push: true
+
+  publish:
+    name: Multi-architecture tags
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create and check the manifests
+        run: |
+          version=$(sed -n 's/^__version__ = "\([0-9a-z.]*\)".*/\1/p' apps/api/app/__init__.py)
+          test -n "$version"
+          owner=${GITHUB_REPOSITORY_OWNER,,}
+          short=${GITHUB_SHA::7}
+          for name in arva-api arva-web; do
+            image=ghcr.io/$owner/$name
+            docker buildx imagetools create -t "$image:$version" -t "$image:$version-$short" \
+              "$image:$version-$short-amd64" "$image:$version-$short-arm64"
+            docker buildx imagetools inspect "$image:$version-$short" | tee "$RUNNER_TEMP/$name.txt"
+            grep -q 'linux/amd64' "$RUNNER_TEMP/$name.txt"
+            grep -q 'linux/arm64' "$RUNNER_TEMP/$name.txt"
+          done
