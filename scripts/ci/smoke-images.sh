@@ -5,7 +5,8 @@
 #      E-utilities and checked against its SHA-256; ARVA's mlst tests found saureus ST8 on it,
 #      workflows/tool-adapters/tests/fixtures/mlst/README.md) and SeqKit's length of the same file;
 #   3. the API against PostgreSQL and Redis: database migrations to the newest revision, GET /health, the worker;
-#   4. the web image in front of it: the interface, and /health and /api/v1/tools through its proxy.
+#   4. the web image in front of it: the interface, and /health, /api/v1/tools and /api/v1/system/performance
+#      (the image architecture and the tools it lacks) through its proxy.
 # Usage: scripts/ci/smoke-images.sh API_IMAGE WEB_IMAGE EXPECTED_COMMIT OUT_DIR
 set -euo pipefail
 
@@ -104,6 +105,19 @@ curl -fsS http://127.0.0.1:18080/health | grep -q '"status"'
 curl -fsS http://127.0.0.1:18080/api/v1/tools > "$out/tools-api.json"
 python3 -c "import json, sys; d = json.load(open(sys.argv[1])); assert isinstance(d, list) and len(d) > 30, len(d)" \
   "$out/tools-api.json"
+curl -fsS http://127.0.0.1:18080/api/v1/system/performance > "$out/performance.json"
+python3 - "$out/performance.json" "$(docker image inspect --format '{{.Architecture}}' "$api_image")" <<'PY'
+import json
+import sys
+
+image = json.load(open(sys.argv[1]))["image"]
+expected = {"amd64": "linux/amd64", "arm64": "linux/arm64"}[sys.argv[2]]
+assert image["running"] == expected, image
+missing = {"mobsuite", "integronfinder", "isescan", "agrvate", "gtdbtk", "prokka", "spades", "unicycler"}
+assert set(image["unavailable_tools"]) == (missing if expected == "linux/arm64" else set()), image
+print("image architecture reported by the API:", image["running"], "; without an arm64 build:",
+      ", ".join(image["unavailable_tools"]) or "none")
+PY
 docker exec smoke-web sh -c "grep -rlF '$commit' /usr/share/nginx/html/assets" > /dev/null || {
   echo "The web build does not contain the commit $commit" >&2
   exit 1
