@@ -224,6 +224,28 @@ reference-genomes/<zip name>/…      a copy extracted from an NCBI Datasets pac
 `StorageBackend` is a protocol so an S3-compatible backend can replace `LocalStorage` later.
 Sequencing data are never stored in PostgreSQL.
 
+### Container images and their architecture
+
+`.github/workflows/images.yml` builds `docker/api.Dockerfile` and `docker/web.Dockerfile` for linux/amd64 (GitHub's
+`ubuntu-24.04` runner) and linux/arm64 (the native `ubuntu-24.04-arm` runner; QEMU on an x86-64 runner when the
+repository variable `ARVA_ARM64_RUNNER` says so), with the layer cache in GitHub Actions' cache and the commit as
+`ARVA_GIT_COMMIT`. Each image is loaded and smoke-tested (`scripts/ci/smoke-images.sh`,
+`scripts/ci/check_image_tools.py`) before the same build, from the builder's cache, is pushed to
+`ghcr.io/<owner>/arva-api|arva-web:<version>-<short commit>-<arch>`; a last job joins the two architectures into
+the multi-architecture tags `<version>` and `<version>-<short commit>`. Every action is pinned to a commit SHA; the
+token is the workflow's own `GITHUB_TOKEN` with `packages: write`.
+
+`docker-compose.yml` names the published images (`ARVA_API_IMAGE`, `ARVA_WEB_IMAGE`, `ARVA_IMAGE_TAG`) and gives
+the API, worker and web services `platform: ${ARVA_PLATFORM}` (left out when empty). `scripts/start.sh` pulls
+them, or builds them under local names with `--build`, and chooses `ARVA_PLATFORM`: saved with `--platform`, else
+the computer's own architecture, except on Apple silicon, where it is linux/amd64 (every tool, through Rosetta)
+unless Docker Desktop's Rosetta setting is off. It passes the choice, the reason, the Rosetta setting as read and
+the image source as `ARVA_HOST_IMAGE_*` / `ARVA_HOST_DOCKER_ROSETTA`; `app/services/image_platform.py` validates
+them, adds the architecture the process really runs (`platform.machine()`), whether that is translated (an amd64
+image on an arm64 computer, from the launcher's `ARVA_HOST_ARCH`) and the tools without a build for it (adapters'
+`no_conda_platform` and the Debian packages built for amd64 only), for `GET /system/performance`, the launcher's
+summary and the diagnostic report.
+
 ### Storage locations and external disks
 
 `app/services/locations.py` describes every folder ARVA uses: the data folder (`ARVA_STORAGE_ROOT`, with

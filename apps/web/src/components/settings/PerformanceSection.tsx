@@ -55,6 +55,7 @@ function Performance({ p }: { p: PerformanceOverview }) {
         <Chooser p={p} />
         <InUse p={p} />
         <Docker p={p} />
+        <ImageArchitecture p={p} />
       </div>
       <Notes />
     </div>
@@ -279,6 +280,33 @@ function Docker({ p }: { p: PerformanceOverview }) {
       {(d.status === "host_unknown" || d.status === "not_container") && (
         <p className="text-xs text-muted-foreground">{t(`perf.docker.${d.status}` as TranslationKey)}</p>
       )}
+    </section>
+  );
+}
+
+function ImageArchitecture({ p }: { p: PerformanceOverview }) {
+  const t = useT();
+  const i = p.image;
+  const apple = i.reason === "rosetta_on" || i.reason === "rosetta_unknown" || i.reason === "rosetta_off";
+  return (
+    <section aria-labelledby="perf-image" className="space-y-1.5">
+      <h3 id="perf-image" className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{t("perf.image.title")}</h3>
+      <dl>
+        <Row label={t("perf.image.running")} value={i.running ?? "?"} />
+        {i.chosen && <Row label={t("perf.image.chosen")} value={i.chosen} />}
+        {i.source && <Row label={t("perf.image.source")} value={t(`perf.image.source.${i.source}` as TranslationKey)} />}
+      </dl>
+      <p className="text-xs">{i.reason ? t(`perf.image.reason.${i.reason}` as TranslationKey) : t("perf.image.unknown")}</p>
+      {i.emulated && <p className="text-xs">{t("perf.image.translated", { how: t(`perf.image.how.${i.rosetta ?? "unknown"}` as TranslationKey) })}</p>}
+      {i.mismatch && (
+        <p role="alert" className="rounded-lg bg-warning/10 p-2.5 text-xs">
+          {t("perf.image.mismatch", { chosen: i.chosen ?? "?", running: i.running ?? "?" })}
+        </p>
+      )}
+      <p className="text-xs text-muted-foreground">
+        {i.unavailable_tools.length > 0 ? t("perf.image.missing", { tools: i.unavailable_tools.join(", ") }) : t("perf.image.none")}
+      </p>
+      {apple && i.rosetta !== "on" && <p className="text-[11px] text-muted-foreground">{t("perf.image.rosettaHint")}</p>}
     </section>
   );
 }

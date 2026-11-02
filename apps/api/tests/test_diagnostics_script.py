@@ -41,6 +41,8 @@ elif args[0] == "compose" and "logs" in args:
     print(f"{{service}}: read ACGTACGTTTGACCAGTAGGACCATTAGG")
 elif args[0] == "compose" and "up" in args:
     sys.exit(int(os.environ.get("FAKE_UP_STATUS", "0")))
+elif args[0] == "compose" and "pull" in args:
+    sys.exit(0)
 else:
     sys.exit(1)
 """

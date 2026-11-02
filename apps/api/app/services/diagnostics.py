@@ -130,7 +130,8 @@ def _platform() -> dict:
 
 def _performance(db: Session) -> dict:
     o = performance.overview(db)
-    return {"effective": o["effective"], "choice": o["choice"], "automatic": o["automatic"], "docker": o["docker"]}
+    return {"effective": o["effective"], "choice": o["choice"], "automatic": o["automatic"], "docker": o["docker"],
+            "image": o["image"]}
 
 
 def _storage(db: Session) -> dict:
@@ -371,6 +372,8 @@ def markdown(r: dict) -> str:
     out += ["", "## Performance profile", ""]
     if isinstance(perf, dict) and "effective" in perf:
         out += [*_pairs(perf["effective"]), "", "Docker Desktop:", "", *_pairs(perf["docker"]), ""]
+        if perf.get("image"):
+            out += ["Image architecture:", "", *_pairs(perf["image"]), ""]
     else:
         out += [*_pairs(perf), ""]
     st = r["storage"]

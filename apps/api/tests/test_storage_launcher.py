@@ -167,7 +167,7 @@ def test_locations_are_checked_saved_and_mounted_read_only_where_they_must_be(tm
     slot = _slot(bakta)
     assert {k: v for k, v in m.compose_env.items() if not k.startswith(("ARVA_HOST_PLATFORM", "ARVA_HOST_MODEL",
             "ARVA_HOST_CHIP", "ARVA_HOST_PERF", "ARVA_HOST_EFF", "ARVA_HOST_PHYS", "ARVA_HOST_LOGICAL",
-            "ARVA_HOST_MEMORY", "ARVA_HOST_OS", "ARVA_HOST_ARCH", "ARVA_HOST_DOCKER"))} == {
+            "ARVA_HOST_MEMORY", "ARVA_HOST_OS", "ARVA_HOST_ARCH", "ARVA_HOST_DOCKER", "ARVA_HOST_IMAGE"))} == {
         "ARVA_HOST_DATA_DIR": str(data), "ARVA_HOST_DATA_FS": "apfs", "ARVA_HOST_DATABASES_DIR": str(dbs),
         "ARVA_HOST_DATABASES_FS": "apfs", "ARVA_HOST_IMPORT_DIR": str(runs), "ARVA_HOST_IMPORT_FS": "apfs",
         f"ARVA_HOST_EXTERNAL_DB_{slot}": str(bakta), f"ARVA_HOST_EXTERNAL_DB_{slot}_FS": "apfs"}

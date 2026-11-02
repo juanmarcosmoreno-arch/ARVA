@@ -45,7 +45,7 @@ export const TECHNICAL_WORDS = new Set([
   "FASTA", "POD5", "GFA", "BAM", "CRAM", "SAM", "GFF3", "GTF", "GBFF", "GenBank", "EMBL", "VCF", "BED", "Newick",
   "TSV", "CSV", "JSON", "HTML", "SVG", "PNG", "PDF", "XLSX", "gz", "Flye", "SPAdes", "Unicycler", "QUAST", "Racon",
   "Pilon", "Bakta", "Prokka", "fastp", "Filtlong", "FastQC", "MultiQC", "NanoPlot", "SeqKit", "samtools", "minimap2",
-  "BWA", "dnadiff", "MUMmer", "Dorado", "Docker", "macOS", "Linux", "Mac", "Illumina", "Nanopore", "PacBio", "ONT",
+  "BWA", "dnadiff", "MUMmer", "Dorado", "Docker", "Rosetta", "QEMU", "macOS", "Linux", "Mac", "Illumina", "Nanopore", "PacBio", "ONT",
   "HiFi", "CDS", "sORF", "tRNA", "rRNA", "tmRNA", "ncRNA", "CRISPR", "ORF", "COG", "UniProt", "NCBI", "RefSeq", "KEGG",
   "Pfam", "Zenodo", "MD5", "SHA", "sha256", "SHA256", "ID", "IDs", "UTF", "CPU", "GB", "MB", "KB", "TB", "aa", "kbp",
   "Mbp", "Gbp", "pb", "kpb", "Mpb", "Gpb", "nm", "µm", "contig", "contigs", "English", "Español", "DEMO", "TXT", "EC", "GO", "doi",

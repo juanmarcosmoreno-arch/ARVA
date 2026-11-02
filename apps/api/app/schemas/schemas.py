@@ -982,6 +982,18 @@ class DockerAdviceRead(BaseModel):
     memory: DockerMemoryRead | None = None
 
 
+class ImagePlatformRead(BaseModel):
+    running: Literal["linux/amd64", "linux/arm64"] | None = Field(description="This process's architecture")
+    chosen: Literal["linux/amd64", "linux/arm64"] | None = Field(description="scripts/start.sh's choice")
+    reason: Literal["chosen", "native", "rosetta_on", "rosetta_unknown", "rosetta_off", "unknown"] | None
+    rosetta: Literal["on", "off", "unknown"] | None = Field(description="Docker Desktop's Rosetta setting as read")
+    source: Literal["published", "local"] | None
+    host_arch: str | None
+    emulated: bool | None = Field(description="An image of another architecture than the computer's")
+    mismatch: bool
+    unavailable_tools: list[str] = Field(description="Tools without a build for this architecture")
+
+
 class PerformanceRead(BaseModel):
     host: dict[str, HostFactRead] = Field(description="platform, model_name, model_id, chip, performance_cores, "
                                           "efficiency_cores, physical_cores, logical_cpus, memory_bytes, os_version, "
@@ -993,6 +1005,7 @@ class PerformanceRead(BaseModel):
     effective: PerformanceEffectiveRead
     profiles: list[PerformanceProfileRow]
     docker: DockerAdviceRead
+    image: ImagePlatformRead
 
 
 class PerformanceUpdate(BaseModel):

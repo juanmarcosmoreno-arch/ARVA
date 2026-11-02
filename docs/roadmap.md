@@ -334,8 +334,8 @@ as inline SVG (escaped names), a sequence table and the charts' numbers; the JSO
 - micromamba 2.9.0 from conda-forge (`scripts/install-micromamba.sh`, package SHA-256 pinned per platform and
   checked against conda-forge's repodata); one environment per tool from explicit locks with a SHA-256 per package
   (`docker/conda-locks/<tool>/{spec.txt,linux-64.lock,linux-aarch64.lock}`), created, checked, verified and
-  re-solved with `scripts/conda_locks.py`; a Docker build stage installs the image architecture's lock and copies
-  only the environments. Adapters declare the platforms they have locks for; the Tools page says when there is none.
+  re-solved with `scripts/conda_locks.py`; the Docker build installs the image architecture's locks in one layer,
+  without micromamba or its cache. Adapters declare the platforms they have locks for; the Tools page says when there is none.
 - mlst 2.35.0 (`arva_tools/mlst.py`): every flag checked in `--help` and its defaults recorded from it; --minid,
   --mincov, --minscore, --threads, --exclude or --scheme, --blastdb, --datadir passed explicitly (minimum score 0
   and no exclusions with a chosen scheme, as mlst applies them); --full TSV, JSON (cross-checked) and --novel FASTA
@@ -767,6 +767,20 @@ built), large sets (hundreds of genomes).
 - Still English: the API's HTTP error details, uncoded job failures (mostly the tools' own error lines), job logs,
   the tools' own words, and the sample and comparative reports, which the API writes in English only; the full
   project report (8C) follows the interface language. See "Interface language" in `architecture.md`.
+
+## Published container images (C1)
+
+- `.github/workflows/images.yml` builds the API and web images for linux/amd64 and linux/arm64 (native arm64
+  runner), smoke-tests them (tool detection against the locks, migrations, `/health`, the worker, the web proxy, mlst
+  on NC_007795.1) and publishes them to GHCR (`<version>`, `<version>-<short commit>`, multi-architecture). GitHub
+  created the packages public, linked to the public repository; their owner sets the visibility. `scripts/start.sh`
+  pulls them by default, `--build` builds locally.
+- Building the image for the first time showed that it had never built: Debian's `trnascan-se` is in non-free (left
+  out), `spades` and `unicycler` exist for amd64 only, and the arm64 PyPI Bakta needed `isal` pinned (1.9.0 came out
+  without arm64 wheels on the day of the build).
+- Image architecture: on Apple silicon the amd64 image (every tool, through Rosetta) unless Docker Desktop's Rosetta
+  setting is off; `--platform` chooses; Settings → Performance shows the choice, the reason, translation and the
+  tools missing on that architecture. Rosetta's speed cost has not been measured on a real Mac.
 
 ## Later phases
 

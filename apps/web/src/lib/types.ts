@@ -752,6 +752,22 @@ export interface PerformanceOverview {
     cpus?: { current: number; recommended: number; status: "ok" | "increase" } | null;
     memory?: { current_bytes: number | null; recommended_gb: number; most_gb: number; status: "ok" | "increase" | "decrease" | "unknown" } | null;
   };
+  image: ImagePlatform;
+}
+
+export type ImagePlatformName = "linux/amd64" | "linux/arm64";
+
+/** The image architecture scripts/start.sh chose and why, and what the containers actually run. */
+export interface ImagePlatform {
+  running: ImagePlatformName | null;
+  chosen: ImagePlatformName | null;
+  reason: "chosen" | "native" | "rosetta_on" | "rosetta_unknown" | "rosetta_off" | "unknown" | null;
+  rosetta: "on" | "off" | "unknown" | null;
+  source: "published" | "local" | null;
+  host_arch: string | null;
+  emulated: boolean | null;
+  mismatch: boolean;
+  unavailable_tools: string[];
 }
 
 export interface PerformanceUpdate {

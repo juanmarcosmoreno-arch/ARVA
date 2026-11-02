@@ -2,7 +2,8 @@
 # (scripts/ci/smoke-images.sh), then publish them to GitHub Container Registry as
 #   ghcr.io/<owner>/arva-api and ghcr.io/<owner>/arva-web
 # with the tags <version> and <version>-<short commit> (multi-architecture manifests) and, per architecture,
-# <version>-<short commit>-<arch>. New packages are private; their owner decides visibility on GitHub.
+# <version>-<short commit>-<arch>. Their owner sets their visibility on GitHub (Package settings); packages linked to a
+# public repository were created public here.
 # arm64 builds on GitHub's native arm64 runner; set the repository variable ARVA_ARM64_RUNNER to ubuntu-24.04 to
 # build it on an x86-64 runner under QEMU instead (much slower).
 name: Container images

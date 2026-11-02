@@ -97,7 +97,8 @@ control**, **visual first**, **reproducibility** and **modularity**.
 ### Docker (recommended)
 
 ```bash
-docker compose up -d --build      # on a Mac: scripts/start.sh --build (detects the Mac, see docs/installation.md)
+docker login ghcr.io -u <your GitHub user name>   # once, only if the published images are private
+scripts/start.sh                  # pulls ghcr.io/juanmarcosmoreno-arch/arva-api and arva-web; --build builds them here
 open http://localhost:8080        # API docs: http://localhost:8000/docs
 ```
 

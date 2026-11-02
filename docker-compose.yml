@@ -5,6 +5,12 @@
 # folders, for example on an external disk, start ARVA with scripts/start.sh --data-dir ... --databases-dir ...:
 # it checks each folder and adds them in a generated override file as bind mounts that Docker refuses to start
 # without (create_host_path: false), so a missing disk never gets an empty folder on the internal disk instead.
+#
+# Images: by default the published ones, ghcr.io/juanmarcosmoreno-arch/arva-api and arva-web (built, tested and pushed
+# by .github/workflows/images.yml; their owner chooses their visibility on GitHub: while they are private,
+# `docker login ghcr.io` first, see docs/installation.md). ARVA_API_IMAGE, ARVA_WEB_IMAGE and ARVA_IMAGE_TAG choose others; `docker compose up --build`
+# (or scripts/start.sh --build) builds them here instead. ARVA_PLATFORM (linux/amd64 or linux/arm64; empty: this
+# computer's own) is the architecture of the API, worker and web images: scripts/start.sh chooses it and says why.
 name: arva
 
 x-arva-env: &arva-env
@@ -46,6 +52,11 @@ x-arva-env: &arva-env
   # Metadata backups (the backup service below), shown in Settings → Storage.
   ARVA_BACKUP_INTERVAL_HOURS: ${ARVA_BACKUP_INTERVAL_HOURS:-24}
   ARVA_BACKUP_KEEP: ${ARVA_BACKUP_KEEP:-14}
+  # The image architecture scripts/start.sh chose and why, shown in Settings → Performance and Diagnostics.
+  ARVA_HOST_IMAGE_PLATFORM: ${ARVA_HOST_IMAGE_PLATFORM:-}
+  ARVA_HOST_IMAGE_REASON: ${ARVA_HOST_IMAGE_REASON:-}
+  ARVA_HOST_DOCKER_ROSETTA: ${ARVA_HOST_DOCKER_ROSETTA:-}
+  ARVA_HOST_IMAGE_SOURCE: ${ARVA_HOST_IMAGE_SOURCE:-}
 
 services:
   postgres:
@@ -73,7 +84,8 @@ services:
 
   api:
     build: { context: ., dockerfile: docker/api.Dockerfile, args: { ARVA_GIT_COMMIT: "${ARVA_GIT_COMMIT:-unknown}" } }
-    image: arva-api:0.2.0
+    image: ${ARVA_API_IMAGE:-ghcr.io/juanmarcosmoreno-arch/arva-api}:${ARVA_IMAGE_TAG:-0.2.0}
+    platform: ${ARVA_PLATFORM:-}
     environment: *arva-env
     volumes:
       - arva-data:/data
@@ -91,7 +103,8 @@ services:
     restart: unless-stopped
 
   worker:
-    image: arva-api:0.2.0
+    image: ${ARVA_API_IMAGE:-ghcr.io/juanmarcosmoreno-arch/arva-api}:${ARVA_IMAGE_TAG:-0.2.0}
+    platform: ${ARVA_PLATFORM:-}
     command: ["python", "/opt/arva/apps/workers/run_worker.py"]
     environment: *arva-env
     volumes:
@@ -134,7 +147,8 @@ services:
 
   web:
     build: { context: ., dockerfile: docker/web.Dockerfile, args: { ARVA_GIT_COMMIT: "${ARVA_GIT_COMMIT:-unknown}" } }
-    image: arva-web:0.2.0
+    image: ${ARVA_WEB_IMAGE:-ghcr.io/juanmarcosmoreno-arch/arva-web}:${ARVA_IMAGE_TAG:-0.2.0}
+    platform: ${ARVA_PLATFORM:-}
     depends_on:
       api: { condition: service_healthy }
     ports:

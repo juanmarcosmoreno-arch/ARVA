@@ -1,6 +1,16 @@
 #!/bin/sh
 # Start ARVA with Docker Compose (`docker compose up -d`; other arguments, such as --build, are passed on).
 #
+# Images: without --build, the published images (ghcr.io/juanmarcosmoreno-arch/arva-api and arva-web, tag = ARVA's
+# version; ARVA_API_IMAGE, ARVA_WEB_IMAGE and ARVA_IMAGE_TAG choose others) are pulled first; while their owner keeps
+# them private, sign in once with `docker login ghcr.io` (docs/installation.md). With --build
+# the images are built here and named arva-api and arva-web instead.
+#   --platform linux/amd64|linux/arm64|auto   the image architecture (saved; auto: chosen at each start)
+# The automatic choice: the computer's own architecture, except on Apple silicon, where it is linux/amd64 (every
+# tool, run through Rosetta) when Docker Desktop's "Use Rosetta for x86_64/amd64 emulation on Apple Silicon"
+# setting is on or cannot be read, and linux/arm64 (native, without the tools that have no arm64 build) when it is
+# off. The choice and why are printed and shown in Settings → Performance.
+#
 # Storage: where ARVA keeps its files is chosen here once and remembered (scripts/lib/arva-locations.sh), so that
 # on a Mac only the program lives on the internal disk and projects and databases can live on an external disk:
 #   --data-dir PATH          projects (raw, processed, results, reports, logs) and the metadata backups
@@ -30,14 +40,25 @@ arva_os=$(uname -s 2>/dev/null || true)
 
 usage() {
   say "Usage: scripts/start.sh [--data-dir PATH] [--databases-dir PATH] [--add-databases PATH]... [--remove-databases PATH]...
-                        [--import-dir PATH] [--show-config | --reset-config] [docker compose up options, e.g. --build]
+                        [--import-dir PATH] [--platform linux/amd64|linux/arm64|auto] [--show-config | --reset-config]
+                        [docker compose up options, e.g. --build]
 Chosen folders are remembered in ${XDG_CONFIG_HOME:-~/.config}/arva/arva.conf; see docs/installation.md (External disk)." \
 "Uso: scripts/start.sh [--data-dir RUTA] [--databases-dir RUTA] [--add-databases RUTA]... [--remove-databases RUTA]...
-                       [--import-dir RUTA] [--show-config | --reset-config] [opciones de docker compose up, p. ej. --build]
+                       [--import-dir RUTA] [--platform linux/amd64|linux/arm64|auto] [--show-config | --reset-config]
+                       [opciones de docker compose up, p. ej. --build]
 Las carpetas elegidas se recuerdan en ${XDG_CONFIG_HOME:-~/.config}/arva/arva.conf; consulta docs/installation.md (Disco externo)."
 }
 
-want_data='' want_databases='' want_import='' want_add='' want_remove='' show=0 reset=0
+want_data='' want_databases='' want_import='' want_add='' want_remove='' want_platform='' show=0 reset=0 build=0
+platform_option() {
+  case "$1" in
+    linux/amd64 | linux/arm64 | auto) want_platform=$1 ;;
+    *)
+      warn "--platform must be linux/amd64, linux/arm64 or auto." "--platform debe ser linux/amd64, linux/arm64 o auto."
+      exit 2
+      ;;
+  esac
+}
 option() {
   if [ "$(printf '%s' "$2" | LC_ALL=C tr -d '\001-\037\177')" != "$2" ] || [ -z "$2" ]; then
     warn "$1 needs a folder path without control characters." "$1 necesita una ruta de carpeta sin caracteres de control."
@@ -68,13 +89,23 @@ while [ "$n" -gt 0 ]; do
     --data-dir=* | --databases-dir=* | --import-dir=* | --add-databases=* | --remove-databases=*)
       option "${arg%%=*}" "${arg#*=}"
       ;;
+    --platform)
+      if [ "$n" -eq 0 ]; then platform_option ''; fi
+      platform_option "$1"
+      shift
+      n=$((n - 1))
+      ;;
+    --platform=*) platform_option "${arg#*=}" ;;
     --show-config) show=1 ;;
     --reset-config) reset=1 ;;
     -h | --help)
       usage
       exit 0
       ;;
-    *) set -- "$@" "$arg" ;;
+    *)
+      if [ "$arg" = --build ]; then build=1; fi
+      set -- "$@" "$arg"
+      ;;
   esac
 done
 
@@ -130,6 +161,10 @@ EOF
   arva_write_config
   say "Locations saved in $ARVA_CONFIG." "Ubicaciones guardadas en $ARVA_CONFIG."
 fi
+if [ -n "$want_platform" ]; then
+  if [ "$want_platform" = auto ]; then cfg_platform=''; else cfg_platform=$want_platform; fi
+  arva_write_config
+fi
 
 for legacy in ARVA_DATA_DIR ARVA_DATABASES_DIR ARVA_IMPORT_DIR; do
   if printenv "$legacy" >/dev/null 2>&1 || { [ -f "$ROOT/.env" ] && grep -q "^[[:space:]]*$legacy=" "$ROOT/.env"; }; then
@@ -140,6 +175,10 @@ done
 
 if [ "$show" = 1 ]; then
   say "Saved locations: $ARVA_CONFIG" "Ubicaciones guardadas: $ARVA_CONFIG"
+  if [ -n "$cfg_platform" ]; then
+    say "  Image architecture: $cfg_platform (scripts/start.sh --platform auto lets ARVA choose)" \
+        "  Arquitectura de las imágenes: $cfg_platform (scripts/start.sh --platform auto deja que ARVA la elija)"
+  fi
   if [ -z "$cfg_data$cfg_databases$cfg_import$cfg_extra" ]; then
     say "  none: projects and databases are kept in Docker volumes (inside Docker Desktop's disk image)." \
         "  ninguna: los proyectos y las bases de datos se guardan en volúmenes de Docker (dentro de la imagen de disco de Docker Desktop)."
@@ -266,6 +305,98 @@ if [ "$arva_os" = Darwin ]; then
       "  Docker Desktop da a su máquina virtual ${docker_cpus:-?} CPU y $(gb "$docker_memory")"
 fi
 
+# Docker Desktop's "Use Rosetta for x86_64/amd64 emulation on Apple Silicon" (Settings → General), from its settings
+# file (Docker's settings reference names the key useVirtualizationFrameworkRosetta; settings-store.json since Docker
+# Desktop 4.35, settings.json before). The key's spelling in the file is not documented, so it is matched without
+# regard to case. Prints on, off or unknown.
+docker_rosetta() {
+  dir=${HOME:+$HOME/Library/Group Containers/group.com.docker}
+  for file in "$dir/settings-store.json" "$dir/settings.json"; do
+    if [ -z "$dir" ] || [ ! -f "$file" ]; then continue; fi
+    value=$(grep -io '"usevirtualizationframeworkrosetta"[[:space:]]*:[[:space:]]*[a-z]*' "$file" 2>/dev/null |
+      head -n 1 | sed 's/.*:[[:space:]]*//' | tr '[:upper:]' '[:lower:]')
+    case "$value" in
+      true) printf on; return 0 ;;
+      false) printf off; return 0 ;;
+    esac
+  done
+  printf unknown
+}
+
+# The image architecture: saved with --platform, else this computer's own, except on Apple silicon (see the top).
+rosetta=''
+if [ -n "$cfg_platform" ]; then
+  image_platform=$cfg_platform image_reason=chosen
+elif [ "$arva_os" = Darwin ]; then
+  if [ "${arch:-}" = arm64 ]; then
+    rosetta=$(docker_rosetta)
+    case "$rosetta" in
+      off) image_platform=linux/arm64 image_reason=rosetta_off ;;
+      on) image_platform=linux/amd64 image_reason=rosetta_on ;;
+      *) image_platform=linux/amd64 image_reason=rosetta_unknown ;;
+    esac
+  else
+    image_platform=linux/amd64 image_reason=native
+  fi
+else
+  case "$(uname -m 2>/dev/null || true)" in
+    x86_64 | amd64) image_platform=linux/amd64 image_reason=native ;;
+    aarch64 | arm64) image_platform=linux/arm64 image_reason=native ;;
+    *) image_platform='' image_reason=unknown ;;
+  esac
+fi
+export ARVA_PLATFORM="$image_platform" ARVA_HOST_IMAGE_PLATFORM="$image_platform" ARVA_HOST_IMAGE_REASON="$image_reason"
+export ARVA_HOST_DOCKER_ROSETTA="$rosetta"
+
+shown_platform=${image_platform:-?}
+say "Image architecture: $shown_platform" "Arquitectura de las imágenes: $shown_platform"
+case "$image_reason" in
+  chosen)
+    say "  chosen with --platform (scripts/start.sh --platform auto lets ARVA choose again)." \
+        "  elegida con --platform (scripts/start.sh --platform auto deja que ARVA vuelva a elegir)."
+    ;;
+  native)
+    say "  this computer's own architecture." "  la arquitectura propia de este equipo."
+    ;;
+  rosetta_on | rosetta_unknown)
+    say "  Apple silicon: the amd64 image runs every ARVA tool (Bakta with all its steps, Prokka, MOB-suite, IntegronFinder,
+  AgrVATE, ISEScan and GTDB-Tk have no arm64 build), translated by Rosetta, so slower than a native program.
+  scripts/start.sh --platform linux/arm64 runs natively without those tools." \
+        "  Apple silicon: la imagen amd64 ejecuta todas las herramientas de ARVA (Bakta con todos sus pasos, Prokka, MOB-suite,
+  IntegronFinder, AgrVATE, ISEScan y GTDB-Tk no tienen versión arm64), traducidas por Rosetta, así que más lentas que un
+  programa nativo. scripts/start.sh --platform linux/arm64 se ejecuta de forma nativa sin esas herramientas."
+    if [ "$image_reason" = rosetta_unknown ]; then
+      say "  Docker Desktop's Rosetta setting could not be read. If it is off, Docker emulates amd64 with QEMU, which is much
+  slower: turn on Settings → General → \"Use Rosetta for x86_64/amd64 emulation on Apple Silicon\"." \
+          "  No se pudo leer el ajuste de Rosetta de Docker Desktop. Si está desactivado, Docker emula amd64 con QEMU, mucho más
+  lento: activa Settings → General → \"Use Rosetta for x86_64/amd64 emulation on Apple Silicon\"."
+    fi
+    ;;
+  rosetta_off)
+    say "  Apple silicon with Rosetta off in Docker Desktop: the native arm64 image, without the tools that have no arm64
+  build (Bakta's CDS and RNA steps, Prokka, MOB-suite, IntegronFinder, AgrVATE, ISEScan, GTDB-Tk). To use them, turn on
+  Settings → General → \"Use Rosetta for x86_64/amd64 emulation on Apple Silicon\" and run scripts/start.sh again." \
+        "  Apple silicon con Rosetta desactivado en Docker Desktop: la imagen arm64 nativa, sin las herramientas que no tienen
+  versión arm64 (los pasos de CDS y ARN de Bakta, Prokka, MOB-suite, IntegronFinder, AgrVATE, ISEScan, GTDB-Tk). Para
+  usarlas, activa Settings → General → \"Use Rosetta for x86_64/amd64 emulation on Apple Silicon\" y vuelve a ejecutar
+  scripts/start.sh."
+    ;;
+  *)
+    say "  this computer's architecture is not one ARVA publishes images for; Docker chooses." \
+        "  ARVA no publica imágenes para la arquitectura de este equipo; Docker elige."
+    ;;
+esac
+
+# The images: the published ones (pulled now), or built here with --build under their own names.
+version=$(sed -n 's/^__version__ = "\([0-9a-z.]*\)".*/\1/p' "$ROOT/apps/api/app/__init__.py" 2>/dev/null || true)
+export ARVA_IMAGE_TAG="${ARVA_IMAGE_TAG:-${version:-latest}}"
+if [ "$build" = 1 ]; then
+  export ARVA_API_IMAGE="${ARVA_API_IMAGE:-arva-api}" ARVA_WEB_IMAGE="${ARVA_WEB_IMAGE:-arva-web}" ARVA_HOST_IMAGE_SOURCE=local
+else
+  export ARVA_API_IMAGE="${ARVA_API_IMAGE:-ghcr.io/juanmarcosmoreno-arch/arva-api}"
+  export ARVA_WEB_IMAGE="${ARVA_WEB_IMAGE:-ghcr.io/juanmarcosmoreno-arch/arva-web}" ARVA_HOST_IMAGE_SOURCE=published
+fi
+
 # The commit the images are built from (docker/api.Dockerfile and web.Dockerfile record it for the error log).
 arva_commit=$(git -C "$ROOT" rev-parse --short=12 HEAD 2>/dev/null || true)
 case "$arva_commit" in '' | *[!0-9a-f]*) arva_commit=unknown ;; esac
@@ -282,6 +413,25 @@ log_launcher() {
   printf '{"id":"%s","time":"%s","version":"%s","commit":"%s","component":"launcher","severity":"error","code":"%s","message":"%s","params":{"status":%d}}\n' \
     "$id" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${version:-unknown}" "$arva_commit" "$1" "$2" "$3" >> "$logs/errors.jsonl" 2>/dev/null || true
 }
+
+if [ "$build" = 0 ] && ! arva_compose pull api web; then
+  if docker image inspect "$ARVA_API_IMAGE:$ARVA_IMAGE_TAG" "$ARVA_WEB_IMAGE:$ARVA_IMAGE_TAG" >/dev/null 2>&1; then
+    say "The images could not be updated; ARVA starts with the copies already on this computer."         "No se pudieron actualizar las imágenes; ARVA se inicia con las copias que ya hay en este equipo."
+  else
+    log_launcher launcher_pull_failed "docker compose pull failed" 1
+    say "Docker could not download $ARVA_API_IMAGE:$ARVA_IMAGE_TAG and $ARVA_WEB_IMAGE:$ARVA_IMAGE_TAG. Check the
+internet connection; if the images are private, sign in once with
+  docker login ghcr.io -u <your GitHub user name>
+giving a GitHub personal access token with the read:packages scope as the password (Docker keeps it, on a Mac in the
+keychain; ARVA never sees or stores it), then run scripts/start.sh again. Or build the images here: scripts/start.sh --build"         "Docker no pudo descargar $ARVA_API_IMAGE:$ARVA_IMAGE_TAG ni $ARVA_WEB_IMAGE:$ARVA_IMAGE_TAG. Comprueba la
+conexión a internet; si las imágenes son privadas, inicia sesión una vez con
+  docker login ghcr.io -u <tu nombre de usuario de GitHub>
+usando como contraseña un token de acceso personal de GitHub con el permiso read:packages (Docker lo guarda, en un Mac en
+el llavero; ARVA nunca lo ve ni lo guarda) y vuelve a ejecutar scripts/start.sh. O construye las imágenes aquí:
+scripts/start.sh --build" >&2
+    exit 1
+  fi
+fi
 
 arva_compose up -d "$@" || {
   status=$?

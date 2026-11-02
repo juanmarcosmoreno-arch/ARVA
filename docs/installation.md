@@ -3,13 +3,84 @@
 ## Option A — Docker Compose
 
 Requirements: Docker Desktop (macOS, Apple Silicon or Intel) or Docker Engine + Compose v2 (Linux).
-All base images are multi-architecture.
 
 ```bash
 git clone <repository> arva && cd arva
 cp .env.example .env              # optional: set ARVA_DB_PASSWORD
-docker compose up -d --build      # on a Mac: scripts/start.sh --build (see below)
+docker login ghcr.io -u <your GitHub user name>   # once; see "Published images" below
+scripts/start.sh                  # or: docker compose up -d
 ```
+
+### Published images (GitHub Container Registry)
+
+ARVA's API and web images are built, tested and published by GitHub Actions
+(`.github/workflows/images.yml`) for `linux/amd64` and `linux/arm64`, from every push to `main` and to the
+development branch:
+
+| Image | Tags |
+|---|---|
+| `ghcr.io/juanmarcosmoreno-arch/arva-api` (API and worker) | `<version>` (e.g. `0.2.0`, the newest build of that version), `<version>-<short commit>` (one build, never moved); both are multi-architecture; `<version>-<short commit>-amd64` and `-arm64` are the single-architecture images behind them |
+| `ghcr.io/juanmarcosmoreno-arch/arva-web` | the same |
+
+Before an image is pushed, the workflow runs it (`scripts/ci/smoke-images.sh`): every tool adapter's detection
+inside the API image, with each Bioconda tool's version compared with its lock and, on arm64, the documented
+reason for each tool without an arm64 lock; the database migrations against PostgreSQL 16.4; `GET /health`; the
+worker; the web image in front of the API; and one real analysis, mlst on *S. aureus* NCTC 8325 (NCBI RefSeq
+NC_007795.1, downloaded from NCBI and checked against its SHA-256), which must report `saureus` ST8. Each image
+records the commit it was built from (`ARVA_GIT_COMMIT`, shown in Diagnostics) and its source repository and
+revision as OCI labels.
+
+**Visibility.** GitHub created both packages **public** when the workflow first pushed them (2026-11-02): they are
+linked to this repository, which is public, and anyone can pull them without signing in. Only the owner can change
+that, on GitHub: the package (Your profile → Packages → `arva-api`, then `arva-web`) → **Package settings** →
+**Danger Zone → Change visibility → Private**; the workflow keeps pushing to a private package. While they are
+private, sign in to the registry once on each computer:
+
+```bash
+docker login ghcr.io -u <your GitHub user name>
+# Password: a GitHub personal access token with the read:packages scope
+#   (classic token: Settings → Developer settings → Personal access tokens → Tokens (classic) → read:packages;
+#    or a fine-grained token with read access to the packages)
+```
+
+Docker keeps the token in its own credential store (on a Mac, the keychain); ARVA never reads, stores or sends it.
+`scripts/start.sh` pulls `<version>` of both images at each start (`docker compose pull api web`); when the pull
+fails but both images are already on the computer, it starts with them and says so; when they are not, it explains
+how to sign in. Other images: `ARVA_API_IMAGE`, `ARVA_WEB_IMAGE` and `ARVA_IMAGE_TAG` (for example
+`ARVA_IMAGE_TAG=0.2.0-6e01b65` to stay on one build).
+
+To build the images on this computer instead: `scripts/start.sh --build`. They are then named
+`arva-api:<version>` and `arva-web:<version>`, so a local build is never mistaken for a published one; the next
+`scripts/start.sh` without `--build` uses the published images again. (A plain `docker compose up -d --build`
+gives the local build the published names, unless `ARVA_API_IMAGE` and `ARVA_WEB_IMAGE` say otherwise.)
+
+### Image architecture: Apple silicon, Rosetta and native arm64
+
+Several tools have no Linux arm64 build, so an arm64 image lacks them:
+
+| Missing on linux/arm64 | Why |
+|---|---|
+| Bakta's CDS, sORF, tRNA, tmRNA, rRNA, ncRNA and origin steps | Bioconda has no BLAST+ 2.17.0 for linux-aarch64, which Bakta's recipe requires (`docker/conda-locks/bakta/linux-aarch64.unavailable`); the arm64 image has Bakta from PyPI with Debian's older programs, and Bakta's own minimums switch those steps off |
+| Prokka, SPAdes, Unicycler, tRNAscan-SE, Infernal, HMMER, barrnap | Debian bookworm builds them for amd64 only |
+| MOB-suite, IntegronFinder, ISEScan, AgrVATE, GTDB-Tk | no linux-aarch64 lock (`docker/conda-locks/<tool>/linux-aarch64.unavailable`) |
+
+On Apple silicon `scripts/start.sh` therefore chooses the **amd64 image** by default, which Docker Desktop runs
+through Rosetta when **Settings → General → "Use Rosetta for x86_64/amd64 emulation on Apple Silicon"** is on (it
+needs the Apple Virtualization framework; Docker's settings page lists it as off by default, its settings
+reference as on, so check it). It reads the setting from Docker Desktop's settings file
+(`~/Library/Group Containers/group.com.docker/settings-store.json`, or `settings.json` in older versions); when the
+setting is **off**, it chooses the native **arm64 image** instead, because Docker would otherwise emulate amd64
+with QEMU, which is much slower; when it cannot read the setting it keeps amd64 and says how to check.
+
+The trade-off, honestly: translated programs run slower than native ones, and ARVA has not measured how much on a
+real Mac (nor has it run on one). Rosetta translates ahead of time, so the cost is mostly CPU time in tools such as
+Flye, SPAdes, BLAST+ or DIAMOND; the native arm64 image is faster for what it has, but for *S. aureus* work it
+loses Bakta's full annotation, Prokka, AgrVATE (agr typing), MOB-suite and the short-read assemblers. Choose
+yourself with `scripts/start.sh --platform linux/arm64` (or `linux/amd64`); the choice is saved in
+`~/.config/arva/arva.conf` until `scripts/start.sh --platform auto`. Intel Macs and x86-64 Linux use amd64; arm64
+Linux uses arm64. The launcher prints the choice and why, and **Settings → Performance → Image architecture**
+shows it with the architecture the containers really run, whether they are translated, and the tools missing on
+that architecture (also in the diagnostic report). PostgreSQL and Redis always run natively.
 
 - Web interface: <http://localhost:8080>
 - API + OpenAPI docs: <http://localhost:8000/docs>
@@ -34,8 +105,8 @@ containers for [server-side import](#importing-large-files-from-a-server-folder)
 
 ### On a Mac: the launcher and the performance profile
 
-Start ARVA with `scripts/start.sh` (it runs `docker compose up -d`, passing on extra arguments such as
-`--build`). Before starting, it reads which Mac this is and what Docker Desktop gives its Linux virtual machine,
+Start ARVA with `scripts/start.sh` (it pulls the published images, then runs `docker compose up -d`, passing on
+extra arguments such as `--build`). Before starting, it reads which Mac this is and what Docker Desktop gives its Linux virtual machine,
 and passes these facts to the `api` and `worker` containers as `ARVA_HOST_*` variables:
 
 | Fact | Read with | Source of the key or field |
@@ -307,15 +378,17 @@ To keep that off the internal disk too: Docker Desktop → **Settings → Resour
 replace an image already there). Do not move the file in Finder, Docker's FAQ warns. With the disk image on the
 external disk, Docker Desktop needs that disk connected to start.
 
-Expected size of ARVA's images, estimated from component sizes (not measured from a build):
+Size of ARVA's images, measured with `docker image ls` (unpacked) in the publishing workflow on 2026-11-02 (commit
+33b192e):
 
-| Image | Basis | Estimate |
+| Image | linux/amd64 | linux/arm64 |
 |---|---|---|
-| `arva-api` (API and worker) | `python:3.12.7-slim-bookworm` (45 MB compressed download, Docker Hub); Debian tool packages ≤ 1.1 GiB installed (upper bound: the dependency closure on Ubuntu 24.04, which counts libraries the base already has); MultiQC 1.2 GB, NanoPlot 0.59 GB, QUAST 0.15 GB, Bakta 0.32 GB as venvs (measured here); ARVA with pod5 ≈ 0.6 GB (its venv here) | about 4 GB |
-| `postgres:16.4-alpine`, `redis:7.4.1-alpine`, `nginx:1.27.2-alpine` | 99, 19 and 23 MB compressed downloads (Docker Hub) | a few hundred MB unpacked |
-| `arva-web` and build cache | nginx plus the built interface; the `node:22.11.0-alpine3.20` build stage (54 MB compressed) and `node_modules` stay in the build cache | a few hundred MB to about 1 GB |
+| `arva-api` (API and worker; every Bioconda environment built by default, the Python report tools, the Debian packages) | 16.2 GB | 10 GB (fewer tools, see "Image architecture") |
+| `arva-web` (nginx and the built interface) | 57.2 MB | 61.5 MB |
+| `postgres:16.4-alpine`, `redis:7.4.1-alpine` | 99 and 19 MB compressed downloads (Docker Hub) | the same |
 
-So reserve about 6 GB for the images and build cache, plus the metadata volume (small) and room for rebuilds;
+So reserve about 20 GB in Docker Desktop's disk image for ARVA's images on amd64 (or under Rosetta on Apple
+silicon), plus the metadata volume (small) and room for the next version while the old one is still there;
 `docker system df` shows the real figures. Building with `--build-arg ARVA_PYTHON_TOOLS=""` leaves out the Python
 report tools (about 2.3 GB).
 
@@ -1069,8 +1142,8 @@ refusals, job failures and cancellations, worker crashes, start-up problems, err
 `logs/app.jsonl` (start-up, configuration summary, job start and end with durations). Each rotates at 2 MiB
 (`app.jsonl` at 1 MiB) and keeps 4 (2) older files, so they never take more than 13 MiB. While the data folder's disk
 is not connected (or another disk is in its place), nothing is written there: entries go only to the container's log
-(`docker compose logs api`), which `scripts/diagnostics.sh` shows. The commit is recorded when the images are built by
-`scripts/start.sh --build` (`unknown` otherwise).
+(`docker compose logs api`), which `scripts/diagnostics.sh` shows. The commit is recorded when the images are built: by the
+publishing workflow, or by `scripts/start.sh --build` (`unknown` for a plain `docker compose up --build`).
 
 ## Batch runs and parallel jobs
 

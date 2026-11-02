@@ -39,6 +39,10 @@ const mac: PerformanceOverview = {
     cpus: { current: 4, recommended: 7, status: "increase" },
     memory: { current_bytes: 8 * GIB, recommended_gb: 19, most_gb: 24, status: "increase" },
   },
+  image: {
+    running: "linux/amd64", chosen: "linux/amd64", reason: "rosetta_on", rosetta: "on", source: "published", host_arch: "arm64",
+    emulated: true, mismatch: false, unavailable_tools: [],
+  },
 };
 
 const unknownHost = Object.fromEntries(Object.keys(mac.host).map((k) => [k, { value: null, source: null }])) as Record<HostFactKey, HostFact>;
@@ -73,6 +77,27 @@ describe("Performance section", () => {
     expect(within(alerts[1]).getByText("Memory limit: now 8.00 GB; set it to 19 GB.")).toBeInTheDocument();
     expect(within(alerts[1]).getByText(/Settings → Resources → Advanced/)).toBeInTheDocument();
     expect(screen.getByText(/Flye, Racon, minimap2, BWA, QUAST, Bakta, Prokka/)).toBeInTheDocument();
+    expect(screen.getByText(/Apple silicon with Rosetta on in Docker Desktop: the amd64 image/)).toBeInTheDocument();
+    expect(screen.getByText(/an amd64 image on an arm64 computer, through Rosetta\. Every tool is there/)).toBeInTheDocument();
+    expect(screen.getByText("published (ghcr.io)")).toBeInTheDocument();
+    expect(screen.getByText("Every ARVA tool has a build for this architecture.")).toBeInTheDocument();
+    expect(screen.queryByText(/Use Rosetta for x86_64\/amd64 emulation/)).toBeNull();
+  });
+
+  it("names the tools a native arm64 image lacks, in Spanish, and a container that runs another architecture", async () => {
+    useSettings.setState({ language: "es" });
+    vi.spyOn(api, "performance").mockResolvedValue({
+      ...mac,
+      docker: { status: "ok", cpus: { current: 8, recommended: 7, status: "ok" }, memory: { current_bytes: 20 * GIB, recommended_gb: 19, most_gb: 24, status: "ok" } },
+      effective: { ...mac.effective, exceeds: [] },
+      image: { ...mac.image, running: "linux/amd64", chosen: "linux/arm64", reason: "rosetta_off", rosetta: "off", mismatch: true, unavailable_tools: ["bakta", "mobsuite"] },
+    });
+    renderSection();
+    expect(await screen.findByText(/Rosetta desactivado en Docker Desktop: la imagen arm64 nativa/)).toBeInTheDocument();
+    expect(screen.getByText("No disponibles en esta arquitectura: bakta, mobsuite.")).toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent("scripts/start.sh eligió linux/arm64, pero los contenedores usan linux/amd64");
+    expect(screen.getByText(/mediante QEMU \(Rosetta está desactivado en Docker Desktop\)/)).toBeInTheDocument();
+    expect(screen.getByText(/Use Rosetta for x86_64\/amd64 emulation on Apple Silicon/)).toBeInTheDocument();
   });
 
   it("saves a custom profile only within what ARVA can use", async () => {

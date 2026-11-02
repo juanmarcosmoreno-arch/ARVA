@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import math
+import os
 import re
 from dataclasses import asdict, dataclass, field
 from typing import Any
@@ -27,6 +28,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
+from app.services import image_platform
 from app.services.host import GIB, ContainerFacts, Detection, HostFacts, detection
 
 PROFILES = ("light", "balanced", "maximum")
@@ -292,6 +294,7 @@ def overview(db: Session) -> dict[str, Any]:
         "profiles": [{"profile": p, "threads": r.threads, "memory_gb": r.memory_gb, "nice": r.nice}
                      for p, r in profiles.items()],
         "docker": docker_advice(det, res),
+        "image": image_platform.describe(det.host, os.environ),
     }
 
 
@@ -388,6 +391,7 @@ def text_report(det: Detection, res: Resources, lang: str = "en", saved_unreadab
                 current=current, recommended=f"{mem['recommended_gb']} GB", most=f"{mem['most_gb']} GB"))
         if rows:
             lines += [f"  {t['docker_adjust']}", *rows]
+    lines += image_platform.text_lines(image_platform.describe(det.host, os.environ), lang)
     lines.append(f"  {t['change']}")
     return "\n".join(lines)
 

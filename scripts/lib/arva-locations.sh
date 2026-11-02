@@ -12,6 +12,8 @@
 #   ARVA_ADD_DATABASES        existing database folders used in place, read-only -> /databases-external/<n>
 #                             (repeatable; <n> is the POSIX cksum of the folder's path, so it stays the same)
 #   ARVA_*_DIR_MOUNT          the disk (mount point) each writable folder was on when it was chosen
+#   ARVA_PLATFORM             the image architecture chosen with scripts/start.sh --platform (linux/amd64 or
+#                             linux/arm64); without it scripts/start.sh chooses one at each start
 #
 # Every folder is checked before Docker starts: an absolute path to an existing folder, readable (and writable for
 # data and databases), on the disk it was on when chosen. On a Mac, diskutil names the folder's filesystem, and
@@ -76,7 +78,7 @@ EOF
 }
 
 arva_read_config() {
-  cfg_data='' cfg_data_mount='' cfg_databases='' cfg_databases_mount='' cfg_import='' cfg_extra=''
+  cfg_data='' cfg_data_mount='' cfg_databases='' cfg_databases_mount='' cfg_import='' cfg_extra='' cfg_platform=''
   if [ -z "$ARVA_CONFIG" ] || { [ ! -e "$ARVA_CONFIG" ] && [ ! -L "$ARVA_CONFIG" ]; }; then return 0; fi
   if [ -L "$ARVA_CONFIG" ] || [ ! -f "$ARVA_CONFIG" ] || [ ! -O "$ARVA_CONFIG" ]; then
     warn "$ARVA_CONFIG must be a regular file of yours (not a link); ARVA did not start." \
@@ -108,6 +110,13 @@ arva_read_config() {
       ARVA_DATABASES_DIR) cfg_databases=$value ;;
       ARVA_DATABASES_DIR_MOUNT) cfg_databases_mount=$value ;;
       ARVA_IMPORT_DIR) cfg_import=$value ;;
+      ARVA_PLATFORM)
+        case "$value" in
+          linux/amd64 | linux/arm64) cfg_platform=$value ;;
+          *) warn "$ARVA_CONFIG line $n: ARVA_PLATFORM must be linux/amd64 or linux/arm64; ignored." \
+                  "Línea $n de $ARVA_CONFIG: ARVA_PLATFORM debe ser linux/amd64 o linux/arm64; se ignora." ;;
+        esac
+        ;;
       ARVA_ADD_DATABASES)
         if [ -n "$value" ] && ! list_has "$cfg_extra" "$value"; then cfg_extra=$(list_add "$cfg_extra" "$value"); fi
         ;;
@@ -127,12 +136,13 @@ arva_write_config() {
     mkdir -p "$ARVA_CONFIG_DIR" || exit 1
     tmp=$ARVA_CONFIG.tmp.$$
     {
-      printf '%s\n' "# ARVA storage locations, written by scripts/start.sh. KEY=VALUE, one per line: read line by line, never run."
+      printf '%s\n' "# ARVA storage locations and image architecture, written by scripts/start.sh. KEY=VALUE, one per line: read line by line, never run."
       if [ -n "$cfg_data" ]; then printf 'ARVA_DATA_DIR=%s\nARVA_DATA_DIR_MOUNT=%s\n' "$cfg_data" "$cfg_data_mount"; fi
       if [ -n "$cfg_databases" ]; then
         printf 'ARVA_DATABASES_DIR=%s\nARVA_DATABASES_DIR_MOUNT=%s\n' "$cfg_databases" "$cfg_databases_mount"
       fi
       if [ -n "$cfg_import" ]; then printf 'ARVA_IMPORT_DIR=%s\n' "$cfg_import"; fi
+      if [ -n "${cfg_platform:-}" ]; then printf 'ARVA_PLATFORM=%s\n' "$cfg_platform"; fi
       while IFS= read -r item; do
         if [ -n "$item" ]; then printf 'ARVA_ADD_DATABASES=%s\n' "$item"; fi
       done <<EOF
