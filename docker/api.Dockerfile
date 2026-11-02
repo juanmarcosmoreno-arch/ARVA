@@ -15,6 +15,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 # linux-64.lock or linux-aarch64.lock: exact package URLs with their SHA-256; micromamba refuses any other file).
 # micromamba, its package cache and the build inputs exist only during this RUN (bind mounts and a temporary folder),
 # so the layer holds the environments alone, once: a stage of its own would store them twice in the build cache.
+# Only the two scripts it runs are mounted, so that a change to another script does not rebuild this layer.
 # mlst 2.35.0 with BLAST+ 2.16.0 has locks for both architectures (about 0.95 GB installed, measured on linux-64);
 # so have FastANI 1.34 (95 MB), skani 0.4.0 (31 MB), Mash 2.3 (135 MB) and sylph 1.0.0 (30 MB), the species
 # identification tools, and AMRFinderPlus 4.2.7 with BLAST+ 2.16.0 and HMMER 3.4 (0.87 GB). Bakta 1.12.2 with every
@@ -37,7 +38,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 # ships them. A tool without a lock for the image's architecture is left out.
 # Build with --build-arg ARVA_CONDA_TOOLS="" for an image without them.
 ARG ARVA_CONDA_TOOLS="mlst fastani skani mash sylph amrfinderplus bakta abricate mobsuite integronfinder sccmec spatyper agrvate iqtree panaroo"
-RUN --mount=type=bind,source=scripts,target=/build/scripts \
+RUN --mount=type=bind,source=scripts/install-micromamba.sh,target=/build/scripts/install-micromamba.sh \
+    --mount=type=bind,source=scripts/conda_locks.py,target=/build/scripts/conda_locks.py \
     --mount=type=bind,source=docker/conda-locks,target=/build/docker/conda-locks \
     set -eu; mkdir -p /opt/arva-tools/conda; \
     plat=linux-64; if [ "$(uname -m)" = "aarch64" ]; then plat=linux-aarch64; fi; \
