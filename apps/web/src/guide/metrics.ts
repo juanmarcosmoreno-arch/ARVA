@@ -90,6 +90,8 @@ export type GuideId =
   | "cog"
   | "genome_explorer"
   | "gc_skew"
+  | "double_helix"
+  | "base_pairing"
   | "circular_map"
   | "annotation_charts"
   | "performance_profile"
@@ -290,6 +292,13 @@ const REF = {
   hypothetical: { label: "Galperin & Koonin (2004) Nucleic Acids Research 32(18):5452–5463 — 'Conserved hypothetical' proteins", url: "https://doi.org/10.1093/nar/gkh885" },
   geneticCodes: { label: "NCBI — The genetic codes (translation tables)", url: "https://www.ncbi.nlm.nih.gov/Taxonomy/Utils/wprintgc.cgi" },
   gff3: { label: "Sequence Ontology — GFF3 specification", url: "https://github.com/The-Sequence-Ontology/Specifications/blob/master/gff3.md" },
+  watsonCrick1953: { label: "Watson & Crick (1953) Nature 171:737–738 — Molecular structure of nucleic acids: a structure for deoxyribose nucleic acid", url: "https://doi.org/10.1038/171737a0" },
+  wang1979: { label: "Wang JC (1979) PNAS 76(1):200–203 — Helical repeat of DNA in solution", url: "https://doi.org/10.1073/pnas.76.1.200" },
+  rhodesKlug1980: { label: "Rhodes & Klug (1980) Nature 286:573–578 — Helical periodicity of DNA determined by enzyme digestion", url: "https://doi.org/10.1038/286573a0" },
+  rich1984: { label: "Rich, Nordheim & Wang (1984) Annual Review of Biochemistry 53:791–846 — The chemistry and biology of left-handed Z-DNA (table of A-, B- and Z-DNA parameters)", url: "https://doi.org/10.1146/annurev.bi.53.070184.004043" },
+  wing1980: { label: "Wing et al. (1980) Nature 287:755–758 — Crystal structure analysis of a complete turn of B-DNA", url: "https://doi.org/10.1038/287755a0" },
+  drew1981: { label: "Drew et al. (1981) PNAS 78(4):2179–2183 — Structure of a B-DNA dodecamer: conformation and dynamics", url: "https://doi.org/10.1073/pnas.78.4.2179" },
+  paulingCorey1956: { label: "Pauling & Corey (1956) Archives of Biochemistry and Biophysics 65:164–181 — Specific hydrogen-bond formation between pyrimidines and purines in deoxyribonucleic acids", url: "https://doi.org/10.1016/0003-9861(56)90185-0" },
   lobry: { label: "Lobry JR (1996) Molecular Biology and Evolution 13:660–665 — Asymmetric substitution patterns in the two DNA strands of bacteria", url: "https://doi.org/10.1093/oxfordjournals.molbev.a025626" },
   grigoriev: { label: "Grigoriev A (1998) Nucleic Acids Research 26:2286–2290 — Analyzing genomes with cumulative skew diagrams", url: "https://doi.org/10.1093/nar/26.10.2286" },
   cgview: { label: "Stothard & Wishart (2005) Bioinformatics 21:537–539 — Circular genome visualization and exploration using CGView", url: "https://doi.org/10.1093/bioinformatics/bti054" },
@@ -2045,6 +2054,70 @@ export const GUIDE: GuideEntry[] = [
         "Comparar sesgos calculados con tamaños de ventana distintos.",
       ],
       limitations: "ARVA muestra el sesgo por ventanas, no el acumulado, y no predice origen ni término. En los genomas sintéticos de ARVA la secuencia es aleatoria, así que no se espera ninguna señal de replicación.",
+    },
+  },
+  {
+    id: "double_helix",
+    references: [REF.watsonCrick1953, REF.wang1979, REF.rhodesKlug1980, REF.rich1984, REF.wing1980, REF.drew1981],
+    en: {
+      title: "Double helix view",
+      what: "A schematic drawing of B-DNA for the real bases around one position of an annotated sequence: two sugar–phosphate backbones winding round a common axis, one rung per base pair coloured by base, with the pair under the reading head, a sequence window, the helix facts and what ARVA knows about that position (annotated features and the codon read there, AMR, virulence and mobile-element calls, polishing changes, read depth).",
+      why: "It connects a position in the browser to the molecule it stands for: which bases pair, on which strand a gene is read, which codon and amino acid a base belongs to, and whether that base was changed by polishing or lies in a resistance gene, a plasmid or a mobile element.",
+      how: "ARVA draws every pair with the same B-DNA geometry: 10.5 base pairs per turn (the helical repeat measured in solution is 10.4 ± 0.1 bp per turn, Wang 1979, and 10.6 ± 0.1, Rhodes & Klug 1980; 10.5 in the B-DNA column of Rich et al. 1984), a rise of 0.34 nm per pair (one residue every 3.4 Å along the axis, Watson & Crick 1953), so about 3.57 nm per turn, and a diameter of about 2 nm (phosphorus atoms 10 Å from the axis, Watson & Crick 1953), to the same scale along and across the axis. The second backbone is drawn about 127° round from the first, the share of a turn given by the groove widths usually quoted for B-DNA, 22 Å (major) and 12 Å (minor) (Wing et al. 1980); the labels mark where each groove faces you. Turn number, pair in turn and distance from the start are computed from these constants, counting from base 1 of the sequence. The bases come from the annotator's sequence file, 2,000 at a time; the codon and amino acid from the feature's coordinates, strand and partial flags with the annotation's translation table.",
+      interpret: "Read the drawing as a picture of base pairing, not as a structure: real DNA varies its twist and rise with the sequence (a crystal of one dodecamer had 9.8 bp per turn at its centre, Drew et al. 1981), bends, and is supercoiled in the cell. On a circular sequence, base 1 is only where the sequence file starts, so turn numbers and distances are counts along the file, not biological coordinates.",
+      next: "Open the view from the Double helix button (at the centre of the browser) or from a feature's panel (at its start codon), then step, scan or jump; the browser follows the reading head. Use the context box to check a codon, a resistance gene or a polishing change base by base.",
+      mistakes: [
+        "Reading the colours or rung lengths as measured shapes: purines are drawn longer than pyrimidines only to show they have two rings.",
+        "Expecting mismatches: an assembly stores one strand and the other is its complement by construction, so every known base is drawn paired.",
+        "Taking the turn number on a circular contig as a position relative to the origin of replication.",
+      ],
+      limitations: "Schematic geometry with constant twist and rise; no sequence-dependent structure, bending, supercoiling, methylation or protein binding. Groove widths depend on how they are measured and are used only for the drawing's proportions. Depth is the mean of the depth profile's bin (25 bp in ARVA's profiles), not the depth of one base.",
+    },
+    es: {
+      title: "Vista de doble hélice",
+      what: "Un dibujo esquemático de B-ADN con las bases reales en torno a una posición de una secuencia anotada: dos esqueletos de azúcar y fosfato que giran alrededor de un eje común, un peldaño por par de bases coloreado por base, con el par bajo el cabezal de lectura, una ventana de secuencia, los datos de la hélice y lo que ARVA sabe de esa posición (elementos anotados y el codón que se lee allí, detecciones de RAM, virulencia y elementos móviles, cambios del pulido, profundidad de lecturas).",
+      why: "Une una posición del navegador con la molécula que representa: qué bases se emparejan, en qué hebra se lee un gen, a qué codón y aminoácido pertenece una base, y si esa base la cambió el pulido o está en un gen de resistencia, un plásmido o un elemento móvil.",
+      how: "ARVA dibuja todos los pares con la misma geometría de B-ADN: 10,5 pares de bases por vuelta (la repetición helicoidal medida en solución es 10,4 ± 0,1 pb por vuelta, Wang 1979, y 10,6 ± 0,1, Rhodes y Klug 1980; 10,5 en la columna de B-ADN de Rich et al. 1984), una subida de 0,34 nm por par (un residuo cada 3,4 Å a lo largo del eje, Watson y Crick 1953), es decir, unos 3,57 nm por vuelta, y un diámetro de unos 2 nm (átomos de fósforo a 10 Å del eje, Watson y Crick 1953), a la misma escala a lo largo y a lo ancho del eje. El segundo esqueleto se dibuja unos 127° girado respecto al primero, la fracción de vuelta que dan las anchuras de surco que se suelen citar para el B-ADN, 22 Å (mayor) y 12 Å (menor) (Wing et al. 1980); las etiquetas marcan dónde da cada surco hacia ti. El número de vuelta, el par en la vuelta y la distancia desde el inicio se calculan con estas constantes, contando desde la base 1 de la secuencia. Las bases vienen del archivo de secuencia del anotador, de 2.000 en 2.000; el codón y el aminoácido, de las coordenadas, la hebra y las marcas de truncamiento del elemento con la tabla de traducción de la anotación.",
+      interpret: "Lee el dibujo como una imagen del emparejamiento de bases, no como una estructura: el ADN real varía su giro y su subida con la secuencia (un cristal de un dodecámero tenía 9,8 pb por vuelta en su centro, Drew et al. 1981), se curva y está superenrollado en la célula. En una secuencia circular la base 1 es solo donde empieza el archivo, así que los números de vuelta y las distancias cuentan a lo largo del archivo, no son coordenadas biológicas.",
+      next: "Abre la vista con el botón Hélice (en el centro del navegador) o desde el panel de un elemento (en su codón de inicio) y avanza, recorre o salta; el navegador sigue al cabezal de lectura. Usa el recuadro de contexto para comprobar base a base un codón, un gen de resistencia o un cambio del pulido.",
+      mistakes: [
+        "Leer los colores o las longitudes de los peldaños como formas medidas: las purinas se dibujan más largas que las pirimidinas solo para indicar que tienen dos anillos.",
+        "Esperar desapareamientos: un ensamblaje guarda una hebra y la otra es su complemento por construcción, así que toda base conocida se dibuja emparejada.",
+        "Tomar el número de vuelta en un contig circular como una posición respecto al origen de replicación.",
+      ],
+      limitations: "Geometría esquemática con giro y subida constantes; sin estructura dependiente de la secuencia, curvatura, superenrollamiento, metilación ni unión de proteínas. Las anchuras de los surcos dependen de cómo se midan y solo se usan para las proporciones del dibujo. La profundidad es la media del intervalo del perfil de profundidad (25 pb en los perfiles de ARVA), no la de una sola base.",
+    },
+  },
+  {
+    id: "base_pairing",
+    references: [REF.watsonCrick1953, REF.paulingCorey1956, REF.iupac, REF.geneticCodes],
+    en: {
+      title: "Base pairing",
+      what: "In double-stranded DNA adenine pairs with thymine and guanine with cytosine (Watson & Crick 1953). A and G are purines (two fused rings), C and T pyrimidines (one ring), so every pair joins a purine to a pyrimidine. A·T pairs are held by two hydrogen bonds and G·C pairs by three (Pauling & Corey 1956).",
+      why: "Pairing is why one strand determines the other, and why a gene can be read on either strand: a gene on the minus strand is read on the complement, from the higher coordinate to the lower.",
+      how: "An assembly (and the annotator's sequence file) stores one strand, 5′→3′. ARVA shows the second strand as its complement, read 3′→5′ under it. It never draws mismatches: the two strands of an assembly are complementary by construction, so a mismatch would be invented. N (a gap or an undetermined base) and the other IUPAC codes (R = A or G, Y = C or T, and so on; Cornish-Bowden 1985) are shown as such, not paired. A codon is read on the feature's strand from its 5′ end (for a CDS truncated at its 5′ end, from its 3′ end), and translated with the annotation's NCBI genetic code; a codon with N or an IUPAC code translates to X.",
+      interpret: "The pair at the reading head tells which base each strand carries there; the codon line tells which of the three codon positions the base occupies and which amino acid the codon encodes in that gene.",
+      next: "Compare a codon with the protein in the feature's panel; at a polishing change, check whether it fell on the first, second or third codon position.",
+      mistakes: [
+        "Reading the minus-strand gene's codon from the + strand letters: it is the complement, read backwards.",
+        "Treating lower-case bases as different: annotators and assemblers use lower case for soft-masking.",
+        "Counting codon numbers of a 5′-truncated CDS from its first base: its frame is anchored at the 3′ end and the numbers are not known.",
+      ],
+      limitations: "Only Watson–Crick pairs of the assembly's strands are shown; no wobble or non-canonical pairs, which belong to RNA and to structures, not to an assembly. Pseudogenes and CDSs truncated at both ends get no codon, because their reading frame is broken or not known.",
+    },
+    es: {
+      title: "Emparejamiento de bases",
+      what: "En el ADN de doble hebra la adenina se empareja con la timina y la guanina con la citosina (Watson y Crick 1953). A y G son purinas (dos anillos fusionados), C y T pirimidinas (un anillo), así que cada par une una purina con una pirimidina. Los pares A·T se mantienen con dos puentes de hidrógeno y los G·C con tres (Pauling y Corey 1956).",
+      why: "El emparejamiento es la razón por la que una hebra determina la otra, y por la que un gen se puede leer en cualquiera de las dos: un gen en la hebra menos se lee en el complemento, de la coordenada mayor a la menor.",
+      how: "Un ensamblaje (y el archivo de secuencia del anotador) guarda una hebra, 5′→3′. ARVA muestra la segunda hebra como su complemento, leída 3′→5′ debajo. Nunca dibuja desapareamientos: las dos hebras de un ensamblaje son complementarias por construcción, así que un desapareamiento sería inventado. La N (un hueco o una base sin determinar) y los demás códigos IUPAC (R = A o G, Y = C o T, etc.; Cornish-Bowden 1985) se muestran como tales, sin par. Un codón se lee en la hebra del elemento desde su extremo 5′ (en una CDS truncada en su extremo 5′, desde su extremo 3′) y se traduce con el código genético del NCBI de la anotación; un codón con N o un código IUPAC se traduce como X.",
+      interpret: "El par bajo el cabezal indica qué base lleva cada hebra en ese punto; la línea del codón indica cuál de las tres posiciones del codón ocupa la base y qué aminoácido codifica ese codón en el gen.",
+      next: "Compara un codón con la proteína del panel del elemento; en un cambio del pulido, comprueba si cayó en la primera, la segunda o la tercera posición del codón.",
+      mistakes: [
+        "Leer el codón de un gen de la hebra menos con las letras de la hebra +: es el complemento, leído al revés.",
+        "Tratar las bases en minúscula como distintas: anotadores y ensambladores usan minúsculas para enmascarar.",
+        "Contar los números de codón de una CDS truncada en 5′ desde su primera base: su marco se ancla en el extremo 3′ y los números no se conocen.",
+      ],
+      limitations: "Solo se muestran pares de Watson y Crick de las hebras del ensamblaje; no pares tambaleantes ni no canónicos, que corresponden al ARN y a estructuras, no a un ensamblaje. Los pseudogenes y las CDS truncadas en ambos extremos no tienen codón, porque su marco de lectura está roto o no se conoce.",
     },
   },
   {

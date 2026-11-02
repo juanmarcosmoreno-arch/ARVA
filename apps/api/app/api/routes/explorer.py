@@ -13,6 +13,7 @@ from app.schemas.schemas import (
     GenomeMapRead,
     GenomeSequenceRead,
     GenomeTracksRead,
+    HelixRead,
 )
 from app.services import annotation as annotation_svc
 from app.services import genome_explorer as svc
@@ -75,6 +76,21 @@ def get_sequence(
     name = annotation_svc.download_name(sample, annotation, f"{region}{'_rc' if strand == '-' else ''}.fasta")
     return Response(svc.sequence_fasta(sample, annotation, s), media_type="text/plain; charset=utf-8",
                     headers={"Content-Disposition": f'attachment; filename="{name}"', **_SAFE_HEADERS})
+
+
+@router.get("/annotations/{annotation_id}/helix", response_model=HelixRead)
+def get_helix(
+    annotation_id: str,
+    contig: str = _Contig,
+    start: int = Query(ge=1),
+    end: int = Query(ge=1),
+    db: Session = Depends(get_db),
+):
+    """For the double-helix view: bases start..end (1-based, inclusive; at most 2,000) of one annotated sequence,
+    the features overlapping them with the codons they read there, the bases polishing changed (from the polishing
+    tools' own records) and the read depth where reads were aligned to exactly this assembly."""
+    annotation = get_or_404(db, Annotation, annotation_id, "Annotation")
+    return _call(svc.helix, db, annotation, contig, start, end)
 
 
 @router.get("/annotations/{annotation_id}/layout", response_model=FeatureLayoutRead)

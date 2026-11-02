@@ -143,6 +143,25 @@ class DnadiffAdapter(ToolAdapter):
         return out
 
     @staticmethod
+    def snp_rows(text: str) -> list[dict[str, Any]]:
+        """Every .snps row (show-snps -rlTHC) as recorded: its position and base in the reference (P1, SUB) and in
+        the query (P2, SUB; "." for a base missing on that side), the alignment's frames (1 forward, -1 reverse) and
+        both sequence names."""
+        rows = []
+        for n, line in enumerate(text.splitlines(), start=1):
+            if not line.strip():
+                continue
+            f = line.split("\t")
+            if len(f) < 12:
+                raise ValueError(f"line {n}: a .snps row has 12 tab-separated columns (show-snps -rlTHC)")
+            try:
+                rows.append({"ref_pos": int(f[0]), "ref_base": f[1], "query_base": f[2], "query_pos": int(f[3]),
+                             "ref_frame": int(f[8]), "query_frame": int(f[9]), "ref": f[10], "query": f[11]})
+            except ValueError:
+                raise ValueError(f"line {n}: positions and frames must be integers") from None
+        return rows
+
+    @staticmethod
     def parse_snps(text: str) -> dict[str, Any]:
         """The .snps rows (show-snps -rlTHC) as events: substitutions (one per base), insertions and deletions
         (consecutive bases of one indel counted once, with their bases), overall and by reference contig."""

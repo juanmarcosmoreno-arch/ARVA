@@ -1323,6 +1323,37 @@ Coordinates are 1-based and inclusive, as in GFF3.
 - **Limits.** The linear view shows one sequence at a time; at most 50,000 features per sequence in the layout. On
   ARVA's synthetic genomes nothing the explorer shows is biology.
 
+## Double helix view
+
+A base-level view of one position of an annotation (`apps/web/src/lib/helix.ts`, `components/explorer/DoubleHelix.tsx`;
+data from `GET /annotations/{id}/helix`, `app/services/genome_explorer.helix`).
+
+- **Schematic geometry, cited.** Every pair gets the same rise and twist: 10.5 bp per turn (helical repeat in
+  solution 10.4 ± 0.1, Wang 1979, PNAS 76:200, doi:10.1073/pnas.76.1.200; 10.6 ± 0.1, Rhodes & Klug 1980, Nature
+  286:573, doi:10.1038/286573a0; 10.5 in the B-DNA column of Rich, Nordheim & Wang 1984, Annu Rev Biochem 53:791),
+  0.34 nm per pair and phosphorus atoms 10 Å from the axis (Watson & Crick 1953, Nature 171:737), so 3.57 nm per turn
+  and ~2 nm across, drawn to one scale. The second backbone is drawn 360° × 12 / (22 + 12) ≈ 127° round from the
+  first, from the groove widths usually quoted for B-DNA, 22 Å and 12 Å (Wing et al. 1980, Nature 287:755); those
+  widths depend on how they are measured and only set the drawing's proportions. Turn number, pair in turn and
+  distance from the start count from base 1 of the sequence file. Real DNA varies (a B-DNA dodecamer had 9.8 bp
+  per turn at its centre, Drew et al. 1981, PNAS 78:2179), bends and supercoils; the view says it is schematic.
+- **Pairs.** A·T with two hydrogen bonds and G·C with three (Pauling & Corey 1956, Arch Biochem Biophys 65:164);
+  purines (two rings) drawn longer than pyrimidines (one ring). An assembly stores one strand; the other is shown as
+  its complement, so no mismatch is ever drawn. N and the other IUPAC codes (Cornish-Bowden 1985) are shown as
+  unknown, not paired; lower case (soft-masking) is the same base.
+- **Codons.** `arva_core.genome_view.feature_codons` reads a CDS or sORF on its strand from its 5′ end (start on +,
+  end on −; across the origin when `edge`), or from its 3′ end for a CDS truncated at its 5′ end (no codon numbers);
+  pseudogenes and CDSs truncated at both ends get none; a codon cut by a truncated end is left out. Translation uses
+  the annotation's NCBI table (`translate`; a start codon of the table reads M only as codon 1; N or an IUPAC code
+  gives X).
+- **Polishing changes.** Only the tools' own per-base records: dnadiff's `.snps` (show-snps -rlTHC) of the whole run
+  (or of its only round), else Pilon's `.changes` of its only round (later rounds' coordinates differ from the
+  draft's). Positions are in the polished sequence when the annotated assembly is a polishing result, in the draft
+  when it was polished later; for an alignment in reverse orientation the bases are not placed. Differences outside
+  dnadiff's one-to-one alignments are not in the record.
+- **Context.** AMRFinderPlus, VFDB and mobile-element calls from the assembly's most recent runs (as on the tracks),
+  MOB-suite's call for the contig, and read depth as the mean of the depth profile's 25 bp bin that holds the base.
+
 ## Circular genome map and annotation charts (Phase 4D)
 
 ### Circular map

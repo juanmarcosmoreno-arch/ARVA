@@ -1,21 +1,23 @@
 import { useQuery } from "@tanstack/react-query";
-import { Map as MapIcon } from "lucide-react";
+import { Dna, Map as MapIcon } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { SyntheticNote } from "@/components/annotation/AnnotationDialog";
 import { Segmented } from "@/components/charts/ChartCard";
 import { CircularExplorer } from "@/components/explorer/CircularMap";
+import { DoubleHelix } from "@/components/explorer/DoubleHelix";
 import { FeatureDetail } from "@/components/annotation/FeatureDetail";
 import { ExplorerLegend, ExplorerSearch, MarkedBar, RegionBar } from "@/components/explorer/ExplorerControls";
 import { type GcSettings, GenomeBrowser } from "@/components/explorer/GenomeBrowser";
 import { Explain } from "@/components/guide/Explain";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardBody } from "@/components/ui/card";
 import { Select } from "@/components/ui/form";
 import { EmptyState, ErrorNote, PageHeader } from "@/components/ui/misc";
 import { useT } from "@/i18n";
 import { api } from "@/lib/api";
-import { clampView, contigOptions, regionOf, type View, viewOf, viewOfFeature } from "@/lib/explorer";
+import { clampView, contigOptions, regionOf, span, type View, viewOf, viewOfFeature } from "@/lib/explorer";
 import { fmtBases, fmtBp, fmtDate, fmtInt } from "@/lib/format";
 import type { Annotation, AnnotationFeature, AssemblyContig, FeatureLayoutItem, MapFeature } from "@/lib/types";
 
@@ -227,6 +229,10 @@ function Explorer({ annotation, contigs, assembler }: { annotation: Annotation; 
   const [marked, setMarked] = useState<Set<number>>(new Set());
   const [region, setRegion] = useState<View | null>(null);
   const [gc, setGc] = useState<GcSettings>({ window: null, step: null });
+  const [helixAt, setHelixAt] = useState<number | null>(() => {
+    const h = Number(params.get("helix"));
+    return Number.isInteger(h) && h >= 1 && (!contig || h <= contig.length) ? h : null;
+  });
   const pendingFeature = useRef<number | null>(selected);
 
   const layout = useQuery({
@@ -252,10 +258,11 @@ function Explorer({ annotation, contigs, assembler }: { annotation: Annotation; 
       const r = regionOf(view);
       const next = new URLSearchParams({ contig: contig.id, start: String(r.start), end: String(r.end) });
       if (selected != null) next.set("feature", String(selected));
+      if (helixAt != null) next.set("helix", String(helixAt));
       if (next.toString() !== params.toString()) setParams(next, { replace: true });
     }, 400);
     return () => clearTimeout(timer);
-  }, [contig, view, selected, params, setParams]);
+  }, [contig, view, selected, helixAt, params, setParams]);
 
   if (!contig) return <EmptyState title={t("explorer.noSequences")} />;
   const setView = (v: View) => setViewState(clampView(v, contig.length));
@@ -264,6 +271,7 @@ function Explorer({ annotation, contigs, assembler }: { annotation: Annotation; 
     if (!c) return;
     setContigId(id);
     setRegion(null);
+    setHelixAt(null);
     setViewState(clampView(v ?? { from: 0, to: c.length }, c.length));
   };
   const goTo = (id: string, start: number, end: number) => {
@@ -289,6 +297,17 @@ function Explorer({ annotation, contigs, assembler }: { annotation: Annotation; 
       return next;
     });
   const windowValue = gc.window ?? 0;
+  // The double helix and the linear browser follow each other: the browser shows the reading head at base level.
+  const moveHelix = (pos: number) => {
+    setHelixAt(pos);
+    setViewState((cur) => {
+      const width = Math.min(span(cur), 120);
+      if (width === span(cur) && pos - 1 >= cur.from + width * 0.15 && pos <= cur.to - width * 0.15) return cur;
+      return clampView({ from: pos - 0.5 - width / 2, to: pos - 0.5 + width / 2 }, contig.length);
+    });
+  };
+  const helixHere = () => moveHelix(Math.min(contig.length, Math.floor((view.from + view.to) / 2) + 1));
+  const selectedFeature = features.find((f) => f.id === selected);
 
   return (
     <div className="space-y-3">
@@ -337,6 +356,9 @@ function Explorer({ annotation, contigs, assembler }: { annotation: Annotation; 
             </Select>
           </label>
         )}
+        <Button variant={helixAt != null ? "secondary" : "outline"} size="sm" onClick={helixHere} title={t("helix.openHint")} aria-pressed={helixAt != null}>
+          <Dna className="h-3.5 w-3.5" aria-hidden /> {t("helix.open")}
+        </Button>
       </div>
       <ExplorerLegend />
       <div className={selected != null ? "grid gap-4 xl:grid-cols-[minmax(0,1fr)_380px] lg:grid-cols-[minmax(0,1fr)_340px]" : ""}>
@@ -355,7 +377,9 @@ function Explorer({ annotation, contigs, assembler }: { annotation: Annotation; 
             region={region}
             onRegion={setRegion}
             gc={gc}
+            helixAt={helixAt}
           />
+          {helixAt != null && <DoubleHelix annotationId={annotation.id} contig={contig} position={helixAt} onPosition={moveHelix} onClose={() => setHelixAt(null)} />}
           {region && <RegionBar annotation={annotation} contig={contig} region={region} features={features} onClear={() => setRegion(null)} onZoom={() => setView(region)} />}
           <MarkedBar annotation={annotation} marked={marked} features={features} onClear={() => setMarked(new Set())} />
         </div>
@@ -366,6 +390,11 @@ function Explorer({ annotation, contigs, assembler }: { annotation: Annotation; 
                 <input type="checkbox" className="h-3.5 w-3.5 accent-[#00B4A6]" checked={marked.has(selected)} onChange={() => toggleMark(selected)} />
                 {t("explorer.markForExport")}
               </label>
+              {selectedFeature && (
+                <Button variant="outline" size="sm" className="mt-2" onClick={() => moveHelix(selectedFeature.strand === "-" ? selectedFeature.end : selectedFeature.start)}>
+                  <Dna className="h-3.5 w-3.5" aria-hidden /> {t("helix.openAtFeature")}
+                </Button>
+              )}
             </FeatureDetail>
           </aside>
         )}

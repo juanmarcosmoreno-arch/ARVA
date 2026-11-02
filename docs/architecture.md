@@ -142,6 +142,15 @@
   sequence with the fields needed to draw it (at most 50,000); feature details add `checks` (the annotator's gene
   and protein sequences against the genome). Polishing jobs keep `comparison/{draft,polished}.depth_profile.json`
   (samtools depth summed in 25 bp bins; path and SHA-256 in `result_summary.indirect.{before,after}.depth_profile`).
+  `/helix?contig=&start=&end=` (at most 2,000 bases) serves the double-helix view: the bases, the features
+  overlapping them with the codons they read there (`arva_core.genome_view.feature_codons`: frame from the 5′ end,
+  or from the 3′ end of a 5′-truncated CDS, across the origin, on either strand, the annotation's translation
+  table), the bases polishing changed (the polishing job's `comparison/dnadiff_overall.snps`, or of its only round,
+  else Pilon's `round1.changes`, read with `DnadiffAdapter.snp_rows` / `PilonAdapter.change_rows`; positions in the
+  polished sequence when this assembly is a polishing result, in the draft when it was polished later) and the depth
+  profile's bins; the web fetches it in 500-base blocks (`apps/web/src/lib/helix.ts` for the geometry and lookups,
+  `components/explorer/DoubleHelix.tsx` for the SVG, reading head and context; AMR, virulence and mobile-element
+  calls come from the queries the browser's tracks already use).
   `/map?contig=…&points=&window=` serves the circular map: the features of the chosen sequences (default all, in
   the annotator's order; at most 50,000), GC and GC skew in windows of one length on every sequence (at most 5,000
   windows) with the mean GC of the drawn sequences, and coverage per window when a depth profile exists. The web

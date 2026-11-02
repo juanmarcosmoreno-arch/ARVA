@@ -2369,6 +2369,57 @@ class FeatureLayoutRead(BaseModel):
     items: list[FeatureLayoutItem]
 
 
+class HelixCodonRead(BaseModel):
+    number: int | None = Field(description="Codon number from the start codon (1); None when counted from the 3' end")
+    positions: list[int] = Field(description="The codon's three positions in the sequence, in reading order")
+    codon: str = Field(description="Its bases on the feature's strand")
+    amino_acid: str = Field(description="One-letter amino acid in the annotation's translation table; * stop, X when "
+                            "a base is N or another IUPAC code")
+
+
+class HelixReadingRead(BaseModel):
+    frame: Literal["start", "end"] | None = Field(description="Frame counted from the 5' end (start) or, for a CDS "
+                                                  "truncated at its 5' end, from the 3' end (end); None: no frame")
+    reason: str | None = Field(description="Why no frame: not_coding, pseudogene, frame_unknown, no_strand")
+    codons: list[HelixCodonRead]
+    length_multiple_of_3: bool | None
+
+
+class HelixFeatureRead(FeatureLayoutItem):
+    reading: HelixReadingRead
+
+
+class HelixChangeRead(BaseModel):
+    start: int
+    end: int
+    kind: Literal["substitution", "insertion", "deletion", "replacement"]
+    draft_bases: str | None = Field(description="None when the alignment was reversed (bases not placed)")
+    polished_bases: str | None
+    reverse: bool
+
+
+class HelixPolishingRead(BaseModel):
+    available: bool
+    reason: str | None = Field(description="Why not: not_polished, no_change_records, assembly_missing")
+    changes: list[HelixChangeRead]
+    source: dict[str, Any] | None = None
+
+
+class HelixRead(BaseModel):
+    contig: str
+    contig_in_assembly: str
+    length: int
+    topology: str | None
+    start: int
+    end: int
+    sequence: str = Field(description="The bases of the annotator's sequence file, one strand")
+    translation_table: int
+    sequence_source: dict[str, Any]
+    features: list[HelixFeatureRead]
+    polishing: HelixPolishingRead
+    coverage: CoverageTrackRead
+
+
 class MapGcRead(BaseModel):
     contig_gc: float | None = Field(description="(G+C)/(A+C+G+T) of the whole sequence")
     start: list[int]

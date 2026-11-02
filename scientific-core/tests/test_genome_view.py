@@ -145,3 +145,45 @@ def test_depth_profile_bins_points_and_file(tmp_path):
                     '[{"name": "c", "length": 5, "sums": [1]}]}')
     with pytest.raises(ValueError):
         read_depth_profile(path)
+
+
+def test_feature_codons_on_both_strands_across_the_origin_and_with_n():
+    from arva_core.genome_view import feature_codons
+    # + strand CDS 3..11: ATG AAA TAA
+    seq = b"CCATGAAATAACC"
+    r = feature_codons(seq, 3, 11, "+", False, None, False, 11, 7, 7)
+    assert r["frame"] == "start" and r["length_multiple_of_3"]
+    assert r["codons"] == [{"number": 2, "positions": [6, 7, 8], "codon": "AAA", "amino_acid": "K"}]
+    first = feature_codons(seq, 3, 11, "+", False, None, False, 11, 3, 3)["codons"][0]
+    assert (first["number"], first["codon"], first["amino_acid"]) == (1, "ATG", "M")
+    assert [c["amino_acid"] for c in feature_codons(seq, 3, 11, "+", False, None, False, 11, 1, 13)["codons"]] == \
+        ["M", "K", "*"]
+    # the same gene on the minus strand: the reverse complement of seq, CDS 3..11 read from 11 down to 3
+    rc = reverse_complement(seq)
+    m = feature_codons(rc, 3, 11, "-", False, None, False, 11, 11, 11)["codons"][0]
+    assert (m["number"], m["positions"], m["codon"], m["amino_acid"]) == (1, [11, 10, 9], "ATG", "M")
+    # a GTG start reads M only as the first codon
+    alt = feature_codons(b"GTGGTGTAA", 1, 9, "+", False, None, False, 11, 1, 6)["codons"]
+    assert [c["amino_acid"] for c in alt] == ["M", "V"]
+    # across the origin of a circular sequence: ATG at 10-12, AAA at 1-3, TAA at 4-6 (feature 10..6, + strand)
+    circ = b"AAATAAGGGATG"
+    over = feature_codons(circ, 10, 6, "+", True, None, False, 11, 1, 12)["codons"]
+    assert [(c["number"], c["positions"], c["codon"], c["amino_acid"]) for c in over] == [
+        (1, [10, 11, 12], "ATG", "M"), (2, [1, 2, 3], "AAA", "K"), (3, [4, 5, 6], "TAA", "*")]
+    # the same molecule written as its reverse complement: position p becomes 13 - p, the gene is on the minus
+    # strand from 7..3 across the origin (5' end at 3)
+    back = feature_codons(reverse_complement(circ), 7, 3, "-", True, None, False, 11, 1, 12)["codons"]
+    assert [(c["number"], c["positions"], c["codon"]) for c in back] == [
+        (1, [3, 2, 1], "ATG"), (2, [12, 11, 10], "AAA"), (3, [9, 8, 7], "TAA")]
+    # 5'-truncated: counted from the 3' end, no numbers
+    trunc = feature_codons(b"GAAATAA", 1, 7, "+", False, "5'", False, 11, 1, 7)
+    assert trunc["frame"] == "end" and [c["codon"] for c in trunc["codons"]] == ["AAA", "TAA"]
+    assert all(c["number"] is None for c in trunc["codons"])
+    # N and IUPAC codes translate to X; both ends truncated or pseudogene: no frame
+    assert feature_codons(b"ATGNAATAA", 1, 9, "+", False, None, False, 11, 4, 4)["codons"][0]["amino_acid"] == "X"
+    assert feature_codons(b"ATGRAATAA", 1, 9, "+", False, None, False, 11, 4, 4)["codons"][0]["amino_acid"] == "X"
+    assert feature_codons(seq, 3, 11, "+", False, "both", False, 11, 5, 5)["reason"] == "frame_unknown"
+    assert feature_codons(seq, 3, 11, "+", False, None, True, 11, 5, 5)["reason"] == "pseudogene"
+    # a position outside the feature has no codon; a codon cut by a 3' truncation is left out
+    assert feature_codons(seq, 3, 11, "+", False, None, False, 11, 12, 13)["codons"] == []
+    assert feature_codons(b"ATGAA", 1, 5, "+", False, "3'", False, 11, 4, 5)["codons"] == []

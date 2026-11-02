@@ -20,6 +20,7 @@ from arva_core.genome_view import (
     MAX_POINTS,
     auto_window,
     depth_points,
+    feature_codons,
     gc_counts,
     gc_fraction,
     gc_windows,
@@ -28,6 +29,8 @@ from arva_core.genome_view import (
     slice_sequence,
 )
 from arva_core.seqstats import SequenceFormatError, iter_fasta
+from arva_tools.dnadiff import DnadiffAdapter
+from arva_tools.pilon import PilonAdapter
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -37,6 +40,8 @@ from app.storage import get_storage
 
 MAX_SEQUENCE = 1_000_000
 MAX_LAYOUT_FEATURES = 50_000
+MAX_HELIX = 2_000
+CODING_TYPES = ("cds", "sorf")
 DEFAULT_POINTS = 1_000
 MAP_POINTS = 1_440
 REPORT_MAP_POINTS = 720
@@ -177,20 +182,24 @@ def tracks(db: Session, annotation: Annotation, name: str, start: int | None, en
         window = auto_window(end - start + 1, points)
     step = step or window
     gc = gc_windows(seq, start - 1, end, window, step, points)
-    profile, coverage_source = depth_profile(db, annotation)
-    coverage: dict[str, Any] = {"available": False, **coverage_source}
-    if profile is not None:
-        assembly_name = record.get("original_id") or record["id"]
-        entry = next((c for c in profile["contigs"] if c["name"] == assembly_name), None)
-        if entry is None or entry["length"] != record["length"]:
-            coverage = {"available": False, "reason": "contig_mismatch", "job_id": coverage_source["job_id"]}
-        else:
-            coverage = {"available": True, "source": coverage_source, "contig_mean_depth": entry["mean_depth"],
-                        **depth_points(entry["sums"], entry["length"], profile["resolution"], start - 1, end, points)}
     return {"contig": record["id"], "contig_in_assembly": record.get("original_id") or record["id"],
             "length": record["length"], "start": start, "end": end, "points": points,
             "sequence_source": source, "gc": {**gc, "auto": auto, "contig_gc": gc_fraction(seq)},
-            "coverage": coverage}
+            "coverage": _coverage(db, annotation, record, start, end, points)}
+
+
+def _coverage(db: Session, annotation: Annotation, record: dict[str, Any], start: int, end: int,
+              points: int) -> dict[str, Any]:
+    """Read depth over start..end of a sequence in at most `points` points, or why there is none."""
+    profile, coverage_source = depth_profile(db, annotation)
+    if profile is None:
+        return {"available": False, **coverage_source}
+    assembly_name = record.get("original_id") or record["id"]
+    entry = next((c for c in profile["contigs"] if c["name"] == assembly_name), None)
+    if entry is None or entry["length"] != record["length"]:
+        return {"available": False, "reason": "contig_mismatch", "job_id": coverage_source["job_id"]}
+    return {"available": True, "source": coverage_source, "contig_mean_depth": entry["mean_depth"],
+            **depth_points(entry["sums"], entry["length"], profile["resolution"], start - 1, end, points)}
 
 
 def sequence(annotation: Annotation, name: str, start: int, end: int, strand: str) -> dict[str, Any]:
@@ -291,6 +300,119 @@ def region_ids(annotation: Annotation, name: str, start: int, end: int) -> list[
     if not ids:
         raise annotation_svc.InputError("No feature overlaps this region")
     return ids
+
+
+# --- Double helix: one window of a sequence with its context ---------------------------------------------------
+
+@lru_cache(maxsize=8)
+def _change_rows(path: str, mtime_ns: int, size: int, kind: str) -> list[dict[str, Any]]:
+    text = Path(path).read_text(errors="replace")
+    return DnadiffAdapter.snp_rows(text) if kind == "dnadiff" else PilonAdapter.change_rows(text)
+
+
+def _change_file(job: AnalysisJob) -> tuple[Path, str] | None:
+    """The polishing job's per-base record of what changed between the draft and the polished assembly: dnadiff's
+    .snps of the whole run (overall, or of its only round), else Pilon's .changes of its only round (positions of a
+    later round's input differ from the draft's, so several rounds of Pilon's records cannot be placed)."""
+    summary = job.result_summary or {}
+    one_round = summary.get("rounds_run") == 1
+    wanted = [("dnadiff_overall.snps", "dnadiff")]
+    if one_round:
+        wanted += [("dnadiff_round1.snps", "dnadiff"), ("round1.changes", "pilon_changes")]
+    paths = [p for p in job.output_paths or [] if "/comparison/" in p]
+    for name, kind in wanted:
+        rel = next((p for p in paths if p.endswith("/comparison/" + name)), None)
+        path = get_storage().resolve(rel) if rel else None
+        if path is not None and path.is_file():
+            return path, kind
+    return None
+
+
+def _kind(old: str, new: str) -> str:
+    if not old:
+        return "insertion"
+    if not new:
+        return "deletion"
+    return "substitution" if len(old) == len(new) else "replacement"
+
+
+def polishing_changes(db: Session, annotation: Annotation, record: dict[str, Any], lo: int,
+                      hi: int) -> dict[str, Any]:
+    """The bases polishing changed within lo..hi: when this assembly is a polished result, its own polishing job's
+    records (positions in the polished sequence); when it is a draft that was polished later, the newest such job's
+    records (positions in the draft). Only what the tools recorded; differences outside dnadiff's one-to-one
+    alignments (unaligned ends) are not in its .snps file."""
+    a = db.get(Assembly, annotation.assembly_id)
+    if a is None:
+        return {"available": False, "reason": "assembly_missing", "changes": []}
+    candidates = _profile_candidates(db, a)
+    if not candidates:
+        return {"available": False, "reason": "not_polished", "changes": []}
+    name = record.get("original_id") or record["id"]
+    for job, side in candidates:
+        found = _change_file(job)
+        if found is None:
+            continue
+        path, kind = found
+        st = path.stat()
+        try:
+            rows = _change_rows(str(path), st.st_mtime_ns, st.st_size, kind)
+        except (OSError, ValueError):
+            continue
+        after = side == "after"
+        changes = []
+        for r in rows:
+            if kind == "dnadiff":
+                if r["query" if after else "ref"] != name:
+                    continue
+                pos = r["query_pos" if after else "ref_pos"]
+                if not lo <= pos <= hi:
+                    continue
+                old, new = (b if b != "." else "" for b in (r["ref_base"], r["query_base"]))
+                reverse = r["query_frame"] < 0
+                changes.append({"start": pos, "end": pos, "kind": _kind(old, new),
+                                "draft_bases": None if reverse else old, "polished_bases": None if reverse else new,
+                                "reverse": reverse})
+            else:
+                if r["new_contig" if after else "old_contig"] != name:
+                    continue
+                start, end = (r["new_start"], r["new_end"]) if after else (r["old_start"], r["old_end"])
+                if end < lo or start > hi:
+                    continue
+                changes.append({"start": start, "end": end, "kind": _kind(r["old"], r["new"]),
+                                "draft_bases": r["old"], "polished_bases": r["new"], "reverse": False})
+        return {"available": True, "reason": None, "changes": changes,
+                "source": {"job_id": job.id, "polisher": job.tool_name, "polisher_version": job.tool_version,
+                           "record": kind, "positions_in": "polished" if after else "draft"}}
+    return {"available": False, "reason": "no_change_records", "changes": []}
+
+
+def helix(db: Session, annotation: Annotation, name: str, start: int, end: int) -> dict[str, Any]:
+    """What the double-helix view shows for start..end (at most MAX_HELIX bases) of one annotated sequence: its
+    bases as the annotator's file holds them (one strand; the other is their complement by construction), the
+    features that overlap with the codons they read there (the annotation's translation table), the bases polishing
+    changed and the read depth where reads were aligned to exactly this assembly."""
+    record = contig(annotation, name)
+    start, end = _region(record, start, end)
+    if end - start + 1 > MAX_HELIX:
+        raise ValueError(f"at most {MAX_HELIX:,} bp at a time")
+    seq, source = contig_sequence(annotation, record)
+    table = (annotation.parameters or {}).get("translation_table") or 11
+    features = []
+    for f in region_features(annotation_svc.features_of(annotation), annotation.sequences, record["id"], start, end):
+        item = {k: f[k] for k in LAYOUT_FIELDS}
+        if f["type"] in CODING_TYPES:
+            item["reading"] = feature_codons(seq, f["start"], f["end"], f["strand"], f["edge"], f["partial"],
+                                             f["pseudo"], table, start, end)
+        else:
+            item["reading"] = {"frame": None, "reason": "not_coding", "codons": [], "length_multiple_of_3": None}
+        features.append(item)
+    coverage = _coverage(db, annotation, record, start, end, MAX_POINTS)
+    return {"contig": record["id"], "contig_in_assembly": record.get("original_id") or record["id"],
+            "length": record["length"], "topology": record.get("topology"), "start": start, "end": end,
+            "sequence": slice_sequence(seq, start, end).decode("ascii", "replace"), "translation_table": table,
+            "sequence_source": source, "features": features,
+            "polishing": polishing_changes(db, annotation, record, start, end), "coverage": coverage}
 
 
 # --- Feature checks --------------------------------------------------------------------------------------------

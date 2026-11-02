@@ -237,3 +237,20 @@ def test_java_option_variables_do_not_reach_tools(monkeypatch):
     env = tool_environment()
     assert not {"JAVA_TOOL_OPTIONS", "_JAVA_OPTIONS", "JDK_JAVA_OPTIONS"} & set(env) and "PATH" in env
     assert os.environ["JAVA_TOOL_OPTIONS"] == "-Xmx1m"
+
+
+def test_snp_and_change_rows_keep_each_position():
+    rows = DnadiffAdapter.snp_rows((F / "pilon_round1.snps").read_text())
+    assert len(rows) == 19
+    assert rows[0] == {"ref_pos": 5001, "ref_base": "T", "query_base": "G", "query_pos": 5001, "ref_frame": 1,
+                       "query_frame": 1, "ref": "contig_1", "query": "contig_1_pilon"}
+    assert (rows[2]["ref_base"], rows[2]["query_base"], rows[2]["query_pos"]) == ("A", ".", 15000)
+    changes = PilonAdapter.change_rows((F / "pilon_round1.changes").read_text())
+    assert len(changes) == 16 and changes[3] == {
+        "old_contig": "contig_1", "old_start": 18002, "old_end": 18002, "new_contig": "contig_1_pilon",
+        "new_start": 18001, "new_end": 18001, "old": "", "new": "T"}
+    assert PilonAdapter.change_rows("c:10-12 c_pilon:10-11 ACG TT\n")[0]["old_end"] == 12
+    with pytest.raises(ValueError, match="line 1"):
+        PilonAdapter.change_rows("contig_1 5 A T\n")
+    with pytest.raises(ValueError, match="integers"):
+        DnadiffAdapter.snp_rows("x\tA\tT\t1\t1\t1\t1\t1\t1\t1\ta\tb\n")

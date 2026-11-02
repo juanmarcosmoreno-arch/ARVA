@@ -255,6 +255,26 @@ class PilonAdapter(ToolAdapter):
         return a
 
     @staticmethod
+    def change_rows(text: str) -> list[dict[str, Any]]:
+        """Every row of Pilon's .changes file: the old (input) and new (output) contig and range, and the old and
+        new bases ("" where Pilon writes ".")."""
+        rows = []
+        for n, line in enumerate(text.splitlines(), start=1):
+            if not line.strip():
+                continue
+            f = line.split()
+            old_loc = _LOCATION.fullmatch(f[0]) if len(f) == 4 else None
+            new_loc = _LOCATION.fullmatch(f[1]) if len(f) == 4 else None
+            if old_loc is None or new_loc is None:
+                raise ValueError(f"line {n}: not a Pilon change ('<old location> <new location> <old> <new>')")
+            old, new = ("" if b == "." else b for b in f[2:])
+            rows.append({"old_contig": old_loc.group(1), "old_start": int(old_loc.group(2)),
+                         "old_end": int(old_loc.group(3) or old_loc.group(2)), "new_contig": new_loc.group(1),
+                         "new_start": int(new_loc.group(2)), "new_end": int(new_loc.group(3) or new_loc.group(2)),
+                         "old": old, "new": new})
+        return rows
+
+    @staticmethod
     def parse_changes(text: str) -> dict[str, Any]:
         """Pilon's .changes file → counts by kind (SNP, insertion, deletion, substitution of several bases, other
         replacement), in events and bases, overall and per contig. Insertions and deletions are relative to the

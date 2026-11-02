@@ -315,3 +315,67 @@ def test_map_coverage_in_the_map_windows(client, ann, storage_root):
     # 25 bp bins grouped by 4: 100 bp points; the first at depth 10, the rest at 20
     assert cov["start"][:2] == [1, 101] and cov["end"][:2] == [100, 200] and cov["mean"][:2] == [10.0, 20.0]
     assert len(cov["mean"]) == 176 and set(r["sequences"][1]["coverage"]["mean"]) == {0.0}
+
+
+def test_helix_window_codons_on_both_strands_and_bounds(client, ann):
+    _, _, ann_id = ann
+    url = f"{API}/annotations/{ann_id}/helix"
+    seq = genome()[CHR]
+    layout = client.get(f"{API}/annotations/{ann_id}/layout", params={"contig": CHR}).json()["items"]
+    plus = next(f for f in layout if f["type"] == "cds" and f["strand"] == "+" and not f["partial"])
+    minus = next(f for f in layout if f["type"] == "cds" and f["strand"] == "-" and not f["partial"])
+    r = client.get(url, params={"contig": CHR, "start": plus["start"], "end": plus["start"] + 5}).json()
+    assert r["sequence"] == seq[plus["start"] - 1:plus["start"] + 5] and r["translation_table"] == 11
+    assert r["polishing"] == {"available": False, "reason": "not_polished", "changes": [], "source": None}
+    assert r["coverage"]["available"] is False
+    (f,) = [x for x in r["features"] if x["id"] == plus["id"]]
+    first, second = f["reading"]["codons"]
+    assert f["reading"]["frame"] == "start" and first["number"] == 1 and first["amino_acid"] == "M"
+    assert first["positions"] == [plus["start"], plus["start"] + 1, plus["start"] + 2] and second["number"] == 2
+    assert first["codon"] == seq[plus["start"] - 1:plus["start"] + 2]
+    # the minus-strand gene's start codon is at its end coordinate, read downwards and complemented
+    r = client.get(url, params={"contig": CHR, "start": minus["end"] - 2, "end": minus["end"]}).json()
+    (f,) = [x for x in r["features"] if x["id"] == minus["id"]]
+    (start_codon,) = f["reading"]["codons"]
+    assert start_codon["positions"] == [minus["end"], minus["end"] - 1, minus["end"] - 2]
+    assert start_codon["codon"] == reverse_complement(seq[minus["end"] - 3:minus["end"]].encode()).decode()
+    assert start_codon["number"] == 1 and start_codon["amino_acid"] == "M"
+    assert client.get(url, params={"contig": CHR, "start": 1, "end": 2001}).status_code == 422
+    assert client.get(url, params={"contig": CHR, "start": 10, "end": 5}).status_code == 422
+    assert client.get(url, params={"contig": "nope", "start": 1, "end": 5}).status_code == 404
+    assert client.get(url, params={"contig": CHR, "start": 0, "end": 5}).status_code == 422
+
+
+def test_helix_shows_the_bases_a_later_polishing_changed_and_the_depth(client, ann, storage_root):
+    sample, assembly, ann_id = ann
+    job_id = polished_child(sample, assembly["id"], storage_root, profile=True)
+    rel = f"results/{sample['project_id']}/{sample['id']}/{job_id}/comparison/dnadiff_round1.snps"
+    path = storage_root / rel
+    # show-snps -rlTHC rows: a substitution at draft 105, a deletion of draft 107 and a reversed alignment's row
+    path.write_text(f"105\tA\tG\t105\t2\t105\t17516\t17516\t1\t1\t{CHR}\t{CHR}\n"
+                    f"107\tC\t.\t106\t2\t106\t17516\t17515\t1\t1\t{CHR}\t{CHR}\n"
+                    f"109\tT\tA\t9\t2\t9\t17516\t17516\t1\t-1\t{CHR}\t{CHR}\n"
+                    f"105\tA\tG\t105\t2\t105\t1444\t1444\t1\t1\t{PLASMID}\t{PLASMID}\n")
+    with SessionLocal() as db:
+        job = db.get(AnalysisJob, job_id)
+        job.result_summary = {**job.result_summary, "rounds_run": 1}
+        job.output_paths = [rel]
+        db.commit()
+    r = client.get(f"{API}/annotations/{ann_id}/helix", params={"contig": CHR, "start": 90, "end": 120}).json()
+    p = r["polishing"]
+    assert p["available"] and p["source"]["job_id"] == job_id and p["source"]["positions_in"] == "draft"
+    assert p["source"]["record"] == "dnadiff"
+    assert p["changes"] == [
+        {"start": 105, "end": 105, "kind": "substitution", "draft_bases": "A", "polished_bases": "G", "reverse": False},
+        {"start": 107, "end": 107, "kind": "deletion", "draft_bases": "C", "polished_bases": "", "reverse": False},
+        {"start": 109, "end": 109, "kind": "substitution", "draft_bases": None, "polished_bases": None,
+         "reverse": True}]
+    cov = r["coverage"]
+    # 25 bp bins: 76-100 at depth 10, 101-125 at 20
+    assert cov["available"] and cov["start"] == [76, 101] and cov["mean"] == [10.0, 20.0]
+    with SessionLocal() as db:
+        job = db.get(AnalysisJob, job_id)
+        job.output_paths = []
+        db.commit()
+    gone = client.get(f"{API}/annotations/{ann_id}/helix", params={"contig": CHR, "start": 90, "end": 120}).json()
+    assert gone["polishing"]["available"] is False and gone["polishing"]["reason"] == "no_change_records"

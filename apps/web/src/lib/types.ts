@@ -2302,6 +2302,45 @@ export interface GenomeSequence {
   sequence: string;
 }
 
+export interface HelixCodon {
+  number: number | null;
+  positions: number[];
+  codon: string;
+  amino_acid: string;
+}
+
+export interface HelixFeature extends FeatureLayoutItem {
+  reading: { frame: "start" | "end" | null; reason: string | null; codons: HelixCodon[]; length_multiple_of_3: boolean | null };
+}
+
+export interface HelixChange {
+  start: number;
+  end: number;
+  kind: "substitution" | "insertion" | "deletion" | "replacement";
+  draft_bases: string | null;
+  polished_bases: string | null;
+  reverse: boolean;
+}
+
+export interface HelixWindow {
+  contig: string;
+  contig_in_assembly: string;
+  length: number;
+  topology: string | null;
+  start: number;
+  end: number;
+  sequence: string;
+  translation_table: number;
+  features: HelixFeature[];
+  polishing: {
+    available: boolean;
+    reason: string | null;
+    changes: HelixChange[];
+    source: { job_id: string; polisher: string; polisher_version: string | null; record: "dnadiff" | "pilon_changes"; positions_in: "polished" | "draft" } | null;
+  };
+  coverage: CoverageTrack;
+}
+
 export type AnnotationExportFormat = "gff3" | "genbank" | "fasta_nt" | "fasta_aa" | "tsv";
 
 export interface FeatureQuery {

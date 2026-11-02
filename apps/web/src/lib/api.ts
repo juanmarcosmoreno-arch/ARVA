@@ -45,6 +45,7 @@ import type {
   FeatureLayout,
   GenomeMap,
   GenomeSequence,
+  HelixWindow,
   GenomeTracks,
   BaktaRequest,
   FeatureQuery,
@@ -474,6 +475,8 @@ export const api = {
   },
   annotationSequence: (id: string, contig: string, start: number, end: number, strand: "+" | "-" = "+") =>
     request<GenomeSequence>(`/annotations/${id}/sequence?${new URLSearchParams({ contig, start: String(start), end: String(end), strand })}`),
+  annotationHelix: (id: string, contig: string, start: number, end: number) =>
+    request<HelixWindow>(`/annotations/${id}/helix?${new URLSearchParams({ contig, start: String(start), end: String(end) })}`),
   annotationSequenceUrl: (id: string, contig: string, start: number, end: number, strand: "+" | "-") =>
     `${BASE}/annotations/${id}/sequence?${new URLSearchParams({ contig, start: String(start), end: String(end), strand, format: "fasta" })}`,
   annotationFileUrl: (id: string, kind: string) => `${BASE}/annotations/${id}/files/${encodeURIComponent(kind)}`,

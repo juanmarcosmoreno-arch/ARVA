@@ -48,7 +48,7 @@ export const TECHNICAL_WORDS = new Set([
   "BWA", "dnadiff", "MUMmer", "Dorado", "Docker", "macOS", "Linux", "Mac", "Illumina", "Nanopore", "PacBio", "ONT",
   "HiFi", "CDS", "sORF", "tRNA", "rRNA", "tmRNA", "ncRNA", "CRISPR", "ORF", "COG", "UniProt", "NCBI", "RefSeq", "KEGG",
   "Pfam", "Zenodo", "MD5", "SHA", "sha256", "SHA256", "ID", "IDs", "UTF", "CPU", "GB", "MB", "KB", "TB", "aa", "kbp",
-  "Mbp", "Gbp", "pb", "kpb", "Mpb", "Gpb", "contig", "contigs", "English", "Español", "DEMO", "TXT", "EC", "GO", "doi",
+  "Mbp", "Gbp", "pb", "kpb", "Mpb", "Gpb", "nm", "µm", "contig", "contigs", "English", "Español", "DEMO", "TXT", "EC", "GO", "doi",
   "VFDB", "mlst", "MLST", "PubMLST", "ST", "BLAST", "FastANI", "skani", "Mash", "sylph", "GTDB", "Tk", "ANI",
   "AMRFinderPlus", "AMR", "HMM", "StxTyper", "ABRicate", "MPF", "oriT", "MOB-suite", "PlasmidFinder", "IntegronFinder", "ISEScan", "geNomad",
   "SCCmec", "mecA", "mecC", "PVL", "lukS", "lukF", "PV", "tst", "TSST", "spaTyper", "AgrVATE", "agr", "Ridom", "SpaServer",

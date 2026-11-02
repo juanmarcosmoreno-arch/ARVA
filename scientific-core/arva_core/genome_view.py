@@ -210,6 +210,62 @@ def protein_check(genome_nt: str, protein: str, table: int, partial: str | None,
             "protein_length": len(theirs), "internal_stops": ours.count("*")}
 
 
+# --- Codons at a position ------------------------------------------------------------------------------------
+
+_ANCHOR_5 = (None, "3'")
+
+
+def feature_codons(seq: bytes, start: int, end: int, strand: str, edge: bool, partial: str | None, pseudo: bool,
+                   table: int, lo: int, hi: int) -> dict[str, Any]:
+    """The codons of a coding feature that overlap positions lo..hi (1-based, inclusive) of `seq`, read on the
+    feature's strand with an NCBI genetic code.
+
+    The reading frame is counted from the feature's 5' end (start on "+", end on "-"; a feature with start > end and
+    `edge` runs across the origin of a circular sequence). A CDS truncated at its 5' end (partial "5'") is counted
+    from its 3' end instead, so its codons carry no number; one truncated at both ends (or of unknown truncation)
+    and pseudogenes (whose frame is broken by definition) get no codons. A codon cut by the end of a truncated
+    feature is left out. Each codon: its number from the start codon (1 = the start codon) or None, its three
+    positions in the sequence in reading order, its bases on the feature's strand and its amino acid (X when a base
+    is N or another IUPAC code)."""
+    n_seq = len(seq)
+    if strand not in ("+", "-"):
+        return {"frame": None, "reason": "no_strand", "codons": [], "length_multiple_of_3": None}
+    n = n_seq - start + 1 + end if edge and start > end else end - start + 1
+    if pseudo:
+        return {"frame": None, "reason": "pseudogene", "codons": [], "length_multiple_of_3": n % 3 == 0}
+    if partial in _ANCHOR_5:
+        frame = "start"
+    elif partial == "5'":
+        frame = "end"
+    else:
+        return {"frame": None, "reason": "frame_unknown", "codons": [], "length_multiple_of_3": n % 3 == 0}
+
+    def pos(i: int) -> int:  # along-feature index (0 = 5' end) -> 1-based position
+        return (start - 1 + i) % n_seq + 1 if strand == "+" else (end - 1 - i) % n_seq + 1
+
+    def index(p: int) -> int:  # 1-based position -> along-feature index (>= n: not in the feature)
+        return (p - start) % n_seq if strand == "+" else (end - p) % n_seq
+
+    starts: list[int] = []
+    for p in range(max(1, lo), min(hi, n_seq) + 1):
+        i = index(p)
+        if i >= n:
+            continue
+        s = i - (i % 3 if frame == "start" else (i - n) % 3)
+        if s >= 0 and s + 2 < n and s not in starts:
+            starts.append(s)
+    codons = []
+    for s in sorted(starts):
+        positions = [pos(s + k) for k in range(3)]
+        bases = bytes(seq[q - 1] for q in positions)
+        if strand == "-":
+            bases = bases.translate(_COMPLEMENT)
+        nt = bases.decode("ascii", "replace")
+        codons.append({"number": s // 3 + 1 if frame == "start" else None, "positions": positions, "codon": nt,
+                       "amino_acid": translate(nt, table, first_is_start=frame == "start" and s == 0)})
+    return {"frame": frame, "reason": None, "codons": codons, "length_multiple_of_3": n % 3 == 0}
+
+
 # --- Read-depth profile ----------------------------------------------------------------------------------------
 
 def depth_bins(rows: Iterable[tuple[str, int, int]], lengths: Mapping[str, int], resolution: int) -> dict[str, list[int]]:

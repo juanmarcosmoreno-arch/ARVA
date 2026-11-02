@@ -83,6 +83,8 @@ interface Props {
   region: View | null;
   onRegion: (v: View | null) => void;
   gc: GcSettings;
+  /** The double helix's reading head, marked on every track. */
+  helixAt?: number | null;
 }
 
 type Drag = { kind: "pan" | "select"; x0: number; view: View; feature: number | null; moved: boolean; mark: boolean };
@@ -524,6 +526,19 @@ export function GenomeBrowser(p: Props) {
               height={height}
               fill={theme.primary}
               opacity={0.12}
+              pointerEvents="none"
+            />
+          )}
+          {p.helixAt != null && x(p.helixAt) >= GUTTER - 1 && x(p.helixAt - 1) <= GUTTER + plotW + 1 && (
+            <rect
+              data-helix-cursor={p.helixAt}
+              x={x(p.helixAt - 1)}
+              width={Math.max(2, x(p.helixAt) - x(p.helixAt - 1))}
+              y={RULER_H}
+              height={height - RULER_H}
+              fill="none"
+              stroke={theme.primary}
+              strokeWidth={1.5}
               pointerEvents="none"
             />
           )}
