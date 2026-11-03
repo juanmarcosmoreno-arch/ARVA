@@ -740,6 +740,16 @@ def _keep_flye_checkpoint(ctx: JobContext, out_dir: Path, stages: tuple[str, ...
             (f" (removed {stage_dir}, written by the interrupted stage)" if stage_dir else ""))
 
 
+def flye_genome_size_basis_text(params) -> str:
+    """Where the genome size given to Flye came from, for the job log. The assumed depth exists only for the
+    'reads_over_depth' basis, so it is formatted only there."""
+    basis = params.genome_size_basis or "entered"
+    if basis == "reads_over_depth":
+        depth = params.assumed_depth_x
+        return f"total read bases ÷ an assumed depth of {depth:g}×" if depth is not None else "total read bases ÷ an assumed depth"
+    return {"entered": "entered by the user", "expected_genome_size": "the sample's expected genome size"}.get(basis, basis)
+
+
 def _flye_body(ctx: JobContext) -> None:
     exe = _resolve_tool(ctx, "flye")
     files = ctx.input_files()
@@ -768,9 +778,7 @@ def _flye_body(ctx: JobContext) -> None:
         raise JobFailure(f"Flye cannot run with these settings: {exc}",
                          "settings_rejected", tool="Flye", detail=str(exc)) from exc
     if params.genome_size_bp is not None:
-        basis = {"entered": "entered by the user", "expected_genome_size": "the sample's expected genome size",
-                 "reads_over_depth": f"total read bases ÷ an assumed depth of {params.assumed_depth_x:g}×"}
-        ctx.log(f"Genome size {params.genome_size_bp:,} bp ({basis[params.genome_size_basis or 'entered']})")
+        ctx.log(f"Genome size {params.genome_size_bp:,} bp ({flye_genome_size_basis_text(params)})")
     if params.threads > 1:
         ctx.log(f"Flye runs with {params.threads} threads; its output can differ between runs and thread counts")
 
