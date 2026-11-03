@@ -23,6 +23,8 @@ enum MainMenu {
         let app = submenu("ARVA", [
             item(L("About ARVA", "Acerca de ARVA"), #selector(NSApplication.orderFrontStandardAboutPanel(_:))),
             .separator(),
+            item(L("Set Up Again…", "Volver a configurar…"), #selector(AppDelegate.arvaSetupAgain(_:))),
+            .separator(),
             item(L("Hide ARVA", "Ocultar ARVA"), #selector(NSApplication.hide(_:)), "h"),
             item(L("Hide Others", "Ocultar otros"), #selector(NSApplication.hideOtherApplications(_:)), "h", [.command, .option]),
             item(L("Show All", "Mostrar todo"), #selector(NSApplication.unhideAllApplications(_:))),

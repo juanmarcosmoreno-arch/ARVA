@@ -256,7 +256,7 @@ final class WebWindowController: NSObject, NSWindowDelegate, WKNavigationDelegat
         let alert = NSAlert()
         alert.messageText = "ARVA"
         alert.informativeText = message
-        alert.addButton(withTitle: "OK")
+        alert.addButton(withTitle: L("OK", "Aceptar"))
         alert.beginSheetModal(for: window) { _ in completionHandler() }
     }
 

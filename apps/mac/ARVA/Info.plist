@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!-- ARVA.app's Info.plist. scripts/build-mac-app.sh replaces @VERSION@ (ARVA's version, apps/api/app/__init__.py),
-     @BUILD@ and @COMMIT@. The usage descriptions are what macOS shows when ARVA (or the launcher it runs) first
+     @BUILD@, @COMMIT@ and @GUIDE_URL@ (docs/guia-mac-app.md at the commit the app is built from, for Help). The usage descriptions are what macOS shows when ARVA (or the launcher it runs) first
      reads a folder there; their translations are in Resources/<language>.lproj/InfoPlist.strings. -->
 <plist version="1.0">
 <dict>
@@ -34,6 +34,8 @@
 	<string>@BUILD@</string>
 	<key>ARVACommit</key>
 	<string>@COMMIT@</string>
+	<key>ARVAGuideURL</key>
+	<string>@GUIDE_URL@</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>13.0</string>
 	<key>LSApplicationCategoryType</key>

@@ -38,6 +38,10 @@ build=${ARVA_BUILD_NUMBER:-$(git -C "$ROOT" rev-list --count HEAD 2>/dev/null ||
 case "$build" in '' | *[!0-9.]*) build=1 ;; esac
 commit=$(git -C "$ROOT" rev-parse --short=12 HEAD 2>/dev/null || echo unknown)
 case "$commit" in '' | *[!0-9a-f]*) commit=unknown ;; esac
+# Help → the guide, as it is at this commit (a link that keeps working on GitHub whichever branch it was built from).
+guide_ref=$(git -C "$ROOT" rev-parse HEAD 2>/dev/null || echo main)
+case "$guide_ref" in '' | *[!0-9a-f]*) guide_ref=main ;; esac
+guide_url=https://github.com/juanmarcosmoreno-arch/ARVA/blob/$guide_ref/docs/guia-mac-app.md
 
 APP=$OUT/ARVA.app
 WORK=$OUT/work
@@ -58,7 +62,8 @@ lipo -create -output "$APP/Contents/MacOS/ARVA" "$WORK/ARVA-arm64" "$WORK/ARVA-x
 lipo -info "$APP/Contents/MacOS/ARVA"
 
 # 2. Info.plist, with the version.
-sed -e "s/@VERSION@/$version/g" -e "s/@BUILD@/$build/g" -e "s/@COMMIT@/$commit/g" "$SRC/Info.plist" > "$APP/Contents/Info.plist"
+sed -e "s/@VERSION@/$version/g" -e "s/@BUILD@/$build/g" -e "s/@COMMIT@/$commit/g" -e "s|@GUIDE_URL@|$guide_url|g" \
+  "$SRC/Info.plist" > "$APP/Contents/Info.plist"
 plutil -lint "$APP/Contents/Info.plist"
 printf 'APPL????' > "$APP/Contents/PkgInfo"
 

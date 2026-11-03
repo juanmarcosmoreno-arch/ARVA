@@ -28,6 +28,7 @@ on:
       - docker/nginx.conf
       - docker/api-entrypoint.sh
       - apps/web/public/arva-logo.png
+      - docs/guia-mac-app.md
   workflow_dispatch:
 
 permissions:
@@ -73,6 +74,10 @@ jobs:
           codesign -dv "$app" 2>&1 | grep -E '^(Identifier|Format|Signature)'
           plutil -lint "$app/Contents/Info.plist"
           plutil -p "$app/Contents/Info.plist" | grep -E 'CFBundle(Identifier|ShortVersionString|Version|Executable)|LSMinimumSystemVersion'
+          guide=$(plutil -extract ARVAGuideURL raw "$app/Contents/Info.plist")
+          echo "Help guide: $guide"
+          case "$guide" in https://github.com/*/blob/*/docs/guia-mac-app.md) ;; *) echo "::error::bad ARVAGuideURL"; exit 1 ;; esac
+          test -f docs/guia-mac-app.md
           res=$app/Contents/Resources
           for f in ARVA.icns arva-logo.png en.lproj/InfoPlist.strings es.lproj/InfoPlist.strings \
             runtime/.arva-runtime-id runtime/docker-compose.yml runtime/scripts/start.sh runtime/scripts/stop.sh \

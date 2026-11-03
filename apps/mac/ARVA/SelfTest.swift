@@ -89,11 +89,100 @@ enum SelfTest {
             let text = try String(contentsOf: command, encoding: .utf8)
             check("first-run command runs start.sh --setup", text.contains("sh scripts/start.sh --setup"))
             check("first-run command names the compose project", text.contains("COMPOSE_PROJECT_NAME=arva"))
+            check("first-run command puts the app's stand-ins first", text.contains("PATH=" + shellQuote(AppPaths.shimDir.path) + ":"))
+            check("first-run command keeps a log", text.contains("/usr/bin/script -q " + FirstRunCommand.logFile))
+            check("first-run command tells a declined setup apart", text.contains("status=declined"))
+            check("first-run command records an interruption", text.contains("interrupted") && text.contains("INT HUP TERM"))
             let syntax = ShellTask.run("/bin/sh", ["-n", command.path], timeout: 20)
             check("first-run command syntax", syntax?.status == 0, syntax?.output ?? "")
             check("first-run status is unknown while it runs", FirstRunCommand.status(in: temp) == nil)
-            try "3\n".write(to: temp.appendingPathComponent(FirstRunCommand.statusFile), atomically: true, encoding: .utf8)
-            check("first-run status is read", FirstRunCommand.status(in: temp) == 3)
+            check("first-run process unknown before it starts", FirstRunCommand.isRunning(in: temp) == nil)
+            let statusURL = temp.appendingPathComponent(FirstRunCommand.statusFile)
+            for (written, expected) in [("3\n", FirstRunCommand.Status.failed(3)), ("0\n", .succeeded),
+                                        ("declined\n", .declined), ("interrupted\n", .interrupted)] {
+                try written.write(to: statusURL, atomically: true, encoding: .utf8)
+                check("first-run status \(written.trimmingCharacters(in: .whitespacesAndNewlines)) is read",
+                      FirstRunCommand.status(in: temp) == expected)
+            }
+            // A process id that is not the first-run command is never trusted (nor stopped).
+            try "\(ProcessInfo.processInfo.processIdentifier)\n".write(to: temp.appendingPathComponent(FirstRunCommand.pidFile),
+                                                                       atomically: true, encoding: .utf8)
+            check("first-run process id of another program is not trusted", FirstRunCommand.isRunning(in: temp) == false)
+
+            // The first-run command itself, without Terminal: a declined setup, then a failed one.
+            let fake = temp.appendingPathComponent("fake", isDirectory: true)
+            try fm.createDirectory(at: fake.appendingPathComponent("scripts"), withIntermediateDirectories: true)
+            let fakeConfig = temp.appendingPathComponent("conf/arva.conf")
+            let runner = fake.appendingPathComponent(FirstRunCommand.fileName)
+            for (script, expected) in [("echo 'Nothing was saved.'; exit 0", "declined"), ("echo 'No disk'; exit 4", "4")] {
+                try "\(script)\n".write(to: fake.appendingPathComponent("scripts/start.sh"), atomically: true, encoding: .utf8)
+                try FirstRunCommand.contents(config: fakeConfig).write(to: runner, atomically: true, encoding: .utf8)
+                let ran = ShellTask.run("/bin/sh", [runner.path], directory: fake, timeout: 30)
+                let status = (try? String(contentsOf: fake.appendingPathComponent(FirstRunCommand.statusFile), encoding: .utf8))?
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                check("first-run command records \(expected)", status == expected, "\(status ?? "none"): \(ran?.output.prefix(300) ?? "did not run")")
+            }
+
+            // The app's stand-ins for git and open.
+            let shims = temp.appendingPathComponent("bin", isDirectory: true)
+            try LauncherShims.install(in: shims)
+            var shimEnv = ShellEnvironment.make()
+            shimEnv["ARVA_APP_COMMIT"] = "0123456789ab"
+            let git = ShellTask.run(shims.appendingPathComponent("git").path, ["-C", temp.path, "rev-parse", "--short=12", "HEAD"],
+                                    environment: shimEnv, timeout: 20)
+            check("git stand-in answers with the app's commit", git?.status == 0 && git?.output == "0123456789ab\n", git?.output ?? "did not run")
+            shimEnv["ARVA_APP_COMMIT"] = "unknown"
+            let noCommit = ShellTask.run(shims.appendingPathComponent("git").path, ["rev-parse", "HEAD"], environment: shimEnv, timeout: 20)
+            check("git stand-in without a commit fails quietly", noCommit?.status == 1 && noCommit?.output == "", noCommit?.output ?? "")
+            let open = ShellTask.run(shims.appendingPathComponent("open").path, ["http://localhost:8080"], environment: shimEnv, timeout: 20)
+            check("open stand-in leaves ARVA's address to the app", open?.status == 0 && open?.output == "")
+            let shimPath = ShellEnvironment.make(base: ["PATH": "/usr/bin:/bin"])["PATH"] ?? ""
+            check("launcher PATH starts with the stand-ins", shimPath.hasPrefix(AppPaths.shimDir.path + ":"), shimPath)
+
+            // .env of an ARVA installed before in ~/ARVA: linked when the runtime folder has none.
+            let legacy = temp.appendingPathComponent("legacy", isDirectory: true)
+            let target = temp.appendingPathComponent("target", isDirectory: true)
+            try fm.createDirectory(at: legacy, withIntermediateDirectories: true)
+            try fm.createDirectory(at: target, withIntermediateDirectories: true)
+            check(".env: nothing to link", EnvLink.ensure(runtime: target, legacy: legacy) == nil)
+            try "ARVA_DB_PASSWORD=x\n".write(to: legacy.appendingPathComponent(".env"), atomically: true, encoding: .utf8)
+            check(".env: linked", EnvLink.ensure(runtime: target, legacy: legacy) != nil
+                  && (try? String(contentsOf: target.appendingPathComponent(".env"), encoding: .utf8)) == "ARVA_DB_PASSWORD=x\n")
+            check(".env: already linked", EnvLink.ensure(runtime: target, legacy: legacy) == nil)
+            try fm.removeItem(at: legacy.appendingPathComponent(".env"))
+            check(".env: link removed with its file", EnvLink.ensure(runtime: target, legacy: legacy) != nil
+                  && (try? fm.destinationOfSymbolicLink(atPath: target.appendingPathComponent(".env").path)) == nil)
+            try "OWN=1\n".write(to: target.appendingPathComponent(".env"), atomically: true, encoding: .utf8)
+            try "ARVA_DB_PASSWORD=x\n".write(to: legacy.appendingPathComponent(".env"), atomically: true, encoding: .utf8)
+            check(".env: the runtime folder's own is kept", EnvLink.ensure(runtime: target, legacy: legacy) == nil
+                  && (try? String(contentsOf: target.appendingPathComponent(".env"), encoding: .utf8)) == "OWN=1\n")
+
+            // A log followed as it grows.
+            let logURL = temp.appendingPathComponent("tail.log")
+            try "one\ntw".write(to: logURL, atomically: false, encoding: .utf8)
+            let tail = LogTail(url: logURL)
+            check("log tail reads whole lines", tail.read() == "one\n")
+            let handle = try FileHandle(forWritingTo: logURL)
+            _ = try handle.seekToEnd()
+            try handle.write(contentsOf: Data("o\u{1B}[1mthree\u{1B}[0m\r\n".utf8))
+            try handle.close()
+            check("log tail reads only what was added", tail.read() == "two\nthree\n")
+            check("log tail has nothing new", tail.read() == "")
+
+            // A launcher's output goes to a file (it outlives the app), and stopping it stops what it started.
+            let task = ShellTask(executable: "/bin/sh", arguments: ["-c", "echo started; sleep 30 & sleep 30 & wait"],
+                                 directory: temp, environment: ShellEnvironment.make(),
+                                 logFile: temp.appendingPathComponent("logs/task.log"))
+            try task.start()
+            Thread.sleep(forTimeInterval: 1)
+            let root = task.process.processIdentifier
+            let children = ProcessTree.descendants(of: root, in: ProcessTree.parents())
+            check("process tree found", children.count >= 2, "\(children.count)")
+            ProcessTree.terminate(root: root, grace: 5)
+            task.process.waitUntilExit()
+            Thread.sleep(forTimeInterval: 0.6)
+            check("process tree stopped", !children.contains(where: ProcessTree.isAlive))
+            check("launcher output read from its log file", task.output.contains("started"), task.output)
         } catch {
             check("runtime sync", false, error.localizedDescription)
         }
@@ -168,6 +257,13 @@ enum SelfTest {
         check("launcher language", env["LANG"] == Lang.posixLocale && env["LC_ALL"] == nil)
         check("launcher compose project", env["COMPOSE_PROJECT_NAME"] == "arva")
         check("output cleaned", cleanOutput("\u{1B}[1mbold\u{1B}[0m\r\nline\r") == "bold\nline\n")
+        check("terminal recording cleaned", cleanOutput("\u{1B}]0;title\u{07}a\u{08} b\u{1B}(B\u{1B}[?1h\u{1B}=\tc\n") == "a b\tc\n",
+              cleanOutput("\u{1B}]0;title\u{07}a\u{08} b\u{1B}(B\u{1B}[?1h\u{1B}=\tc\n").debugDescription)
+        let failure = "The database folder /Volumes/Old/db is not available: is its disk connected?\n"
+            + "  ARVA starts without it; its databases are shown as unavailable (disk not connected) and are not deleted.\n"
+            + "Docker could not download ghcr.io/x:1 and ghcr.io/y:1. Check the internet connection\n"
+        let lines = AppDelegate.failureLines(failure)
+        check("failure read from the last lines, without warnings", lines.contains("could not download") && !lines.contains("connected"), lines)
         check("details hide the home folder", AppInfo.tilde(AppPaths.home.path + "/x") == "~/x")
 
         print(failures == 0 ? "self-test passed" : "self-test FAILED: \(failures) check(s)")

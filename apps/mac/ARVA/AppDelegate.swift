@@ -25,7 +25,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private var terminating = false
     /// The quit dialog is open: the start waits (no new window or dialog) until it is answered.
     private var quitPending = false
-    private var deferredError: (title: String, message: String)?
+    private var deferredError: (title: String, message: String, offerSetup: Bool)?
     /// Everything shown under Details for the last start or stop, for "Copy details".
     private var log = ""
 
@@ -97,9 +97,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         DispatchQueue.global(qos: .userInitiated).async {
             var problem: String?
             var copied = false
+            var envNote: String?
             do {
                 guard let source = AppPaths.bundledRuntime else { throw RuntimeError.missingBundle("Resources/runtime") }
                 copied = try RuntimeSync.sync(from: source, to: AppPaths.runtimeDir)
+                try LauncherShims.install()
+                envNote = EnvLink.ensure()
             } catch {
                 problem = error.localizedDescription
             }
@@ -108,6 +111,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             DispatchQueue.main.async {
                 guard current == self.attempt else { return }
                 if copied { self.note(L("Launcher files updated in ", "Archivos del lanzador actualizados en ") + AppInfo.tilde(AppPaths.runtimeDir.path) + "\n") }
+                if let envNote { self.note(AppInfo.tilde(envNote)) }
                 if let problem {
                     self.showError(title: L("ARVA could not be prepared", "No se pudo preparar ARVA"), message: problem)
                 } else if !installed {
@@ -231,16 +235,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             NSApp.terminate(nil)
             return
         }
+        startWizard(current)
+    }
+
+    /// The first-run questions in Terminal (also for ARVA → Set Up Again); then ARVA opens here once it answers.
+    private func startWizard(_ current: Int) {
+        let runtime = AppPaths.runtimeDir
         let command: URL
         do {
-            command = try FirstRunCommand.write(in: AppPaths.runtimeDir)
+            command = try FirstRunCommand.write(in: runtime)
         } catch {
             showError(title: L("ARVA could not be prepared", "No se pudo preparar ARVA"), message: error.localizedDescription)
             return
         }
         phase = .firstRun
-        note(L("First run: the questions are asked in Terminal (scripts/start.sh --setup).\n",
-               "Primer inicio: las preguntas se hacen en Terminal (scripts/start.sh --setup).\n"))
+        note(L("The questions are asked in Terminal (scripts/start.sh --setup); what that window shows follows here.\n",
+               "Las preguntas se hacen en Terminal (scripts/start.sh --setup); lo que muestra esa ventana sigue aquí.\n"))
         if let terminal = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.Terminal") {
             NSWorkspace.shared.open([command], withApplicationAt: terminal, configuration: NSWorkspace.OpenConfiguration())
         } else {
@@ -250,22 +260,55 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                           hint: L("Then ARVA downloads its programs (several GB the first time) and opens here by itself. This can take a while.",
                                   "Después ARVA descarga sus programas (varios GB la primera vez) y se abre aquí solo. Puede tardar un rato."))
         splash?.setCancel(L("Cancel", "Cancelar"))
+        let tail = LogTail(url: runtime.appendingPathComponent(FirstRunCommand.logFile))
+        let opened = Date()
         var finishedAt: Date?
+        var checking = false
         pollTimer = commonTimer(withTimeInterval: 3, repeats: true) { [weak self] timer in
             guard let self, current == self.attempt else {
                 timer.invalidate()
                 return
             }
             if self.quitPending { return }
-            if finishedAt == nil, let status = FirstRunCommand.status(in: AppPaths.runtimeDir) {
-                if status != 0 {
+            let text = tail.read()
+            if !text.isEmpty { self.note(text) }
+            if finishedAt == nil {
+                switch FirstRunCommand.status(in: runtime) {
+                case .succeeded?:
+                    finishedAt = Date()
+                    self.splash?.setStatus(L("Opening ARVA…", "Abriendo ARVA…"))
+                case .declined?:
+                    timer.invalidate()
+                    self.firstRunDeclined()
+                    return
+                case .interrupted?:
+                    timer.invalidate()
+                    self.wizardClosed()
+                    return
+                case .failed(_)?:
                     timer.invalidate()
                     self.showError(title: L("ARVA did not start", "ARVA no se inició"),
-                                   message: L("The Terminal window says what happened. Fix it there if it says how (for example, connect the disk), then press Try again.",
-                                              "La ventana de Terminal dice qué pasó. Corrígelo si indica cómo (por ejemplo, conectar el disco) y pulsa Reintentar."))
+                                   message: L("What happened is under Details here (and in the Terminal window). Fix it if it says how (for example, connect the disk), then press Try again. If it keeps happening, press Copy details and send the text to whoever helps you with ARVA.",
+                                              "Lo que pasó está en Detalles, aquí (y en la ventana de Terminal). Corrígelo si indica cómo (por ejemplo, conectar el disco) y pulsa Reintentar. Si sigue pasando, pulsa Copiar detalles y envía el texto a quien te ayuda con ARVA."))
+                    return
+                case nil:
+                    // Still asking, unless its Terminal window was closed (or never opened).
+                    if checking { return }
+                    checking = true
+                    DispatchQueue.global(qos: .utility).async {
+                        let running = FirstRunCommand.isRunning(in: runtime)
+                        let status = FirstRunCommand.status(in: runtime)
+                        DispatchQueue.main.async {
+                            checking = false
+                            guard current == self.attempt, self.phase == .firstRun, !self.quitPending, status == nil else { return }
+                            if running == false || (running == nil && Date().timeIntervalSince(opened) > 90) {
+                                self.pollTimer?.invalidate()
+                                self.wizardClosed()
+                            }
+                        }
+                    }
                     return
                 }
-                finishedAt = Date()
             }
             if let finishedAt, Date().timeIntervalSince(finishedAt) > 180 {
                 timer.invalidate()
@@ -273,10 +316,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 return
             }
             ArvaServer.checkHealth { up in
-                guard up, current == self.attempt, self.phase == .firstRun else { return }
+                guard up, current == self.attempt, self.phase == .firstRun, !self.quitPending else { return }
                 timer.invalidate()
                 self.showARVA()
             }
+        }
+    }
+
+    private func wizardClosed() {
+        showError(title: L("The questions were not finished", "Las preguntas no se terminaron"),
+                  message: L("The Terminal window with the questions was closed (or stopped) before ARVA started. Press Try again to see the questions again.",
+                             "La ventana de Terminal con las preguntas se cerró (o se detuvo) antes de que ARVA se iniciara. Pulsa Reintentar para ver de nuevo las preguntas."))
+    }
+
+    /// The person answered no to "Save these choices and start ARVA?": nothing was saved or started.
+    private func firstRunDeclined() {
+        phase = .failed
+        stopTimers()
+        splash?.setCancel(nil)
+        splash?.setStatus(L("ARVA was not set up.", "ARVA no se configuró."))
+        note(L("\nThe answers were not saved; ARVA did not start.\n", "\nNo se guardaron las respuestas; ARVA no se inició.\n"))
+        let alert = NSAlert()
+        alert.messageText = L("ARVA was not set up", "ARVA no se configuró")
+        alert.informativeText = L("You chose not to save the answers, so nothing was saved and ARVA did not start. Press Answer again to see the questions again.",
+                                  "Elegiste no guardar las respuestas, así que no se guardó nada y ARVA no se inició. Pulsa Responder de nuevo para ver otra vez las preguntas.")
+        alert.addButton(withTitle: L("Answer again", "Responder de nuevo"))
+        alert.addButton(withTitle: L("Quit", "Salir"))
+        if alert.runModal() == .alertFirstButtonReturn {
+            begin()
+        } else {
+            NSApp.terminate(nil)
         }
     }
 
@@ -289,7 +358,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         splash?.setCancel(L("Cancel", "Cancelar"))
         note("$ sh scripts/start.sh --no-setup\n")
         let task = ShellTask(executable: "/bin/sh", arguments: ["scripts/start.sh", "--no-setup"], directory: runtime,
-                             environment: ShellEnvironment.make())
+                             environment: ShellEnvironment.make(),
+                             logFile: AppPaths.logsDir.appendingPathComponent("start.log"))
         var timedOut = false
         task.onOutput = { [weak self] text in self?.note(text) }
         task.onExit = { [weak self] status, output in
@@ -318,7 +388,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             guard let task, task.isRunning else { return }
             if Date().timeIntervalSince(task.lastOutputDate) > 20 * 60 {
                 timedOut = true
-                task.terminate()
+                task.terminateAll()
             }
         }
     }
@@ -339,7 +409,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 return
             }
             ArvaServer.checkHealth { up in
-                guard up, current == self.attempt, self.phase == .waitingHealth else { return }
+                guard up, current == self.attempt, self.phase == .waitingHealth, !self.quitPending else { return }
                 timer.invalidate()
                 self.showARVA()
             }
@@ -353,38 +423,56 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                              "ARVA se inició pero no responde en http://localhost:8080. Pulsa Reintentar; si sigue pasando, pulsa Copiar detalles y envía el texto a quien te ayuda con ARVA."))
     }
 
+    /// Why start.sh failed, in plain words. Only its last lines are read, without the warnings it goes on after (an
+    /// added database or import folder whose disk is not connected), so an earlier warning does not hide the cause.
+    static func failureLines(_ output: String) -> String {
+        let warnings = ["is not available: is its disk connected", "no está disponible: ¿está conectado su disco",
+                        "(disk not connected)", "(disco no conectado)", "starts without it", "se inicia sin ella"]
+        let lines = output.components(separatedBy: "\n").map { $0.lowercased() }
+            .filter { line in !line.trimmingCharacters(in: .whitespaces).isEmpty && !warnings.contains { line.contains($0) } }
+        return lines.suffix(15).joined(separator: "\n")
+    }
+
     private func launcherFailed(status: Int32, output: String) {
-        let lower = output.lowercased()
+        let last = Self.failureLines(output)
         let config = ArvaConfig.load(from: AppPaths.configFile())
         let disks = config?.missingDisks() ?? []
+        let diskWords = ["connect the disk", "conéctalo", "probably not connected", "probablemente ese disco no está conectado",
+                         "is the disk connected", "el disco está conectado"]
+        let otherDisk = L(" To keep ARVA's data on another disk, press Set up again.",
+                          " Para guardar los datos de ARVA en otro disco, pulsa Volver a configurar.")
+        var offerSetup = false
         let title: String
         let message: String
-        if !disks.isEmpty || lower.contains("is its disk connected") || lower.contains("está conectado su disco")
-            || lower.contains("connect the disk") || lower.contains("conéctalo") || lower.contains("not connected")
-            || lower.contains("no está conectado") {
-            let name = disks.isEmpty ? L("where ARVA keeps your data", "donde ARVA guarda tus datos")
-                                     : disks.map { "“\($0)”" }.joined(separator: ", ")
-            title = L("Connect the disk", "Conecta el disco")
-            message = L("The disk \(name) is not connected. ARVA keeps your projects there and does not start without it, so nothing is written to the Mac's own disk instead. Connect it, wait until it appears in Finder, then press Try again.",
-                        "El disco \(name) no está conectado. ARVA guarda allí tus proyectos y no se inicia sin él, así no escribe nada en el disco de la Mac. Conéctalo, espera a que aparezca en Finder y pulsa Reintentar.")
-        } else if lower.contains("could not download") || lower.contains("no pudo descargar") {
+        if last.contains("could not download") || last.contains("no pudo descargar") {
             title = L("ARVA could not be downloaded", "No se pudo descargar ARVA")
             message = L("Docker could not download ARVA's programs. Check the internet connection, then press Try again.",
                         "Docker no pudo descargar los programas de ARVA. Comprueba la conexión a internet y pulsa Reintentar.")
-        } else if lower.contains("docker is not running") || lower.contains("docker no está en marcha") {
+        } else if last.contains("docker is not running") || last.contains("docker no está en marcha") {
             title = L("Docker is not running", "Docker no está en marcha")
             message = L("Docker Desktop closed or is still starting. Open it, wait until it is ready, then press Try again.",
                         "Docker Desktop se cerró o todavía se está iniciando. Ábrelo, espera a que esté listo y pulsa Reintentar.")
-        } else if lower.contains("mounts denied") || lower.contains("file sharing") {
+        } else if last.contains("mounts denied") || last.contains("file sharing") {
             title = L("Docker Desktop cannot see the folder", "Docker Desktop no puede ver la carpeta")
             message = L("Docker Desktop refused one of ARVA's folders. In Docker Desktop: Settings → Resources → File sharing, add the folder (or the disk under /Volumes), press Apply, then Try again here.",
                         "Docker Desktop rechazó una de las carpetas de ARVA. En Docker Desktop: Settings → Resources → File sharing, añade la carpeta (o el disco bajo /Volumes), pulsa Apply y luego Reintentar aquí.")
+        } else if !disks.isEmpty {
+            let name = disks.map { "“\($0)”" }.joined(separator: ", ")
+            title = L("Connect the disk", "Conecta el disco")
+            message = L("The disk \(name) is not connected. ARVA keeps your projects there and does not start without it, so nothing is written to the Mac's own disk instead. Connect it, wait until it appears in Finder, then press Try again.",
+                        "El disco \(name) no está conectado. ARVA guarda allí tus proyectos y no se inicia sin él, así no escribe nada en el disco de la Mac. Conéctalo, espera a que aparezca en Finder y pulsa Reintentar.") + otherDisk
+            offerSetup = true
+        } else if diskWords.contains(where: { last.contains($0) }) {
+            title = L("ARVA cannot reach its disk", "ARVA no llega a su disco")
+            message = L("ARVA cannot reach the folder where it keeps your data. Connect the disk and wait until it appears in Finder. If it is already connected, macOS may be keeping ARVA away from it (for example after “Don’t Allow”): in System Settings → Privacy & Security → Files and Folders, turn on “Removable Volumes” for ARVA, then press Try again.",
+                        "ARVA no llega a la carpeta donde guarda tus datos. Conecta el disco y espera a que aparezca en Finder. Si ya está conectado, puede que macOS no deje que ARVA lo use (por ejemplo, después de “No permitir”): en Ajustes del Sistema → Privacidad y seguridad → Archivos y carpetas, activa “Volúmenes extraíbles” para ARVA y pulsa Reintentar.") + otherDisk
+            offerSetup = true
         } else {
             title = L("ARVA could not start", "ARVA no pudo iniciarse")
             message = L("Something went wrong while starting ARVA (exit status \(status)). Press Try again; if it keeps happening, press Copy details and send the text to whoever helps you with ARVA.",
                         "Algo falló al iniciar ARVA (estado de salida \(status)). Pulsa Reintentar; si sigue pasando, pulsa Copiar detalles y envía el texto a quien te ayuda con ARVA.")
         }
-        showError(title: title, message: message)
+        showError(title: title, message: message, offerSetup: offerSetup)
     }
 
     private func cancelStart() {
@@ -399,18 +487,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
         attempt += 1
         stopTimers()
-        startTask?.terminate()
-        startTask = nil
+        phase = .stopping
+        splash?.setCancel(nil)
+        splash?.setStatus(L("Cancelling…", "Cancelando…"))
         note(L("\nCancelled.\n", "\nCancelado.\n"))
-        showError(title: L("Start cancelled", "Inicio cancelado"),
-                  message: L("ARVA's start was cancelled. Press Try again to start it, or Quit.",
-                             "Se canceló el inicio de ARVA. Pulsa Reintentar para iniciarlo, o Salir."))
+        stopLaunchers { [weak self] in
+            self?.showError(title: L("Start cancelled", "Inicio cancelado"),
+                            message: L("ARVA's start was cancelled. Press Try again to start it, or Quit.",
+                                       "Se canceló el inicio de ARVA. Pulsa Reintentar para iniciarlo, o Salir."))
+        }
+    }
+
+    /// Stops what this app started to get ARVA going (start.sh and its docker compose, or the first-run questions in
+    /// Terminal) and calls back once they are gone, so that nothing races what comes next (Try again, or stop.sh).
+    private func stopLaunchers(_ completion: @escaping () -> Void) {
+        let group = DispatchGroup()
+        if let task = startTask {
+            startTask = nil
+            group.enter()
+            task.terminateAll { group.leave() }
+        }
+        group.enter()
+        DispatchQueue.global(qos: .userInitiated).async {
+            FirstRunCommand.stop(in: AppPaths.runtimeDir)
+            group.leave()
+        }
+        group.notify(queue: .main, execute: completion)
     }
 
     /// A plain-language problem, with Try again, Copy details (what support needs) and Quit.
-    private func showError(title: String, message: String) {
+    private func showError(title: String, message: String, offerSetup: Bool = false) {
         if quitPending {
-            deferredError = (title, message)
+            deferredError = (title, message, offerSetup)
             return
         }
         phase = .failed
@@ -427,15 +535,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             alert.informativeText = message + copiedNote
             alert.addButton(withTitle: L("Try again", "Reintentar"))
             alert.addButton(withTitle: L("Copy details", "Copiar detalles"))
+            if offerSetup { alert.addButton(withTitle: L("Set up again…", "Volver a configurar…")) }
             alert.addButton(withTitle: L("Quit", "Salir"))
-            switch alert.runModal() {
-            case .alertFirstButtonReturn:
+            let response = alert.runModal()
+            if response == .alertFirstButtonReturn {
                 begin()
                 return
-            case .alertSecondButtonReturn:
+            } else if response == .alertSecondButtonReturn {
                 copyDetailsToPasteboard()
                 copiedNote = "\n\n" + L("The details were copied: paste them (⌘V) in a message.", "Se copiaron los detalles: pégalos (⌘V) en un mensaje.")
-            default:
+            } else if offerSetup && response == .alertThirdButtonReturn {
+                setupAgain()
+                return
+            } else {
                 NSApp.terminate(nil)
                 return
             }
@@ -498,8 +610,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                                      "Hay \(count) análisis en curso o en espera: detener ARVA los interrumpe (se pueden volver a ejecutar después). Para que terminen, elige Salir sin detener.")
             }
             alert.informativeText = info
-            alert.addButton(withTitle: L("Stop and quit", "Detener y salir"))
-            alert.addButton(withTitle: L("Quit without stopping", "Salir sin detener"))
+            let stopButton = alert.addButton(withTitle: L("Stop and quit", "Detener y salir"))
+            let leaveButton = alert.addButton(withTitle: L("Quit without stopping", "Salir sin detener"))
+            if let count, count > 0 {
+                // Analyses are running: Return keeps them running.
+                stopButton.keyEquivalent = ""
+                leaveButton.keyEquivalent = "\r"
+            }
             let cancel = alert.addButton(withTitle: L("Cancel", "Cancelar"))
             cancel.keyEquivalent = "\u{1b}"
             var checkbox: NSButton?
@@ -528,7 +645,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 NSApp.reply(toApplicationShouldTerminate: false)
                 if let error = self.deferredError {
                     self.deferredError = nil
-                    DispatchQueue.main.async { self.showError(title: error.title, message: error.message) }
+                    DispatchQueue.main.async {
+                        self.showError(title: error.title, message: error.message, offerSetup: error.offerSetup)
+                    }
                 }
             }
         }
@@ -567,8 +686,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private func stopAndQuit(quitDocker: Bool) {
         attempt += 1
         stopTimers()
-        startTask?.terminate()
-        startTask = nil
         phase = .stopping
         log = ""
         let window = splash ?? makeSplash()
@@ -579,9 +696,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         window.show()
         mainWeb?.window.orderOut(nil)
         for other in otherWebs { other.window.orderOut(nil) }
+        // A start still under way is stopped first, so that stop.sh does not race a docker compose up.
+        stopLaunchers { [weak self] in self?.runStop(quitDocker: quitDocker) }
+    }
+
+    private func runStop(quitDocker: Bool) {
         note("$ sh scripts/stop.sh\n")
         let task = ShellTask(executable: "/bin/sh", arguments: ["scripts/stop.sh"], directory: AppPaths.runtimeDir,
-                             environment: ShellEnvironment.make())
+                             environment: ShellEnvironment.make(),
+                             logFile: AppPaths.logsDir.appendingPathComponent("stop.log"))
         task.onOutput = { [weak self] text in self?.note(text) }
         task.onExit = { [weak self] status, _ in
             guard let self else { return }
@@ -603,7 +726,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             return
         }
         stopTask = task
-        watchdog = commonTimer(withTimeInterval: 180, repeats: false) { [weak task] _ in task?.terminate() }
+        watchdog = commonTimer(withTimeInterval: 180, repeats: false) { [weak task] _ in task?.terminateAll() }
     }
 
     private func stopFailed(status: Int32, quitDocker: Bool) {
@@ -629,9 +752,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 copiedNote = "\n\n" + L("The details were copied.", "Se copiaron los detalles.")
             default:
                 NSApp.reply(toApplicationShouldTerminate: false)
-                phase = .running
-                splash?.window.orderOut(nil)
-                mainWeb?.show()
+                // ARVA may be half stopped, or (when the quit came during the start) not started at all: it is
+                // checked again from the beginning, and shown as soon as it answers.
+                begin()
                 return
             }
         }
@@ -658,12 +781,53 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
     @objc func arvaCopyDetails(_ sender: Any?) { copyDetailsToPasteboard() }
     @objc func arvaShowImportFolder(_ sender: Any?) {
-        let folder = AppPaths.runtimeDir.appendingPathComponent("import", isDirectory: true)
-        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        NSWorkspace.shared.open(folder)
+        DispatchQueue.global(qos: .userInitiated).async {
+            let answer = ImportFolder.current()
+            DispatchQueue.main.async {
+                switch answer {
+                case .folder(let folder):
+                    NSWorkspace.shared.open(folder)
+                case .unavailable(let path):
+                    let alert = NSAlert()
+                    alert.messageText = L("The import folder is not available", "La carpeta de importación no está disponible")
+                    alert.informativeText = L("ARVA imports from \(path), which cannot be found now: connect its disk (then open ARVA again so that it uses it), or choose another folder with ARVA → Set Up Again.",
+                                              "ARVA importa desde \(path), que ahora no se encuentra: conecta su disco (y vuelve a abrir ARVA para que la use) o elige otra carpeta con ARVA → Volver a configurar.")
+                    alert.runModal()
+                }
+            }
+        }
     }
     @objc func arvaHelp(_ sender: Any?) {
-        NSWorkspace.shared.open(Self.repository.appendingPathComponent("blob/main/docs/guia-mac-app.md"))
+        let configured = (Bundle.main.object(forInfoDictionaryKey: "ARVAGuideURL") as? String).flatMap(URL.init(string:))
+        NSWorkspace.shared.open(configured ?? Self.repository.appendingPathComponent("blob/main/docs/guia-mac-app.md"))
+    }
+    @objc func arvaSetupAgain(_ sender: Any?) {
+        guard phase == .running || phase == .failed else { return }
+        let alert = NSAlert()
+        alert.messageText = L("Set up ARVA again?", "¿Volver a configurar ARVA?")
+        alert.informativeText = L("A Terminal window opens with the first-run questions again (which disk keeps the data, the databases you already have…), and ARVA restarts with the new answers. Nothing is moved or deleted: folders you stop using stay as they are.",
+                                  "Se abre una ventana de Terminal con las preguntas del primer inicio (en qué disco guardar los datos, las bases de datos que ya tienes…) y ARVA se reinicia con las nuevas respuestas. No se mueve ni se borra nada: las carpetas que dejes de usar quedan como están.")
+        alert.addButton(withTitle: L("Continue", "Continuar"))
+        let cancel = alert.addButton(withTitle: L("Cancel", "Cancelar"))
+        cancel.keyEquivalent = "\u{1b}"
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        setupAgain()
+    }
+
+    private func setupAgain() {
+        attempt += 1
+        let current = attempt
+        stopTimers()
+        log = ""
+        let window = splash ?? makeSplash()
+        window.clearDetails()
+        window.setCancel(nil)
+        window.setStatus(L("Preparing ARVA…", "Preparando ARVA…"))
+        window.show()
+        mainWeb?.window.orderOut(nil)
+        for other in otherWebs { other.window.orderOut(nil) }
+        note(AppInfo.summary + "\n")
+        startWizard(current)
     }
 
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
@@ -678,6 +842,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             return phase == .running
         case #selector(arvaCopyDetails(_:)):
             return !log.isEmpty
+        case #selector(arvaSetupAgain(_:)):
+            return phase == .running || phase == .failed
         default:
             return true
         }
