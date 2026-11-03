@@ -1,0 +1,3 @@
+# Pinned spec of ARVA's Flye environment; scripts/conda_locks.py update flye solves it for each platform.
+# Flye 2.9.6 (Kolmogorov et al. 2019, BSD-3-Clause): long-read assembly with repeat graphs.
+flye=2.9.6
