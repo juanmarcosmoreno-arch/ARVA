@@ -23,6 +23,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     /// Docker Desktop was opened by this app (so quitting may offer to close it again).
     private var launchedDocker = false
     private var terminating = false
+    /// The quit dialog is open: the start waits (no new window or dialog) until it is answered.
+    private var quitPending = false
+    private var deferredError: (title: String, message: String)?
     /// Everything shown under Details for the last start or stop, for "Copy details".
     private var log = ""
 
@@ -151,6 +154,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 timer.invalidate()
                 return
             }
+            if self.quitPending { return }
             if DockerDesktop.isInstalled {
                 timer.invalidate()
                 self.splash?.setCancel(nil)
@@ -252,6 +256,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 timer.invalidate()
                 return
             }
+            if self.quitPending { return }
             if finishedAt == nil, let status = FirstRunCommand.status(in: AppPaths.runtimeDir) {
                 if status != 0 {
                     timer.invalidate()
@@ -327,6 +332,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 timer.invalidate()
                 return
             }
+            if self.quitPending { return }
             if Date() > deadline {
                 timer.invalidate()
                 self.healthTimedOut()
@@ -403,6 +409,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     /// A plain-language problem, with Try again, Copy details (what support needs) and Quit.
     private func showError(title: String, message: String) {
+        if quitPending {
+            deferredError = (title, message)
+            return
+        }
         phase = .failed
         stopTimers()
         splash?.setCancel(nil)
@@ -475,6 +485,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     // MARK: Quitting
 
     private func askToStop() {
+        quitPending = true
         countActiveJobs { [weak self] count in
             guard let self else { return }
             let alert = NSAlert()
@@ -502,6 +513,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 checkbox = box
             }
             let response = alert.runModal()
+            self.quitPending = false
             let quitDocker = checkbox?.state == .on
             if let checkbox, response != .alertThirdButtonReturn {
                 UserDefaults.standard.set(checkbox.state == .on, forKey: Self.quitDockerKey)
@@ -514,6 +526,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 NSApp.reply(toApplicationShouldTerminate: true)
             default:
                 NSApp.reply(toApplicationShouldTerminate: false)
+                if let error = self.deferredError {
+                    self.deferredError = nil
+                    DispatchQueue.main.async { self.showError(title: error.title, message: error.message) }
+                }
             }
         }
     }
