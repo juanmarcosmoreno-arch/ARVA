@@ -5,6 +5,9 @@ Está pensada para quien trabaja en microbiología y no necesita conocer Docker 
 escribir y qué se debería ver. Los detalles técnicos completos están en [installation.md](installation.md) (en
 inglés).
 
+> **App para Mac.** Para usar ARVA como una aplicación (ícono en el Dock, ventana propia, arranque y apagado con un
+> clic, y para pasársela a otra persona que solo tenga Docker Desktop) ver [guia-mac-app.md](guia-mac-app.md).
+
 > **Estado.** El lanzador para Mac (`scripts/start.sh`, `ARVA.command`) se escribió a partir de la documentación de
 > Apple y de Docker y se probó con programas simulados en Linux, **todavía no en una Mac real**. Si algo no coincide
 > con lo que se ve en pantalla, ver el paso 11 (qué hacer cuando algo falla).

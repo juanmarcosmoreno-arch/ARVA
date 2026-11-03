@@ -166,6 +166,7 @@ ARVA_E2E=1 scripts/test-all.sh    # also the browser golden path (stack must be 
 - [Architecture](docs/architecture.md)
 - [Installation](docs/installation.md)
 - [Guía de instalación en Mac (español)](docs/guia-mac.md)
+- [ARVA.app para Mac (español)](docs/guia-mac-app.md)
 - [Scientific methods](docs/scientific-methods.md)
 - [Developer guide](docs/developer-guide.md)
 - [Roadmap & current limitations](docs/roadmap.md)
