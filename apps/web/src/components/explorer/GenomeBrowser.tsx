@@ -818,9 +818,7 @@ function LineTrack({ y, label, theme, x, plotW, data, kind, view, skewColours }:
   return (
     <g>
       <TrackLabel y={y + LINE_H / 2 - 6} text={label} theme={theme} />
-      <text x={8} y={y + LINE_H / 2 + 8} fontSize={9} fill={theme.muted}>
-        {data.auto ? t("explorer.windowAuto", { w: fmtInt(data.window) }) : t("explorer.window", { w: fmtInt(data.window), s: fmtInt(data.step) })}
-      </text>
+      <SubLabel y={y + LINE_H / 2 + 8} theme={theme} text={data.auto ? t("explorer.windowAuto", { w: fmtInt(data.window) }) : t("explorer.window", { w: fmtInt(data.window), s: fmtInt(data.step) })} />
       <text x={GUTTER - 4} y={y + 8} fontSize={9} textAnchor="end" fill={theme.muted}>
         {fmt(max)}
       </text>
@@ -889,9 +887,7 @@ function CoverageLine({ y, label, theme, x, plotW, data }: { y: number; label: s
   return (
     <g>
       <TrackLabel y={y + LINE_H / 2 - 6} text={label} theme={theme} />
-      <text x={8} y={y + LINE_H / 2 + 8} fontSize={9} fill={theme.muted}>
-        {t("explorer.coverageBins", { r: data.resolution ?? "?" })}
-      </text>
+      <SubLabel y={y + LINE_H / 2 + 8} theme={theme} text={t("explorer.coverageBins", { r: data.resolution ?? "?" })} />
       <text x={GUTTER - 4} y={y + 8} fontSize={9} textAnchor="end" fill={theme.muted}>
         {fmtNum(max, 0)}×
       </text>
@@ -974,5 +970,25 @@ function Readout({ t, hovered, hoverPos, gc, coverage, contig }: {
         <div className="truncate text-muted-foreground">{parts.length ? parts.join(" · ") : t("explorer.hoverHint")}</div>
       )}
     </div>
+  );
+}
+
+/** A track's second label line, wrapped inside the left gutter (SVG text does not wrap; 9 px text averages ~5 px). */
+function SubLabel({ y, text, theme }: { y: number; text: string; theme: ChartTheme }) {
+  const max = Math.floor((GUTTER - 14) / 5);
+  const lines: string[] = [];
+  for (const word of text.split(" ")) {
+    const last = lines[lines.length - 1];
+    if (last !== undefined && (last + " " + word).length <= max) lines[lines.length - 1] = `${last} ${word}`;
+    else lines.push(word);
+  }
+  return (
+    <text x={8} y={y} fontSize={9} fill={theme.muted}>
+      {lines.slice(0, 3).map((l, i) => (
+        <tspan key={i} x={8} dy={i ? 10 : 0}>
+          {l}
+        </tspan>
+      ))}
+    </text>
   );
 }

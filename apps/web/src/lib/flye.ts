@@ -6,7 +6,8 @@ import type { AnalysisJobDetail, FlyeContigRow, FlyeParams, FlyePlan, FlyeReadTy
 
 export const FLYE_JOB = "flye_assembly";
 /** Jobs shown in the Assembly tab: assemblers, assembly evaluation and polishing. */
-export const ASSEMBLY_JOBS = new Set([FLYE_JOB, SPADES_JOB, UNICYCLER_JOB, QUAST_JOB, RACON_JOB, PILON_JOB]);
+export const IMPORT_ASSEMBLY_JOB = "assembly_import";
+export const ASSEMBLY_JOBS = new Set([FLYE_JOB, SPADES_JOB, UNICYCLER_JOB, QUAST_JOB, RACON_JOB, PILON_JOB, IMPORT_ASSEMBLY_JOB]);
 
 /** Flye's read-type options with Flye's own descriptions (flye --help). */
 export const READ_TYPES: { value: FlyeReadType; label: TranslationKey }[] = [

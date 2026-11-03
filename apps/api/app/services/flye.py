@@ -126,6 +126,22 @@ def check_files(sample: Sample, files: list[RawFile], ev: list[dict[str, Any]], 
                              f"read type {read_type} is for {family} reads")
 
 
+def check_not_twice(sample: Sample, files: list[RawFile]) -> None:
+    """Refuse a filtered file together with a file it was filtered from: Flye stops on the duplicated read IDs."""
+    by_id = {f.id: f for f in sample.raw_files}
+    selected = {f.id for f in files}
+    for f in files:
+        seen: set[str] = set()
+        parent = by_id.get(f.parent_file_id) if f.parent_file_id else None
+        while parent is not None and parent.id not in seen:
+            if parent.id in selected:
+                raise InputError(f"{f.original_filename} was filtered from {parent.original_filename}, which is selected "
+                                 "too: both hold the same reads under the same names, and Flye stops on duplicated "
+                                 "read IDs. Select one of them.")
+            seen.add(parent.id)
+            parent = by_id.get(parent.parent_file_id) if parent.parent_file_id else None
+
+
 def needs_confirmation(sample: Sample) -> bool:
     return sample.sequencing_technology not in CONFIRMATION_FREE
 

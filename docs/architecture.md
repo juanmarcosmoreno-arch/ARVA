@@ -62,7 +62,8 @@
   kind, sheet, encoding, delimiter, header row, column mapping, date order, mode, and the created /
   updated / unchanged / skipped counts). The table file itself is not stored.
 - **Assembly**: a genome assembly written by one job (`job_id`, unique) for one sample: assembler and
-  version, mode (`long`, `short`, `hybrid`), the assembler's read-type setting, `input_file_ids` (the exact
+  version, mode (`long`, `short`, `hybrid`, or `imported` for a finished genome FASTA the user registers, e.g. an
+  NCBI RefSeq genome: assembler `Imported genome`, version = the source the user states, read type `none`), the assembler's read-type setting, `input_file_ids` (the exact
   imported or derived read files used), the contigs/graph/info paths in the job's `results/` folder
   (checksummed and read-only, never registered as read files), `stats` (arva-core assembly statistics,
   output checksums, expected genome size and its source, the heuristic checks run), `contigs` (rows for

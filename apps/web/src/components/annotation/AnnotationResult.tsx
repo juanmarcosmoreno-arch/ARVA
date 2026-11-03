@@ -60,6 +60,7 @@ export function AnnotationCard({ annotation, job }: { annotation: Annotation; jo
         }
       />
       <CardBody className="space-y-5 pt-3">
+        {tool === "prokka" && <p className="text-xs text-muted-foreground">{t("annotation.prokkaGeneNames")}</p>}
         {s.synthetic_evidence?.length > 0 && <SyntheticNote evidence={s.synthetic_evidence} />}
         <p className="text-xs text-muted-foreground">{t("annotation.predictions")}</p>
         <div className="grid gap-3 sm:grid-cols-4 xl:grid-cols-8">

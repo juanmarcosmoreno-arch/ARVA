@@ -415,6 +415,12 @@ class FlyeParamsIn(BaseModel):
     threads: int | None = Field(default=None, ge=1, le=128, description="Capped at the server's thread limit")
 
 
+class AssemblyImportRequest(BaseModel):
+    raw_file_id: str = Field(max_length=64)
+    source: str = Field(min_length=1, max_length=100, pattern=r"^[A-Za-z0-9][A-Za-z0-9 ._:/()+-]*$",
+                        description="Where the genome comes from, as the user states it, e.g. 'NCBI RefSeq GCF_000013465.1'")
+
+
 class FlyeRequest(BaseModel):
     raw_file_ids: list[Annotated[str, Field(max_length=64)]] = Field(min_length=1, max_length=100)
     params: FlyeParamsIn

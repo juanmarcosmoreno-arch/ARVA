@@ -1,5 +1,6 @@
 /** Workflow Builder and batch runs: the API's shapes and the pure helpers the editor and dashboards use. The rules
  * for connecting ports mirror arva_core.workflow.edge_problem; the server checks them again on every save. */
+import { dictionaries, type Translate, type TranslationKey } from "@/i18n";
 
 export type PortType = "reads_long" | "reads_short" | "assembly" | "annotation" | "comparison_set" | "alignment" | "tree";
 
@@ -485,3 +486,9 @@ export const STATUS_COLOR: Record<ItemStatus, string> = {
   cancelled: "#D97706",
   skipped: "#F59E0B",
 };
+
+/** A parameter's translated name (by its last path segment), or null when the dictionary has none. */
+export function paramLabel(t: Translate, path: string): string | null {
+  const key = `wf.p.${path.split(".").pop()}`;
+  return key in dictionaries.en ? t(key as TranslationKey) : null;
+}

@@ -1,11 +1,11 @@
 import { useMemo, useState } from "react";
 import { Input, Select, Textarea } from "@/components/ui/form";
 import { useT } from "@/i18n";
-import { fieldProblem, getPath, paramFields, setPath, type NodeKind, type ParamField, type Problem } from "@/lib/workflows";
+import { fieldProblem, getPath, paramFields, paramLabel, setPath, type NodeKind, type ParamField, type Problem } from "@/lib/workflows";
 
 /** A node's parameters, as fields built from the analysis's own request model (the schema the API sends). Values are
- * checked here for type and range, and on the server with the same model as the analysis's dialog. Option names are
- * shown as the API names them (they are the tools' and ARVA's option identifiers). */
+ * checked here for type and range, and on the server with the same model as the analysis's dialog. Each option shows
+ * its translated name with the identifier the API (and the exported definition) uses for it. */
 export function ParamPanel({
   kind,
   params,
@@ -44,7 +44,14 @@ function FieldRow({ field: f, value, serverProblem, onChange, readOnly }: {
   const [draft, setDraft] = useState<string | null>(null);
   const local = fieldProblem(f, value);
   const range = f.min !== undefined || f.max !== undefined ? t("wf.param.rangeHint", { min: f.min ?? "−∞", max: f.max ?? "∞" }) : "";
-  const label = <span className="font-mono text-[11px]">{f.path}</span>;
+  const name = paramLabel(t, f.path);
+  const label = name ? (
+    <span>
+      {name} <span className="font-mono text-[10px] text-muted-foreground">{f.path}</span>
+    </span>
+  ) : (
+    <span className="font-mono text-[11px]">{f.path}</span>
+  );
   let control;
   if (f.kind === "boolean") {
     control = <input type="checkbox" className="h-4 w-4 accent-arva-teal" checked={Boolean(value)} disabled={readOnly} onChange={(e) => onChange(e.target.checked)} />;

@@ -12,7 +12,7 @@ export function ArvaWordmark({ className, tagline = false }: { className?: strin
       <ArvaMark />
       <div className="leading-none">
         <div className="text-lg font-medium tracking-[0.28em]">ARVA</div>
-        {tagline && <div className="mt-1 whitespace-nowrap text-[8px] tracking-[0.14em] opacity-70">{t("brand.tagline")}</div>}
+        {tagline && <div className="mt-1 max-w-[10.5rem] text-[8px] leading-snug tracking-[0.14em] opacity-70">{t("brand.tagline")}</div>}
       </div>
     </div>
   );

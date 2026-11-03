@@ -66,6 +66,8 @@ WARNINGS = {
     "sccmec_mecA_includes_mecC": "sccmec's mecA target includes the mecC sequence of type XI: its mecA + means mecA "
                                  "or mecC.",
     "sccmec_type_only": "sccmec determined the type but no cassette reached the coverage threshold for a subtype.",
+    "sccmec_multiple_subtypes": "sccmec determined the type; several of its subtypes reached the coverage threshold "
+                                "({subtypes}), so no subtype is reported.",
     "sccmec_mec_without_type": "mecA (or mecC) was found but no SCCmec type: a novel, composite or incompletely "
                                "assembled cassette.",
     "sccmec_multiple": "Several SCCmec types matched: a composite cassette or a mixed sample; no type is reported.",
@@ -286,8 +288,8 @@ def summary(db: Session, a: Assembly) -> dict[str, Any]:
         sccmec_part = ""
         if mec and sccmec and sccmec["call"]:
             sccmec_part = f"-{sccmec['call']}"
-            if sccmec["status"] == "type_only":
-                uncertain.append({"part": "sccmec", "reason": "sccmec_type_only", "params": {}})
+            if sccmec["status"] in ("type_only", "multiple_subtypes"):
+                uncertain.append({"part": "sccmec", "reason": f"sccmec_{sccmec['status']}", "params": {}})
         if doubt:
             uncertain.append({"part": "mec", "reason": "mec_disagree" if cross["status"] == "disagree"
                               else "mec_partial", "params": {}})

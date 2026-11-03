@@ -8,6 +8,7 @@ the before/after comparison uses identical methods on both sides.
 from __future__ import annotations
 
 import contextlib
+import gzip
 import hashlib
 import json
 import os
@@ -31,6 +32,7 @@ from arva_tools import (
     nice_prefix,
     run_command,
 )
+from arva_tools.base import parse_version
 from arva_tools.fastp import FastpAdapter, FastpParams, removed_reads
 from arva_tools.fastqc import DATA_JSON as FASTQC_DATA_JSON
 from arva_tools.fastqc import FastqcAdapter
@@ -103,6 +105,7 @@ from app.models import (
 )
 from app.services.assemblies import MAX_CONTIG_ROWS, register_assembly
 from app.services.imports import header_metadata
+from app.services.jobs import IMPORTED_ASSEMBLER
 from app.services.quast import crosscheck
 from app.services.short_hybrid import ROLES, library_layout
 from app.tasks.common import JobCancelled, JobContext, JobFailure, now, run_job
@@ -258,6 +261,9 @@ def run_seqkit_job(job_id: str) -> str:
 
 # --- FastQC -------------------------------------------------------------------
 
+FASTQC_RETRY_MEMORY_MB = 2048
+
+
 def _fastqc_body(ctx: JobContext) -> None:
     exe = _resolve_tool(ctx, "fastqc")
     (f,) = ctx.input_files()
@@ -271,7 +277,16 @@ def _fastqc_body(ctx: JobContext) -> None:
     link_dir.mkdir(exist_ok=True)
     src = link_dir / re.sub(r"[^A-Za-z0-9._-]+", "_", f.original_filename)
     src.symlink_to(ctx.path(f.stored_path))
-    log = _run(ctx, FastqcAdapter.argv(exe, src, workdir, tmp), workdir, "fastqc.log")
+    try:
+        log = _run(ctx, FastqcAdapter.argv(exe, src, workdir, tmp), workdir, "fastqc.log")
+    except ToolExecutionError:
+        log_text = (workdir / "fastqc.log").read_text(errors="replace") if (workdir / "fastqc.log").exists() else ""
+        if not FastqcAdapter.out_of_memory(log_text) or parse_version(ctx.job.tool_version or "0") < (0, 12):
+            raise
+        memory_mb = _fastqc_retry_memory_mb(ctx)
+        ctx.log(f"FastQC ran out of Java heap at its default 512 MB (common with long reads); running it again with "
+                f"--memory {memory_mb}")
+        log = _run(ctx, FastqcAdapter.argv(exe, src, workdir, tmp, memory_mb), workdir, "fastqc.log")
     shutil.rmtree(tmp, ignore_errors=True)
     shutil.rmtree(link_dir, ignore_errors=True)
     html_name, zip_name = FastqcAdapter.output_names(src.name)
@@ -290,6 +305,11 @@ def _fastqc_body(ctx: JobContext) -> None:
     data_json.write_text(json.dumps(data))
     ctx.job.result_summary = {**summary, "data_summary": FastqcAdapter.summarize(data)}
     ctx.job.output_paths = [_rel(ctx, html), _rel(ctx, zipf), _rel(ctx, data_json), _rel(ctx, log)]
+
+
+def _fastqc_retry_memory_mb(ctx: JobContext) -> int:
+    memory_gb = (ctx.job.resources or {}).get("memory_gb")
+    return min(FASTQC_RETRY_MEMORY_MB, int(memory_gb) * 1024 // 2) if memory_gb else FASTQC_RETRY_MEMORY_MB
 
 
 def run_fastqc_job(job_id: str) -> str:
@@ -826,6 +846,24 @@ def _flye_body(ctx: JobContext) -> None:
 
 def run_flye_job(job_id: str) -> str:
     return run_job(job_id, _flye_body)
+
+
+def _assembly_import_body(ctx: JobContext) -> None:
+    (f,) = ctx.input_files()
+    _log_inputs(ctx, [f])
+    results = ctx.path(ctx.results_rel)
+    results.mkdir(parents=True, exist_ok=True)
+    contigs = results / "assembly.fasta"
+    src = ctx.path(f.stored_path)
+    with (gzip.open(src, "rb") if is_gzip(src) else src.open("rb")) as a, contigs.open("wb") as b:
+        shutil.copyfileobj(a, b)
+    ctx.log(f"{f.original_filename} registered as an imported genome; source as stated by the user: "
+            f"{ctx.job.parameters['source']}. ARVA did not assemble it, and records no reads or assembler for it.")
+    register_assembly(ctx, assembler=IMPORTED_ASSEMBLER, mode=AssemblyMode.imported, read_type="none", contigs=contigs)
+
+
+def run_assembly_import_job(job_id: str) -> str:
+    return run_job(job_id, _assembly_import_body)
 
 
 # --- SPAdes and Unicycler (short-read and hybrid assembly) ---------------------------------------------------

@@ -83,6 +83,7 @@ export function FlyePanel({
   });
   const p = plan.data;
   const keys = flyeProblems(form, p, ids.length, confirmed);
+  if (selectedTwice(files, selected).length) keys.push("flye.problem.twice");
   if (ids.length && (plan.isError || (p && p.tool.status !== "available"))) keys.push("assembly.problem.tool");
   else if (ids.length && !p) keys.push("assembly.problem.checking");
   const problems = keys.map((k) => t(k, { max: p?.tool.max_threads ?? "?", tool: "Flye" }));
@@ -167,7 +168,7 @@ export function FlyePanel({
         </div>
       </Section>
 
-      <Advanced title={t("assembly.advanced.title")} changed={advanced.length}>
+      <Advanced title={t("assembly.advanced.title")} tool="Flye" changed={advanced.length}>
         <div className="grid gap-3 sm:grid-cols-3">
           <Field label={t("flye.minOverlap")} hint={t("flye.minOverlapHint")}>
             <Input type="number" min={1000} max={10000} placeholder={t("flye.auto")} value={form.minOverlap} onChange={(e) => set("minOverlap", e.target.value)} />
@@ -234,17 +235,17 @@ export function OriginBadge({ file: f, producedBy }: { file: RawFile; producedBy
 }
 
 /** Collapsed advanced options with the number changed from the defaults. */
-export function Advanced({ title, changed, children }: { title: string; changed: number; children: ReactNode }) {
+export function Advanced({ title, tool, changed, children }: { title: string; tool: string; changed: number; children: ReactNode }) {
   const t = useT();
   return (
     <details className="group rounded-lg border px-3 py-2">
       <summary className="flex cursor-pointer list-none items-center gap-1.5 text-sm font-semibold">
         <ChevronRight className="h-4 w-4 transition-transform group-open:rotate-90" aria-hidden />
         {title}
-        <span className="font-normal text-muted-foreground">· {changed ? t("assembly.advanced.changed", { count: changed }) : t("assembly.advanced.none")}</span>
+        <span className="font-normal text-muted-foreground">· {changed ? t("assembly.advanced.changed", { count: changed }) : t("assembly.advanced.none", { tool })}</span>
       </summary>
       <div className="mt-3 space-y-3">
-        <p className="text-xs text-muted-foreground">{t("assembly.advanced.hint")}</p>
+        <p className="text-xs text-muted-foreground">{t("assembly.advanced.hint", { tool })}</p>
         {children}
       </div>
     </details>

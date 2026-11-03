@@ -23,6 +23,7 @@ from app.schemas.schemas import (
     AnalysisJobRead,
     AssemblyDetail,
     AssemblyGraphRead,
+    AssemblyImportRequest,
     AssemblyRead,
     FlyePlanRead,
     FlyePreviewRequest,
@@ -44,6 +45,7 @@ from app.schemas.schemas import (
 from app.services import flye, polishing, quast, short_hybrid
 from app.services.assemblies import GRAPH_MAX_EDGES, GRAPH_MAX_NODES, assembly_graph
 from app.services.jobs import (
+    create_assembly_import_job,
     create_flye_job,
     create_polishing_job,
     create_quast_job,
@@ -155,6 +157,7 @@ def start_flye(sample_id: str, payload: FlyeRequest, db: Session = Depends(get_d
     try:
         ev = flye.evidence(db, files)
         flye.check_files(sample, files, ev, params.read_type)
+        flye.check_not_twice(sample, files)
         if flye.needs_confirmation(sample) and not payload.long_reads_confirmed:
             raise flye.InputError(
                 f"Flye assembles long reads (Oxford Nanopore or PacBio), and this sample's sequencing technology is "
@@ -254,6 +257,21 @@ def start_unicycler(sample_id: str, payload: UnicyclerRequest, db: Session = Dep
     roles = {r: getattr(inputs, r) for r in short_hybrid.ROLES}
     return _tool_call(create_unicycler_job, db, sample, roles, params,
                       _provenance(sample, inputs, payload.reads_confirmed, memory is not None))
+
+
+@router.post("/samples/{sample_id}/assembly/import", response_model=AnalysisJobRead,
+             status_code=status.HTTP_202_ACCEPTED)
+def import_assembly(sample_id: str, payload: AssemblyImportRequest, db: Session = Depends(get_db)):
+    """Register a finished genome FASTA of the sample (for example an NCBI RefSeq genome uploaded by the user) as an
+    imported assembly, so it can be annotated, typed and compared like ARVA's own. ARVA records the source the user
+    states, the file's checksum and that it did not assemble it."""
+    sample = sample_or_404(db, sample_id)
+    try:
+        fasta = quast.reference_for(db, sample, payload.raw_file_id)
+    except quast.InputError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+    assert fasta is not None
+    return create_assembly_import_job(db, sample, fasta, payload.source.strip())
 
 
 @router.post("/samples/{sample_id}/assembly/quast/preview", response_model=QuastPlanRead)

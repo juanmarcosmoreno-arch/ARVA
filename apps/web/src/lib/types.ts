@@ -1226,7 +1226,7 @@ export interface Assembly {
   parent_assembly_id: string | null;
   assembler: string;
   assembler_version: string;
-  mode: "long" | "short" | "hybrid";
+  mode: "long" | "short" | "hybrid" | "imported";
   read_type: string;
   coverage_kind?: CoverageKind | null;
   input_file_ids: string[];
@@ -1405,7 +1405,7 @@ export interface QuastSummary {
 export type ReadRole = "r1" | "r2" | "unpaired" | "long";
 export type SpadesMode = "isolate" | "careful" | "standard";
 export type UnicyclerBridging = "conservative" | "normal" | "bold";
-export type AssemblyModeName = Assembly["mode"];
+export type AssemblyModeName = Exclude<Assembly["mode"], "imported">;
 
 export interface ShortReadInputs {
   r1_file_id?: string | null;

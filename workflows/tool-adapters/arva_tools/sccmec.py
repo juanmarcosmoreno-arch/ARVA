@@ -157,6 +157,15 @@ def _names(value: str) -> list[str]:
     return [v for v in (value or "").split(",") if v and v != "-"]
 
 
+def _each(value: str, kind: type) -> list[Any]:
+    return [kind(v) for v in (value or "").split(",") if v not in ("", "-")]
+
+
+def _single(value: str, kind: type) -> Any:
+    values = _each(value, kind)
+    return values[0] if len(values) == 1 else None
+
+
 def parse_result(text: str) -> dict[str, Any]:
     rows = _table(text, RESULT_COLUMNS, "the sccmec result table")
     if len(rows) != 1:
@@ -167,8 +176,9 @@ def parse_result(text: str) -> dict[str, Any]:
     return {"type": None if r["type"] in ("", "-") else r["type"],
             "subtype": None if r["subtype"] in ("", "-") else r["subtype"],
             "mecA": r["mecA"] == "+", "targets": _names(r["targets"]), "regions": _names(r["regions"]),
-            "coverage": float(r["coverage"]) if r["coverage"] not in ("", "-") else None,
-            "hits": int(r["hits"]) if r["hits"].isdigit() else None,
+            # With several matching subtypes sccmec lists one coverage and one hit count per region, comma-separated.
+            "coverage": _single(r["coverage"], float), "hits": _single(r["hits"], int),
+            "region_coverage": _each(r["coverage"], float), "region_hits": _each(r["hits"], int),
             "target_schema": r["target_schema"], "target_schema_version": r["target_schema_version"],
             "region_schema": r["region_schema"], "region_schema_version": r["region_schema_version"],
             "camlhmp_version": r["camlhmp_version"], "params": r["params"], "target_comment": r["target_comment"],
@@ -216,11 +226,14 @@ def complexes(targets: list[str], schema: dict[str, Any]) -> dict[str, list[str]
 
 
 def interpret(result: dict[str, Any]) -> dict[str, Any]:
-    """ARVA's reading of sccmec's call: typed (type and subtype), type_only, multiple, mec_without_type (mecA found,
-    no type) or not_typeable."""
+    """ARVA's reading of sccmec's call: typed (type and subtype), type_only, multiple_subtypes (the type, with
+    several of its subtypes above the threshold), multiple (several types), mec_without_type (mecA found, no type)
+    or not_typeable."""
     t, sub = result["type"], result["subtype"]
-    if t == "multiple" or sub == "multiple":
+    if t == "multiple":
         status = "multiple"
+    elif t and sub == "multiple":
+        status = "multiple_subtypes"
     elif t and sub and sub != "-":
         status = "typed"
     elif t:
@@ -229,7 +242,8 @@ def interpret(result: dict[str, Any]) -> dict[str, Any]:
         status = "mec_without_type"
     else:
         status = "not_typeable"
-    call = None if status in ("multiple", "mec_without_type", "not_typeable") else (sub or t)
+    call = None if status in ("multiple", "mec_without_type", "not_typeable") else t if status == "multiple_subtypes" \
+        else (sub or t)
     return {"status": status, "call": call}
 
 

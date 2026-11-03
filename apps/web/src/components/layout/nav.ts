@@ -49,13 +49,9 @@ export const NAV: NavSection[] = [
   {
     label: "nav.section.analysis",
     items: [
-      { key: "assembly", label: "nav.assembly", icon: Puzzle, to: "/modules/assembly", plannedPhase: 3,
-        description: "nav.desc.assembly" },
-      { key: "annotation", label: "nav.annotation", icon: Dna, to: "/modules/annotation", plannedPhase: 4,
-        description: "nav.desc.annotation" },
-      // Phase 5 is under way: the page shows MLST across projects; P5 stays until the phase is complete.
-      { key: "genomic", label: "nav.genomic", icon: Microscope, to: "/genomic", plannedPhase: 5,
-        description: "nav.desc.genomic" },
+      { key: "assembly", label: "nav.assembly", icon: Puzzle, to: "/assembly", description: "nav.desc.assembly" },
+      { key: "annotation", label: "nav.annotation", icon: Dna, to: "/annotation", description: "nav.desc.annotation" },
+      { key: "genomic", label: "nav.genomic", icon: Microscope, to: "/genomic", description: "nav.desc.genomic" },
       { key: "explorer", label: "nav.explorer", icon: MapIcon, to: "/explorer",
         description: "nav.desc.explorer" },
       { key: "comparative", label: "nav.comparative", icon: GitCompareArrows, to: "/comparative",

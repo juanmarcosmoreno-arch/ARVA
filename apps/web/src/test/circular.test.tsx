@@ -286,7 +286,9 @@ describe("Circular map", () => {
     const { container } = renderWith(<CircularExplorer annotation={annotation} contigs={contigs} sampleCode="SYN-1" selected={null} onSelect={onSelect} onShowLinear={() => {}} />);
     expect(await screen.findByRole("img", { name: /Circular map of SYNTHETIC_chromosome/ })).toBeInTheDocument();
     expect(api.annotationMap).toHaveBeenCalledWith("ann", { contigs: [], points: 1440 });
-    expect(await screen.findAllByText(/No AMRFinderPlus run on this assembly yet/)).toHaveLength(2);
+    expect(await screen.findAllByText(/No AMRFinderPlus run on this assembly yet/)).toHaveLength(1);
+    expect(screen.getByText(/From the same AMRFinderPlus run \(--plus\) as the resistance ring/)).toBeInTheDocument();
+    expect(screen.getAllByText(/Rings without results are filled from the sample's Genomic analysis tab/)).toHaveLength(1);
     expect(await screen.findByText(/No VFDB search on this assembly yet/)).toBeInTheDocument();
     expect(await screen.findByText(/No plasmid or mobile-element search on this assembly yet/)).toBeInTheDocument();
     for (const name of ["Antimicrobial resistance", "Virulence factors(?! \\(VFDB)", "Virulence factors \\(VFDB\\)", "Mobile genetic elements"]) expect(screen.getByLabelText(new RegExp(`^${name}`))).toBeDisabled();

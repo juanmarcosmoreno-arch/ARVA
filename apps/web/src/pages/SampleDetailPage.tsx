@@ -24,6 +24,7 @@ import { SpeciesDialog } from "@/components/genomic/SpeciesDialog";
 import { AssemblyTab } from "@/components/assembly/AssemblyTab";
 import { AssemblyDialog } from "@/components/assembly/AssemblyDialog";
 import { PolishingDialog } from "@/components/assembly/PolishingDialog";
+import { ImportGenomeDialog } from "@/components/assembly/ImportGenomeDialog";
 import { QuastDialog } from "@/components/assembly/QuastDialog";
 import { AnalysisTimeline, JobStatusBadge, MetricTile, type Stage } from "@/components/domain/bits";
 import { SampleBranches } from "@/components/workflows/SampleBranches";
@@ -57,6 +58,7 @@ import { ANNOTATION_JOBS } from "@/lib/annotation";
 import { MLST_JOB } from "@/lib/mlst";
 import { SPECIES_JOB } from "@/lib/species";
 import { ASSEMBLY_JOBS } from "@/lib/flye";
+import { POLISHING_JOBS } from "@/lib/polishing";
 import { QUAST_JOB, jobRelativePath } from "@/lib/quast";
 import { NANOPLOT_JOB } from "@/lib/nanoplot";
 import { FASTQC_JOB, fastpJobFor } from "@/lib/qcData";
@@ -92,7 +94,8 @@ export function SampleDetailPage() {
   const annotationJobs = allJobs.filter((j) => ANNOTATION_JOBS.has(j.job_type));
   const genomicJobs = allJobs.filter((j) => j.job_type === MLST_JOB || j.job_type === SPECIES_JOB);
   const filterJobs = allJobs.filter((j) => FILTER_JOBS.has(j.job_type));
-  const assemblyJobs = allJobs.filter((j) => ASSEMBLY_JOBS.has(j.job_type));
+  const assemblyJobs = allJobs.filter((j) => ASSEMBLY_JOBS.has(j.job_type) && !POLISHING_JOBS.has(j.job_type));
+  const polishingJobs = allJobs.filter((j) => POLISHING_JOBS.has(j.job_type));
   const signalJobs = allJobs.filter((j) => RAW_SIGNAL_JOBS.has(j.job_type));
   const importing = allJobs.some((j) => IMPORT_JOBS.has(j.job_type) && isActive(j));
   const readingSignal = signalJobs.some(isActive);
@@ -101,6 +104,7 @@ export function SampleDetailPage() {
   const [filterOpen, setFilterOpen] = useState(false);
   const [assemblyOpen, setAssemblyOpen] = useState(false);
   const [quastOpen, setQuastOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const [polishDraft, setPolishDraft] = useState<string | null | undefined>(undefined);
   const polishOpen = polishDraft !== undefined;
   const [annotateOpen, setAnnotateOpen] = useState(false);
@@ -164,7 +168,16 @@ export function SampleDetailPage() {
               : "")
           : t("assembly.timelineNotRun"),
     },
-    { key: "polishing", label: t("timeline.polishing"), state: "planned", phase: 3 },
+    {
+      key: "polishing",
+      label: t("timeline.polishing"),
+      state: polishingJobs.some(isActive) ? "running" : polishingJobs[0]?.status === "failed" ? "failed" : polishingJobs.some((j) => j.status === "completed") ? "done" : "ready",
+      detail: polishingJobs.some(isActive)
+        ? t("timeline.running")
+        : polishingJobs.some((j) => j.status === "completed")
+          ? t("assembly.timelineRuns", { count: polishingJobs.filter((j) => j.status === "completed").length })
+          : t("timeline.optional"),
+    },
     {
       key: "annotation",
       label: t("sample.annotation"),
@@ -227,7 +240,7 @@ export function SampleDetailPage() {
         <AnalysisTimeline
           stages={stages}
           selected={tab === "files" ? "raw" : tab === "qc" || tab === "filtering" || tab === "assembly" || tab === "annotation" || tab === "genomic" ? tab : undefined}
-          onSelect={(k) => setTab(k === "raw" ? "files" : k === "filtering" || k === "assembly" || k === "annotation" || k === "genomic" ? k : "qc")}
+          onSelect={(k) => setTab(k === "raw" ? "files" : k === "polishing" ? "assembly" : k === "filtering" || k === "assembly" || k === "annotation" || k === "genomic" ? k : "qc")}
         />
       </Card>
       <SampleBranches sampleId={s.id} />
@@ -279,6 +292,7 @@ export function SampleDetailPage() {
           onNew={() => setAssemblyOpen(true)}
           onEvaluate={() => setQuastOpen(true)}
           onPolish={(draftId) => setPolishDraft(draftId ?? null)}
+          onImport={() => setImportOpen(true)}
         />
       )}
       {tab === "annotation" && <AnnotationTab sampleId={s.id} jobs={allJobs} onNew={() => setAnnotateOpen(true)} />}
@@ -322,6 +336,7 @@ export function SampleDetailPage() {
           draftId={polishDraft}
         />
       )}
+      <ImportGenomeDialog open={importOpen} onOpenChange={setImportOpen} sampleId={s.id} files={files.data ?? []} />
       {quastOpen && assemblies.data && (
         <QuastDialog open={quastOpen} onOpenChange={setQuastOpen} sampleId={s.id} assemblies={assemblies.data} files={files.data ?? []} />
       )}

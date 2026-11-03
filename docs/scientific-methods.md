@@ -244,7 +244,9 @@ displayed, never hidden. On the synthetic example data all compared metrics agre
 
 ### FastQC
 
-FastQC is run unchanged (`--outdir --noextract --quiet --threads 1 --dir <tmp>`); its HTML and ZIP
+FastQC is run unchanged (`--outdir --noextract --quiet --threads 1 --dir <tmp>`). When FastQC 0.12 or later stops
+with a Java `OutOfMemoryError` at its default 512 MB heap (seen on Nanopore reads up to 228 kb), ARVA runs it once
+more with `--memory 2048` (at most half the job's memory limit) and logs why; its HTML and ZIP
 outputs are stored, and `summary.txt`/`fastqc_data.txt` are parsed for module flags and basic
 statistics. The flags are FastQC's heuristics for whole-genome shotgun libraries and are shown as such.
 
@@ -648,8 +650,9 @@ against `flye --help`, the Flye 2.9.3 manual and README, and the source of the i
   its minimum overlap, which is at least 1,000 bp, and otherwise stops with "No reads above minimum
   length threshold"); a read type for one platform when the sample's technology, or a high-confidence
   header platform, is the other. A sample whose technology is neither Nanopore, PacBio nor hybrid
-  needs the user's confirmation that the files hold long reads. The interface warns when a filtered
-  file and a file it was filtered from are both selected (the reads would count twice).
+  needs the user's confirmation that the files hold long reads. A filtered file and a file it was filtered from
+  cannot be selected together (the interface blocks it and the API refuses it): they hold the same reads under the
+  same names, and Flye stops on duplicated read IDs (seen with Filtlong's output of SRR21386012).
 - **Command.** `flye --<read type> <reads…> --out-dir <job>/flye --threads <n> --iterations <n>`, plus
   `--genome-size`, `--min-overlap`, `--asm-coverage`, `--read-error`, `--meta`, `--keep-haplotypes`,
   `--no-alt-contigs` and `--scaffold` when chosen. Threads and polishing iterations are always passed.
@@ -970,6 +973,16 @@ defaults, and real runs on the synthetic genome with a draft carrying 16 known e
   downloads models; it is planned. A change is not proof of a correction: Racon also changed a Flye draft that
   was already identical to the reference (5 substitutions, 4 indel bases, 36 bases trimmed at the ends); only a
   trusted reference (QUAST with one) can show which version is closer to the truth.
+
+### Imported genomes (public references)
+
+A finished genome FASTA uploaded to a sample (for example an NCBI RefSeq genome downloaded by the user) can be
+registered as an assembly (`POST /samples/{id}/assembly/import`, the Assembly tab's *Register a genome FASTA…*), so
+it can be annotated, typed, compared, put in a pangenome and in a tree like ARVA's own assemblies. ARVA did not build
+it and records that: mode `imported`, assembler `Imported genome`, version = the source as the user states it (not
+checked), the FASTA's SHA-256 and no reads. The contig-count heuristic is not evaluated for it (its threshold depends
+on the reads an assembly was built from), and it cannot be polished. Imported genomes are the usual way to bring
+reference strains into a comparison set; a reference uploaded for QUAST is a separate use of the same kind of file.
 
 ### Evidence levels across assembly and polishing
 

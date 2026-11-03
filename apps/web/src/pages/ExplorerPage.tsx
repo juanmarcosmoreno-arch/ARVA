@@ -334,7 +334,7 @@ function Explorer({ annotation, contigs, assembler }: { annotation: Annotation; 
               const w = Number(e.target.value) || null;
               setGc({ window: w, step: w });
             }}
-            className="w-32"
+            className="w-48"
           >
             <option value={0}>{t("explorer.windowAutoOption")}</option>
             {WINDOWS.filter((w) => w <= contig.length).map((w) => (

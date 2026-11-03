@@ -410,11 +410,34 @@ def test_nanoplot_fails_when_no_reads_are_left(tmp_path, recording_proxy):
     assert (job / output_names("a_").stats).is_file() and not (job / output_names("a_").report).exists()
 
 
+def _fasta(path: Path) -> dict[str, str]:
+    out: dict[str, list[str]] = {}
+    name = ""
+    for line in path.read_text().splitlines():
+        if line.startswith(">"):
+            name = line[1:].split()[0]
+            out[name] = []
+        elif line:
+            out[name].append(line.strip().upper())
+    return {k: "".join(v) for k, v in out.items()}
+
+
+def _probes_found(contig: str, unit: str, probes: int = 5, size: int = 100) -> int:
+    """How many of `probes` evenly spaced `size`-bp pieces of the contig occur in the circular sequence `unit`, on
+    either strand and from any start."""
+    circle = unit + unit[: size - 1]
+    rc = circle[::-1].translate(str.maketrans("ACGT", "TGCA"))
+    step = max((len(contig) - size) // probes, 1)
+    pieces = [contig[i * step: i * step + size] for i in range(probes)]
+    return sum(1 for x in pieces if x in circle or x in rc)
+
+
 def test_flye_assembles_the_synthetic_genome(tmp_path):
     """Default synthetic genome (circular 300 kb chromosome with a 5 kb repeat in two copies, circular 15 kb plasmid
     at two copies) with Nanopore-like reads at 30x. Recorded with Flye 2.9.3 (Ubuntu 2.9.3+dfsg2-1), --nano-hq,
     2 threads: contig 300,000 bp circular at 31x and 15,000 bp circular at 53x with multiplicity 2, both identical
-    to the reference (reverse strand / rotated start); identical bytes in two runs."""
+    to the reference (reverse strand / rotated start); identical bytes in two runs. Once, the plasmid came out as a
+    30 kb circular contig (two tandem copies), which the assertions accept."""
     exe = tool("flye")
     data = tmp_path / "genome"
     subprocess.run([sys.executable, str(Path(__file__).resolve().parents[3] / "scripts" / "make_synthetic_genome.py"),
@@ -446,8 +469,17 @@ def test_flye_assembles_the_synthetic_genome(tmp_path):
     rows = FlyeAdapter.parse_assembly_info((tmp_path / "out" / "assembly_info.txt").read_text())
     assert len(rows) == 2 and all(r["circular"] and not r["repeat"] for r in rows)
     chromosome, plasmid = sorted(rows, key=lambda r: -r["length"])
-    assert abs(chromosome["length"] - 300_000) <= 10 and abs(plasmid["length"] - 15_000) <= 10
-    assert plasmid["multiplicity"] == 2 and 1.5 <= plasmid["coverage"] / chromosome["coverage"] <= 2.5
+    assert abs(chromosome["length"] - 300_000) <= 10
+    # Flye can close a small circular plasmid as one unit or as two tandem copies (seen once: 30 kb for this 15 kb
+    # plasmid). Either is the plasmid; what must hold is that the contig is whole copies of it, made of its sequence,
+    # and that its depth times its copies gives the plasmid's two copies per chromosome.
+    units = round(plasmid["length"] / 15_000)
+    assert units in (1, 2) and abs(plasmid["length"] - 15_000 * units) <= 10 * units
+    contigs = _fasta(tmp_path / "out" / "assembly.fasta")
+    reference = _fasta(data / "reference.fasta")
+    unit = next(seq for seq in reference.values() if len(seq) == 15_000)
+    assert _probes_found(contigs[plasmid["name"]], unit) >= 4
+    assert 1.5 <= plasmid["coverage"] * units / chromosome["coverage"] <= 2.5
     summary = FlyeAdapter.parse_log((tmp_path / "out" / "flye.log").read_text())
     assert summary["stages_seen"] == list(params.stages()) and summary["fragments"] == 2
     assert summary["min_overlap"] in range(1000, 10_001)

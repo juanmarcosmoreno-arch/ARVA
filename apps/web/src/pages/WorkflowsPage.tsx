@@ -18,7 +18,7 @@ import { WorkflowEditor, problemText } from "@/components/workflows/WorkflowEdit
 import { type TranslationKey, useT } from "@/i18n";
 import { api } from "@/lib/api";
 import { fmtDate, fmtDuration } from "@/lib/format";
-import { ITEM_STATUSES, STATUS_COLOR, finishedShare, isActive, type Catalogue, type RunSummary, type Template } from "@/lib/workflows";
+import { ITEM_STATUSES, STATUS_COLOR, finishedShare, isActive, paramLabel, type Catalogue, type RunSummary, type Template } from "@/lib/workflows";
 
 const LINK = "text-arva-royal hover:underline dark:text-arva-cyan";
 
@@ -107,7 +107,7 @@ function WorkflowList({ catalogue }: { catalogue: Catalogue }) {
                   {t("wf.templateUnavailable", { tools: [...new Set(tp.unavailable.map((p) => String(p.params.tool)))].join(", ") })}</p>
               )}
               {tp.needs_parameters.length > 0 && (
-                <p className="mt-1 text-amber-700 dark:text-warning">{t("wf.templateNeeds", { fields: tp.needs_parameters.map((p) => `${p.node}.${p.params.field}`).join(", ") })}</p>
+                <p className="mt-1 text-amber-700 dark:text-warning">{t("wf.templateNeeds", { fields: tp.needs_parameters.map((p) => paramLabel(t, String(p.params.field)) ?? `${p.node}.${p.params.field}`).join(", ") })}</p>
               )}
             </div>
           ))}

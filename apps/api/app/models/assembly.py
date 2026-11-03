@@ -11,6 +11,8 @@ class AssemblyMode(str, enum.Enum):
     long = "long"
     short = "short"
     hybrid = "hybrid"
+    # A finished genome FASTA registered by the user (e.g. an NCBI RefSeq genome), not assembled by ARVA.
+    imported = "imported"
 
 
 class AssemblyKind(str, enum.Enum):

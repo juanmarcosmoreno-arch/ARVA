@@ -129,11 +129,17 @@ class FastqcAdapter(ToolAdapter):
     version_pattern = re.compile(r"FastQC\s+v?(\d+\.\d+(?:\.\d+)?)")
 
     @staticmethod
-    def argv(executable: str, input_path: Path, outdir: Path, temp_dir: Path) -> list[str]:
+    def argv(executable: str, input_path: Path, outdir: Path, temp_dir: Path, memory_mb: int | None = None) -> list[str]:
+        # --memory (FastQC >= 0.12) is the Java heap per file, 512 MB by default; long reads need more.
+        memory = ["--memory", str(memory_mb)] if memory_mb else []
         return [
             executable, "--outdir", str(outdir), "--noextract", "--quiet",
-            "--threads", "1", "--dir", str(temp_dir), str(input_path),
+            "--threads", "1", *memory, "--dir", str(temp_dir), str(input_path),
         ]
+
+    @staticmethod
+    def out_of_memory(log_text: str) -> bool:
+        return "java.lang.OutOfMemoryError" in log_text
 
     @staticmethod
     def output_names(input_name: str) -> tuple[str, str]:

@@ -36,7 +36,7 @@ MAX_CURVE_POINTS = 1000
 CURVE_HEAD = 500  # the longest contigs are always kept exactly in a down-sampled curve
 WARNING_CONTIG_NAMES = 50
 
-AssemblyMode = Literal["long", "short", "hybrid"]
+AssemblyMode = Literal["long", "short", "hybrid", "imported"]
 
 # Heuristic thresholds (stated in every check and in docs/scientific-methods.md).
 CONTIGS_PER_MB = {"long": 10, "hybrid": 10, "short": 100}
@@ -313,18 +313,23 @@ def assembly_warnings(
     what the assembler's coverage measures (e.g. "k-mer coverage" and no unit for SPAdes); the coverage
     checks compare ratios, so they apply to any of these measures.
     """
-    if mode not in CONTIGS_PER_MB:
+    if mode not in CONTIGS_PER_MB and mode != "imported":
         raise ValueError(f"unknown assembly mode {mode!r}")
     contigs: list[dict[str, Any]] = stats["contigs"]
     total = stats["total_length"]
     warnings: list[dict[str, Any]] = []
     checks: list[dict[str, Any]] = []
 
-    limit = CONTIGS_PER_MB[mode]
+    limit = CONTIGS_PER_MB.get(mode)
     per_mb = stats["contig_count"] / max(total / 1e6, 1.0)
-    checks.append(_check("many_contigs", f"more than {limit} contigs per Mb of assembly ({mode}-read assemblies; "
-                                         "assemblies under 1 Mb are counted as 1 Mb)"))
-    if per_mb > limit:
+    if limit is None:
+        # The threshold depends on the reads an assembly was built from, which an imported genome does not record.
+        checks.append(_check("many_contigs", "contigs per Mb of assembly, against a threshold for the read type",
+                             "imported genome: the reads it was assembled from are not known"))
+    else:
+        checks.append(_check("many_contigs", f"more than {limit} contigs per Mb of assembly ({mode}-read assemblies; "
+                                             "assemblies under 1 Mb are counted as 1 Mb)"))
+    if limit is not None and per_mb > limit:
         warnings.append(_warning(
             "many_contigs",
             f"{stats['contig_count']:,} contigs for {total:,} bp ({per_mb:.1f} per Mb; heuristic threshold {limit} "

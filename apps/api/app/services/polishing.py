@@ -14,7 +14,7 @@ from arva_tools.pilon import java_executable, java_version
 from arva_tools.registry import detect
 from sqlalchemy.orm import Session
 
-from app.models import Assembly, Sample, SequencingTechnology
+from app.models import Assembly, AssemblyMode, Sample, SequencingTechnology
 from app.services import short_hybrid
 from app.services.flye import CONFIDENT, InputError, read_type_suggestion
 from app.services.performance import Resources, effective_resources
@@ -39,6 +39,9 @@ def draft_for(db: Session, sample: Sample, assembly_id: str) -> Assembly:
         raise InputError(f"Assembly {assembly_id} does not belong to this sample")
     if not get_storage().resolve(a.contigs_path).is_file():
         raise InputError(f"The contigs file of assembly {assembly_id} is missing on disk")
+    if a.mode is AssemblyMode.imported:
+        raise InputError("This is an imported genome, not an assembly of this sample's reads; ARVA polishes only its own "
+                         "assemblies")
     return a
 
 

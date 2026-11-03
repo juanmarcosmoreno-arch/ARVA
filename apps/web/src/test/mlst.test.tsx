@@ -113,10 +113,12 @@ describe("MLST helpers", () => {
     }
   });
 
-  it("keeps the sidebar's P5 entry and points it at the genomic-analysis overview", () => {
+  it("points the sidebar's finished modules at real pages, without a phase badge", () => {
     const genomic = ALL_NAV_ITEMS.find((i) => i.key === "genomic")!;
     expect(genomic.to).toBe("/genomic");
-    expect(genomic.plannedPhase).toBe(5);
+    for (const key of ["assembly", "annotation", "genomic"]) {
+      expect(ALL_NAV_ITEMS.find((i) => i.key === key)?.plannedPhase).toBeUndefined();
+    }
   });
 });
 

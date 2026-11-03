@@ -124,6 +124,8 @@ def _sccmec(ctx: JobContext, exe: str, params: sc.SccmecParams, contigs: Path, r
     warnings = [{"code": "sccmec_mecA_includes_mecC", "params": {}}]
     if call["status"] in ("type_only", "mec_without_type", "multiple"):
         warnings.append({"code": f"sccmec_{call['status']}", "params": {}})
+    elif call["status"] == "multiple_subtypes":
+        warnings.append({"code": "sccmec_multiple_subtypes", "params": {"subtypes": ", ".join(result["regions"])}})
     details = {**result, "ccr_complexes": groups["ccr"], "mec_classes": groups["mec"],
                "target_hits": sc.target_hits(blast, params.min_targets_pident, params.min_targets_coverage),
                "types_considered": targets,

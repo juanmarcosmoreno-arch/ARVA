@@ -83,7 +83,9 @@ export function AssemblyGraphView({ assembly }: { assembly: Assembly }) {
           category: NODE_KINDS.indexOf(nodeKind(n)),
           symbolSize: nodeSize(n.length, longest),
           node: n,
-          itemStyle: { borderColor: th.surface, borderWidth: 1 },
+          // ECharts draws no line from a node to itself: a self-linked segment gets a dashed ring and ↻ instead.
+          itemStyle: loops.has(n.id) ? { borderColor: th.text, borderWidth: 2.5, borderType: "dashed" } : { borderColor: th.surface, borderWidth: 1 },
+          label: loops.has(n.id) ? { formatter: `${n.id} ↻` } : undefined,
         })),
         edges: drawn.map((e) => ({ source: e.source, target: e.target, edge: e })),
         autoCurveness: true,

@@ -57,6 +57,8 @@ POD5_TOOL = "pod5"
 MULTIQC_JOB = "multiqc"
 NANOPLOT_JOB = "nanoplot"
 FLYE_JOB = "flye_assembly"
+IMPORT_ASSEMBLY_JOB = "assembly_import"
+IMPORTED_ASSEMBLER = "Imported genome"
 SPADES_JOB = "spades_assembly"
 UNICYCLER_JOB = "unicycler_assembly"
 ASSEMBLY_JOBS = (FLYE_JOB, SPADES_JOB, UNICYCLER_JOB)
@@ -275,6 +277,22 @@ def create_flye_job(db: Session, sample: Sample, files: list[RawFile], params: F
     db.add(job)
     db.commit()
     _enqueue([job], run_flye_job)
+    db.refresh(job)
+    return job
+
+
+def create_assembly_import_job(db: Session, sample: Sample, fasta: RawFile, source: str) -> AnalysisJob:
+    """Register a finished genome FASTA of the sample (e.g. an NCBI RefSeq genome) as an assembly ARVA did not build.
+    The source is the user's statement and is recorded as the assembly's version."""
+    job = AnalysisJob(project_id=sample.project_id, sample_id=sample.id, job_type=IMPORT_ASSEMBLY_JOB,
+                      tool_name=IMPORTED_ASSEMBLER, tool_version=source, tool_path=None,
+                      parameters={"source": source, "arva_version": __version__, "fasta_sha256": fasta.checksum_sha256},
+                      input_raw_file_ids=[fasta.id], status=JobStatus.pending, log_text="")
+    db.add(job)
+    db.commit()
+    from app.tasks.tools import run_assembly_import_job
+
+    _enqueue([job], run_assembly_import_job)
     db.refresh(job)
     return job
 

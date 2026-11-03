@@ -317,7 +317,7 @@ function RingList({ enabled, setEnabled, coverageAvailable, coverageReason, hasC
     if (r === "vfdb") return vfdb?.run ? t("circular.ring.vfdbRun", { n: fmtInt(vfdb.hits.length), version: vfdb.run.tool_version, db: vfdb.run.database_version ?? "?" }) : t("circular.ring.vfdbNotRun");
     if (r === "mobile") return mobileMethods.length ? t("circular.ring.mobileRun", { n: fmtInt(mobile?.elements.length ?? 0), methods: mobileMethods.join(", ") }) : t("circular.ring.mobileNotRun");
     if (r !== "amr" && r !== "virulence") return null;
-    if (!amr?.run) return t("circular.ring.amrNotRun");
+    if (!amr?.run) return t(r === "virulence" ? "circular.ring.virulenceNotRun" : "circular.ring.amrNotRun");
     if (r === "virulence" && !amr.run.plus) return t("circular.ring.plusOff");
     const n = amr.hits.filter((h) => (r === "virulence") === (h.type === "VIRULENCE")).length;
     return t("circular.ring.amrRun", { n: fmtInt(n), version: amr.run.tool_version, db: amr.run.database_version ?? "?" });
@@ -347,6 +347,7 @@ function RingList({ enabled, setEnabled, coverageAvailable, coverageReason, hasC
           </label>
         );
       })}
+      {(!amr?.run || !vfdb?.run || !mobileMethods.length) && <p className="pt-1 text-[11px] text-muted-foreground">{t("circular.ring.runHint")}</p>}
     </fieldset>
   );
 }
@@ -417,9 +418,10 @@ export function CircularMap(p: MapProps) {
       return { model, cx: offset + (i % cols) * cell + cell / 2, cy: Math.floor(i / cols) * cell + cell / 2, R, radii, scales };
     });
   }, [models, p.rings, width, cols, cell]);
-  const legend = legendItems(t, p, models, p.rings, custom.length);
+  const legend = wrapLegend(legendItems(t, p, models, p.rings, custom.length), width);
+  const legendLines = legend.reduce((sum, item) => sum + item.lines.length, 0);
   const legendTop = rows * cell + 8;
-  const height = legendTop + legend.length * LEGEND_LINE + 34 + (p.synthetic ? LEGEND_LINE : 0);
+  const height = legendTop + legendLines * LEGEND_LINE + 34 + (p.synthetic ? LEGEND_LINE : 0);
 
   const at = (e: ReactMouseEvent<SVGSVGElement>) => {
     const rect = svg.current?.getBoundingClientRect();
@@ -803,24 +805,53 @@ function legendItems(t: ReturnType<typeof useT>, p: MapProps, models: CircleMode
   return items;
 }
 
-function Legend({ items, top, theme, caption, synthetic }: { items: LegendItem[]; top: number; theme: ChartTheme; caption: string; synthetic: string | null }) {
+// SVG text does not wrap: legend lines are broken by an estimate of the 11 px font's average glyph width, so a long
+// line stays inside the figure (and inside a saved SVG or PNG).
+const LEGEND_CHAR = 6.2;
+
+type WrappedItem = LegendItem & { lines: string[] };
+
+function wrapLegend(items: LegendItem[], width: number): WrappedItem[] {
+  return items.map((item) => {
+    const x = Math.max(1, item.swatches.length) * 14 + 6;
+    const max = Math.max(20, Math.floor((width - 32 - x) / LEGEND_CHAR));
+    const lines: string[] = [];
+    let line = "";
+    for (const word of item.text.split(" ")) {
+      if (line && (line + " " + word).length > max) {
+        lines.push(line);
+        line = word;
+      } else line = line ? `${line} ${word}` : word;
+    }
+    lines.push(line);
+    return { ...item, lines };
+  });
+}
+
+function Legend({ items, top, theme, caption, synthetic }: { items: WrappedItem[]; top: number; theme: ChartTheme; caption: string; synthetic: string | null }) {
+  const starts = items.reduce<number[]>((acc, item, i) => [...acc, (acc[i] ?? 0) + item.lines.length], [0]);
+  const total = starts[items.length];
   return (
     <g fontSize={11}>
       {items.map((item, i) => (
-        <g key={i} transform={`translate(16 ${top + i * LEGEND_LINE})`}>
+        <g key={i} transform={`translate(16 ${top + starts[i] * LEGEND_LINE})`}>
           {item.swatches.map((s, j) => (
             <rect key={j} x={j * 14} y={0} width={11} height={11} rx={2} fill={s.fill} fillOpacity={s.opacity ?? 1} stroke={s.stroke} strokeWidth={s.stroke ? 1.5 : 0} />
           ))}
           <text x={Math.max(1, item.swatches.length) * 14 + 6} y={9.5} fill={theme.text}>
-            {item.text}
+            {item.lines.map((l, k) => (
+              <tspan key={k} x={Math.max(1, item.swatches.length) * 14 + 6} dy={k ? LEGEND_LINE : 0}>
+                {l}
+              </tspan>
+            ))}
           </text>
         </g>
       ))}
-      <text x={16} y={top + items.length * LEGEND_LINE + 14} fontSize={10} fill={theme.muted}>
+      <text x={16} y={top + total * LEGEND_LINE + 14} fontSize={10} fill={theme.muted}>
         {caption}
       </text>
       {synthetic && (
-        <text x={16} y={top + items.length * LEGEND_LINE + 14 + LEGEND_LINE} fontSize={10.5} fontWeight={600} fill={theme.text}>
+        <text x={16} y={top + total * LEGEND_LINE + 14 + LEGEND_LINE} fontSize={10.5} fontWeight={600} fill={theme.text}>
           {synthetic}
         </text>
       )}

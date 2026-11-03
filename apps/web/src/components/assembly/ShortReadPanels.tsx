@@ -285,7 +285,7 @@ export function SpadesPanel({ open, sampleId, files, jobs = [], report }: { open
         </div>
       </Section>
 
-      <Advanced title={t("spades.advancedTitle")} changed={changed}>
+      <Advanced title={t("spades.advancedTitle")} tool="SPAdes" changed={changed}>
         <div className="grid gap-3 sm:grid-cols-2">
           <Field label={t("spades.k")} hint={t("spades.kHint")}>
             <Input placeholder={t("spades.kAuto")} value={form.k} onChange={(e) => set("k", e.target.value)} />
@@ -383,7 +383,7 @@ export function UnicyclerPanel({ open, sampleId, files, jobs = [], report }: { o
         </div>
       </Section>
 
-      <Advanced title={t("unicycler.advancedTitle")} changed={changed}>
+      <Advanced title={t("unicycler.advancedTitle")} tool="Unicycler" changed={changed}>
         <div className="grid gap-3 sm:grid-cols-2">
           <Field label={t("unicycler.keep")} hint={t("unicycler.keepHint")}>
             <Select value={form.keep} onChange={(e) => set("keep", e.target.value as UnicyclerForm["keep"])} aria-label={t("unicycler.keep")}>

@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, ArrowDown, ArrowUp, Download, Sparkles } from "lucide-react";
+import { AlertTriangle, ArrowDown, ArrowUp, ChevronRight, Download, Sparkles } from "lucide-react";
 import { useState } from "react";
 import { Segmented } from "@/components/charts/ChartCard";
 import { MetricTile } from "@/components/domain/bits";
@@ -50,6 +50,7 @@ export function inputLineage(a: Pick<Assembly, "input_file_ids">, files: RawFile
 /** The card's title: assembler, version and reads, or the polisher and the reads it used. */
 function cardTitle(t: ReturnType<typeof useT>, a: Assembly): string {
   if (a.kind === "polished") return t("polishing.cardTitle", { polisher: a.assembler, version: a.assembler_version, reads: a.read_type });
+  if (a.mode === "imported") return t("assembly.imported.title", { source: a.assembler_version });
   return t("assembly.result", { assembler: a.assembler, version: a.assembler_version, readType: a.assembler === "Flye" ? `--${a.read_type}` : t("assembly.layout", { mode: t(`assembly.mode.${a.mode}`), layout: a.read_type }) });
 }
 
@@ -85,7 +86,7 @@ export function AssemblyCard({
         description={`${fmtDate(a.created_at)} · ${t("assembly.inputs", { files: inputLineage(a, files) })}`}
         action={
           <div className="flex flex-wrap gap-2">
-            {onPolish && (
+            {onPolish && a.mode !== "imported" && (
               <button type="button" className={LINK_BUTTON} onClick={onPolish}>
                 <Sparkles className="h-3.5 w-3.5" /> {t("polishing.polishThis")}
               </button>
@@ -93,12 +94,21 @@ export function AssemblyCard({
             <a className={LINK_BUTTON} href={api.assemblyContigsUrl(a.id)}>
               <Download className="h-3.5 w-3.5" /> {t("assembly.download")}
             </a>
-            {job &&
-              outputs.map((n) => (
-                <a key={n} className={LINK_BUTTON} href={api.jobOutputUrl(job.id, n, true)}>
-                  <Download className="h-3.5 w-3.5" /> {n}
-                </a>
-              ))}
+            {job && outputs.length > 0 && (
+              <details className="group basis-full text-right">
+                <summary className="inline-flex cursor-pointer list-none items-center gap-1 text-xs text-arva-royal hover:underline dark:text-arva-cyan">
+                  <ChevronRight className="h-3.5 w-3.5 transition-transform group-open:rotate-90" aria-hidden />
+                  {t("assembly.runFiles", { count: outputs.length })}
+                </summary>
+                <div className="mt-2 flex flex-wrap justify-end gap-2">
+                  {outputs.map((n) => (
+                    <a key={n} className={LINK_BUTTON} href={api.jobOutputUrl(job.id, n, true)}>
+                      <Download className="h-3.5 w-3.5" /> {n}
+                    </a>
+                  ))}
+                </div>
+              </details>
+            )}
           </div>
         }
       />

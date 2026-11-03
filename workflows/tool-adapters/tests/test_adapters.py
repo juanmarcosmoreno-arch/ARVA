@@ -242,6 +242,15 @@ def test_seqkit_parsing_by_column_name():
     assert argv == ["seqkit", "stats", "--all", "--tabular", "--threads", "2", "/data/x.fq.gz"]
 
 
+def test_fastqc_memory_is_passed_only_when_asked_and_heap_exhaustion_is_recognised(tmp_path):
+    base = FastqcAdapter.argv("fastqc", tmp_path / "r.fq.gz", tmp_path, tmp_path / "tmp")
+    assert "--memory" not in base
+    more = FastqcAdapter.argv("fastqc", tmp_path / "r.fq.gz", tmp_path, tmp_path / "tmp", 2048)
+    assert more[more.index("--memory") + 1] == "2048" and more[-1] == str(tmp_path / "r.fq.gz")
+    assert FastqcAdapter.out_of_memory("application/gzip\nTerminating due to java.lang.OutOfMemoryError: Java heap space")
+    assert not FastqcAdapter.out_of_memory("Failed to process file r.fq.gz")
+
+
 def test_fastqc_names_and_zip_parsing(tmp_path):
     assert FastqcAdapter.output_names("S1_R1_001.fastq.gz") == ("S1_R1_001_fastqc.html", "S1_R1_001_fastqc.zip")
     assert FastqcAdapter.output_names("reads.fq") == ("reads_fastqc.html", "reads_fastqc.zip")

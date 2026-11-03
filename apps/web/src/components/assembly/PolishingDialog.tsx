@@ -185,7 +185,7 @@ export function PolishingDialog({
                 )}
               </div>
             )}
-            <Advanced title={t("polishing.racon.advanced")} changed={changedRacon(form)}>
+            <Advanced title={t("polishing.racon.advanced")} tool="Racon" changed={changedRacon(form)}>
               <div className="grid gap-3 sm:grid-cols-3">
                 {(
                   [
@@ -246,7 +246,7 @@ export function PolishingDialog({
               </div>
               <p className="text-xs text-muted-foreground">{t("polishing.fixHint")}</p>
             </fieldset>
-            <Advanced title={t("polishing.pilon.advanced")} changed={changedPilon(form)}>
+            <Advanced title={t("polishing.pilon.advanced")} tool="Pilon" changed={changedPilon(form)}>
               <div className="grid gap-3 sm:grid-cols-3">
                 {(["mindepth", "minmq", "minqual"] as const).map((key) => (
                   <Field key={key} label={`--${key}`} hint={t(`polishing.pilon.${key}Hint`)}>

@@ -46,6 +46,8 @@ export const routes = [
       { path: "samples/:sampleId", element: <SampleDetailPage /> },
       { path: "import", element: <ImportPage /> },
       { path: "qc", element: <SamplesPage context="qc" /> },
+      { path: "assembly", element: <SamplesPage context="assembly" /> },
+      { path: "annotation", element: <SamplesPage context="annotation" /> },
       { path: "reports", element: <SamplesPage context="reports" /> },
       { path: "guide", element: <GuidePage /> },
       { path: "settings", element: <SettingsPage /> },

@@ -88,6 +88,16 @@ def test_sccmec_usa300_is_type_iv_subtype_iva_and_synthetic_is_not_typeable():
     assert sc.parse_blast(read("sccmec", "synthetic.targets.blastn.tsv")) == []
 
 
+def test_sccmec_several_subtypes_of_one_type_keep_the_type():
+    """Real sccmec 1.2.0 output (fixtures/sccmec/README.md): type IV with subtypes IVa and IVn both above the
+    threshold, one coverage and one hit count per region, comma-separated."""
+    r = sc.parse_result((FIX / "sccmec" / "jkd6159_subset.tsv").read_text())
+    assert (r["type"], r["subtype"], r["regions"]) == ("IV", "multiple", ["IVa", "IVn"])
+    assert (r["coverage"], r["hits"]) == (None, None)
+    assert (r["region_coverage"], r["region_hits"]) == ([96.32, 83.92], [23, 17])
+    assert sc.interpret(r) == {"status": "multiple_subtypes", "call": "IV"}
+
+
 def test_sccmec_constructed_rows_for_partial_and_multiple_evidence():
     header = "\t".join(sc.RESULT_COLUMNS)
     row = "x\t-\t-\t+\tIS431,mecA,mecR1\t\t\t\tt\t1.2.0\tr\t1.2.0\t1.1.4\tp\t\t\t"

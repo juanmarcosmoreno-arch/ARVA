@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, ClipboardCheck, Layers, Plus, Sparkles } from "lucide-react";
+import { AlertTriangle, ClipboardCheck, FileInput, Layers, Plus, Sparkles } from "lucide-react";
 import { Link } from "react-router-dom";
 import { Explain } from "@/components/guide/Explain";
 import { useTool } from "@/components/tools/useTools";
@@ -10,7 +10,7 @@ import { api } from "@/lib/api";
 import { ASSEMBLY_JOBS } from "@/lib/flye";
 import { toolMessage } from "@/lib/messages";
 import { POLISHING_JOBS } from "@/lib/polishing";
-import { QUAST_JOB } from "@/lib/quast";
+import { QUAST_JOB, referenceCandidates } from "@/lib/quast";
 import type { AnalysisJobDetail, RawFile } from "@/lib/types";
 import { AssemblyComparison } from "./AssemblyComparison";
 import { AssemblyCard } from "./AssemblyResult";
@@ -25,6 +25,7 @@ export function AssemblyTab({
   onNew,
   onEvaluate,
   onPolish,
+  onImport,
 }: {
   sampleId: string;
   jobs: AnalysisJobDetail[];
@@ -32,6 +33,7 @@ export function AssemblyTab({
   onNew: () => void;
   onEvaluate: () => void;
   onPolish: (draftId?: string) => void;
+  onImport?: () => void;
 }) {
   const t = useT();
   const assemblers = [useTool("flye"), useTool("spades"), useTool("unicycler")];
@@ -62,6 +64,11 @@ export function AssemblyTab({
           <Button variant="outline" onClick={onEvaluate} disabled={!list.length || quast?.status !== "available"}>
             <ClipboardCheck className="h-4 w-4" /> {t("quast.start")}
           </Button>
+          {onImport && (
+            <Button variant="outline" onClick={onImport} disabled={!referenceCandidates(files).length} title={t("assembly.imported.buttonHint")}>
+              <FileInput className="h-4 w-4" /> {t("assembly.imported.button")}
+            </Button>
+          )}
           <Button onClick={onNew} disabled={!hasReads}>
             <Plus className="h-4 w-4" /> {t("assembly.start")}
           </Button>

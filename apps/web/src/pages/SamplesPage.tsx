@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { BarChart3, ChevronRight, FileText, FlaskConical } from "lucide-react";
+import { BarChart3, ChevronRight, Dna, FileText, FlaskConical, Puzzle } from "lucide-react";
 import { Link } from "react-router-dom";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
@@ -67,6 +67,8 @@ const CONTEXT: Record<string, { title: TranslationKey; subtitle: TranslationKey;
     tab: "qc",
     icon: BarChart3,
   },
+  assembly: { title: "nav.assembly", subtitle: "samples.assemblySubtitle", tab: "assembly", icon: Puzzle },
+  annotation: { title: "nav.annotation", subtitle: "samples.annotationSubtitle", tab: "annotation", icon: Dna },
   reports: {
     title: "nav.reports",
     subtitle: "samples.reportsSubtitle",
@@ -75,7 +77,7 @@ const CONTEXT: Record<string, { title: TranslationKey; subtitle: TranslationKey;
   },
 };
 
-export function SamplesPage({ context = "samples" }: { context?: "samples" | "qc" | "reports" }) {
+export function SamplesPage({ context = "samples" }: { context?: "samples" | "qc" | "assembly" | "annotation" | "reports" }) {
   const t = useT();
   const cfg = CONTEXT[context];
   const { data, isLoading, error } = useQuery({ queryKey: ["samples", "all"], queryFn: api.allSamples });

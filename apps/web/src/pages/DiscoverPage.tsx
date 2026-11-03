@@ -188,6 +188,15 @@ function fieldLabel(t: ReturnType<typeof useT>, name: string) {
   return name.startsWith("meta:") ? name.slice(5) : t(`discover.field.${name}` as TranslationKey);
 }
 
+// The API's method texts are English; the interface shows its own translation of each (same content).
+const METHOD_TEXT: Record<DiscoverQuery["analysis"], TranslationKey> = {
+  associations: "discover.method.associations",
+  cooccurrence: "discover.method.cooccurrence",
+  lineage: "discover.method.lineage",
+  heatmap: "discover.method.heatmap",
+  pca: "discover.method.pca",
+};
+
 function Result({ projectId, q, r, summary }: { projectId: string; q: DiscoverQuery; r: DiscoverBase; summary: DiscoverSummary }) {
   const t = useT();
   const csv = q.analysis === "associations" || q.analysis === "cooccurrence";
@@ -198,7 +207,7 @@ function Result({ projectId, q, r, summary }: { projectId: string; q: DiscoverQu
         <span>{t("discover.used", { features: r.features_used, samples: r.samples_total })}</span>
         {csv && <a className={LINK} href={discoverCsvUrl(projectId, q)}><Download className="h-3.5 w-3.5" />{t("discover.csv")}</a>}
       </div>
-      {r.method && <p className="max-w-5xl text-[11px] text-muted-foreground">{r.method}</p>}
+      {r.method && <p className="max-w-5xl text-[11px] text-muted-foreground">{t(METHOD_TEXT[q.analysis])}</p>}
       {q.analysis === "associations" && <AssociationsView r={r as AssociationsResult} />}
       {q.analysis === "cooccurrence" && <NetworkView r={r as CooccurrenceResult} />}
       {q.analysis === "lineage" && <LineageView r={r as LineageResult} />}
@@ -213,9 +222,12 @@ function StratCell({ s }: { s: AssociationsResult["rows"][number]["stratified"] 
   const t = useT();
   if (!s) return <>–</>;
   if (!s.informative_strata) return <span className="text-warning">{t("discover.confounded")}</span>;
+  // One value per line, each kept whole: the cell's four values otherwise wrap mid-value in a narrow column.
   return (
-    <span>
-      {t("discover.stratCell", { n: s.informative_strata, p: fmtP(s.p), q: fmtP(s.q), or: withCi(s.odds_ratio, s.odds_ratio_ci) })}
+    <span className="flex min-w-[11rem] flex-col">
+      <span className="whitespace-nowrap">{t("discover.stratLineages", { n: s.informative_strata })}</span>
+      <span className="whitespace-nowrap">p {fmtP(s.p)} · q {fmtP(s.q)}</span>
+      <span className="whitespace-nowrap">{t("discover.stratOr", { or: withCi(s.odds_ratio, s.odds_ratio_ci) })}</span>
     </span>
   );
 }

@@ -17,12 +17,14 @@ export function CardHeader({
   className?: string;
 }) {
   return (
-    <div className={cn("flex items-start justify-between gap-4 px-5 pt-5", className)}>
-      <div className="min-w-0">
+    // The title keeps a readable width; a wide action (e.g. many download links) wraps below it and wraps itself,
+    // instead of squeezing the title or widening the page.
+    <div className={cn("flex flex-wrap items-start justify-between gap-x-4 gap-y-2 px-5 pt-5", className)}>
+      <div className="min-w-[min(16rem,100%)] flex-1">
         <h3 className="text-sm font-semibold">{title}</h3>
         {description && <p className="mt-0.5 text-xs text-muted-foreground">{description}</p>}
       </div>
-      {action && <div className="shrink-0">{action}</div>}
+      {action && <div className="flex min-w-0 max-w-full justify-end">{action}</div>}
     </div>
   );
 }
