@@ -321,7 +321,11 @@ export function treeFigure(tree: TreeNode, style: PhyloStyle, opts: {
       return label ? textWidth(label, fs - 2) : 0;
     }));
     const left = 16 + supportW;
-    const top = 16 + (bands.length ? 34 : 0);
+    // Band headers are written at -60°: they need the height of their longest text above the bands, and the last one
+    // half its width to the right.
+    const bandText = (b: FieldValues) => (b.label.length > BAND_HEADER_MAX ? `${b.label.slice(0, BAND_HEADER_MAX - 1)}…` : b.label);
+    const headerW = Math.max(0, ...bands.map((b) => textWidth(bandText(b), BAND_HEADER_SIZE)));
+    const top = 16 + (bands.length ? Math.ceil(headerW * Math.sin(Math.PI / 3)) + 10 : 0);
     const treeW = Math.max(420, Math.min(900, tips.length * 9 + 300));
     const sx = treeW / maxDepth;
     const X = (d: number) => left + d * sx;
@@ -362,7 +366,7 @@ export function treeFigure(tree: TreeNode, style: PhyloStyle, opts: {
     const bandX0 = X(maxDepth) + labelW + 12;
     bands.forEach((b, j) => {
       const bx = bandX0 + j * (bandW + 2);
-      prims.push({ kind: "text", x: bx + bandW / 2, y: top - 8, text: b.label.length > 6 ? `${b.label.slice(0, 5)}…` : b.label, size: 8, anchor: "start", fill: theme.muted, rotate: -60 });
+      prims.push({ kind: "text", x: bx + bandW / 2, y: top - 8, text: bandText(b), size: BAND_HEADER_SIZE, anchor: "start", fill: theme.muted, rotate: -60 });
       for (const n of tips) {
         if (n.collapsed) continue;
         const v = b.byLeaf.get(n.name ?? "") ?? null;
@@ -379,7 +383,7 @@ export function treeFigure(tree: TreeNode, style: PhyloStyle, opts: {
       prims.push({ kind: "text", x: left, y: height + 13, text: `${bar} ${opts.unit ?? ""}`.trim(), size: 10, anchor: "start", fill: theme.muted });
       height += 20;
     }
-    const width = bandX0 + bands.length * (bandW + 2) + 16;
+    const width = bandX0 + bands.length * (bandW + 2) + 16 + (bands.length ? Math.ceil(headerW / 2) : 0);
     return { fig: { width, height, prims }, hits };
   }
   const n = tips.length;
@@ -447,6 +451,9 @@ export function treeFigure(tree: TreeNode, style: PhyloStyle, opts: {
   }
   return { fig: { width: cx * 2, height, prims }, hits };
 }
+
+const BAND_HEADER_SIZE = 10;
+const BAND_HEADER_MAX = 18;
 
 /** Field values per leaf, through each leaf's genome: sample metadata and MLST, AMR gene presence ("amr:<gene>")
  * and pangenome family presence ("family:<name>" with the family's presence string over the pangenome's genomes). */

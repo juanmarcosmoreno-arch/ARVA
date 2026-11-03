@@ -46,7 +46,10 @@ def logdir(tmp_path, monkeypatch):
     if recorded:  # a TestClient started first recorded the suite's data folder
         (data / locations.MARKER).write_text(json.dumps({"id": recorded}))
     errorlog.reset_storage_check()
+    # Earlier tests leave this process's unwritten entries and refusal budget behind; each test starts without them.
     errorlog._refusal_seen.clear()
+    errorlog._refusals.times.clear()
+    errorlog._recent.clear()
     locations.ensure_data()
     yield data / "logs"
     errorlog.reset_storage_check()

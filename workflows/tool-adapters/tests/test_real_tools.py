@@ -432,6 +432,17 @@ def _probes_found(contig: str, unit: str, probes: int = 5, size: int = 100) -> i
     return sum(1 for x in pieces if x in circle or x in rc)
 
 
+def test_plasmid_probes_accept_a_rotated_reverse_dimer_and_reject_other_sequence():
+    import random
+
+    rng = random.Random(7)
+    unit = "".join(rng.choice("ACGT") for _ in range(15_000))
+    rotated = unit[4_321:] + unit[:4_321]
+    dimer = (rotated + rotated)[::-1].translate(str.maketrans("ACGT", "TGCA"))
+    other = "".join(rng.choice("ACGT") for _ in range(30_000))
+    assert _probes_found(dimer, unit) == 5 and _probes_found(other, unit) == 0
+
+
 def test_flye_assembles_the_synthetic_genome(tmp_path):
     """Default synthetic genome (circular 300 kb chromosome with a 5 kb repeat in two copies, circular 15 kb plasmid
     at two copies) with Nanopore-like reads at 30x. Recorded with Flye 2.9.3 (Ubuntu 2.9.3+dfsg2-1), --nano-hq,

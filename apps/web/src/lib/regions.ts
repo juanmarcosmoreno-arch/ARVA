@@ -267,6 +267,14 @@ export function textWidth(text: string, size: number): number {
   return (w * size) / 1000;
 }
 
+/** The text, shortened with an ellipsis to fit `width` at `size` (SVG text is never clipped by its box). */
+export function fit(text: string, size: number, width: number): string {
+  if (textWidth(text, size) <= width) return text;
+  let cut = text;
+  while (cut.length > 1 && textWidth(`${cut}…`, size) > width) cut = cut.slice(0, -1);
+  return `${cut.trimEnd()}…`;
+}
+
 export function wrap(text: string, size: number, width: number): string[] {
   const lines: string[] = [];
   let line = "";
@@ -310,10 +318,12 @@ export interface RegionFigureOptions {
   kb: (v: number) => string;
 }
 
-const LEFT = 190;
-const PLOT = 860;
+const LEFT = 210;
+const PLOT = 720;
 const ROW = 74;
 const ARROW = 16;
+// The figure is usually drawn narrower than its 960 units (beside the set list), so its small text is sized for that.
+const LEGEND_SIZE = 12;
 const TOP = 24;
 
 function arrow(x0: number, x1: number, y: number, strand: string, h = ARROW): [number, number][] {
@@ -371,9 +381,9 @@ export function regionFigure(data: RegionData, o: RegionFigureOptions): Figure {
     const t = data.tracks[i];
     const y = yOf(row);
     const [s0, s1] = spans[row];
-    prims.push({ kind: "text", x: LEFT - 10, y: y + 4, text: t.label, size: 11, anchor: "end", fill: o.theme.text, bold: true });
-    if (t.contig) prims.push({ kind: "text", x: LEFT - 10, y: y + 17, text: `${t.contig}:${t.start!.toLocaleString("en-US")}-${t.end!.toLocaleString("en-US")}${t.flipped !== Boolean(o.flips[i]) ? " (−)" : ""}`, size: 8, anchor: "end", fill: o.theme.muted });
-    if (t.hit) prims.push({ kind: "text", x: LEFT - 10, y: y + 28, text: o.hitLabel(t.hit.identity), size: 8, anchor: "end", fill: o.theme.muted });
+    prims.push({ kind: "text", x: LEFT - 10, y: y + 4, text: fit(t.label, 11 * 1.08, LEFT - 18), size: 11, anchor: "end", fill: o.theme.text, bold: true });
+    if (t.contig) prims.push({ kind: "text", x: LEFT - 10, y: y + 17, text: fit(`${t.contig}:${t.start!.toLocaleString("en-US")}-${t.end!.toLocaleString("en-US")}${t.flipped !== Boolean(o.flips[i]) ? " (−)" : ""}`, 9, LEFT - 18), size: 9, anchor: "end", fill: o.theme.muted });
+    if (t.hit) prims.push({ kind: "text", x: LEFT - 10, y: y + 28, text: fit(o.hitLabel(t.hit.identity), 9, LEFT - 18), size: 9, anchor: "end", fill: o.theme.muted });
     prims.push({ kind: "line", x1: x(s0), y1: y, x2: x(s1), y2: y, stroke: o.theme.axis, width: 1 });
     t.features.forEach((f) => {
       let a = pos(i, f.rel_start), b = pos(i, f.rel_end);
@@ -408,38 +418,38 @@ export function regionFigure(data: RegionData, o: RegionFigureOptions): Figure {
   prims.push({ kind: "line", x1: x(lo), y1: y, x2: x(hi), y2: y, stroke: o.theme.axis, width: 0.8 });
   for (let v = Math.ceil(lo / step) * step; v <= hi; v += step) {
     prims.push({ kind: "line", x1: x(v), y1: y, x2: x(v), y2: y + 4, stroke: o.theme.axis, width: 0.8 });
-    prims.push({ kind: "text", x: x(v), y: y + 14, text: o.kb(v / 1000), size: 9, anchor: "middle", fill: o.theme.muted });
+    prims.push({ kind: "text", x: x(v), y: y + 14, text: o.kb(v / 1000), size: 10, anchor: "middle", fill: o.theme.muted });
   }
   const missing = data.tracks.filter((t, i) => o.order.includes(i) && !drawn(t)).map((t) => t.label);
   if (missing.length) {
     y += 30;
-    prims.push({ kind: "text", x: LEFT, y, text: `${o.notFound}: ${missing.join(", ")}`, size: 9, anchor: "start", fill: o.theme.muted });
+    prims.push({ kind: "text", x: LEFT, y, text: `${o.notFound}: ${missing.join(", ")}`, size: LEGEND_SIZE, anchor: "start", fill: o.theme.muted });
   }
   y += 30;
-  prims.push({ kind: "text", x: 16, y, text: o.legendTitle, size: 10, anchor: "start", fill: o.theme.text, bold: true });
-  let lx = 16 + textWidth(o.legendTitle, 10) + 14;
+  prims.push({ kind: "text", x: 16, y, text: o.legendTitle, size: LEGEND_SIZE + 1, anchor: "start", fill: o.theme.text, bold: true });
+  let lx = 16 + textWidth(o.legendTitle, LEGEND_SIZE + 1) + 14;
   const legend: { color: string; text: string; italic: boolean }[] = shared.slice(0, GROUP_PALETTE.length).map((id, k) => {
     const g = data.groups.find((x) => x.id === id)!;
     return { color: GROUP_PALETTE[k], text: g.name ?? o.unnamedGroup(id), italic: Boolean(g.name && !g.name.includes(" ")) };
   });
   legend.push(...(["amr", "virulence", "mobile"] as const).map((k) => ({ color: MARK_COLORS[k], text: o.marksLegend[k], italic: false })));
   for (const item of legend) {
-    const w = 14 + textWidth(item.text, 9) + 14;
+    const w = 14 + textWidth(item.text, LEGEND_SIZE) + 14;
     if (lx + w > LEFT + PLOT + 20) {
       lx = 16;
-      y += 16;
+      y += 18;
     }
-    prims.push({ kind: "poly", points: [[lx, y - 8], [lx + 10, y - 8], [lx + 10, y + 1], [lx, y + 1]], fill: item.color });
-    prims.push({ kind: "text", x: lx + 14, y, text: item.text, size: 9, anchor: "start", fill: o.theme.text, italic: item.italic });
+    prims.push({ kind: "poly", points: [[lx, y - 9], [lx + 10, y - 9], [lx + 10, y + 1], [lx, y + 1]], fill: item.color });
+    prims.push({ kind: "text", x: lx + 14, y, text: item.text, size: LEGEND_SIZE, anchor: "start", fill: o.theme.text, italic: item.italic });
     lx += w;
   }
-  y += 16;
-  prims.push({ kind: "poly", points: [[16, y - 8], [40, y - 8], [40, y + 1], [16, y + 1]], fill: o.theme.link, opacity: 0.35 });
-  prims.push({ kind: "text", x: 46, y, text: o.linksLegend, size: 9, anchor: "start", fill: o.theme.text });
+  y += 18;
+  prims.push({ kind: "poly", points: [[16, y - 9], [40, y - 9], [40, y + 1], [16, y + 1]], fill: o.theme.link, opacity: 0.35 });
+  prims.push({ kind: "text", x: 46, y, text: o.linksLegend, size: LEGEND_SIZE, anchor: "start", fill: o.theme.text });
   y += 8;
-  for (const line of wrap(o.caption, 9, LEFT + PLOT - 16)) {
-    y += 13;
-    prims.push({ kind: "text", x: 16, y, text: line, size: 9, anchor: "start", fill: o.theme.muted });
+  for (const line of wrap(o.caption, LEGEND_SIZE - 0.5, LEFT + PLOT - 16)) {
+    y += 15;
+    prims.push({ kind: "text", x: 16, y, text: line, size: LEGEND_SIZE - 0.5, anchor: "start", fill: o.theme.muted });
   }
   return { width: LEFT + PLOT + 30, height: y + 14, prims };
 }

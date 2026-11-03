@@ -148,7 +148,7 @@ function ProjectDiscover({ projectId }: { projectId: string }) {
               {fields.map((f) => <option key={f.name} value={f.name}>{fieldLabel(t, f.name)}</option>)}
             </Select>
           </Field>
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-3 items-end gap-2">
             <Field label={t("discover.minGroup")}>
               <Input type="number" min={1} value={q.min_group} onChange={(e) => set({ min_group: Math.max(1, Number(e.target.value) || 1) })} />
             </Field>

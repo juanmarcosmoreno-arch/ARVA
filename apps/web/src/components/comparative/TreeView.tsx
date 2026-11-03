@@ -344,9 +344,9 @@ export function TreeView({ result, set }: { result: ComparisonResultRead; set: C
           {(leafColor || bands.length > 0) && (
             <section className="space-y-2 rounded-lg border p-3">
               <p className="font-medium">{t("phylo.legend")}</p>
-              {[leafColor, ...bands].filter((f): f is FieldValues => f !== null).map((f) => (
-                <div key={f.key}>
-                  <p className="text-muted-foreground">{f.label}</p>
+              {[leafColor, ...bands].map((f, i) => f && (
+                <div key={`${i}-${f.key}`}>
+                  <p className="text-muted-foreground">{t(f === leafColor && i === 0 ? "phylo.legendLeaves" : "phylo.legendBand", { field: f.label })}</p>
                   <div className="flex flex-wrap gap-x-2">
                     {f.presence ? (
                       <><Swatch c={PRESENT} label={t("phylo.present")} /><Swatch c={dark ? "#334155" : "#E2E8F0"} label={t("phylo.absent")} /></>

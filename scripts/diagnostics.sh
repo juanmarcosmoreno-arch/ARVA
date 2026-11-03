@@ -17,7 +17,6 @@ set -eu
 
 ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 # shellcheck source=SCRIPTDIR/lib/arva-locations.sh
-# shellcheck source=lib/arva-locations.sh
 . "$ROOT/scripts/lib/arva-locations.sh"
 arva_os=$(uname -s 2>/dev/null || true)
 API_HEALTH=http://127.0.0.1:8000/health
