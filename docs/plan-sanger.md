@@ -15,8 +15,9 @@ Genes que manda:
 - 16S rRNA;
 - enterotoxinas estafilocócicas;
 - hemolisinas *hla* y *hlb*;
-- genes de biofilm (el usuario escribió "hic": confirmar si es *ica*);
-- "varios" más.
+- genes de biofilm (*ica*, confirmado) y otras proteínas de adhesión;
+- y **cualquier otro gen**: el módulo no debe depender de una lista. Los genes nombrados sirven solo como casos de
+  prueba y para elegir qué bases se consultan por omisión.
 
 ## Lo que pide
 
@@ -36,7 +37,10 @@ Genes que manda:
   - Por eso el recorte es imprescindible, y la longitud útil debe mostrarse.
 - **Consenso F+R:** revertir y complementar la reverse, alinear, resolver diferencias mirando las calidades y
   listar las posiciones en conflicto para revisarlas.
-- **Identificación sin decir qué es**, contra bases locales y sin enviar nada afuera:
+- **Identificación sin decir qué es, de cualquier gen**, contra bases locales y sin enviar nada afuera. La búsqueda
+  principal va contra los **genomas completos** de la colección de referencia, y de cualquier genoma que el usuario
+  tenga en ARVA, con su anotación (Bakta/GFF). Así cualquier gen presente en esos genomas se encuentra y se nombra
+  por su anotación, aunque no esté en una base especializada. Las bases especializadas suman la interpretación:
   - 16S de cepas tipo: base de NCBI "16S ribosomal RNA" (RefSeq de cepas tipo), descargable con versión, como
     las demás bases del gestor;
   - colección de genomas de referencia del usuario (183 *Staphylococcus*): regiones homólogas;
