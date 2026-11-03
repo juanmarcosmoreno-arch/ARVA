@@ -44,7 +44,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 # consensus models r1041_e82_400bps_sup_v5.2.0 and r1041_e82_400bps_hac_v5.2.0 (files whose sha256 conda records),
 # the only ones ARVA lets it use: other models medaka would download on first use from GitHub without a checksum.
 # A tool without a lock for the image's architecture is left out.
-# Build with --build-arg ARVA_CONDA_TOOLS="" for an image without them.
+# Build with --build-arg ARVA_CONDA_TOOLS="" for an image without them (then also without Filtlong, Flye and Medaka,
+# which the image installs only from here); a custom list should keep "filtlong flye medaka".
 ARG ARVA_CONDA_TOOLS="filtlong flye medaka mlst fastani skani mash sylph amrfinderplus bakta abricate mobsuite integronfinder sccmec spatyper agrvate iqtree panaroo"
 RUN --mount=type=bind,source=scripts/install-micromamba.sh,target=/build/scripts/install-micromamba.sh \
     --mount=type=bind,source=scripts/conda_locks.py,target=/build/scripts/conda_locks.py \

@@ -1135,6 +1135,7 @@ export interface FlyeReadTypeSuggestion {
   platform_source: "sample_metadata" | "read_headers" | null;
   mean_error_rate: number | null;
   mean_base_quality: number | null;
+  read_error?: number | null;
   q20_read_error_note: boolean;
   sup_model_but_low_quality: boolean;
 }

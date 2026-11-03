@@ -225,7 +225,7 @@ describe("New assembly dialog", () => {
       { file_id: "f1", name: "ont.fastq.gz", origin: "imported", header_platform: null, header_confidence: "none", basecall_models: [], pacbio_read_types: [], stats_job_id: "j", total_bases: 9_000_000, max_read_length: 45_000, read_n50: 8_700, mean_base_quality: 13.9 },
       { file_id: "f2", name: "ont.filtlong.fastq.gz", origin: "derived", header_platform: null, header_confidence: "none", basecall_models: [], pacbio_read_types: [], stats_job_id: "j", total_bases: 6_000_000, max_read_length: 45_000, read_n50: 9_900, mean_base_quality: 15.0 },
     ],
-    read_type_suggestion: { heuristic: true, value: "nano-hq", basis: "error_at_most_5_percent", platform: "nanopore", platform_source: "sample_metadata", mean_error_rate: 0.04, mean_base_quality: 14, q20_read_error_note: false, sup_model_but_low_quality: false },
+    read_type_suggestion: { heuristic: true, value: "nano-hq", basis: "error_3_to_5_percent", read_error: 0.05, platform: "nanopore", platform_source: "sample_metadata", mean_error_rate: 0.04, mean_base_quality: 14, q20_read_error_note: false, sup_model_but_low_quality: false },
     genome_size: { expected: { bp: null, status: "not_given", source: null }, total_read_bases: 9_000_000, files_without_stats: [], from_depth: null },
     sample_technology: "nanopore",
     long_reads_confirmation_required: false,

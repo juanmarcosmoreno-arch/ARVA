@@ -325,9 +325,12 @@ def plan_run(db: Session, project: Project, v: WorkflowVersion, sample_ids: list
     """What a run would do: per sample, what each source node picks (or why it cannot), the tools, the items and
     jobs, the queue settings and estimated resources, and anything that blocks the whole run. Run options apply to
     the version's definition first (apply_options)."""
-    definition, option_changes = apply_options(v.definition, options)
+    # Normalised first, so a version saved before a parameter existed shows (and diffs from) its default.
+    base, _ = check_definition(v.definition)
+    offered = run_options(base)
+    definition, option_changes = apply_options(base, options)
     definition, problems = check_definition(definition)
-    problems = [p for p in problems] + availability(definition, refresh=True)
+    problems = [p for p in problems] + option_problems(offered, options) + availability(definition, refresh=True)
     samples = []
     seen = set()
     for sid in sample_ids:
@@ -367,18 +370,54 @@ def plan_run(db: Session, project: Project, v: WorkflowVersion, sample_ids: list
     return {"workflow_version_id": v.id, "version": v.version, "definition_sha256": v.definition_sha256,
             "samples": rows, "ready_samples": ready, "jobs": jobs_per_sample * ready + set_jobs,
             "settings": settings, "tools": tool_snapshot(definition), "problems": problems,
-            "concurrency": _concurrency(settings), "options": run_options(v.definition),
+            "concurrency": _concurrency(settings), "options": offered,
             "option_changes": option_changes, "definition": definition}
 
 
+# Polishing strategies by the reads a polishing node receives (polishing.strategies_for: long reads only allow
+# Racon or Medaka, short reads only Pilon, both the hybrid).
+_STRATEGY_ORDER = ("racon", "medaka", "pilon", "hybrid")
+
+
+def _polishing_choices(definition: dict[str, Any], node_id: str) -> list[str]:
+    from app.services.polishing import LONG_STRATEGIES
+
+    ports = {e["target_port"] for e in definition.get("edges", []) if e.get("target") == node_id}
+    long, short = "long_reads" in ports, "short_reads" in ports
+    if long and short:
+        return ["hybrid"]
+    if long:
+        return list(LONG_STRATEGIES)
+    # No reads connected: the step refuses at launch for its own reason; the option does not restrict it.
+    return ["pilon"] if short else list(_STRATEGY_ORDER)
+
+
 def run_options(definition: dict[str, Any]) -> dict[str, Any]:
-    """The run options this definition offers, each with the value its nodes hold (several values: null)."""
+    """The run options this definition offers, each with the value its nodes hold (several values: null) and the
+    values every one of those nodes accepts (choices; for the polishing strategy, those its reads allow)."""
     out = {}
     for key, (kind, param) in RUN_OPTIONS.items():
-        values = {json.dumps((n.get("params") or {}).get(param)) for n in definition["nodes"] if n["kind"] == kind}
+        of_kind = [n for n in definition["nodes"] if n["kind"] == kind]
+        values = {json.dumps((n.get("params") or {}).get(param)) for n in of_kind}
         if values:
-            out[key] = {"kind": kind, "param": param, "nodes": sum(1 for n in definition["nodes"] if n["kind"] == kind),
-                        "value": json.loads(next(iter(values))) if len(values) == 1 else None}
+            if key == "polishing_strategy":
+                allowed = [set(_polishing_choices(definition, n["id"])) for n in of_kind]
+                choices = [c for c in _STRATEGY_ORDER if all(c in a for a in allowed)]
+            else:
+                choices = ["off", "auto"]
+            out[key] = {"kind": kind, "param": param, "nodes": len(of_kind),
+                        "value": json.loads(next(iter(values))) if len(values) == 1 else None, "choices": choices}
+    return out
+
+
+def option_problems(offered: dict[str, Any], options: dict[str, Any] | None) -> list[dict[str, Any]]:
+    """A chosen run option that some node of its kind cannot take (a polishing strategy its reads do not allow)."""
+    out = []
+    for key, value in (options or {}).items():
+        o = offered.get(key)
+        if value is not None and o is not None and value not in o["choices"]:
+            out.append(core.problem("wf_option_not_allowed", None, option=key, value=value,
+                                    allowed=", ".join(o["choices"]) or "-"))
     return out
 
 
@@ -621,16 +660,24 @@ def _sync(db: Session, run: BatchRun, item: BatchItem) -> None:
         item.status = "running"
         _check_lost(db, item, job)
     elif job.status is JobStatus.completed:
-        try:
-            item.outputs = nodes.KINDS[item.node_kind].outputs(db, job)
-        except nodes.WaitForFollowUp as wait:
-            item.status = "running"
-            # Its task can be lost like the item's own (Redis keeps nothing across restarts).
-            _check_lost(db, item, wait.follow)
-            return
-        except nodes.LaunchRefused as exc:
-            _fail(item, exc.code, str(exc), **exc.params)
-            return
+        while True:
+            try:
+                item.outputs = nodes.KINDS[item.node_kind].outputs(db, job)
+            except nodes.WaitForFollowUp as wait:
+                item.status = "running"
+                # Its task can be lost like the item's own (Redis keeps nothing across restarts). A lost required
+                # follow-up (Pilon after Racon) fails the step; a lost optional one (the filtered reads' statistics)
+                # is cancelled and the step's own result is read again without it.
+                if wait.required:
+                    _check_lost(db, item, wait.follow)
+                    return
+                if not _cancel_if_lost(db, wait.follow):
+                    return
+                continue
+            except nodes.LaunchRefused as exc:
+                _fail(item, exc.code, str(exc), **exc.params)
+                return
+            break
         item.status, item.error, item.finished_at = "completed", None, job.finished_at or now()
     elif job.status is JobStatus.cancelled:
         item.status, item.finished_at = "cancelled", now()
@@ -647,19 +694,24 @@ def _sync(db: Session, run: BatchRun, item: BatchItem) -> None:
               **(detail.get("params") or {}))
 
 
-def _check_lost(db: Session, item: BatchItem, job: AnalysisJob) -> None:
-    """A job whose task the queue no longer holds (ARVA or Redis restarted while it waited or ran) is ended with the
-    existing cancellation path, so the item can be resumed or retried."""
+def _cancel_if_lost(db: Session, job: AnalysisJob) -> bool:
+    """End a job whose task the queue no longer holds (ARVA or Redis restarted while it waited or ran) with the
+    existing cancellation path; True when it was cancelled."""
     if not get_settings().task_queue_async:
-        return
+        return False
     from app.services import jobs as jobs_service
 
     # A pending job whose task already failed (run_job raised before starting it) is lost as well.
     if not jobs_service.is_lost(job, jobs_service._rq_status(job.id)):
-        return
+        return False
     jobs_service.cancel_job(db, job.id)
     db.refresh(job)
-    if job.status is JobStatus.cancelled:
+    return job.status is JobStatus.cancelled
+
+
+def _check_lost(db: Session, item: BatchItem, job: AnalysisJob) -> None:
+    """A lost job (see _cancel_if_lost) fails the item, so it can be resumed or retried."""
+    if _cancel_if_lost(db, job):
         _fail(item, "wf_interrupted", "the job's task was lost (ARVA or its task queue restarted)", job_id=job.id)
 
 

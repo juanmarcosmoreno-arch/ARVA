@@ -1444,7 +1444,10 @@ class FlyeReadTypeSuggestion(BaseModel):
     platform_source: Literal["sample_metadata", "read_headers"] | None
     mean_error_rate: float | None = Field(description="Base-weighted mean error probability implied by the qualities")
     mean_base_quality: float | None
-    q20_read_error_note: bool = Field(description="Flye's documentation suggests --read-error 0.03 for Q20 data")
+    read_error: float | None = Field(None, description="The --read-error Flye documents for the suggested read type "
+                                     "(0.05 for --nano-hq reads with 3-5% error), else null")
+    q20_read_error_note: bool = Field(description="Q20 reads: Flye 2.9.6's --nano-hq defaults already use R10 (3% error) "
+                                      "parameters, so no --read-error is needed")
     sup_model_but_low_quality: bool
 
 
@@ -4244,9 +4247,10 @@ FlyeMemoryGuard = Literal["off", "auto"]
 class FlyeNodeIn(FlyeRequest):
     memory_guard: FlyeMemoryGuard = Field(
         default="off", description="auto: when ARVA's memory estimate (from Flye's documented figures) says the run "
-        "may not fit the memory ARVA can use, add --asm-coverage (Flye's documented 50x) with the sample's expected "
-        "genome size. Never applied when the node sets asm_coverage, sets meta, or no genome size is known; what it "
-        "did is recorded with the run")
+        "may not fit the memory the batch reserves per job, add --asm-coverage 40 (the coverage Flye's manual calls "
+        "typically enough) with the sample's expected genome size. Never applied when the node sets asm_coverage, "
+        "sets meta, no genome size is known, or the reads are already below that coverage; what it did is recorded "
+        "with the run")
 
 
 class StaphTypingNodeIn(BaseModel):

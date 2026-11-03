@@ -972,10 +972,14 @@ rm -rf ~/.arva-tools/conda/mlst && python3 scripts/conda_locks.py install mlst ~
 
 and run the adapter's tests (`workflows/tool-adapters/tests/test_mlst.py`, `test_conda_locks.py`) before
 committing the new locks with the tool's `tested_versions`. The Docker image builds the same environments in a
-build stage (`ARVA_CONDA_TOOLS="mlst fastani skani mash sylph amrfinderplus bakta abricate mobsuite integronfinder"`
-by default, leaving out a tool without a lock for the image's architecture; add `gtdbtk` on amd64, `isescan` or
-`genomad`; empty for none) and copies only
-`/opt/arva-tools/conda` into the final image.
+build stage (`ARVA_CONDA_TOOLS="filtlong flye medaka mlst fastani skani mash sylph amrfinderplus bakta abricate
+mobsuite integronfinder sccmec spatyper agrvate iqtree panaroo"` by default, leaving out a tool without a lock for the
+image's architecture; add `gtdbtk` on amd64, `isescan` or `genomad`) and copies only
+`/opt/arva-tools/conda` into the final image. **Filtlong, Flye and Medaka come only from this stage**: the image no
+longer installs Debian's `filtlong` and `flye`, and `ARVA_TOOL_FILTLONG`/`ARVA_TOOL_FLYE`/`ARVA_TOOL_MEDAKA` point
+into `/opt/arva-tools/conda` (ARVA does not fall back to PATH when such a variable is set). A custom list must keep
+`filtlong flye medaka` for read filtering, long-read assembly and Medaka polishing; an empty list
+(`ARVA_CONDA_TOOLS=""`) builds an image without any of these tools, which ARVA then shows as not installed.
 
 **MOB-suite's database.** MOB-suite 3.1.9's `mob_init` downloads database 3.1.8 (Zenodo record 10304948, 472,851,578
 bytes, MD5 published by Zenodo; CC BY 4.0). In **Tools & Databases → Databases → MOB-suite database → Download…** ARVA

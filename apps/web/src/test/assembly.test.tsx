@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import type { ReactElement } from "react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -93,7 +93,7 @@ describe("Flye dialog", () => {
     const plan: FlyePlan = {
       tool: { status: "available", version: "2.9.3", version_validated: true, message: "", reason: null, options: ["--genome-size", "--meta"], max_threads: 4, default_threads: 4 },
       files: [{ file_id: "f1", name: "ont.fastq.gz", origin: "imported", header_platform: null, header_confidence: "none", basecall_models: [], pacbio_read_types: [], stats_job_id: "j", total_bases: 9_869_520, max_read_length: 45_000, read_n50: 8_700, mean_base_quality: 13.89 }],
-      read_type_suggestion: { heuristic: true, value: "nano-hq", basis: "error_at_most_5_percent", platform: "nanopore", platform_source: "sample_metadata", mean_error_rate: 0.0408, mean_base_quality: 13.89, q20_read_error_note: false, sup_model_but_low_quality: false },
+      read_type_suggestion: { heuristic: true, value: "nano-hq", basis: "error_3_to_5_percent", read_error: 0.05, platform: "nanopore", platform_source: "sample_metadata", mean_error_rate: 0.0408, mean_base_quality: 13.89, q20_read_error_note: false, sup_model_but_low_quality: false },
       genome_size: { expected: { bp: null, status: "not_given", source: null }, total_read_bases: 9_869_520, files_without_stats: [], from_depth: null },
       sample_technology: "nanopore",
       long_reads_confirmation_required: false,
@@ -101,11 +101,17 @@ describe("Flye dialog", () => {
     const preview = vi.spyOn(api, "flyePreview").mockResolvedValue(plan);
     renderWith(<AssemblyDialog open onOpenChange={() => undefined} sampleId="s" files={[reads]} />);
     expect(await screen.findByText("ARVA sugiere --nano-hq")).toBeInTheDocument();
-    expect(screen.getByText(/error medio del 4,08 % \(Q13,9\), dentro del < 5 % de Flye/)).toBeInTheDocument();
+    expect(screen.getByText(/error medio del 4,08 % \(Q13,9\): por encima del < 3 % de Flye 2.9.6/)).toBeInTheDocument();
+    expect(screen.getByText(/ARVA también sugiere --read-error 0,05/)).toBeInTheDocument();
     expect(preview).toHaveBeenCalledWith("s", { raw_file_ids: ["f1"], assumed_depth_x: null });
     expect((screen.getByRole("combobox", { name: "Tipo de lectura" }) as HTMLSelectElement).value).toBe("");
     expect(screen.getByRole("button", { name: /Iniciar el ensamblaje/ })).toBeDisabled();
     // --keep-haplotypes, --no-alt-contigs and --scaffold are not in this plan's options.
     expect(screen.getAllByText("Esta versión de Flye no la ofrece (no aparece en su --help).")).toHaveLength(3);
+    // Only the user's click applies it, read type and Flye's documented --read-error together.
+    fireEvent.click(screen.getByRole("button", { name: "Usar la sugerencia" }));
+    expect((screen.getByRole("combobox", { name: "Tipo de lectura" }) as HTMLSelectElement).value).toBe("nano-hq");
+    expect((screen.getByLabelText(/Error esperado de las lecturas/) as HTMLInputElement).value).toBe("0.05");
+    expect(screen.queryByRole("button", { name: "Usar la sugerencia" })).not.toBeInTheDocument();
   });
 });

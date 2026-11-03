@@ -359,7 +359,10 @@ def test_which_stopped_flye_runs_can_resume(client, held_queue, resumable_flye, 
 def test_real_flye_cancelled_during_polishing_resumes_to_the_right_assembly(client, held_queue, tmp_path,
                                                                             storage_root):
     """Flye 2.9.3 appends to the bubbles file of an interrupted polishing stage when resumed; without ARVA removing
-    that stage's folder, this genome's 15 kb plasmid came out as 30 kb (arva_tools.flye)."""
+    that stage's folder, this genome's 15 kb plasmid came out as 30 kb (arva_tools.flye). The resumed run must give
+    what an uninterrupted run of the same Flye gives with the same reads and 2 threads (byte-identical run to run):
+    Flye 2.9.6 itself assembles this plasmid as a 30 kb dimer at 2 threads, so the lengths are compared with that
+    run rather than with the genome."""
     data = tmp_path / "genome"
     subprocess.run([sys.executable, str(REPO / "scripts" / "make_synthetic_genome.py"), str(data), "--ont-depth", "30",
                     "--illumina-depth", "1"], check=True, capture_output=True)
@@ -380,5 +383,14 @@ def test_real_flye_cancelled_during_polishing_resumes_to_the_right_assembly(clie
     assert tool_tasks.run_flye_job(second["id"]) == "completed", job(client, second["id"])["log_text"]
     (a,) = client.get(f"{API}/samples/{sample['id']}/assemblies").json()
     lengths = sorted(c["length"] for c in client.get(f"{API}/assemblies/{a['id']}").json()["contigs"])
-    assert len(lengths) == 2 and abs(lengths[0] - 15_000) <= 10 and abs(lengths[1] - 300_000) <= 10
     assert job(client, second["id"])["result_summary"]["resumed"]["stage"] == "polishing"
+
+    plain = new_sample(client)
+    g = upload(client, plain["id"], data / "ont.fastq.gz")
+    r3 = client.post(f"{API}/samples/{plain['id']}/assembly/flye",
+                     json={"raw_file_ids": [g["id"]], "params": {"read_type": "nano-hq", "threads": 2}}).json()
+    assert tool_tasks.run_flye_job(r3["id"]) == "completed"
+    (b,) = client.get(f"{API}/samples/{plain['id']}/assemblies").json()
+    expected = sorted(c["length"] for c in client.get(f"{API}/assemblies/{b['id']}").json()["contigs"])
+    assert len(lengths) == 2 and abs(lengths[1] - 300_000) <= 10
+    assert lengths == expected, (lengths, expected)

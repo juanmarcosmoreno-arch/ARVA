@@ -225,8 +225,10 @@ def test_pooled_error_rate_weights_files_by_bases():
 
 
 @pytest.mark.parametrize("platform, error, models, pacbio, value, basis", [
-    ("nanopore", 0.04, [], [], "nano-hq", "error_at_most_5_percent"),
-    ("nanopore", 0.05, [], [], "nano-hq", "error_at_most_5_percent"),
+    ("nanopore", 0.02, [], [], "nano-hq", "error_at_most_3_percent"),
+    ("nanopore", 0.03, [], [], "nano-hq", "error_at_most_3_percent"),
+    ("nanopore", 0.04, [], [], "nano-hq", "error_3_to_5_percent"),
+    ("nanopore", 0.05, [], [], "nano-hq", "error_3_to_5_percent"),
     ("nanopore", 0.08, [], [], "nano-raw", "error_above_5_percent"),
     ("nanopore", None, ["dna_r10.4.1_e8.2_400bps_sup@v4.2.0"], [], "nano-hq", "sup_basecall_model"),
     ("nanopore", None, ["dna_r9.4.1_450bps_hac"], [], None, "no_quality_or_model"),
@@ -246,6 +248,14 @@ def test_read_type_suggestion_notes():
     assert q20["q20_read_error_note"] is True and q20["mean_base_quality"] == pytest.approx(-10 * math.log10(0.008))
     low = suggest_read_type("nanopore", 0.09, ["dna_r10.4.1_e8.2_400bps_sup@v4.2.0"], [])
     assert (low["value"], low["sup_model_but_low_quality"]) == ("nano-raw", True)
+
+
+def test_read_type_suggestion_adds_flyes_read_error_only_for_3_to_5_percent():
+    # Flye 2.9.6 USAGE.md: "--nano-hq --read-error 0.05" for <5% error; R10 (3%) parameters are --nano-hq's default.
+    assert suggest_read_type("nanopore", 0.04, [], [])["read_error"] == 0.05
+    assert suggest_read_type("nanopore", 0.025, [], [])["read_error"] is None
+    assert suggest_read_type("nanopore", 0.08, [], [])["read_error"] is None
+    assert suggest_read_type("pacbio", 0.001, [], ["ccs"])["read_error"] is None
 
 
 def test_a_samtools_override_that_does_not_exist_counts_as_missing(tmp_path, monkeypatch):
@@ -308,14 +318,17 @@ def test_only_runs_stopped_from_outside_are_resumable():
 def test_memory_estimate_scales_flyes_documented_e_coli_figure():
     from arva_tools.flye import MEMORY_REFERENCE_BASES, SUGGESTED_ASM_COVERAGE, memory_estimate
 
-    assert MEMORY_REFERENCE_BASES == 230_000_000 and SUGGESTED_ASM_COVERAGE == 50
+    assert MEMORY_REFERENCE_BASES == 230_000_000 and SUGGESTED_ASM_COVERAGE == 40
     # The documented case itself: 2 GB for 50x of 4.6 Mb.
     assert memory_estimate(230_000_000, 2)["estimate_gb"] == 2.0
     # The user's Mac: 413 Mb of filtered reads (147.6x of 2.8 Mb), 3 GB usable in a 3.8 GB Docker VM.
     est = memory_estimate(413_000_000, 3, genome_size_bp=2_800_000)
     assert est["verdict"] == "may_not_fit" and est["estimate_gb"] == 3.59
-    assert est["suggestion"] == {"asm_coverage": 50, "needs_genome_size": False, "genome_size_bp": 2_800_000,
-                                 "estimate_gb": 1.22, "coverage_x": 147.5}
+    assert est["suggestion"] == {"asm_coverage": 40, "needs_genome_size": False, "genome_size_bp": 2_800_000,
+                                 "estimate_gb": 0.97, "coverage_x": 147.5}
+    # 40x of 12 Mb (480 Mb) is more than the 413 Mb of reads: --asm-coverage would not reduce them, so no suggestion.
+    big = memory_estimate(413_000_000, 3, genome_size_bp=12_000_000)
+    assert big["verdict"] == "may_not_fit" and big["suggestion"] is None
     with_asm = memory_estimate(413_000_000, 3, asm_coverage=50, genome_size_bp=2_800_000)
     assert with_asm["verdict"] == "fits" and with_asm["bases_used"] == 140_000_000 and with_asm["suggestion"] is None
     # No genome size: the suggestion says one is needed; --meta cannot take --asm-coverage, so none is suggested.

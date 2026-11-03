@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from arva_core import workflow as core
@@ -63,11 +63,15 @@ class NodeSkipped(Exception):
 
 
 class WaitForFollowUp(Exception):
-    """The job finished but its result comes from a job it queued (Racon then Pilon), which is still active."""
+    """The job finished but its result comes from a job it queued (Racon then Pilon), which is still active.
 
-    def __init__(self, follow: AnalysisJob):
+    required=False: the step's result stands without it (the filtered reads' statistics, waited for only so that Flye's
+    memory estimate can read their bases); if its task is lost, the step completes instead of failing."""
+
+    def __init__(self, follow: AnalysisJob, required: bool = True):
         super().__init__(follow.id)
         self.follow = follow
+        self.required = required
 
 
 @dataclass
@@ -164,14 +168,15 @@ def _out_long_reads(db: Session, job: AnalysisJob) -> dict[str, Any]:
     if not files:
         raise LaunchRefused("wf_output_missing", "the job registered no filtered reads", job_id=job.id)
     # The filtered reads' ARVA statistics (queued by the filter in its own transaction) are waited for: Flye's
-    # memory estimate reads their bases. A statistics job that failed does not hold the run up.
+    # memory estimate reads their bases. A statistics job that failed, was cancelled or whose task was lost does not
+    # hold the run up (batches._sync completes the step when this optional follow-up is lost).
     from app.services.jobs import FASTQ_STATS_JOB
 
     ids = {f.id for f in files}
     for stats in db.scalars(select(AnalysisJob).where(AnalysisJob.parent_job_id == job.id,
                                                       AnalysisJob.job_type == FASTQ_STATS_JOB)):
         if set(stats.input_raw_file_ids or []) & ids and stats.status in (JobStatus.pending, JobStatus.running):
-            raise WaitForFollowUp(stats)
+            raise WaitForFollowUp(stats, required=False)
     return {"reads": {"file_ids": [f.id for f in files]}}
 
 
@@ -302,7 +307,7 @@ def _launch_flye(ctx: LaunchContext):
     body = node.model_dump()
     guard = body.pop("memory_guard")
     params = body["params"]
-    decision = flye_memory_guard(ctx.db, ctx.sample, body["raw_file_ids"], params, guard)
+    decision = flye_memory_guard(ctx.db, ctx.sample, body["raw_file_ids"], params, guard, ctx.memory_gb)
     if decision["applied"]:
         params.update(decision["applied"])
         ctx.params = {**ctx.params, "params": {**ctx.params.get("params", {}), **decision["applied"]}}
@@ -312,40 +317,50 @@ def _launch_flye(ctx: LaunchContext):
 
 
 def flye_memory_guard(db: Session, sample: Sample, file_ids: list[str], params: dict[str, Any],
-                      guard: str) -> dict[str, Any]:
+                      guard: str, memory_gb: int | None = None) -> dict[str, Any]:
     """Flye's memory estimate for the node's reads and parameters and, with the guard on ("auto") and an estimate
-    that may not fit, the options it adds: --asm-coverage (Flye's documented 50x) and, when the node set none, the
-    sample's expected genome size. A value the node sets itself is never changed; when the guard cannot apply
-    (asm_coverage or meta set, no genome size known, no read statistics) the run goes ahead as configured and the
-    reason is recorded."""
+    that may not fit, the options it adds: --asm-coverage (SUGGESTED_ASM_COVERAGE, the 40x Flye's manual gives as
+    typically enough) and, when the node set none, the sample's expected genome size. A value the node sets itself
+    is never changed; when the guard cannot apply (asm_coverage or meta set, no genome size known, no read
+    statistics, or reads already below that coverage, so --asm-coverage would not use fewer) the run goes ahead as
+    configured and the reason is recorded.
+
+    memory_gb: what the batch reserves for this job (its memory per job, which decides how many jobs run at once);
+    the estimate is compared with that, capped by the memory ARVA can use, not with the whole container's memory,
+    because other jobs of the batch may run beside this one."""
     from arva_tools.flye import SUGGESTED_ASM_COVERAGE, FlyeParams
 
     from app.services import flye
+    from app.services.performance import effective_resources
 
+    res = effective_resources(db)
+    if memory_gb:
+        res = replace(res, max_memory_gb=min(res.max_memory_gb, memory_gb))
     files = [db.get(RawFile, i) for i in file_ids]
     ev = flye.evidence(db, [f for f in files if f is not None])
     current = FlyeParams(**{k: v for k, v in params.items() if k != "threads"})
-    est = flye.memory(db, sample, ev, current)
+    est = flye.memory(db, sample, ev, current, res)
     out = {"guard": guard, "estimate": {k: v for k, v in est.items() if k not in ("reference", "reference_bases")},
            "applied": None, "not_applied": None}
     if guard == "auto" and est["verdict"] == "unknown":
         out["not_applied"] = "no_read_statistics"
     if guard != "auto" or est["verdict"] != "may_not_fit":
         return out
+    size = params.get("genome_size_bp") or est["expected_genome_size_bp"]
     if params.get("asm_coverage") is not None:
         out["not_applied"] = "asm_coverage_set"
     elif params.get("meta"):
         out["not_applied"] = "meta"
-    elif params.get("genome_size_bp") is None and not est["expected_genome_size_bp"]:
+    elif not size:
         out["not_applied"] = "no_genome_size"
+    elif SUGGESTED_ASM_COVERAGE * size >= est["read_bases"]:
+        out["not_applied"] = "reads_below_asm_coverage"
     else:
         applied: dict[str, Any] = {"asm_coverage": SUGGESTED_ASM_COVERAGE}
         if params.get("genome_size_bp") is None:
-            applied.update(genome_size_bp=est["expected_genome_size_bp"], genome_size_basis="expected_genome_size",
-                           assumed_depth_x=None)
-        size = params.get("genome_size_bp") or applied["genome_size_bp"]
+            applied.update(genome_size_bp=size, genome_size_basis="expected_genome_size", assumed_depth_x=None)
         after = flye.memory(db, sample, ev, FlyeParams(**{**{k: v for k, v in params.items() if k != "threads"},
-                                                          **applied, "genome_size_bp": size}))
+                                                          **applied, "genome_size_bp": size}), res)
         out["applied"] = applied
         out["estimate_after"] = {k: v for k, v in after.items() if k not in ("reference", "reference_bases")}
     return out
@@ -458,9 +473,15 @@ def _members(ctx: LaunchContext, set_id: str) -> list[str]:
 
 def _launch_staph_typing(ctx: LaunchContext):
     """One S. aureus typing step through the typing route. The module's applicability is read first from the
-    assembly's species identification and MLST records (typing_modules.applicability, the route's own rule): a
-    sample the evidence does not support is skipped with that reason, unless the node overrides it, which the
-    result then records as the route does."""
+    assembly's species identification and MLST records (typing_modules.applicability, the route's own rule):
+
+    * not_applicable (the evidence names another species or MLST scheme, nothing names S. aureus): the step is
+      skipped with that reason, which is not an error;
+    * no_evidence (no species and no MLST scheme was called) or conflicting (one source names S. aureus, another
+      does not): ARVA cannot tell, so the step fails with that reason and the run ends with errors, for the user to
+      check the evidence (or set override_applicability).
+
+    With override_applicability the step runs anyway, and the result records the override as the route does."""
     from app.services import staph_typing
     from app.services import typing_modules as tm
 
@@ -469,12 +490,23 @@ def _launch_staph_typing(ctx: LaunchContext):
         raise LaunchRefused("wf_output_missing", "the assembly no longer exists", job_id="")
     found = tm.applicability(staph_typing.MODULE, tm.evidence(ctx.db, a))
     if found["override_required"] and not ctx.params.get("override_applicability"):
-        species = (found["evidence"].get("species") or {}).get("value")
-        scheme = (found["evidence"].get("mlst") or {}).get("value")
-        raise NodeSkipped("wf_typing_not_applicable",
-                          f"S. aureus typing does not apply: species evidence {found['status']} (species "
-                          f"{species or 'not identified'}, MLST scheme {scheme or 'none'})",
-                          status=found["status"], species=species or "", scheme=scheme or "")
+        species = (found["evidence"].get("species") or {}).get("value") or ""
+        scheme = (found["evidence"].get("mlst") or {}).get("value") or ""
+        if found["status"] == "not_applicable":
+            raise NodeSkipped("wf_typing_not_applicable",
+                              f"S. aureus typing does not apply: the species evidence names species "
+                              f"{species or 'none'}, MLST scheme {scheme or 'none'}",
+                              status=found["status"], species=species, scheme=scheme)
+        if found["status"] == "conflicting":
+            raise LaunchRefused("wf_typing_conflicting",
+                                f"the species evidence conflicts (species {species or 'none'}, MLST scheme "
+                                f"{scheme or 'none'}): check it, or run the step with override_applicability",
+                                status=found["status"], species=species, scheme=scheme)
+        raise LaunchRefused("wf_typing_no_evidence",
+                            "no species and no MLST scheme was identified for this assembly, so ARVA cannot tell "
+                            "whether S. aureus typing applies: check the species identification and MLST results, "
+                            "or run the step with override_applicability",
+                            status=found["status"])
     req = _request(ctx, "staph_typing", {})
     body = s.TypingRequest.model_validate({**req.model_dump(), "confirmed": True})
     return call(_routes()["typing"].start_typing, a.id, staph_typing.MODULE.key, body, ctx.db)

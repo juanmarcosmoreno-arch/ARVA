@@ -349,7 +349,7 @@ def test_preview_suggests_and_estimates_without_deciding(client, fake_flye):
     assert plan["read_type_suggestion"] == {
         "heuristic": True, "value": None, "basis": "no_quality_or_model", "platform": "nanopore",
         "platform_source": "sample_metadata", "mean_error_rate": None, "mean_base_quality": None,
-        "q20_read_error_note": False, "sup_model_but_low_quality": False}
+        "read_error": None, "q20_read_error_note": False, "sup_model_but_low_quality": False}
     assert plan["genome_size"]["total_read_bases"] is None and plan["genome_size"]["files_without_stats"] == [ONT.name]
 
     client.post(f"{API}/samples/{sample['id']}/analyses/sequence-stats",
@@ -495,15 +495,32 @@ def test_memory_estimate_in_the_preview_the_job_and_the_workflow_guard(client, f
         monkeypatch.setitem(adapter.MEMORY_REFERENCE, "ram_gb", 20_000.0)
         off = nodes.flye_memory_guard(db, s, [f["id"]], dict(base), "off")
         assert off["estimate"]["verdict"] == "may_not_fit" and off["applied"] is None and off["not_applied"] is None
+        # 40x of the expected 300 kb (12 Mb) is more than the 1.5 Mb of reads: --asm-coverage would not use fewer
+        # bases, so the guard adds nothing and says why.
+        below = nodes.flye_memory_guard(db, s, [f["id"]], dict(base), "auto")
+        assert below["applied"] is None and below["not_applied"] == "reads_below_asm_coverage"
+        # With a coverage that does cut the reads (4x of 300 kb = 1.2 Mb), the expected size is added with it.
+        monkeypatch.setattr(adapter, "SUGGESTED_ASM_COVERAGE", 4)
         on = nodes.flye_memory_guard(db, s, [f["id"]], dict(base), "auto")
-        assert on["applied"] == {"asm_coverage": 50, "genome_size_bp": 300_000,
+        assert on["applied"] == {"asm_coverage": 4, "genome_size_bp": 300_000,
                                  "genome_size_basis": "expected_genome_size", "assumed_depth_x": None}
-        assert on["estimate_after"]["bases_used"] == 1_513_780  # 50x of 300 kb is more than the reads hold
+        assert on["estimate_after"]["bases_used"] == 1_200_000
+        monkeypatch.setattr(adapter, "SUGGESTED_ASM_COVERAGE", 40)
         own = nodes.flye_memory_guard(db, s, [f["id"]], {**base, "asm_coverage": 30, "genome_size_bp": 300_000},
                                       "auto")
         assert own["applied"] is None and own["not_applied"] == "asm_coverage_set"
         meta = nodes.flye_memory_guard(db, s, [f["id"]], {**base, "meta": True}, "auto")
         assert meta["not_applied"] == "meta"
-        sized = nodes.flye_memory_guard(db, s, [f["id"]], {**base, "genome_size_bp": 250_000,
+        sized = nodes.flye_memory_guard(db, s, [f["id"]], {**base, "genome_size_bp": 30_000,
                                                            "genome_size_basis": "entered"}, "auto")
-        assert sized["applied"] == {"asm_coverage": 50}
+        assert sized["applied"] == {"asm_coverage": 40} and sized["estimate_after"]["bases_used"] == 1_200_000
+
+        # In a batch the estimate is compared with the memory the batch reserves per job (other jobs may run beside
+        # it), capped by what ARVA can use: about 2 GB fits a whole computer's memory but not 1 GB per job.
+        monkeypatch.setitem(adapter.MEMORY_REFERENCE, "ram_gb", 304.0)
+        per_job = nodes.flye_memory_guard(db, s, [f["id"]], dict(base), "off", memory_gb=1)
+        assert per_job["estimate"]["available_gb"] == 1 and per_job["estimate"]["verdict"] == "may_not_fit"
+        from app.services.performance import effective_resources
+
+        whole = nodes.flye_memory_guard(db, s, [f["id"]], dict(base), "off", memory_gb=10_000)
+        assert whole["estimate"]["available_gb"] == effective_resources(db).max_memory_gb

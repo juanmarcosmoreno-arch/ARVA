@@ -12,7 +12,10 @@ from the reads' headers, and only when the package ships it.
 """
 from __future__ import annotations
 
+import copy
+import os
 import subprocess
+from pathlib import Path
 from typing import Any
 
 from arva_tools import ToolStatus
@@ -183,15 +186,39 @@ def suggestion_text(s: dict[str, Any]) -> str:
                                                model=s["model"])
 
 
-def medaka_catalogue() -> tuple[dict[str, Any] | None, str | None]:
-    """Medaka's model lists and the models its package ships (arva_tools.medaka.read_catalogue), or why not."""
-    d = detect("medaka", refresh=True)
-    if d.status is not ToolStatus.available or not d.path:
-        return None, d.message or "Medaka is not installed"
+# Previews' catalogue, by installation (see _catalogue_key): reading it starts Medaka's Python and hashes every shipped
+# model, too slow to repeat on each dialog refresh (an amd64 image under Rosetta). The worker reads it afresh before
+# every run (tasks/polishing.py), so a model file changed in place is still caught there.
+_CATALOGUE_CACHE: dict[tuple[Any, ...], dict[str, Any]] = {}
+
+
+def _catalogue_key(executable: str) -> tuple[Any, ...]:
+    real = Path(os.path.realpath(executable))
+    meta = real.parent.parent / "conda-meta"  # changes when a package of the environment is installed or removed
+    return (str(real), real.stat().st_mtime_ns, meta.stat().st_mtime_ns if meta.is_dir() else None)
+
+
+def medaka_catalogue(path: str | None = None, cached: bool = False) -> tuple[dict[str, Any] | None, str | None]:
+    """Medaka's model lists and the models its package ships (arva_tools.medaka.read_catalogue), or why not.
+
+    path: the medaka executable already detected (otherwise it is detected here). cached: reuse the catalogue read
+    for the same installation (previews only)."""
+    if path is None:
+        d = detect("medaka", refresh=True)
+        if d.status is not ToolStatus.available or not d.path:
+            return None, d.message or "Medaka is not installed"
+        path = d.path
     try:
-        return read_catalogue(d.path), None
+        key = _catalogue_key(path) if cached else None
+        if key is not None and key in _CATALOGUE_CACHE:
+            return copy.deepcopy(_CATALOGUE_CACHE[key]), None
+        cat = read_catalogue(path)
     except (OSError, RuntimeError, subprocess.TimeoutExpired, KeyError, TypeError, ValueError) as exc:
         return None, str(exc)
+    if key is not None:
+        _CATALOGUE_CACHE.clear()
+        _CATALOGUE_CACHE[key] = copy.deepcopy(cat)
+    return cat, None
 
 
 def _header_models(ev: list[dict[str, Any]]) -> list[str]:
@@ -270,7 +297,10 @@ def plan(db: Session, sample: Sample, draft: Assembly, inputs: short_hybrid.Inpu
             check_request(sample, inputs, ev, "medaka", None, confirmed=True)
         except InputError as exc:
             medaka_problem = str(exc)
-    catalogue, error = medaka_catalogue() if tools["medaka"]["status"] == ToolStatus.available.value else \
+    # The medaka executable tools_status just detected (no second `medaka --version`), and the catalogue cached per
+    # installation.
+    catalogue, error = medaka_catalogue(tools["medaka"]["path"], cached=True) \
+        if tools["medaka"]["status"] == ToolStatus.available.value and tools["medaka"]["path"] else \
         (None, tools["medaka"]["message"] or "Medaka is not installed")
     return {
         "draft": draft_summary(draft),

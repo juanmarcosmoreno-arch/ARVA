@@ -15,7 +15,7 @@ import {
   type FlyeForm,
 } from "@/lib/flye";
 import { jobLabel } from "@/lib/results";
-import type { FlyePlan, RawFile } from "@/lib/types";
+import type { FlyeMemory, FlyePlan, RawFile } from "@/lib/types";
 
 const file = (id: string, extra: Partial<RawFile> = {}): RawFile =>
   ({ id, original_filename: `${id}.fastq.gz`, file_format: "fastq_gz", is_valid: true, read_mate: null, origin: "imported", parent_file_id: null, ...extra }) as RawFile;
@@ -116,12 +116,17 @@ describe("Flye texts", () => {
 const progressStages = ["configure", "assembly", "consensus", "repeat", "contigger", "polishing", "finalize"];
 
 describe("Flye memory estimate", () => {
-  const memory = { reference: { source: "Flye docs", url: "", genome: "E. coli", data: "PB 50x", genome_size_bp: 4_600_000, coverage_x: 50, ram_gb: 2 }, reference_bases: 230_000_000, available_gb: 3, read_bases: 413_000_000, estimate_gb: 3.59, verdict: "may_not_fit" as const, expected_genome_size_bp: 2_800_000 };
-  const withMemory = (m: Partial<typeof memory> = {}): FlyePlan => ({ ...plan({ expected: { bp: 2_800_000, status: "given", source: "read_statistics" } }), memory: { ...memory, ...m } });
+  const memory: FlyeMemory = { reference: { source: "Flye docs", url: "", genome: "E. coli", data: "PB 50x", genome_size_bp: 4_600_000, coverage_x: 50, ram_gb: 2 }, reference_bases: 230_000_000, available_gb: 3, read_bases: 413_000_000, estimate_gb: 3.59, verdict: "may_not_fit", expected_genome_size_bp: 2_800_000 };
+  const withMemory = (m: Partial<FlyeMemory> = {}): FlyePlan => ({ ...plan({ expected: { bp: 2_800_000, status: "given", source: "read_statistics" } }), memory: { ...memory, ...m } });
 
   it("matches the server's figures and suggests Flye's documented --asm-coverage with the expected size", () => {
     const m = flyeMemory(FLYE_FORM_DEFAULTS, withMemory());
-    expect(m).toEqual({ verdict: "may_not_fit", estimateGb: 3.59, availableGb: 3, suggestion: { asmCoverage: 50, genomeBp: 2_800_000, estimateGb: 1.22 } });
+    expect(m).toEqual({ verdict: "may_not_fit", estimateGb: 3.59, availableGb: 3, suggestion: { asmCoverage: 40, genomeBp: 2_800_000, estimateGb: 0.97 } });
+  });
+
+  it("suggests no --asm-coverage when 40x of the genome size is more than the reads hold", () => {
+    const m = flyeMemory(FLYE_FORM_DEFAULTS, withMemory({ expected_genome_size_bp: 12_000_000 }));
+    expect(m).toMatchObject({ verdict: "may_not_fit", suggestion: null });
   });
 
   it("follows the form: --asm-coverage with a genome size fits, --meta gets no suggestion, no statistics no estimate", () => {

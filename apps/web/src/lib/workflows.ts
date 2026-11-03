@@ -168,7 +168,7 @@ export interface OptionChange {
 }
 
 /** The run options a definition offers: its nodes of that kind and the value they hold (null: they differ). */
-export type OfferedOptions = Partial<Record<keyof RunOptions, { kind: string; param: string; nodes: number; value: string | null }>>;
+export type OfferedOptions = Partial<Record<keyof RunOptions, { kind: string; param: string; nodes: number; value: string | null; choices?: string[] }>>;
 
 export interface SourcePick {
   ok: boolean;
@@ -214,7 +214,7 @@ export interface FlyeGuardNote {
   guard: "off" | "auto";
   estimate: { verdict: "fits" | "may_not_fit" | "unknown"; estimate_gb: number | null; available_gb: number };
   applied: { asm_coverage: number; genome_size_bp?: number } | null;
-  not_applied: "asm_coverage_set" | "meta" | "no_genome_size" | "no_read_statistics" | null;
+  not_applied: "asm_coverage_set" | "meta" | "no_genome_size" | "no_read_statistics" | "reads_below_asm_coverage" | null;
 }
 
 /** The memory guard's decision for a Flye item, as one translated line (null when there is nothing to say). */

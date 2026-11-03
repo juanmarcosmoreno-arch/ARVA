@@ -484,3 +484,27 @@ def test_medaka_polishes_with_the_model_for_the_reads_basecaller(client, nanopor
     report = client.get(f"{API}/samples/{sample['id']}/report", params={"format": "json"}).json()
     step = next(st for st in report["processing"] if st["job_id"] == d["id"])
     assert step["highlights"][1].startswith(f"Medaka model {SUP} (shipped in the package")
+
+
+def test_previews_read_medakas_catalogue_once_per_installation(tmp_path, monkeypatch):
+    """A preview passes the medaka it detected (no second `medaka --version`) and reuses the catalogue read for the
+    same installation; a changed environment (conda-meta) is read again, and job creation always reads it afresh."""
+    from app.services import polishing as service
+
+    exe = tmp_path / "env" / "bin" / "medaka"
+    exe.parent.mkdir(parents=True)
+    exe.write_text("#!/bin/sh\n")
+    (tmp_path / "env" / "conda-meta").mkdir()
+    calls = []
+    monkeypatch.setattr(service, "read_catalogue", lambda path: calls.append(path) or {"version": "2.1.1"})
+    monkeypatch.setattr(service, "detect", lambda *a, **k: (_ for _ in ()).throw(AssertionError("detected again")))
+    service._CATALOGUE_CACHE.clear()
+    first, _ = service.medaka_catalogue(str(exe), cached=True)
+    first["version"] = "changed by the caller"
+    assert service.medaka_catalogue(str(exe), cached=True) == ({"version": "2.1.1"}, None) and len(calls) == 1
+    import os
+    os.utime(tmp_path / "env" / "conda-meta", ns=(1, 1))
+    service.medaka_catalogue(str(exe), cached=True)
+    service.medaka_catalogue(str(exe))
+    assert len(calls) == 3
+    service._CATALOGUE_CACHE.clear()

@@ -664,16 +664,19 @@ against `flye --help`, the Flye 2.9.3 manual and README, and the source of the i
   `--meta`; `--read-error` (a fraction) only with the corrected, nano-hq and hifi read types. Reads are
   passed as links named `NN_<name>.fastq[.gz]`, because Flye takes the format from the file name and
   refuses paths with spaces. `--deterministic` is not offered (see Reproducibility).
-- **Read type: ARVA's suggestion (heuristic).** Flye's descriptions: `--nano-hq` for "Guppy5+ SUP or
-  Q20" reads with < 5 % error, `--nano-raw` for pre-Guppy 5 reads (< 20 %), `--pacbio-hifi` < 1 %,
-  corrected reads < 3 %. ARVA suggests a value, labelled as a heuristic and never applied by itself:
+- **Read type: ARVA's suggestion (heuristic).** Flye 2.9.6's descriptions (`--help` and docs/USAGE.md,
+  "Oxford Nanopore"): `--nano-hq` for R10 (Q20) reads with < 3 % error ("R10 ONT parameters (3% error)
+  are now default for --nano-hq", docs/NEWS.md 2.9.6), `--nano-hq --read-error 0.05` for R9 Guppy 5+
+  reads with < 5 % error, `--nano-raw` for older ONT reads (10–20 %), `--pacbio-hifi` < 1 %, corrected
+  reads < 3 %. ARVA suggests a value, labelled as a heuristic and never applied by itself:
   the platform comes from the sample's technology, else from the read headers when every file
   identifies the same long-read platform with high or medium confidence. For Nanopore reads the mean
   error probability over all bases of the selected files, `Σ_files bases × 10^(−Q̄/10) ÷ Σ bases`
-  where `Q̄` is each file's error-averaged mean base quality, gives `--nano-hq` at ≤ 5 % and
-  `--nano-raw` above; without ARVA statistics, a SUP basecall model in the read headers gives
-  `--nano-hq`, otherwise there is no suggestion. At ≤ 1 % the interface quotes Flye's manual ("For Q20
-  data, use a combination of `--nano-hq` and `--read-error 0.03`"). For PacBio, ≤ 1 % gives
+  where `Q̄` is each file's error-averaged mean base quality, gives `--nano-hq` at ≤ 3 %, `--nano-hq`
+  with `--read-error 0.05` above 3 % and up to 5 %, and `--nano-raw` above 5 %; without ARVA
+  statistics, a SUP basecall model in the read headers gives `--nano-hq`, otherwise there is no
+  suggestion. At ≤ 1 % the interface notes that Flye 2.9.6's `--nano-hq` defaults already are its R10
+  (3 %) parameters, so no `--read-error` is needed. For PacBio, ≤ 1 % gives
   `--pacbio-hifi`; without statistics CCS read names give `--pacbio-hifi` and subread names
   `--pacbio-raw`. Qualities are the basecaller's estimates; the suggestion and its basis are stored
   with the job (`arva_read_type_suggestion`), next to the read type the user chose.
@@ -694,11 +697,13 @@ against `flye --help`, the Flye 2.9.3 manual and README, and the source of the i
   (ARVA read statistics) or, with `--asm-coverage` and a genome size, `min(read bases, asm-coverage × genome
   size)`. It is compared with the memory ARVA can use (the performance profile's maximum, i.e. the memory of the
   container). The verdict ("fits", "may not fit", or no estimate without read statistics) is shown in the
-  dialog, with Flye's documented way to use less memory when it may not fit (`--asm-coverage 50`, which
-  requires `--genome-size` and cannot be combined with `--meta`), applied only when the user clicks it; the API
+  dialog, with Flye's documented way to use less memory when it may not fit (`--asm-coverage 40`, the coverage
+  Flye's manual calls typically enough; it requires `--genome-size` and cannot be combined with `--meta`, and it
+  is not offered when 40× of the genome size is not below the read bases, since it would then use every read),
+  applied only when the user clicks it; the API
   records the estimate with the job (`memory_estimate`) and never changes the request. Example: the 413 Mb of
   filtered reads (≈148× of 2.8 Mb) that ran out of memory in a 3.8 GB Docker Desktop give ≈3.6 GB, above the
-  3 GB ARVA can use there; with `--asm-coverage 50` and 2.8 Mb, ≈1.2 GB. This is a rough guide, not a measurement:
+  3 GB ARVA can use there; with `--asm-coverage 40` and 2.8 Mb (112 Mb), ≈0.97 GB. This is a rough guide, not a measurement:
   repeats, read error and the later stages also use memory, and Flye's figure is for PacBio reads.
 - **Monitoring.** The worker reads Flye's stderr every 5 s while it runs. Each `>>>STAGE: <name>` line
   (configure, assembly, consensus, repeat, contigger, polishing — only with iterations > 0 — and
@@ -2196,11 +2201,15 @@ fragmented assembly can separate a gene from its element, and an element not sea
   saved version is not changed.
 - **Flye's memory guard (`memory_guard`, per Flye node).** `off` by default; the long-read templates set `auto`.
   With `auto`, before the Flye job is queued ARVA computes the memory estimate above for the sample's reads (the
-  Filtlong step waits for the ARVA statistics of its output, which the estimate reads). When it may not fit, the
-  guard adds `--asm-coverage 50` and, when the node sets no genome size, the sample's expected genome size (basis
-  `expected_genome_size`). It never changes a value the node sets itself: it does not apply when the node sets
-  `asm_coverage` or `meta`, and it cannot apply without a genome size or read statistics; in those cases the job
-  runs as configured. What it decided (estimate before and after, options added, or why not) is recorded on the
+  Filtlong step waits for the ARVA statistics of its output, which the estimate reads; if that statistics job's
+  task is lost, the Filtlong step still completes and the estimate has no read statistics). In a run the estimate
+  is compared with the memory the run reserves per job (`memory_per_job_gb`, which with the memory budget sets how
+  many jobs run at once), capped by the memory ARVA can use, because other jobs may run beside Flye. When it may
+  not fit, the guard adds `--asm-coverage 40` and, when the node sets no genome size, the sample's expected genome
+  size (basis `expected_genome_size`). It never changes a value the node sets itself: it does not apply when the
+  node sets `asm_coverage` or `meta`, and it cannot apply without a genome size or read statistics, or when the
+  reads are already below 40× of the genome size (`--asm-coverage` would then use every read and change nothing
+  but the parameters); in those cases the job runs as configured. What it decided (estimate before and after, options added, or why not) is recorded on the
   run's item (`inputs.notes.flye_memory`) and shown in the run view.
 
 ## ARVA Discover (Phase 8C)

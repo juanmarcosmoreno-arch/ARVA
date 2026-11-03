@@ -31,7 +31,9 @@ condition in polishing stage" (2.9.4: "Minor technical changes"; 2.9.5: "Python 
   genome with a 150 kb chromosome and a 15 kb plasmid at two copies (50x), 4 threads assembled the plasmid at
   15 kb in runs whose bytes differed, while 1 or 2 threads (identical bytes run to run) and --deterministic
   (which only runs the disjointig stage single-threaded; its runs still differed) assembled it as a 30 kb
-  dimer. ARVA records and logs the thread count and does not offer --deterministic.
+  dimer. Flye 2.9.6 on the default synthetic genome (300 kb chromosome + 15 kb plasmid at two copies, ONT 30x),
+  2 threads: the plasmid as a 30,027 bp dimer, byte-identical in two runs. ARVA records and logs the thread count
+  and does not offer --deterministic.
 * --resume (main.py, 2.9.3): Flye writes params.json in --out-dir before each stage starts ("stage_name" is the
   stage it was running) and, on --resume, reruns that stage after checking only that the previous stage's output
   files exist; it does not check that the reads or options are those of the first run, so ARVA passes the
@@ -433,8 +435,14 @@ def helper_version(executable: str) -> str | None:
 
 # --- Read-type suggestion (heuristic) ----------------------------------------------------------------------
 
-HQ_MAX_ERROR = 0.05  # Flye 2.9.3: --nano-hq is for reads with < 5% error (--help, README release 2.9); 2.9.6's
-# --help: "ONT R10 reads, aka Q20 (<3% error). For R9 Guppy5+, increase --read-error slightly"
+# Flye 2.9.6 (the version ARVA ships): --help says --nano-hq is for "ONT R10 reads, aka Q20 (<3% error). For R9
+# Guppy5+, increase --read-error slightly"; docs/USAGE.md, "Oxford Nanopore": "For R10 data, use --nano-hq. Expected
+# error rate is <3%" and "For the R9 data basecalled with Guppy5+ use the new --nano-hq --read-error 0.05. The
+# expected error rate is <5%"; docs/NEWS.md 2.9.6: "R10 ONT parameters (3% error) are now default for --nano-hq".
+# (Flye 2.9.3's --help said "<5% error" for --nano-hq.)
+HQ_MAX_ERROR = 0.03
+HQ_READ_ERROR_MAX = 0.05  # 3-5%: --nano-hq with --read-error 0.05, as USAGE.md documents for <5% error
+HQ_READ_ERROR = 0.05
 Q20_ERROR = 0.01
 
 
@@ -453,17 +461,24 @@ def suggest_read_type(platform: str | None, error_rate: float | None, basecall_m
 
     platform: "nanopore" or "pacbio" from the sample's metadata or the read headers, else None.
     error_rate: mean error probability implied by the base qualities (an estimate written by the basecaller).
+    read_error: the --read-error Flye documents for the suggested read type when its default does not cover the
+    error rate (0.05 for --nano-hq reads with 3-5% error), else None.
     """
     q = None if error_rate is None else -10 * math.log10(max(error_rate, 1e-12))
     out: dict[str, Any] = {"heuristic": True, "value": None, "basis": None, "platform": platform,
-                           "mean_error_rate": error_rate, "mean_base_quality": q,
+                           "mean_error_rate": error_rate, "mean_base_quality": q, "read_error": None,
                            "q20_read_error_note": False, "sup_model_but_low_quality": False}
     if platform == "nanopore":
         sup = any(re.search(r"(^|[_@-])sup([_@-]|$)", m, re.IGNORECASE) for m in basecall_models)
         if error_rate is not None:
-            hq = error_rate <= HQ_MAX_ERROR
+            hq = error_rate <= HQ_READ_ERROR_MAX
             out["value"] = "nano-hq" if hq else "nano-raw"
-            out["basis"] = "error_at_most_5_percent" if hq else "error_above_5_percent"
+            if error_rate <= HQ_MAX_ERROR:
+                out["basis"] = "error_at_most_3_percent"
+            elif hq:
+                out["basis"], out["read_error"] = "error_3_to_5_percent", HQ_READ_ERROR
+            else:
+                out["basis"] = "error_above_5_percent"
             out["q20_read_error_note"] = error_rate <= Q20_ERROR
             out["sup_model_but_low_quality"] = sup and not hq
         elif sup:
@@ -498,7 +513,10 @@ MEMORY_REFERENCE = {
     "genome": "E. coli", "data": "PB 50x", "genome_size_bp": 4_600_000, "coverage_x": 50, "ram_gb": 2.0,
 }
 MEMORY_REFERENCE_BASES = MEMORY_REFERENCE["genome_size_bp"] * MEMORY_REFERENCE["coverage_x"]
-SUGGESTED_ASM_COVERAGE = 50
+# The value Flye's manual gives as typically enough (docs/USAGE.md, Quick usage: "Typically, 40x coverage is enough to
+# produce good disjointigs"; "Reducing RAM consumption": "Typically, 40x longest reads is enough"). The 50 of its
+# human benchmarks is a benchmark setting, not guidance.
+SUGGESTED_ASM_COVERAGE = 40
 
 
 def memory_estimate(read_bases: int | None, available_gb: float, asm_coverage: int | None = None,
@@ -509,7 +527,8 @@ def memory_estimate(read_bases: int | None, available_gb: float, asm_coverage: i
     depends on the genome's repeats and the reads' error rate, and later stages read every base.
 
     verdict: "fits", "may_not_fit" or "unknown" (no read bases known). suggestion: what Flye documents to reduce
-    memory (--asm-coverage with --genome-size), when the run may not fit and does not use it already."""
+    memory (--asm-coverage with --genome-size), when the run may not fit, does not use it already, and it would
+    reduce the bases (with a known genome size, only when SUGGESTED_ASM_COVERAGE x genome size < the read bases)."""
     out: dict[str, Any] = {"reference": MEMORY_REFERENCE, "reference_bases": MEMORY_REFERENCE_BASES,
                            "available_gb": available_gb, "read_bases": read_bases,
                            "asm_coverage": asm_coverage, "genome_size_bp": genome_size_bp, "bases_used": None,
@@ -525,7 +544,9 @@ def memory_estimate(read_bases: int | None, available_gb: float, asm_coverage: i
     if out["verdict"] == "may_not_fit" and not asm_coverage and not meta:
         reduced = None
         if genome_size_bp:
-            capped = min(read_bases, SUGGESTED_ASM_COVERAGE * genome_size_bp)
+            capped = SUGGESTED_ASM_COVERAGE * genome_size_bp
+            if capped >= read_bases:
+                return out  # the reads are already below that coverage: --asm-coverage would not use fewer
             reduced = round(MEMORY_REFERENCE["ram_gb"] * capped / MEMORY_REFERENCE_BASES, 2)
         out["suggestion"] = {"asm_coverage": SUGGESTED_ASM_COVERAGE, "needs_genome_size": genome_size_bp is None,
                              "genome_size_bp": genome_size_bp, "estimate_gb": reduced,

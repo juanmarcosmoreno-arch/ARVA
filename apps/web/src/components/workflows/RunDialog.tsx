@@ -177,7 +177,8 @@ function RunOptionsFields({ offered, options, setOptions }: { offered: OfferedOp
           <Field label={t("wf.options.polishing")}>
             <Select value={options.polishing_strategy ?? ""} onChange={(e) => setOptions({ ...options, polishing_strategy: (e.target.value || null) as RunOptions["polishing_strategy"] })}>
               <option value="">{saved("polishing_strategy", strategy)}</option>
-              {STRATEGIES.map((s) => <option key={s} value={s}>{strategy(s)}</option>)}
+              {/* Only the strategies every polishing step's reads allow (the server's choices). */}
+              {STRATEGIES.filter((s) => offered.polishing_strategy?.choices?.includes(s) ?? true).map((s) => <option key={s} value={s}>{strategy(s)}</option>)}
             </Select>
           </Field>
         )}

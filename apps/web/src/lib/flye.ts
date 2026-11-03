@@ -129,15 +129,15 @@ export function flyeProblems(form: FlyeForm, plan: FlyePlan | undefined, fileCou
   return out;
 }
 
-/** Flye's documented --asm-coverage value: its benchmarks ran the large human datasets "with --asm-coverage 50"
- * (docs/USAGE.md; the same page says 40x of the longest reads is typically enough). */
-export const SUGGESTED_ASM_COVERAGE = 50;
+/** The --asm-coverage Flye's manual gives as typically enough (docs/USAGE.md of 2.9.6: "Typically, 40x longest reads
+ * is enough"); the same as arva_tools.flye.SUGGESTED_ASM_COVERAGE. */
+export const SUGGESTED_ASM_COVERAGE = 40;
 
 export interface FlyeMemoryView {
   verdict: FlyeMemory["verdict"];
   estimateGb: number | null;
   availableGb: number;
-  /** What Flye documents to use less memory, when the run may not fit and does not use it already. */
+  /** What Flye documents to use less memory, when the run may not fit, does not use it already and it would help. */
   suggestion: { asmCoverage: number; genomeBp: number | null; estimateGb: number | null } | null;
 }
 
@@ -156,7 +156,10 @@ export function flyeMemory(form: FlyeForm, plan: FlyePlan | undefined): FlyeMemo
   view.verdict = view.estimateGb <= m.available_gb ? "fits" : "may_not_fit";
   if (view.verdict === "may_not_fit" && !asm && !form.meta) {
     const size = genome ?? m.expected_genome_size_bp;
-    view.suggestion = { asmCoverage: SUGGESTED_ASM_COVERAGE, genomeBp: size, estimateGb: size ? scaled(m, Math.min(m.read_bases, SUGGESTED_ASM_COVERAGE * size)) : null };
+    // With a known size, only when it would use fewer bases than the reads hold (as the server decides).
+    if (!size || SUGGESTED_ASM_COVERAGE * size < m.read_bases) {
+      view.suggestion = { asmCoverage: SUGGESTED_ASM_COVERAGE, genomeBp: size, estimateGb: size ? scaled(m, SUGGESTED_ASM_COVERAGE * size) : null };
+    }
   }
   return view;
 }

@@ -372,7 +372,8 @@ memoria, bajar el tamaño de lote (-b) en el diálogo.
 Con 3,8 GB para Docker Desktop, Flye puede quedarse sin memoria con coberturas altas (en la prueba, 413 Mb de
 lecturas filtradas, unas 148× de 2,8 Mb). El diálogo de Flye estima, con la cifra que documenta Flye (2 GB para
 *E. coli* a 50×), si la ejecución cabe en la memoria que ARVA puede usar y, si no, ofrece el botón
-**Usar --asm-coverage 50** (la opción que Flye documenta para usar menos memoria; necesita un tamaño de genoma). En los
+**Usar --asm-coverage 40** (Flye documenta `--asm-coverage` para usar menos memoria y su manual dice que 40× de las
+lecturas más largas suele bastar; necesita un tamaño de genoma). En los
 flujos "Genoma bacteriano, análisis completo" y "Ensamblaje Nanopore", la **protección de memoria de Flye** hace lo mismo sola
 cuando la estimación no cabe y la muestra tiene un tamaño de genoma esperado; lo deja registrado en la ejecución y
 nunca cambia un valor que el paso fija por sí mismo. Se puede apagar en las opciones de la ejecución. En esas mismas

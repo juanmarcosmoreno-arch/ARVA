@@ -413,6 +413,43 @@ def test_staph_typing_node_runs_on_s_aureus_and_is_skipped_with_its_reason_other
     assert run["status"] == "completed" and run["counts"]["skipped"] == 1
 
 
+def test_staph_typing_node_fails_with_its_reason_when_the_species_evidence_is_missing_or_conflicts(
+        client, project, typing_tools):  # noqa: F811
+    """Only evidence that names another organism skips the step as not applicable. No species and no MLST call, or
+    species and MLST that disagree, cannot rule S. aureus out: the step fails with that reason (the run ends with
+    errors, so it is flagged), and the node's override still runs it."""
+    from test_amr_api import species_result
+    from test_annotation_api import assemble as assemble_reads
+    from test_typing_api import SYNTHETIC, mlst_result
+
+    typing_tools("n315")
+    samples = []
+    for code in ("NONE", "CONF"):
+        s = client.post(f"{API}/projects/{project['id']}/samples",
+                        json={"sample_code": code, "sequencing_technology": "nanopore"}).json()
+        a = assemble_reads(client, s, SYNTHETIC)
+        if code == "CONF":
+            species_result(s, a, "Escherichia coli")
+            mlst_result(s, a, "5")
+        samples.append(s)
+    agr = _definition([("asm", "assembly_input", {}), ("agr", "staph_typing", {"method": "agr"})],
+                      [("asm", "assembly", "agr", "assembly")])
+    run = _run(client, project, _workflow(client, agr, "agr"), samples)
+    by_sample = {i["sample_id"]: i for i in _items(run, "agr")}
+    none, conf = by_sample[samples[0]["id"]], by_sample[samples[1]["id"]]
+    assert (none["status"], none["error"]["code"]) == ("failed", "wf_typing_no_evidence")
+    assert (conf["status"], conf["error"]["code"]) == ("failed", "wf_typing_conflicting")
+    assert conf["error"]["params"] == {"status": "conflicting", "species": "Escherichia coli", "scheme": "saureus"}
+    assert run["status"] == "completed_with_errors"
+
+    forced = _definition([("asm", "assembly_input", {}),
+                          ("agr", "staph_typing", {"method": "agr", "override_applicability": True})],
+                         [("asm", "assembly", "agr", "assembly")])
+    run = _run(client, project, _workflow(client, forced, "agr forced"), samples[:1])
+    item = _items(run, "agr")[0]
+    assert item["status"] == "completed" and item["tool"] == "AgrVATE"
+
+
 def test_species_and_mlst_order_the_typing_and_the_template_has_it(client):
     cat = client.get(f"{API}/workflows/catalogue").json()
     kinds = {k["kind"]: k for k in cat["kinds"]}
@@ -438,7 +475,8 @@ def test_run_options_change_the_runs_definition_and_are_recorded(client, project
     body = {"project_id": project["id"], "workflow_id": wf["id"], "sample_ids": [s["id"]]}
     plan = client.post(f"{API}/batches/preview", json=body).json()
     assert plan["options"] == {"polishing_strategy": {"kind": "polishing", "param": "strategy", "nodes": 1,
-                                                      "value": "racon"}}
+                                                      "value": "racon",
+                                                      "choices": ["racon", "medaka", "pilon", "hybrid"]}}
     assert plan["option_changes"] == [] and "definition" not in plan
     plan = client.post(f"{API}/batches/preview", json={**body, "options": {"polishing_strategy": "medaka"}}).json()
     assert plan["option_changes"] == [{"node": "pol", "option": "polishing_strategy", "path": "strategy",
@@ -447,3 +485,78 @@ def test_run_options_change_the_runs_definition_and_are_recorded(client, project
     assert client.post(f"{API}/batches/preview", json={**body, "options": {"polishing_strategy": "x"}}).status_code == 422
     definition, changes = batches.apply_options(wf["latest"]["definition"], {"flye_memory_guard": "auto"})
     assert changes == [] and definition == wf["latest"]["definition"]
+
+
+def test_run_options_offer_only_what_the_steps_reads_allow_and_old_versions_show_defaults(client):
+    """The polishing strategy offered is limited to what the reads each polishing step receives allow (long reads:
+    Racon or Medaka; short: Pilon; both: hybrid), and another choice blocks the run. A version saved before a
+    parameter existed shows that parameter's default, not 'mixed values'."""
+    long_only = _definition([("long", "reads_long_input", {}), ("asm", "assembly_input", {}),
+                             ("pol", "polishing", {"strategy": "racon"})],
+                            [("asm", "assembly", "pol", "assembly"), ("long", "reads", "pol", "long_reads")])
+    both = _definition([("long", "reads_long_input", {}), ("short", "reads_short_input", {}),
+                        ("asm", "assembly_input", {}), ("pol", "polishing", {"strategy": "hybrid"})],
+                       [("asm", "assembly", "pol", "assembly"), ("long", "reads", "pol", "long_reads"),
+                        ("short", "reads", "pol", "short_reads")])
+    assert batches.run_options(long_only)["polishing_strategy"]["choices"] == ["racon", "medaka"]
+    assert batches.run_options(both)["polishing_strategy"]["choices"] == ["hybrid"]
+    offered = batches.run_options(long_only)
+    assert batches.option_problems(offered, {"polishing_strategy": "medaka"}) == []
+    [p] = batches.option_problems(offered, {"polishing_strategy": "pilon"})
+    assert p["code"] == "wf_option_not_allowed" and p["params"] == {"option": "polishing_strategy", "value": "pilon",
+                                                                     "allowed": "racon, medaka"}
+    # A Flye node stored without memory_guard (saved before it existed) is shown with its default.
+    old = _definition([("long", "reads_long_input", {}), ("flye", "flye", {"params": {"read_type": "nano-hq"}})],
+                      [("long", "reads", "flye", "reads")])
+    assert batches.run_options(old)["flye_memory_guard"]["value"] is None
+    normalised, _ = batches.check_definition(old)
+    assert batches.run_options(normalised)["flye_memory_guard"]["value"] == "off"
+
+
+def test_a_lost_read_statistics_job_does_not_fail_the_finished_filtlong_step(client, project, monkeypatch):
+    """The filtered reads' statistics are an optional follow-up (Flye's memory estimate reads them): if their task is
+    lost (ARVA or Redis restarted while it was queued), it is cancelled and the Filtlong step still completes. A
+    required follow-up (Pilon after Racon) that is lost still fails its step."""
+    import dataclasses
+    import types
+
+    from app.core.config import get_settings
+
+    s = _sample(client, project, "LOSTSTATS", reads=False)
+    with SessionLocal() as db:
+        filt = AnalysisJob(project_id=project["id"], sample_id=s["id"], job_type="read_filter", tool_name="Filtlong",
+                           tool_version="0.3.1", parameters={}, status=JobStatus.completed, log_text="")
+        db.add(filt)
+        db.flush()
+        follow = [AnalysisJob(project_id=project["id"], sample_id=s["id"], job_type=jobs_service.FASTQ_STATS_JOB,
+                              tool_name="ARVA", tool_version="1", parameters={}, status=JobStatus.pending,
+                              log_text="", parent_job_id=filt.id) for _ in range(2)]
+        db.add_all(follow)
+        db.commit()
+        filt_id, optional_id, required_id = filt.id, follow[0].id, follow[1].id
+
+    def outputs(required):
+        def read(db, job):
+            pending = db.get(AnalysisJob, required_id if required else optional_id)
+            if pending.status is JobStatus.pending:
+                raise nodes.WaitForFollowUp(pending, required=required)
+            return {"reads": {"file_ids": ["f"]}}
+        return read
+
+    monkeypatch.setattr(get_settings(), "task_queue_async", True)
+    monkeypatch.setattr(jobs_service, "_rq_status", lambda jid: "missing")
+    run = types.SimpleNamespace(settings={"max_retries": 0}, status="running")
+    for required, status in ((False, "completed"), (True, "failed")):
+        monkeypatch.setitem(nodes.KINDS, "filtlong", dataclasses.replace(nodes.KINDS["filtlong"],
+                                                                        outputs=outputs(required)))
+        item = types.SimpleNamespace(job_id=filt_id, node_kind="filtlong", status="running", outputs=None,
+                                     error=None, finished_at=None, attempt=1)
+        with SessionLocal() as db:
+            batches._sync(db, run, item)
+            db.commit()
+            assert db.get(AnalysisJob, required_id if required else optional_id).status is JobStatus.cancelled
+        assert item.status == status
+        if required:
+            assert item.error["code"] == "wf_interrupted"
+        else:
+            assert item.outputs == {"reads": {"file_ids": ["f"]}} and item.error is None

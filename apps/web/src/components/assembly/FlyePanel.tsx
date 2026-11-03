@@ -153,7 +153,17 @@ export function FlyePanel({
             </option>
           ))}
         </Select>
-        {p && <Suggestion plan={p} current={form.readType} onUse={(v) => set("readType", v)} />}
+        {p && (
+          <Suggestion
+            plan={p}
+            current={form.readType}
+            currentReadError={form.readError}
+            onUse={(v, readError) => {
+              set("readType", v);
+              if (readError !== null) set("readError", String(readError));
+            }}
+          />
+        )}
       </Section>
 
       <GenomeSize form={form} plan={p} set={set} />
@@ -380,9 +390,11 @@ export function Evidence({ e }: { e: FlyePlan["files"][number] }) {
   return <div className="mt-0.5 text-xs text-muted-foreground">{parts.join(" · ")}</div>;
 }
 
-function Suggestion({ plan, current, onUse }: { plan: FlyePlan; current: FlyeReadType | ""; onUse: (v: FlyeReadType) => void }) {
+function Suggestion({ plan, current, currentReadError, onUse }: { plan: FlyePlan; current: FlyeReadType | ""; currentReadError: string; onUse: (v: FlyeReadType, readError: number | null) => void }) {
   const t = useT();
   const s = plan.read_type_suggestion;
+  const readError = s.read_error ?? null;
+  const applied = current === s.value && (readError === null || Number(currentReadError) === readError);
   const models = [...new Set(plan.files.flatMap((f) => f.basecall_models))].join(", ");
   const vars = {
     error: s.mean_error_rate !== null ? fmtNum(100 * s.mean_error_rate, 2) : "?",
@@ -399,8 +411,8 @@ function Suggestion({ plan, current, onUse }: { plan: FlyePlan; current: FlyeRea
           {s.value ? t("flye.suggestion.title", { value: `--${s.value}` }) : t("flye.suggestion.none")}
           <Badge tone="warning">{t("flye.heuristic")}</Badge>
         </span>
-        {s.value && current !== s.value && (
-          <Button size="sm" variant="outline" onClick={() => onUse(s.value!)}>
+        {s.value && !applied && (
+          <Button size="sm" variant="outline" onClick={() => onUse(s.value!, readError)}>
             {t("flye.suggestion.use")}
           </Button>
         )}
@@ -408,6 +420,7 @@ function Suggestion({ plan, current, onUse }: { plan: FlyePlan; current: FlyeRea
       <p>{basisKey in dictionaries.en ? t(basisKey as TranslationKey, vars) : s.basis}</p>
       {sourceKey in dictionaries.en && <p className="text-muted-foreground">{t(sourceKey as TranslationKey)}</p>}
       {s.sup_model_but_low_quality && <p className="text-amber-700 dark:text-warning">{t("flye.suggestion.supLow")}</p>}
+      {readError !== null && <p>{t("flye.suggestion.readError", { value: fmtNum(readError, 2) })}</p>}
       {s.q20_read_error_note && <p>{t("flye.suggestion.q20")}</p>}
       <p className="text-muted-foreground">{t("flye.suggestion.decide")}</p>
     </div>
