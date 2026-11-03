@@ -847,6 +847,10 @@ class StorageMisreportRead(BaseModel):
     disk: str | None = Field(description="The disk to share instead, e.g. /Volumes/JM")
     container_free_bytes: int | None
     container_total_bytes: int | None
+    written_since_bytes: int | None = Field(
+        default=None, description="host_at_start: what ARVA has written to its folders on that disk since the launcher "
+                                  "measured it, subtracted from the launcher's free space (None: could not be measured, "
+                                  "nothing subtracted)")
 
 
 class StorageLocationRead(BaseModel):
@@ -866,7 +870,7 @@ class StorageLocationRead(BaseModel):
     databases: int | None = Field(default=None, description="Reference databases ARVA knows in this folder")
     space_source: Literal["container", "host_at_start", "container_misreported"] | None = Field(
         default=None, description="Where free_bytes and total_bytes come from: read in the container; the launcher's "
-                                  "figures from the start, because the container shows another disk's "
+                                  "figures from the start (less what ARVA wrote since), because the container shows another disk's "
                                   "(space_misreported); or the container's, known to be wrong, without a launcher figure")
     misreport: StorageMisreportRead | None = Field(
         default=None, description="Why the container's figures are another disk's, and what it shows")
@@ -1693,7 +1697,8 @@ class PolishingPlanRead(BaseModel):
     max_memory_gb: int
     default_heap_gb: int = Field(description="The profile's memory per job, raised towards the 8 GB Pilon's "
                                              "documentation gives for bacterial genomes, within the memory ARVA may "
-                                             "give a tool and at most 16 GB (Debian's Pilon launcher)")
+                                             "give a tool less 1 GB (Java's own overhead and the other containers) "
+                                             "and at most 16 GB (Debian's Pilon launcher)")
     pilon_documented_min_gb: int = Field(default=8, description="Pilon's documented minimum for bacterial genomes "
                                                                 "(~200x Illumina); 16 GB recommended")
 

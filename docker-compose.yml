@@ -49,16 +49,11 @@ x-arva-env: &arva-env
   ARVA_HOST_DATABASES_FS: ${ARVA_HOST_DATABASES_FS:-}
   ARVA_HOST_IMPORT_DIR: ${ARVA_HOST_IMPORT_DIR:-}
   ARVA_HOST_IMPORT_FS: ${ARVA_HOST_IMPORT_FS:-}
-  # The size and free space of each folder's disk as scripts/start.sh measured them on the host (bytes) and when:
-  # ARVA compares them with what it reads inside the container, which with Docker Desktop on a Mac can be another
-  # disk's (Settings → Storage, "space_misreported").
-  ARVA_HOST_DATA_TOTAL_BYTES: ${ARVA_HOST_DATA_TOTAL_BYTES:-}
-  ARVA_HOST_DATA_AVAIL_BYTES: ${ARVA_HOST_DATA_AVAIL_BYTES:-}
-  ARVA_HOST_DATABASES_TOTAL_BYTES: ${ARVA_HOST_DATABASES_TOTAL_BYTES:-}
-  ARVA_HOST_DATABASES_AVAIL_BYTES: ${ARVA_HOST_DATABASES_AVAIL_BYTES:-}
-  ARVA_HOST_IMPORT_TOTAL_BYTES: ${ARVA_HOST_IMPORT_TOTAL_BYTES:-}
-  ARVA_HOST_IMPORT_AVAIL_BYTES: ${ARVA_HOST_IMPORT_AVAIL_BYTES:-}
-  ARVA_HOST_SPACE_MEASURED_AT: ${ARVA_HOST_SPACE_MEASURED_AT:-}
+  # The size and free space of each folder's disk as scripts/start.sh measured them on the host, and when, are not
+  # environment variables: they change at every start, and a changed variable makes Docker Compose recreate the
+  # containers (stopping running jobs). scripts/start.sh writes them to ~/.config/arva/host/space, mounted read-only
+  # at /run/arva-host by its override file; ARVA compares them with what it reads inside the container, which with
+  # Docker Desktop on a Mac can be another disk's (Settings → Storage, "space_misreported").
   # Metadata backups (the backup service below), shown in Settings → Storage.
   ARVA_BACKUP_INTERVAL_HOURS: ${ARVA_BACKUP_INTERVAL_HOURS:-24}
   ARVA_BACKUP_KEEP: ${ARVA_BACKUP_KEEP:-14}

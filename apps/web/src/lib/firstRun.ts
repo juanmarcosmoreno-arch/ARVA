@@ -1,4 +1,4 @@
-import { markerWritable } from "./storage";
+import { markerWritable, shareToRemove } from "./storage";
 import type { DashboardSummary, DatabaseLocations, PerformanceOverview, ReferenceDatabase, StorageCapacity } from "./types";
 
 export type CheckState = "done" | "todo" | "attention" | "busy" | "unknown";
@@ -26,16 +26,19 @@ export function storageCheck(s: StorageCapacity | undefined): CheckItem {
   if (!markerWritable(s.marker)) return { ...base, state: "attention", code: "marker" };
   const data = locations.find((l) => l.role === "data");
   if (!data?.host_path) return { ...base, state: "attention", code: "docker_volumes" };
-  // Before the other warnings: with another disk's free space, "less than 20 GB free" would be about the wrong disk.
-  const misreported = locations.find((l) => l.warnings.includes("space_misreported"));
+  const warnings = locations.flatMap((l) => l.warnings);
+  if (warnings.includes("fat_filesystem")) return { ...base, state: "attention", code: "fat", params: { folder: data.host_path } };
+  // The API judges "less than 20 GB free" on the launcher's figure when Docker shows another disk's (and not at all
+  // without one), so it is about the right disk and comes first.
+  if (warnings.includes("low_space")) return { ...base, state: "attention", code: "low_space", params: { folder: data.host_path } };
+  // Only folders ARVA writes to: their free space is what its checks count (a read-only folder's is only shown).
+  const misreported = locations.find((l) => !l.read_only && l.warnings.includes("space_misreported"));
   if (misreported) {
     const folder = misreported.host_path ?? misreported.container_path;
     const disk = misreported.misreport?.disk ?? folder;
-    return { ...base, state: "attention", code: "space_misreported", params: { folder, disk } };
+    const code = misreported.space_source === "host_at_start" ? "space_misreported" : "space_misreported_no_figure";
+    return { ...base, state: "attention", code, params: { folder, disk, share: shareToRemove(misreported.misreport) } };
   }
-  const warnings = locations.flatMap((l) => l.warnings);
-  if (warnings.includes("fat_filesystem")) return { ...base, state: "attention", code: "fat", params: { folder: data.host_path } };
-  if (warnings.includes("low_space")) return { ...base, state: "attention", code: "low_space", params: { folder: data.host_path } };
   return { ...base, state: "done", code: "ok", params: { folder: data.host_path, fs: data.filesystem ?? "?" } };
 }
 

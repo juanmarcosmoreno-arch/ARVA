@@ -35,14 +35,20 @@ DEBIAN_PILON_HEAP_GB = 16
 # with ~200x of Illumina coverage will require at least 8GB, though 16GB is recommended", and "as a rule of thumb,
 # try to allocate 1GB per megabase of input genome to be processed".
 PILON_DOCUMENTED_MIN_GB = 8
+# Memory kept back from the default heap: Java uses memory beyond -Xmx (metaspace, garbage-collector structures,
+# thread stacks), and the database, Redis, the API and the worker share the same Docker VM, whose memory max_memory_gb
+# counts in full (no container memory limit).
+PILON_HEAP_HEADROOM_GB = 1
 
 
 def default_heap_gb(memory_gb: int, max_memory_gb: int) -> int:
     """Pilon's Java heap when none is asked for: the profile's memory per job, raised towards the 8 GB Pilon documents
     for bacterial genomes when it is less (a light profile on a small Docker Desktop VM gives tools 1 GB, far below
     what Pilon documents, and Pilon would fail with an OutOfMemoryError), but never above the memory ARVA may give a
-    tool (max_memory_gb) nor Debian's 16 GB. When even that is below 8 GB the plan says so."""
-    return max(1, min(DEBIAN_PILON_HEAP_GB, max_memory_gb, max(memory_gb, PILON_DOCUMENTED_MIN_GB)))
+    tool less PILON_HEAP_HEADROOM_GB (so that Java's own overhead and the other containers fit) nor Debian's 16 GB.
+    When even that is below 8 GB the plan says so."""
+    cap = max(1, max_memory_gb - PILON_HEAP_HEADROOM_GB)
+    return max(1, min(DEBIAN_PILON_HEAP_GB, cap, max(memory_gb, PILON_DOCUMENTED_MIN_GB)))
 
 
 def draft_for(db: Session, sample: Sample, assembly_id: str) -> Assembly:

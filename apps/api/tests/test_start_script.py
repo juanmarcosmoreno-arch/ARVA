@@ -69,9 +69,9 @@ def run(tmp_path: Path, fake: Path, shell: str, uname: str = "Darwin", lang: str
     return proc, exported
 
 
-# The storage facts every start passes on (the import/ folder next to docker-compose.yml, its disk's space and when
-# that was measured); test_storage_launcher.py checks them.
-STORAGE = ("ARVA_HOST_IMPORT_", "ARVA_HOST_SPACE_MEASURED_AT")
+# The storage facts every start passes on (the import/ folder next to docker-compose.yml, and the folder of the file
+# with the measured free space); test_storage_launcher.py checks them.
+STORAGE = ("ARVA_HOST_IMPORT_", "ARVA_HOST_FACTS_DIR")
 
 
 def without_storage(env: dict[str, str]) -> dict[str, str]:

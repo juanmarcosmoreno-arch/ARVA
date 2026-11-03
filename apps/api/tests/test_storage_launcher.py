@@ -171,27 +171,40 @@ def test_locations_are_checked_saved_and_mounted_read_only_where_they_must_be(tm
     assert up == ["compose", "-f", str(ROOT / "docker-compose.yml"), "-f", str(m.override), "up", "-d", "--build"]
     slot = _slot(bakta)
     env = m.compose_env
-    assert re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ", env.pop("ARVA_HOST_SPACE_MEASURED_AT"))
-    # The space of each folder's disk as measured on the host (df -Pk blocks of 1024 bytes), for ARVA to compare.
-    total, avail = str(TB_KB * 1024), str(900000000 * 1024)
-    space = {f"ARVA_HOST_{name}_{kind}_BYTES": value for name in ("DATA", "DATABASES", "IMPORT", f"EXTERNAL_DB_{slot}")
-             for kind, value in (("TOTAL", total), ("AVAIL", avail))}
+    facts = m.home / ".config" / "arva" / "host"
+    assert env.pop("ARVA_HOST_FACTS_DIR") == str(facts)
     assert {k: v for k, v in env.items() if not k.startswith(("ARVA_HOST_PLATFORM", "ARVA_HOST_MODEL",
             "ARVA_HOST_CHIP", "ARVA_HOST_PERF", "ARVA_HOST_EFF", "ARVA_HOST_PHYS", "ARVA_HOST_LOGICAL",
             "ARVA_HOST_MEMORY", "ARVA_HOST_OS", "ARVA_HOST_ARCH", "ARVA_HOST_DOCKER", "ARVA_HOST_IMAGE"))} == {
         "ARVA_HOST_DATA_DIR": str(data), "ARVA_HOST_DATA_FS": "apfs", "ARVA_HOST_DATABASES_DIR": str(dbs),
         "ARVA_HOST_DATABASES_FS": "apfs", "ARVA_HOST_IMPORT_DIR": str(runs), "ARVA_HOST_IMPORT_FS": "apfs",
-        f"ARVA_HOST_EXTERNAL_DB_{slot}": str(bakta), f"ARVA_HOST_EXTERNAL_DB_{slot}_FS": "apfs", **space}
+        f"ARVA_HOST_EXTERNAL_DB_{slot}": str(bakta), f"ARVA_HOST_EXTERNAL_DB_{slot}_FS": "apfs"}
+    # The space of each folder's disk as measured on the host (df -Pk blocks of 1024 bytes), for ARVA to compare, is
+    # in a file, not in the environment: it changes at every start, and a changed variable would make Docker
+    # Compose recreate the containers (stopping running jobs).
+    total, avail = str(TB_KB * 1024), str(900000000 * 1024)
+    space = {f"ARVA_HOST_{name}_{kind}_BYTES": value for name in ("DATA", "DATABASES", "IMPORT", f"EXTERNAL_DB_{slot}")
+             for kind, value in (("TOTAL", total), ("AVAIL", avail))}
+    written = dict(line.split("=", 1) for line in (facts / "space").read_text().splitlines())
+    assert re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ", written.pop("ARVA_HOST_SPACE_MEASURED_AT"))
+    assert written == space and stat.S_IMODE((facts / "space").stat().st_mode) == 0o644
     text = m.override.read_text()
-    assert str(tmp_path) not in text and "create_host_path: false" in text
-    assert f"ARVA_HOST_EXTERNAL_DB_{slot}_TOTAL_BYTES: ${{ARVA_HOST_EXTERNAL_DB_{slot}_TOTAL_BYTES:-}}" in text
+    assert str(tmp_path) not in text and "create_host_path: false" in text and "_BYTES" not in text
+    # The folder is mounted (not the file, which is replaced by a rename), read-only, for the api and the worker.
+    assert "source: ${ARVA_HOST_FACTS_DIR:?set by scripts/start.sh}\n    target: /run/arva-host\n    read_only: true" in text
+    assert text.count("      - *host-facts\n") == 2
     assert f"target: /databases-external/{slot}\n    read_only: true" in text
     assert "target: /import\n    read_only: true" in text and "target: /data\n    bind:" in text
     assert "APFS · 858.3 GB free of 1863.0 GB" in proc.stdout
-    # The next start uses what was saved.
+    # The next start uses what was saved, and passes Docker Compose the same environment (so Compose does not
+    # recreate running containers; only the image source differs, the first start having had --build), with the
+    # space measured again in the file.
+    first = {**m.compose_env, "ARVA_HOST_IMAGE_SOURCE": "published"}
+    (facts / "space").write_text("old\n")
     again = m.run(shell)
     assert again.returncode == 0, again.stderr
     assert next(c for c in m.calls if "up" in c)[-2:] == ["up", "-d"]
+    assert m.compose_env == first and (facts / "space").read_text().startswith("ARVA_HOST_SPACE_MEASURED_AT=")
 
 
 @pytest.mark.parametrize("shell", SHELLS)

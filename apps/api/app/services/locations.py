@@ -6,21 +6,28 @@ read-only) and the external database folders (ARVA_EXTERNAL_DB_ROOTS: existing d
 never modified or deleted). scripts/start.sh passes each folder's path on the host and its filesystem as ARVA_HOST_*
 variables: untrusted strings, validated here and only shown.
 
-Free space. scripts/start.sh also passes the size and free space of each folder's disk as it measured them on the host
-(ARVA_HOST_<NAME>_TOTAL_BYTES, ARVA_HOST_<NAME>_AVAIL_BYTES) and when (ARVA_HOST_SPACE_MEASURED_AT). Seen on a real
+Free space. scripts/start.sh also measures the size and free space of each folder's disk on the host
+(ARVA_HOST_<NAME>_TOTAL_BYTES, ARVA_HOST_<NAME>_AVAIL_BYTES) and when (ARVA_HOST_SPACE_MEASURED_AT), and writes them
+as KEY=VALUE lines to a file mounted read-only at /run/arva-host/space (HOST_SPACE_FILE), read at every use: they
+change at every start, and as environment variables they would make Docker Compose recreate the containers (and stop
+running jobs) at every start. Variables of the same names, if set, take precedence (tests, a hand-made setup). Seen on a real
 Mac with Docker Desktop: a folder on an external disk (/Volumes/JM/ARVA/data) that Docker Desktop shares only through
 /Volumes (its default File sharing list) is mounted from /run/host_mark/Volumes, and inside the container its free
 space and size are the Mac's startup disk's; with /Volumes/JM itself shared (and /Volumes removed) the mount comes
 from /run/host_mark/Volumes/JM and shows the external disk's. A location's space is "misreported" when the mount
 comes from a share above its disk (/run/host_mark/Volumes or /run/host_mark for a /Volumes/<Disk>/... folder) or when
-the size the container reads differs from the launcher's by more than SIZE_TOLERANCE. Then:
+the mount comes from Docker Desktop's file sharing (/run/host_mark/...) and the size the container reads differs from
+the launcher's by more than SIZE_TOLERANCE. Then:
 * the location carries the warning space_misreported, the launcher's figures and their time;
-* every free-space check (uploads, jobs, database downloads and extractions) uses the launcher's free space from the
-  start instead of the other disk's: it does not count what ARVA has written since, so the warning stays until the
-  disk is shared as itself (Docker Desktop → Settings → File sharing → /Volumes/<Disk>, /Volumes removed) and ARVA
-  is started again; without a launcher figure the container's figure is kept, flagged as wrong;
-* the low-space warning is judged on the launcher's figure.
-Natively, on Linux, and whenever the mount and the sizes agree, nothing changes.
+* every free-space check (uploads, jobs, database downloads and extractions) and the low-space warning use the
+  launcher's free space minus what ARVA has written since to its writable folders on that disk (the growth of those
+  folders' trees since the first reading after the measurement, kept in the metadata as app setting "space_baseline"
+  so that it survives container restarts, e.g. after the Mac restarts). What other programs write to the disk is not
+  counted, nor what ARVA frees (conservative); when a tree cannot be measured (more than TREE_MAX_ENTRIES entries)
+  the launcher's figure is used as it is and said so. The warning stays until the disk is shared as itself (Docker
+  Desktop → Settings → File sharing → /Volumes/<Disk>, /Volumes removed) and ARVA is started again, which also
+  measures again; without a launcher figure the container's figure is kept, flagged as wrong.
+Natively, on Linux (no /run/host_mark mount), and whenever the mount and the sizes agree, nothing changes.
 
 The data folder holds a marker file, .arva-storage, with an ID written at its first use and recorded in the metadata
 (app setting "storage"). When the folder is not there, or holds another ID, its external disk is not connected or
@@ -35,6 +42,7 @@ import json
 import os
 import re
 import shutil
+import time
 import uuid
 from collections.abc import Mapping
 from dataclasses import dataclass, field
@@ -75,6 +83,14 @@ PROC_MOUNTS = "/proc/self/mounts"
 # reservation; a different disk differs by far more.
 SIZE_TOLERANCE = 0.02
 SIZE_TOLERANCE_MIN_BYTES = 1024**3
+# The launcher's figures (scripts/lib/arva-locations.sh, arva_write_space), and the names they may have there.
+HOST_SPACE_FILE = "/run/arva-host/space"
+_HOST_SPACE_KEY = re.compile(r"ARVA_HOST_(?:[A-Z]+|EXTERNAL_DB_\d{1,10})_(?:TOTAL|AVAIL)_BYTES|ARVA_HOST_SPACE_MEASURED_AT")
+# What ARVA wrote since the measurement: tree sizes, re-read at most every TREE_CACHE_SECONDS, at most
+# TREE_MAX_ENTRIES entries per tree (beyond that the growth is unknown).
+BASELINE_KEY = "space_baseline"
+TREE_CACHE_SECONDS = 60.0
+TREE_MAX_ENTRIES = 500_000
 
 # The English texts of the coded refusals; the interface has them as api.error.<code> (apps/web/src/i18n).
 MESSAGES = {
@@ -169,11 +185,28 @@ def byte_count(value: str | None) -> int | None:
     return int(text) if _BYTES.fullmatch(text) else None
 
 
+def host_space(environ: Mapping[str, str] | None = None) -> dict[str, str]:
+    """The launcher's space figures: the lines of HOST_SPACE_FILE with a known name, then the variables of the same
+    names, which take precedence. Untrusted strings, validated where used."""
+    environ = os.environ if environ is None else environ
+    out: dict[str, str] = {}
+    try:
+        with open(HOST_SPACE_FILE, encoding="utf-8", errors="replace") as fh:
+            lines = fh.read(65_536).splitlines()
+    except OSError:
+        lines = []
+    for line in lines:
+        key, sep, value = line.strip().partition("=")
+        if sep and _HOST_SPACE_KEY.fullmatch(key):
+            out[key] = value.strip()
+    out.update({k: v for k, v in environ.items() if _HOST_SPACE_KEY.fullmatch(k)})
+    return out
+
+
 def measured_at(environ: Mapping[str, str] | None = None) -> datetime | None:
     """When scripts/start.sh measured the host figures (ARVA_HOST_SPACE_MEASURED_AT), or None."""
-    environ = os.environ if environ is None else environ
     try:
-        return datetime.strptime((environ.get("ARVA_HOST_SPACE_MEASURED_AT") or "").strip(),
+        return datetime.strptime((host_space(environ).get("ARVA_HOST_SPACE_MEASURED_AT") or "").strip(),
                                  "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=UTC)
     except ValueError:
         return None
@@ -212,6 +245,7 @@ def _external_hosts(environ: Mapping[str, str]) -> dict[str, tuple[str | None, s
 def locations(environ: Mapping[str, str] | None = None) -> list[Location]:
     """Every folder ARVA uses. Running natively (not in a container), a folder's host path is its own path."""
     environ = os.environ if environ is None else environ
+    space = host_space(environ)
     s = get_settings()
     native = not in_container()
 
@@ -222,22 +256,22 @@ def locations(environ: Mapping[str, str] | None = None) -> list[Location]:
     data, databases = s.storage_root.resolve(), s.databases_dir.resolve()
     out = [
         Location("data", str(data), False, *host("DATA", data),
-                 ("raw", "processed", "results", "reports", "logs", "backups"), **_space(environ, "DATA")),
+                 ("raw", "processed", "results", "reports", "logs", "backups"), **_space(space, "DATA")),
         Location("databases", str(databases), False, *host("DATABASES", databases), ("downloads",),
-                 **_space(environ, "DATABASES")),
+                 **_space(space, "DATABASES")),
     ]
     for root in s.import_roots:
         if str(root) == "/import":
             out.append(Location("import", str(root), True, *host("IMPORT", root), ("import",),
-                                **_space(environ, "IMPORT")))
+                                **_space(space, "IMPORT")))
         else:
             out.append(Location("import", str(root), True, str(root) if native else None, None, ("import",)))
     hosts = _external_hosts(environ)
     for root in s.external_db_roots:
         slot = root.name if root.name.isdigit() else None
         given, fs = hosts.get(slot or "", (str(root) if native else None, None))
-        space = _space(environ, f"EXTERNAL_DB_{slot}") if slot else {}
-        out.append(Location("external_databases", str(root), True, given, fs, ("external",), slot, **space))
+        figures = _space(space, f"EXTERNAL_DB_{slot}") if slot else {}
+        out.append(Location("external_databases", str(root), True, given, fs, ("external",), slot, **figures))
     return out
 
 
@@ -319,6 +353,9 @@ class Space:
     container_total_bytes: int | None = None
     share: str | None = None
     disk: str | None = None
+    # host_at_start: what ARVA has written to its folders on that disk since the measurement (subtracted from the
+    # launcher's free space), or None when it could not be measured (then nothing is subtracted).
+    written_bytes: int | None = None
 
 
 def misreport(loc: Location, container_total: int | None) -> tuple[str | None, str | None, str | None]:
@@ -327,7 +364,9 @@ def misreport(loc: Location, container_total: int | None) -> tuple[str | None, s
     share = docker_share(mount_source(loc.container_path))
     if disk and share and (share == "/" or (share != disk and disk.startswith(share.rstrip("/") + "/"))):
         return "parent_share", share, disk
-    if loc.host_total_bytes and container_total is not None:
+    # The size check only where Docker Desktop's file sharing serves the mount: elsewhere (Linux, a Docker volume) a
+    # filesystem's reported size may change on its own (ZFS datasets share their pool), and nothing is misreported.
+    if share is not None and loc.host_total_bytes and container_total is not None:
         tolerance = max(SIZE_TOLERANCE_MIN_BYTES, SIZE_TOLERANCE * loc.host_total_bytes)
         if abs(container_total - loc.host_total_bytes) > tolerance:
             return "size_differs", share, disk
@@ -339,8 +378,98 @@ def _space_for(loc: Location, free: int | None, total: int | None) -> Space:
     if reason is None:
         return Space(free, total, "container", share=share, disk=disk)
     if loc.host_free_bytes is not None:
-        return Space(loc.host_free_bytes, loc.host_total_bytes, "host_at_start", True, reason, free, total, share, disk)
+        written = written_since(loc)
+        left = max(0, loc.host_free_bytes - (written or 0))
+        return Space(left, loc.host_total_bytes, "host_at_start", True, reason, free, total, share, disk, written)
     return Space(free, total, "container_misreported", True, reason, free, total, share, disk)
+
+
+# --- What ARVA has written since the launcher measured the disk -------------------------------------------------
+
+_tree_cache: dict[str, tuple[float, int | None]] = {}
+_local_baseline: dict[str, dict[str, int | None]] = {}
+
+
+def tree_bytes(path: str) -> int | None:
+    """The space the files under `path` take (the larger of their size and their allocated blocks, so that a
+    growth is not under-counted), re-read at most every TREE_CACHE_SECONDS; None beyond TREE_MAX_ENTRIES entries."""
+    now = time.monotonic()
+    hit = _tree_cache.get(path)
+    if hit is not None and now - hit[0] < TREE_CACHE_SECONDS:
+        return hit[1]
+    total, entries, stack = 0, 0, [path]
+    while stack and entries <= TREE_MAX_ENTRIES:
+        try:
+            it = os.scandir(stack.pop())
+        except OSError:
+            continue
+        with it:
+            for entry in it:
+                entries += 1
+                if entries > TREE_MAX_ENTRIES:
+                    break
+                try:
+                    st = entry.stat(follow_symlinks=False)
+                    if entry.is_dir(follow_symlinks=False):
+                        stack.append(entry.path)
+                except OSError:
+                    continue
+                total += max(st.st_size, getattr(st, "st_blocks", 0) * 512)
+    result = total if entries <= TREE_MAX_ENTRIES else None
+    _tree_cache[path] = (now, result)
+    return result
+
+
+def _baseline(key: str, paths: list[str]) -> dict[str, int | None]:
+    """Each folder's tree size at its first reading after the measurement `key`, kept in the metadata (shared by
+    the API and the worker, and surviving restarts); in this process only when the metadata cannot be used."""
+    local = _local_baseline.setdefault(key, {})
+    if all(p in local for p in paths):
+        return local
+    try:
+        from app.models import AppSetting
+
+        with SessionLocal() as db:
+            row = db.get(AppSetting, BASELINE_KEY)
+            value = row.value if row is not None and isinstance(row.value, dict) else {}
+            trees = value.get("trees") if value.get("measured_at") == key else None
+            trees = {k: v for k, v in trees.items() if v is None or isinstance(v, int)} if isinstance(trees, dict) else {}
+            missing = [p for p in paths if p not in trees]
+            if missing:
+                trees.update({p: tree_bytes(p) for p in missing})
+                new = {"measured_at": key, "trees": trees}
+                if row is None:
+                    db.add(AppSetting(key=BASELINE_KEY, value=new))
+                else:
+                    row.value = new
+                db.commit()
+    except SQLAlchemyError:
+        trees = {**{p: tree_bytes(p) for p in paths if p not in local}, **local}
+    local.update(trees)
+    return local
+
+
+def _same_disk(a: Location, b: Location) -> bool:
+    disk = volume_of(a.host_path)
+    return a.container_path == b.container_path or (disk is not None and disk == volume_of(b.host_path))
+
+
+def written_since(loc: Location) -> int | None:
+    """What ARVA has added to its writable folders on `loc`'s disk since the launcher measured it, or None when a
+    folder's tree could not be measured."""
+    when = host_space().get("ARVA_HOST_SPACE_MEASURED_AT") or ""
+    paths = [x.container_path for x in locations() if not x.read_only and _same_disk(x, loc)
+             and folder_available(x.container_path)]
+    if not paths:
+        return 0
+    base = _baseline(when, paths)
+    grown = 0
+    for p in paths:
+        now, then = tree_bytes(p), base.get(p)
+        if now is None or then is None:
+            return None
+        grown += max(0, now - then)
+    return grown
 
 
 def space_of(loc: Location) -> Space:
@@ -640,7 +769,8 @@ def overview(db) -> dict[str, Any]:
             "space_source": sp.source if sp else None,
             "misreport": None if sp is None or not sp.misreported else {
                 "reason": sp.reason, "share": sp.share, "disk": sp.disk or volume_of(loc.host_path),
-                "container_free_bytes": sp.container_free_bytes, "container_total_bytes": sp.container_total_bytes},
+                "container_free_bytes": sp.container_free_bytes, "container_total_bytes": sp.container_total_bytes,
+                "written_since_bytes": sp.written_bytes},
             "host_free_bytes": loc.host_free_bytes, "host_total_bytes": loc.host_total_bytes,
             "host_measured_at": when if loc.host_total_bytes is not None else None,
         })
@@ -651,25 +781,35 @@ def _misreport_text(loc: dict[str, Any], es: bool) -> str:
     """The launcher summary's line about a location whose space Docker reports from another disk."""
     m = loc["misreport"]
     disk = m["disk"] or ("su disco" if es else "its disk")
+    # The share to remove: the one the mount comes from when it lies above the disk (/Volumes, or /), else /Volumes.
+    share = m["share"] if m["share"] and m["share"] != disk and not (m["share"] + "/").startswith(disk + "/") \
+        else "/Volumes"
     seen = fmt_bytes(m["container_total_bytes"]) if m["container_total_bytes"] is not None else "?"
     host = fmt_bytes(loc["host_total_bytes"]) if loc["host_total_bytes"] is not None else "?"
+    written = m.get("written_since_bytes")
     if es:
         why = (f"Docker Desktop la comparte a través de {m['share']}, y así ARVA lee dentro de Docker el espacio de "
                "otro disco (el de arranque de la Mac)" if m["reason"] == "parent_share" else
                f"dentro de Docker su disco mide {seen}, pero en la Mac {host}: ARVA lee el espacio de otro disco")
-        used = ("los controles de espacio usan la cifra que midió scripts/start.sh al iniciar"
-                if loc["space_source"] == "host_at_start" else
-                "no hay cifra del lanzador, así que los controles usan la de Docker, que es de otro disco")
-        return (f"ATENCIÓN: {why}; {used}. Compartir el disco mismo: Docker Desktop → Settings → File sharing → + → "
-                f"Cmd+Shift+G → {disk} → quitar /Volumes → Apply, y volver a abrir ARVA.")
+        used = (("los controles de espacio usan la cifra que midió scripts/start.sh al iniciar, menos "
+                 f"{fmt_bytes(written)} que ARVA escribió desde entonces (no cuenta lo que escriben otros programas)")
+                if written is not None else
+                "los controles de espacio usan la cifra que midió scripts/start.sh al iniciar, sin descontar lo "
+                "escrito desde entonces (no se pudo medir)") if loc["space_source"] == "host_at_start" else \
+            "no hay cifra del lanzador, así que los controles usan la de Docker, que es de otro disco"
+        return (f"ATENCIÓN: {why}; {used}. Compartir el propio disco: Docker Desktop → Settings → File sharing → + → "
+                f"Cmd+Shift+G → {disk} → quitar {share} → Apply, y volver a abrir ARVA.")
     why = (f"Docker Desktop shares it through {m['share']}, so inside Docker ARVA reads another disk's space (the "
            "Mac's startup disk)" if m["reason"] == "parent_share" else
            f"inside Docker its disk measures {seen} but {host} on the Mac: ARVA reads another disk's space")
-    used = ("the free-space checks use the figure scripts/start.sh measured at start"
-            if loc["space_source"] == "host_at_start" else
-            "there is no launcher figure, so the checks use Docker's, which is another disk's")
+    used = (("the free-space checks use the figure scripts/start.sh measured at start, minus "
+             f"{fmt_bytes(written)} ARVA has written since (what other programs write is not counted)")
+            if written is not None else
+            "the free-space checks use the figure scripts/start.sh measured at start, without subtracting what was "
+            "written since (it could not be measured)") if loc["space_source"] == "host_at_start" else \
+        "there is no launcher figure, so the checks use Docker's, which is another disk's"
     return (f"ATTENTION: {why}; {used}. Share the disk itself: Docker Desktop → Settings → File sharing → + → "
-            f"Cmd+Shift+G → {disk} → remove /Volumes → Apply, then start ARVA again.")
+            f"Cmd+Shift+G → {disk} → remove {share} → Apply, then start ARVA again.")
 
 
 def _report(lang: str) -> int:

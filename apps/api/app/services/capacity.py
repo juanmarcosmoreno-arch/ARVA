@@ -51,7 +51,8 @@ _SPOOL_NOTE = (
 
 _MISREPORTED_NOTE = (
     "Inside Docker this folder shows another disk's free space, so ARVA counts the figure scripts/start.sh measured "
-    "on this computer when ARVA started (Settings → Storage explains how to share the disk itself)."
+    "on this computer when ARVA started, minus what ARVA has written to that disk since (Settings → Storage explains "
+    "how to share the disk itself)."
 )
 
 

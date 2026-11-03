@@ -871,6 +871,9 @@ export interface StorageMisreport {
   disk: string | null;
   container_free_bytes: number | null;
   container_total_bytes: number | null;
+  /** host_at_start: what ARVA has written to its folders on that disk since the launcher measured it (subtracted from
+   * the launcher's free space); null when it could not be measured. */
+  written_since_bytes?: number | null;
 }
 export type MarkerStatus = "ok" | "new" | "unavailable" | "missing" | "mismatch" | "restore_needed" | "invalid";
 

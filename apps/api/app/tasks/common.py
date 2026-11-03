@@ -207,8 +207,8 @@ def _ensure_space(db: Session, job: AnalysisJob, root: Path) -> None:
         return
     free = int(space.free_bytes or 0)
     if free < needed:
-        note = (" (free space as measured by scripts/start.sh when ARVA started: Docker reports another disk's for "
-                "this folder, see Settings → Storage)") if space.misreported else ""
+        note = (" (free space as measured by scripts/start.sh when ARVA started, minus what ARVA has written since: "
+                "Docker reports another disk's for this folder, see Settings → Storage)") if space.misreported else ""
         raise JobFailure(f"Only {fmt_bytes(free)} is free in the ARVA data folder{note}; this job needs at least "
                          f"{fmt_bytes(needed)} (the {fmt_bytes(needed - inputs)} reserve plus the size of its input "
                          "files) before it starts, so nothing was run. Free some space and run the job again.",

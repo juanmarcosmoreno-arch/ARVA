@@ -62,11 +62,18 @@ describe("first-run checks", () => {
     expect(storageCheck({ ...storage, locations: [loc({ host_path: "/Volumes/JM/ARVA/data", available: false })] }).state).toBe("attention");
     expect(storageCheck({ ...storage, marker: { ...storage.marker!, status: "mismatch" } }).code).toBe("marker");
     expect(storageCheck(undefined).state).toBe("unknown");
-    // Another disk's free space comes before "less than 20 GB free", which would be about the wrong disk.
-    const misreported = loc({ host_path: "/Volumes/JM/ARVA/data", warnings: ["space_misreported", "low_space"],
-      misreport: { reason: "parent_share", share: "/Volumes", disk: "/Volumes/JM", container_free_bytes: 8 * GB, container_total_bytes: 229 * GB } });
+    // Another disk's free space: the warning names the disk to share and the share to remove.
+    const report = { reason: "parent_share" as const, share: "/Volumes", disk: "/Volumes/JM", container_free_bytes: 8 * GB, container_total_bytes: 229 * GB };
+    const misreported = loc({ host_path: "/Volumes/JM/ARVA/data", warnings: ["space_misreported"], space_source: "host_at_start", misreport: report });
     expect(storageCheck({ ...storage, locations: [misreported] })).toMatchObject({
-      state: "attention", code: "space_misreported", params: { folder: "/Volumes/JM/ARVA/data", disk: "/Volumes/JM" } });
+      state: "attention", code: "space_misreported", params: { folder: "/Volumes/JM/ARVA/data", disk: "/Volumes/JM", share: "/Volumes" } });
+    expect(storageCheck({ ...storage, locations: [{ ...misreported, space_source: "container_misreported", misreport: { ...report, share: "/" } }] }))
+      .toMatchObject({ code: "space_misreported_no_figure", params: { share: "/" } });
+    // "Less than 20 GB free", which the API judges on the launcher's figure, is not hidden behind it.
+    expect(storageCheck({ ...storage, locations: [{ ...misreported, warnings: ["space_misreported", "low_space"] }] }).code).toBe("low_space");
+    // A read-only folder's free space is only shown: no warning in the checklist.
+    const importLoc = loc({ role: "import", read_only: true, host_path: "/Volumes/JM/import", warnings: ["space_misreported"], misreport: report });
+    expect(storageCheck({ ...storage, locations: [loc({ host_path: "/Volumes/JM/ARVA/data", filesystem: "apfs" }), importLoc] }).code).toBe("ok");
     expect(performanceCheck(performance).state).toBe("done");
     expect(performanceCheck({ ...performance, docker: { status: "adjust" } }).code).toBe("docker_adjust");
     expect(performanceCheck({ ...performance, host: { platform: { value: null, source: null } } } as unknown as PerformanceOverview).code).toBe("host_unknown");

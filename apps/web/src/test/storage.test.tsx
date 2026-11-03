@@ -101,10 +101,11 @@ describe("Storage section", () => {
       ...mac,
       locations: [
         loc({
-          host_path: "/Volumes/JM/ARVA/data", filesystem: "apfs", marker: "ok", free_bytes: 57.3 * GB, total_bytes: 931.5 * GB,
+          host_path: "/Volumes/JM/ARVA/data", filesystem: "apfs", marker: "ok", free_bytes: 55.3 * GB, total_bytes: 931.5 * GB,
           warnings: ["space_misreported"], space_source: "host_at_start", host_free_bytes: 57.3 * GB, host_total_bytes: 931.5 * GB,
           host_measured_at: "2026-11-03T09:12:00Z",
-          misreport: { reason: "parent_share", share: "/Volumes", disk: "/Volumes/JM", container_free_bytes: 8.6 * GB, container_total_bytes: 229 * GB },
+          misreport: { reason: "parent_share", share: "/Volumes", disk: "/Volumes/JM", container_free_bytes: 8.6 * GB, container_total_bytes: 229 * GB,
+            written_since_bytes: 2 * GB },
         }),
       ],
     };
@@ -114,7 +115,8 @@ describe("Storage section", () => {
     expect(alert).toHaveTextContent("Docker shows ARVA another disk's free space");
     expect(alert).toHaveTextContent("Docker Desktop shares /Volumes/JM/ARVA/data through /Volumes");
     expect(alert).toHaveTextContent("(8.60 GB free of 229.0 GB)");
-    expect(alert).toHaveTextContent("(57.3 GB free of 931.5 GB)");
+    // The launcher's figure less what ARVA has written since.
+    expect(alert).toHaveTextContent("(57.3 GB free), less the 2.00 GB ARVA has written to its folders on that disk since: 55.3 GB free of 931.5 GB");
     expect(alert).toHaveTextContent("Cmd+Shift+G → /Volumes/JM → Open; select /Volumes in the list and remove it");
     const row = screen.getAllByRole("row").find((r) => within(r).queryByText("/Volumes/JM/ARVA/data"))!;
     expect(within(row).getByText("Docker shows another disk's free space")).toBeInTheDocument();

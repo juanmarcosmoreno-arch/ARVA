@@ -9,7 +9,7 @@ import { ErrorNote, Skeleton } from "@/components/ui/misc";
 import { useT, type TranslationKey } from "@/i18n";
 import { api } from "@/lib/api";
 import { fmtBytes, fmtDate } from "@/lib/format";
-import { RESTORE_COMMANDS, RESTORE_LATEST, launcherCommand, markerMessage, markerWritable, removeCommand } from "@/lib/storage";
+import { RESTORE_COMMANDS, RESTORE_LATEST, launcherCommand, markerMessage, markerWritable, removeCommand, shareToRemove } from "@/lib/storage";
 import type { MetadataBackups, StorageCapacity, StorageLocation } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -137,14 +137,22 @@ function MisreportAlert({ loc }: { loc: StorageLocation }) {
           <p className="text-xs">{why}</p>
           <p className="text-xs">
             {loc.space_source === "host_at_start"
-              ? t("storage.misreport.used.host_at_start", {
-                  when: loc.host_measured_at ? fmtDate(loc.host_measured_at) : "?",
-                  free: fmtBytes(loc.free_bytes ?? 0),
-                  total: fmtBytes(loc.total_bytes ?? 0),
-                })
+              ? m?.written_since_bytes != null
+                ? t("storage.misreport.used.host_at_start", {
+                    when: loc.host_measured_at ? fmtDate(loc.host_measured_at) : "?",
+                    host: fmtBytes(loc.host_free_bytes ?? 0),
+                    written: fmtBytes(m.written_since_bytes),
+                    free: fmtBytes(loc.free_bytes ?? 0),
+                    total: fmtBytes(loc.total_bytes ?? 0),
+                  })
+                : t("storage.misreport.used.host_at_start_unmeasured", {
+                    when: loc.host_measured_at ? fmtDate(loc.host_measured_at) : "?",
+                    free: fmtBytes(loc.free_bytes ?? 0),
+                    total: fmtBytes(loc.total_bytes ?? 0),
+                  })
               : t("storage.misreport.used.container_misreported")}
           </p>
-          <p className="text-xs">{t("storage.misreport.steps", { disk: m?.disk ?? folder })}</p>
+          <p className="text-xs">{t("storage.misreport.steps", { disk: m?.disk ?? folder, share: shareToRemove(m) })}</p>
         </div>
       </div>
     </div>

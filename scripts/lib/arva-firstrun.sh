@@ -55,12 +55,16 @@ docker_rosetta() {
 # The folders Docker Desktop shares with its virtual machine (Settings → File sharing), one per line, from the same
 # settings file (key filesharingDirectories, matched without regard to case; not documented either, and not yet seen
 # in a real file: on the Mac above, with the default list, the file had no such key). Prints nothing when the file
-# or the key cannot be read.
+# or the key cannot be read. The strings are read as JSON strings (a comma or ] inside a path is kept), and the
+# escapes \" \\ \/ and \u0026 \u003c \u003e are decoded (Go's JSON encoder writes &, < and > that way; whether
+# Docker Desktop's does is not known).
 docker_file_sharing() {
   file=$(docker_settings_file)
   [ -n "$file" ] || return 0
-  tr -d '\n\r' < "$file" 2>/dev/null | grep -io '"filesharingdirectories"[[:space:]]*:[[:space:]]*\[[^]]*\]' |
-    head -n 1 | sed 's/^[^[]*\[//; s/\]$//' | tr ',' '\n' | sed -n 's/^[[:space:]]*"\(\/[^"]*\)"[[:space:]]*$/\1/p'
+  tr -d '\n\r' < "$file" 2>/dev/null |
+    grep -ioE '"filesharingdirectories"[[:space:]]*:[[:space:]]*\[([[:space:]]*"([^"\\]|\\.)*"[[:space:]]*,?)*[[:space:]]*\]' |
+    head -n 1 | sed 's/^[^[]*\[//' | grep -oE '"([^"\\]|\\.)*"' | sed 's/^"//; s/"$//' |
+    sed 's/\\u0026/\&/g; s/\\u003[cC]/</g; s/\\u003[eE]/>/g; s/\\\//\//g; s/\\"/"/g; s/\\\\/\\/g' | sed -n '/^\//p'
 }
 
 # The disk /Volumes/<Disk> that holds the folder $1, or nothing for a folder elsewhere (ARVA_VOLUMES_ROOT stands for
@@ -129,18 +133,38 @@ EOF
   fi
 }
 
-# The steps that share the disk $1 itself (and remove the /Volumes share, $2).
+# The entry of the File sharing list $3 above the disk $2 that covers the folder $1 (/Volumes, or / ...), or nothing.
+parent_share() {
+  while IFS= read -r s; do
+    [ -n "$s" ] || continue
+    t=${s%/}
+    case "$1/" in "$t"/*) ;; *) continue ;; esac
+    case "$t" in "$2" | "$2"/*) ;; *) printf '%s' "${t:-/}"; return 0 ;; esac
+  done <<EOF
+$3
+EOF
+}
+
+# The steps that share the disk $1 itself, and remove the share above it ($2, e.g. /Volumes) when one is listed.
 sharing_steps() {
-  say "    Docker Desktop → Settings → File sharing (under Resources in some versions) → + → Cmd+Shift+G → type $1 →
+  if [ -n "${2:-}" ]; then
+    say "    Docker Desktop → Settings → File sharing (under Resources in some versions) → + → Cmd+Shift+G → type $1 →
     Open; then select $2 in the list and remove it (−) → Apply (& restart). Then run ARVA again." \
-      "    Docker Desktop → Settings → File sharing (en algunas versiones dentro de Resources) → + → Cmd+Shift+G →
+        "    Docker Desktop → Settings → File sharing (en algunas versiones dentro de Resources) → + → Cmd+Shift+G →
     escribir $1 → Abrir; luego seleccionar $2 en la lista y quitarla (−) → Apply (& restart). Después volver
     a abrir ARVA."
+  else
+    say "    Docker Desktop → Settings → File sharing (under Resources in some versions) → + → Cmd+Shift+G → type $1 →
+    Open → Apply (& restart). Then run ARVA again." \
+        "    Docker Desktop → Settings → File sharing (en algunas versiones dentro de Resources) → + → Cmd+Shift+G →
+    escribir $1 → Abrir → Apply (& restart). Después volver a abrir ARVA."
+  fi
 }
 
 # What to do about each folder of the list $1 (one per line): a folder the File sharing list does not cover ("mounts
-# denied"), and a folder on a disk under /Volumes that Docker Desktop does not share as that disk. Prints nothing
-# when all is well. Sets sharing_bad to the disks (or folders) with a problem.
+# denied"), and a folder on a disk under /Volumes that Docker Desktop does not share as that disk. Every folder is
+# checked (two folders on one disk may be covered differently); the advice is printed once per disk and state.
+# Prints nothing when all is well. Sets sharing_bad to the disks (or folders) with a problem.
 sharing_report() {
   sharing_bad=''
   shared=$(docker_file_sharing)
@@ -159,41 +183,51 @@ sharing_report() {
       fi
       continue
     fi
-    if list_has "$seen" "$disk"; then continue; fi
-    seen=$(list_add "$seen" "$disk")
     state=$(docker_share_state "$folder" "$disk" "$shared")
+    case "$state" in disk | unknown) continue ;; esac
+    if ! list_has "$sharing_bad" "$disk"; then sharing_bad=$(list_add "$sharing_bad" "$disk"); fi
+    if list_has "$seen" "$disk:$state"; then continue; fi
+    seen=$(list_add "$seen" "$disk:$state")
+    parent=$(parent_share "$folder" "$disk" "$shared")
     case "$state" in
-      parent | defaults)
-        sharing_bad=$(list_add "$sharing_bad" "$disk")
-        if [ "$state" = defaults ]; then
-          say "  Docker Desktop's settings file lists no File sharing folders, so its default list applies (/Users,
-  /Volumes, /private, /tmp, /var/folders): $disk reaches ARVA only through $vroot." \
-              "  El archivo de ajustes de Docker Desktop no tiene una lista de File sharing, así que se usa la lista por
-  omisión (/Users, /Volumes, /private, /tmp, /var/folders): $disk llega a ARVA solo a través de $vroot."
-        else
-          say "  Docker Desktop shares $disk with ARVA only through $vroot." \
-              "  Docker Desktop comparte $disk con ARVA solo a través de $vroot."
-        fi
-        say "  Through $vroot, ARVA (inside Docker) reads the free space of the Mac's startup disk instead of $disk's
-  (seen on a real Mac), so its free-space checks would use the wrong disk. Share the disk itself:" \
-            "  A través de $vroot, ARVA (dentro de Docker) lee el espacio libre del disco de arranque de la Mac en lugar
-  del de $disk (comprobado en una Mac real), así que sus controles de espacio usarían el disco equivocado.
-  Compartir el disco mismo:"
+      defaults)
+        # Only a list ARVA can read counts: a list stored under another key name looks like no list at all.
+        say "  Docker Desktop's settings file has no File sharing list that ARVA can read. With Docker Desktop's default
+  list (/Users, /Volumes, /private, /tmp, /var/folders), $disk reaches ARVA only through $vroot, and through $vroot
+  ARVA (inside Docker) reads the free space of the Mac's startup disk instead of $disk's (seen on a real Mac). If you
+  already shared $disk itself, Docker Desktop may keep the list under a name ARVA does not know: what ARVA sees
+  once it runs decides (Settings → Storage). Otherwise share the disk itself:" \
+            "  El archivo de ajustes de Docker Desktop no tiene una lista de File sharing que ARVA pueda leer. Con la lista
+  por omisión de Docker Desktop (/Users, /Volumes, /private, /tmp, /var/folders), $disk llega a ARVA solo a través
+  de $vroot, y a través de $vroot ARVA (dentro de Docker) lee el espacio libre del disco de arranque de la Mac en
+  lugar del de $disk (comprobado en una Mac real). Si ya se compartió el propio $disk, puede que Docker Desktop
+  guarde la lista con un nombre que ARVA no conoce: decide lo que ARVA ve una vez en marcha (Ajustes →
+  Almacenamiento). Si no, compartir el propio disco:"
         sharing_steps "$disk" "$vroot"
+        ;;
+      parent)
+        say "  Docker Desktop shares $disk with ARVA only through $parent. Through it, ARVA (inside Docker) reads the free
+  space of another disk instead of $disk's (seen on a real Mac with $vroot: the startup disk's), so its free-space
+  checks would use the wrong disk. Share the disk itself:" \
+            "  Docker Desktop comparte $disk con ARVA solo a través de $parent. Así ARVA (dentro de Docker) lee el espacio
+  libre de otro disco en lugar del de $disk (comprobado en una Mac real con $vroot: el del disco de arranque), así
+  que sus controles de espacio usarían el disco equivocado. Compartir el propio disco:"
+        sharing_steps "$disk" "$parent"
         ;;
       both)
-        say "  Docker Desktop shares $disk and also $vroot. Whether Docker then reports $disk's own free space has not
-  been confirmed: remove $vroot from Docker Desktop → Settings → File sharing; ARVA also checks this once it runs
-  (Settings → Storage)." \
-            "  Docker Desktop comparte $disk y también $vroot. No está confirmado que Docker informe entonces el espacio
-  libre propio de $disk: quitar $vroot en Docker Desktop → Settings → File sharing; ARVA también lo comprueba
-  una vez en marcha (Ajustes → Almacenamiento)."
+        say "  Docker Desktop shares $disk and also $parent. Whether Docker then reports $disk's own free space has not
+  been confirmed (seen on a real Mac: with $vroot removed it does). Remove $parent: Docker Desktop → Settings →
+  File sharing (under Resources in some versions) → select $parent → remove it (−) → Apply (& restart). ARVA also
+  checks this once it runs (Settings → Storage)." \
+            "  Docker Desktop comparte $disk y también $parent. No está confirmado que Docker informe entonces el espacio
+  libre propio de $disk (comprobado en una Mac real: sin $vroot sí lo hace). Quitar $parent: Docker Desktop →
+  Settings → File sharing (en algunas versiones dentro de Resources) → seleccionar $parent → quitarla (−) →
+  Apply (& restart). ARVA también lo comprueba una vez en marcha (Ajustes → Almacenamiento)."
         ;;
       not_shared)
-        sharing_bad=$(list_add "$sharing_bad" "$disk")
         say "  Docker Desktop does not share $folder, so Docker refuses to mount it (\"mounts denied\"). Share its disk:" \
             "  Docker Desktop no comparte $folder, así que Docker se niega a montarla (\"mounts denied\"). Compartir su disco:"
-        sharing_steps "$disk" "$vroot"
+        sharing_steps "$disk" ""
         ;;
     esac
   done <<EOF
@@ -444,7 +478,11 @@ el Finder a esta ventana."
 # space (sharing_report). As for Rosetta, the steps are shown, Enter is waited for and the list is read again.
 wiz_sharing() {
   [ "$arva_os" = Darwin ] || return 0
-  folders=$(printf '%s\n%s\n%s\n%s\n' "$want_data" "$want_databases" "$want_import" "$want_add" | sed '/^$/d')
+  # Without a chosen import folder, docker-compose.yml mounts the import/ folder next to it, which must be shared too.
+  default_import=''
+  if [ -z "$want_import" ] && [ -n "${ROOT:-}" ] && [ -d "$ROOT/import" ]; then default_import=$ROOT/import; fi
+  folders=$(printf '%s\n%s\n%s\n%s\n%s\n' "$want_data" "$want_databases" "$want_import" "$default_import" "$want_add" |
+    sed '/^$/d')
   [ -n "$folders" ] || return 0
   wiz_rule "File sharing" "Uso compartido de archivos (File sharing)"
   sharing_report "$folders"
@@ -466,11 +504,11 @@ wiz_sharing() {
   while IFS= read -r disk; do
     [ -n "$disk" ] || continue
     if list_has "$sharing_bad" "$disk"; then
-      say "  Docker Desktop's settings still do not show $disk shared as a disk (if you did change it, the settings file
-  may keep the list under a name ARVA does not know). ARVA starts anyway and checks the free space it sees in
+      say "  Docker Desktop's settings file still shows the problem above for $disk (if you did change it, the file may
+  keep the list under a name ARVA does not know). ARVA starts anyway and checks the free space it sees in
   Settings → Storage." \
-          "  Los ajustes de Docker Desktop todavía no muestran $disk compartido como disco (si se cambió, puede que el
-  archivo de ajustes guarde la lista con un nombre que ARVA no conoce). ARVA se inicia igual y comprueba el espacio
+          "  El archivo de ajustes de Docker Desktop todavía muestra el problema de arriba para $disk (si se cambió, puede
+  que el archivo guarde la lista con un nombre que ARVA no conoce). ARVA se inicia igual y comprueba el espacio
   libre que ve en Ajustes → Almacenamiento."
     else
       say "  Docker Desktop now shares $disk." "  Docker Desktop ahora comparte $disk."
