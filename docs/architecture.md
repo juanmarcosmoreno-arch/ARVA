@@ -259,6 +259,14 @@ chooses and remembers host folders (`~/.config/arva/arva.conf`, read line by lin
 host paths reach the API as `ARVA_HOST_*` strings for display only. Neither the settings nor the storage layer
 create a missing data or database folder whose parent is missing (a disconnected disk).
 
+The launcher also passes each folder's disk size and free space as measured on the host
+(`ARVA_HOST_<NAME>_TOTAL_BYTES` / `_AVAIL_BYTES`, `ARVA_HOST_SPACE_MEASURED_AT`). With Docker Desktop sharing an
+external disk only through `/Volumes`, the container reads the startup disk's space (seen on a real Mac):
+`locations.space_of` flags such a location `space_misreported` (mount source in `/proc/self/mounts` a share above
+the disk, or a size that differs from the launcher's), and `locations.free_space`, which every free-space check
+uses (`capacity.storage_capacity`, `tasks.common._ensure_space`, `databases.free_bytes`), then counts the
+launcher's figure from the start.
+
 ```
 <data folder>/.arva-storage            {"id": …}: ties the folder to the metadata (app_settings "storage")
 <data folder>/backups/arva-metadata-<auto|manual|pre-restore>-<UTC>.dump   pg_dump -Fc archives
