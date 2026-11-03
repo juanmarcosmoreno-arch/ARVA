@@ -69,6 +69,15 @@ def run(tmp_path: Path, fake: Path, shell: str, uname: str = "Darwin", lang: str
     return proc, exported
 
 
+# The storage facts every start passes on (the import/ folder next to docker-compose.yml, its disk's space and when
+# that was measured); test_storage_launcher.py checks them.
+STORAGE = ("ARVA_HOST_IMPORT_", "ARVA_HOST_SPACE_MEASURED_AT")
+
+
+def without_storage(env: dict[str, str]) -> dict[str, str]:
+    return {k: v for k, v in env.items() if not k.startswith(STORAGE)}
+
+
 APPLE_SILICON = {"hw.model": "Mac14,2", "machdep.cpu.brand_string": "Apple M2", "hw.nperflevels": "2",
                  "hw.perflevel0.physicalcpu": "4", "hw.perflevel1.physicalcpu": "4", "hw.physicalcpu": "8",
                  "hw.logicalcpu": "8", "hw.memsize": str(16 * GIB), "sysctl.proc_translated": "0"}
@@ -80,7 +89,8 @@ AIR = {"_name": "hardware_overview", "machine_name": "MacBook Air", "machine_mod
 def test_apple_silicon(tmp_path, shell):
     proc, env = run(tmp_path, mac(tmp_path, APPLE_SILICON, AIR), shell)
     assert proc.returncode == 0, proc.stderr
-    assert env == {
+    assert env["ARVA_HOST_IMPORT_DIR"] == str((SCRIPT.parents[1] / "import").resolve())
+    assert without_storage(env) == {
         "ARVA_HOST_ARCH": "arm64", "ARVA_HOST_CHIP": "Apple M2", "ARVA_HOST_DOCKER_CPUS": "8",
         "ARVA_HOST_DOCKER_MEMORY_BYTES": str(8 * GIB), "ARVA_HOST_EFF_CORES": "4", "ARVA_HOST_LOGICAL_CPUS": "8",
         "ARVA_HOST_MEMORY_BYTES": str(16 * GIB), "ARVA_HOST_MODEL_ID": "Mac14,2", "ARVA_HOST_MODEL_NAME": "MacBook Air",
@@ -97,7 +107,9 @@ def test_apple_silicon(tmp_path, shell):
     assert (tmp_path / "fake" / "compose_pull").read_text().strip() == "compose pull api web"
     assert images(tmp_path) == {"ARVA_API_IMAGE": "ghcr.io/juanmarcosmoreno-arch/arva-api", "ARVA_IMAGE_TAG": VERSION,
                                 "ARVA_PLATFORM": "linux/amd64", "ARVA_WEB_IMAGE": "ghcr.io/juanmarcosmoreno-arch/arva-web"}
-    assert "Image architecture: linux/amd64" in out and "Rosetta setting could not be read" in out
+    assert "Image architecture: linux/amd64" in out
+    assert "No Docker Desktop settings file was found to read the Rosetta setting from" in out
+    assert "could not be read" not in out
 
 
 @pytest.mark.parametrize("shell", SHELLS)
@@ -133,7 +145,7 @@ def test_missing_keys_leave_facts_empty(tmp_path, shell):
                                   docker="? ?"), shell)
     assert proc.returncode == 0, proc.stderr
     assert env["ARVA_HOST_PLATFORM"] == "macos"
-    assert all(v == "" for k, v in env.items() if k not in ("ARVA_HOST_PLATFORM", "ARVA_HOST_ARCH")
+    assert all(v == "" for k, v in without_storage(env).items() if k not in ("ARVA_HOST_PLATFORM", "ARVA_HOST_ARCH")
                and not k.startswith(("ARVA_HOST_IMAGE", "ARVA_HOST_DOCKER_ROSETTA")))
     assert "? · ? · ? cores · ? · macOS ?" in proc.stdout
 
@@ -157,7 +169,7 @@ def test_docker_not_running(tmp_path, shell):
 def test_linux_only_starts_compose(tmp_path, shell):
     proc, env = run(tmp_path, mac(tmp_path, APPLE_SILICON, AIR), shell, "Linux")
     assert proc.returncode == 0, proc.stderr
-    assert env == {"ARVA_HOST_IMAGE_PLATFORM": "linux/arm64", "ARVA_HOST_IMAGE_REASON": "native",
+    assert without_storage(env) == {"ARVA_HOST_IMAGE_PLATFORM": "linux/arm64", "ARVA_HOST_IMAGE_REASON": "native",
                    "ARVA_HOST_DOCKER_ROSETTA": "", "ARVA_HOST_IMAGE_SOURCE": "published"}
     assert "This Mac" not in proc.stdout and "PROFILE REPORT" in proc.stdout
 
@@ -180,7 +192,11 @@ def docker_settings(tmp_path: Path, name: str, text: str) -> dict[str, str]:
      "rosetta_off", "off"),
     ("settings.json", '{"useVirtualizationFramework": true, "useVirtualizationFrameworkRosetta" : true}', "linux/amd64",
      "rosetta_on", "on"),
-    ("settings-store.json", '{"UseVirtualizationFramework": true}', "linux/amd64", "rosetta_unknown", "unknown"),
+    # Only settings changed from Docker Desktop's defaults are stored (seen on a real Mac): no key is its default.
+    ("settings-store.json", '{"AutoStart": true, "UseVirtualizationFramework": true}', "linux/amd64",
+     "rosetta_default", "default"),
+    ("settings-store.json", '{"UseVirtualizationFrameworkRosetta": "maybe"}', "linux/amd64", "rosetta_unknown",
+     "unknown"),
 ])
 def test_apple_silicon_image_follows_docker_desktops_rosetta_setting(tmp_path, shell, name, text, platform, reason,
                                                                       rosetta):
@@ -192,6 +208,9 @@ def test_apple_silicon_image_follows_docker_desktops_rosetta_setting(tmp_path, s
     assert images(tmp_path)["ARVA_PLATFORM"] == platform
     if reason == "rosetta_off":
         assert "Rosetta off in Docker Desktop: the native arm64 image" in proc.stdout
+    if reason == "rosetta_default":
+        assert "does not store the Rosetta setting" in proc.stdout and "Nothing failed" in proc.stdout
+        assert "could not be read" not in proc.stdout
 
 
 @pytest.mark.parametrize("shell", SHELLS)
