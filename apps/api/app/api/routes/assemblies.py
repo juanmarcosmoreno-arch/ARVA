@@ -358,7 +358,8 @@ def start_polishing(assembly_id: str, payload: PolishingRequest, db: Session = D
         "arva_strategy_suggestion": polishing.suggested_strategy(sample),
         "arva_read_type_suggestion": polishing.preset_suggestion(sample, ev)["value"],
         "heap_source": None if pilon is None else "user" if payload.pilon.heap_gb else
-        "default: min(16 GB, the performance profile's memory per job)",
+        "default: the profile's memory per job raised towards Pilon's documented 8 GB, within ARVA's memory "
+        "limit, at most 16 GB",
         "quast": payload.quast,
         "quast_reference_file_id": reference.id if reference else None,
     }

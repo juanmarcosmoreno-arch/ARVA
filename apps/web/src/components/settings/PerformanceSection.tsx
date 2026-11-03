@@ -287,7 +287,7 @@ function Docker({ p }: { p: PerformanceOverview }) {
 function ImageArchitecture({ p }: { p: PerformanceOverview }) {
   const t = useT();
   const i = p.image;
-  const apple = i.reason === "rosetta_on" || i.reason === "rosetta_unknown" || i.reason === "rosetta_off";
+  const apple = i.reason === "rosetta_on" || i.reason === "rosetta_default" || i.reason === "rosetta_unknown" || i.reason === "rosetta_off";
   return (
     <section aria-labelledby="perf-image" className="space-y-1.5">
       <h3 id="perf-image" className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{t("perf.image.title")}</h3>

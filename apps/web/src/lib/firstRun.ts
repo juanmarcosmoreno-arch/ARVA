@@ -26,6 +26,13 @@ export function storageCheck(s: StorageCapacity | undefined): CheckItem {
   if (!markerWritable(s.marker)) return { ...base, state: "attention", code: "marker" };
   const data = locations.find((l) => l.role === "data");
   if (!data?.host_path) return { ...base, state: "attention", code: "docker_volumes" };
+  // Before the other warnings: with another disk's free space, "less than 20 GB free" would be about the wrong disk.
+  const misreported = locations.find((l) => l.warnings.includes("space_misreported"));
+  if (misreported) {
+    const folder = misreported.host_path ?? misreported.container_path;
+    const disk = misreported.misreport?.disk ?? folder;
+    return { ...base, state: "attention", code: "space_misreported", params: { folder, disk } };
+  }
   const warnings = locations.flatMap((l) => l.warnings);
   if (warnings.includes("fat_filesystem")) return { ...base, state: "attention", code: "fat", params: { folder: data.host_path } };
   if (warnings.includes("low_space")) return { ...base, state: "attention", code: "low_space", params: { folder: data.host_path } };

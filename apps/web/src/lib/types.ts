@@ -761,8 +761,9 @@ export type ImagePlatformName = "linux/amd64" | "linux/arm64";
 export interface ImagePlatform {
   running: ImagePlatformName | null;
   chosen: ImagePlatformName | null;
-  reason: "chosen" | "native" | "rosetta_on" | "rosetta_unknown" | "rosetta_off" | "unknown" | null;
-  rosetta: "on" | "off" | "unknown" | null;
+  reason: "chosen" | "native" | "rosetta_on" | "rosetta_default" | "rosetta_unknown" | "rosetta_off" | "unknown" | null;
+  /** default: Docker Desktop's settings file has no Rosetta key (it keeps only settings changed from its defaults). */
+  rosetta: "on" | "off" | "default" | "unknown" | null;
   source: "published" | "local" | null;
   host_arch: string | null;
   emulated: boolean | null;
@@ -859,7 +860,18 @@ export interface DashboardSummary {
 }
 
 export type StorageRole = "data" | "databases" | "import" | "external_databases";
-export type StorageWarning = "not_connected" | "fat_filesystem" | "low_space";
+export type StorageWarning = "not_connected" | "fat_filesystem" | "low_space" | "space_misreported";
+
+/** Why the free space Docker shows ARVA for a folder is another disk's (Docker Desktop sharing it through /Volumes). */
+export interface StorageMisreport {
+  reason: "parent_share" | "size_differs";
+  /** The host folder Docker Desktop shares the mount from, e.g. /Volumes. */
+  share: string | null;
+  /** The disk to share instead, e.g. /Volumes/JM. */
+  disk: string | null;
+  container_free_bytes: number | null;
+  container_total_bytes: number | null;
+}
 export type MarkerStatus = "ok" | "new" | "unavailable" | "missing" | "mismatch" | "restore_needed" | "invalid";
 
 /** One folder ARVA uses (GET /system/storage). */
@@ -880,6 +892,13 @@ export interface StorageLocation {
   stores: string[];
   slot: string | null;
   databases: number | null;
+  /** Where free_bytes and total_bytes come from: the container, or the launcher's figures from the start because the
+   * container shows another disk's (or the container's, known wrong, when the launcher gave none). */
+  space_source?: "container" | "host_at_start" | "container_misreported" | null;
+  misreport?: StorageMisreport | null;
+  host_free_bytes?: number | null;
+  host_total_bytes?: number | null;
+  host_measured_at?: string | null;
 }
 
 /** The data folder's storage marker against the metadata; `message` explains a status that refuses writes. */
@@ -1543,6 +1562,8 @@ export interface PolishingPlan {
   default_threads: number;
   max_memory_gb: number;
   default_heap_gb: number;
+  /** Pilon's documented minimum heap for a bacterial genome (~200x Illumina): 8 GB, 16 GB recommended. */
+  pilon_documented_min_gb?: number;
 }
 
 export interface RaconSettings {

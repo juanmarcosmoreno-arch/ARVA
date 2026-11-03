@@ -1623,7 +1623,7 @@ class PilonSettingsIn(BaseModel):
     mindepth: float = Field(default=0.1, gt=0, le=1000, description="Passed as --mindepth (Pilon's default 0.1)")
     minmq: int = Field(default=0, ge=0, le=60, description="Passed as --minmq (Pilon's default 0)")
     minqual: int = Field(default=0, ge=0, le=60, description="Passed as --minqual (Pilon's default 0)")
-    heap_gb: int | None = Field(default=None, ge=1, description="Java -Xmx; unset: min(16 GB, ARVA's memory cap)")
+    heap_gb: int | None = Field(default=None, ge=1, description="Java -Xmx; unset: the plan's default_heap_gb")
     stop_when_unchanged: bool = Field(default=True, description="Stop after a round in which Pilon changes nothing")
 
 
@@ -1691,7 +1691,11 @@ class PolishingPlanRead(BaseModel):
     max_threads: int
     default_threads: int = Field(description="Threads a run gets when none are given: the performance profile's")
     max_memory_gb: int
-    default_heap_gb: int = Field(description="min(16 GB, the profile's memory per job); Debian's Pilon launcher uses 16")
+    default_heap_gb: int = Field(description="The profile's memory per job, raised towards the 8 GB Pilon's "
+                                             "documentation gives for bacterial genomes, within the memory ARVA may "
+                                             "give a tool and at most 16 GB (Debian's Pilon launcher)")
+    pilon_documented_min_gb: int = Field(default=8, description="Pilon's documented minimum for bacterial genomes "
+                                                                "(~200x Illumina); 16 GB recommended")
 
 
 # --- Reference databases (Database Manager) ---------------------------------------------------------------------

@@ -31,6 +31,18 @@ FLYE_TO_PRESET = {"nano-raw": "map-ont", "nano-corr": "map-ont", "nano-hq": "map
                   "pacbio-corr": "map-pb", "pacbio-hifi": "map-hifi"}
 # Debian's pilon launcher runs Java with a 16 GB heap; ARVA uses the same default unless the computer has less.
 DEBIAN_PILON_HEAP_GB = 16
+# Pilon's documentation (github.com/broadinstitute/pilon/wiki/Requirements-&-Usage): "Generally, bacterial genomes
+# with ~200x of Illumina coverage will require at least 8GB, though 16GB is recommended", and "as a rule of thumb,
+# try to allocate 1GB per megabase of input genome to be processed".
+PILON_DOCUMENTED_MIN_GB = 8
+
+
+def default_heap_gb(memory_gb: int, max_memory_gb: int) -> int:
+    """Pilon's Java heap when none is asked for: the profile's memory per job, raised towards the 8 GB Pilon documents
+    for bacterial genomes when it is less (a light profile on a small Docker Desktop VM gives tools 1 GB, far below
+    what Pilon documents, and Pilon would fail with an OutOfMemoryError), but never above the memory ARVA may give a
+    tool (max_memory_gb) nor Debian's 16 GB. When even that is below 8 GB the plan says so."""
+    return max(1, min(DEBIAN_PILON_HEAP_GB, max_memory_gb, max(memory_gb, PILON_DOCUMENTED_MIN_GB)))
 
 
 def draft_for(db: Session, sample: Sample, assembly_id: str) -> Assembly:
@@ -121,7 +133,8 @@ def strategies_available(tools: dict[str, Any]) -> list[str]:
 
 def resources(res: Resources) -> dict[str, int]:
     return {"max_threads": res.max_threads, "default_threads": res.threads, "max_memory_gb": res.max_memory_gb,
-            "default_heap_gb": min(DEBIAN_PILON_HEAP_GB, res.memory_gb)}
+            "default_heap_gb": default_heap_gb(res.memory_gb, res.max_memory_gb),
+            "pilon_documented_min_gb": PILON_DOCUMENTED_MIN_GB}
 
 
 def draft_summary(a: Assembly) -> dict[str, Any]:

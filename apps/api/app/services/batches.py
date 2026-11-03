@@ -509,7 +509,9 @@ def _dispatch_once(db: Session) -> None:
                 _run_internal(db, run, item, status)
                 db.commit()
                 continue
-            t, m = run.settings["threads_per_job"], run.settings["memory_per_job_gb"]
+            t = run.settings["threads_per_job"]
+            m = nodes.memory_gb_for(item.node_kind, _node_params(run, item), run.settings["memory_per_job_gb"],
+                                    res.max_memory_gb)
             fits = in_queue == 0 or (used_threads + t <= res.max_threads and used_memory + m <= res.max_memory_gb)
             if run_queue >= run.settings["max_concurrent"] or not fits:
                 break
@@ -626,6 +628,11 @@ def _upstream_inputs(run: BatchRun, item: BatchItem, status: dict[str, BatchItem
     return out
 
 
+def _node_params(run: BatchRun, item: BatchItem) -> dict[str, Any]:
+    node = next((n for n in run.definition["nodes"] if n["id"] == item.node_id), None)
+    return dict(node["params"]) if node else {}
+
+
 def _launch(db: Session, run: BatchRun, item: BatchItem, status: dict[str, BatchItem]) -> bool:
     node = next(n for n in run.definition["nodes"] if n["id"] == item.node_id)
     sample = db.get(Sample, item.sample_id) if item.sample_id else None
@@ -656,7 +663,9 @@ def _launch(db: Session, run: BatchRun, item: BatchItem, status: dict[str, Batch
     item.status = "queued"
     item.error = None
     item.inputs = {**item.inputs, "params_sent": ctx.params}
-    item.reserved = {"threads": run.settings["threads_per_job"], "memory_gb": run.settings["memory_per_job_gb"]}
+    memory = nodes.memory_gb_for(item.node_kind, dict(node["params"]), run.settings["memory_per_job_gb"],
+                                 effective_resources(db).max_memory_gb)
+    item.reserved = {"threads": run.settings["threads_per_job"], "memory_gb": memory}
     db.commit()
     db.refresh(item)
     job = db.get(AnalysisJob, item.job_id, populate_existing=True)

@@ -220,6 +220,11 @@ export function PolishingDialog({
                 <Input type="number" min={1} max={p?.max_memory_gb} placeholder={String(p?.default_heap_gb ?? "")} value={form.heap} onChange={(e) => set("heap", e.target.value)} />
               </Field>
             </div>
+            {p && p.default_heap_gb < (p.pilon_documented_min_gb ?? 8) && (
+              <p role="note" className="flex gap-1.5 rounded-lg bg-warning/10 p-2.5 text-xs text-amber-800 dark:text-warning">
+                <Info className="h-3.5 w-3.5 shrink-0" aria-hidden /> {t("polishing.heapBelowDocumented", { min: p.pilon_documented_min_gb ?? 8, max: p.max_memory_gb })}
+              </p>
+            )}
             <label className="flex items-start gap-2 text-xs">
               <input type="checkbox" className={CHECK} checked={form.stopWhenUnchanged} onChange={(e) => set("stopWhenUnchanged", e.target.checked)} />
               <span>

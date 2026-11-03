@@ -286,10 +286,24 @@ def _launch_unicycler(ctx: LaunchContext):
     return call(_routes()["assemblies"].start_unicycler, ctx.sample.id, req, ctx.db)
 
 
+def memory_gb_for(kind: str, params: dict[str, Any], memory_gb: int, max_memory_gb: int) -> int:
+    """The memory a node's job gets and a batch reserves for it: the run's memory per job, except Pilon's heap
+    (polishing with Pilon), which unless the node sets one follows polishing.default_heap_gb: Pilon documents at
+    least 8 GB for bacterial genomes, more than a small profile's memory per job."""
+    if kind == "polishing" and params.get("strategy") in ("pilon", "hybrid"):
+        from app.services.polishing import default_heap_gb
+
+        heap = (params.get("pilon") or {}).get("heap_gb")
+        return heap if isinstance(heap, int) and heap > 0 else default_heap_gb(memory_gb, max_memory_gb)
+    return memory_gb
+
+
 def _launch_polishing(ctx: LaunchContext):
+    from app.services.performance import effective_resources
+
     pilon = {**ctx.params.get("pilon", {})}
     if ctx.params.get("strategy") in ("pilon", "hybrid") and pilon.get("heap_gb") is None:
-        pilon["heap_gb"] = ctx.memory_gb
+        pilon["heap_gb"] = memory_gb_for("polishing", ctx.params, ctx.memory_gb, effective_resources(ctx.db).max_memory_gb)
     ctx.params = {**ctx.params, "pilon": pilon}
     inputs = {**_short_roles(ctx.inputs.get("short_reads")),
               "long_file_id": _single_long(ctx.inputs.get("long_reads"))}

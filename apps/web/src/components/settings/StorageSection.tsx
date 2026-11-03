@@ -34,6 +34,11 @@ function Storage({ s }: { s: StorageCapacity }) {
   return (
     <div className="space-y-6 text-sm">
       {s.marker && !markerWritable(s.marker) && <MarkerAlert s={s} />}
+      {locations
+        .filter((l) => l.warnings.includes("space_misreported"))
+        .map((l) => (
+          <MisreportAlert key={`misreport:${l.container_path}`} loc={l} />
+        ))}
       <table className="w-full table-fixed border-collapse text-left text-xs">
         <colgroup>
           <col className="w-[18%]" />
@@ -113,6 +118,39 @@ function MarkerAlert({ s }: { s: StorageCapacity }) {
   );
 }
 
+/** A folder whose free space Docker reports from another disk: why, which figure ARVA uses, and how to fix it. */
+function MisreportAlert({ loc }: { loc: StorageLocation }) {
+  const t = useT();
+  const m = loc.misreport;
+  const folder = loc.host_path ?? loc.container_path;
+  const seen = m?.container_total_bytes != null ? t("storage.freeOfTotal", { free: fmtBytes(m.container_free_bytes ?? 0), total: fmtBytes(m.container_total_bytes) }) : "?";
+  const why =
+    m?.reason === "size_differs"
+      ? t("storage.misreport.size_differs", { folder, seen: m.container_total_bytes != null ? fmtBytes(m.container_total_bytes) : "?", host: loc.host_total_bytes != null ? fmtBytes(loc.host_total_bytes) : "?" })
+      : t("storage.misreport.parent_share", { folder, share: m?.share ?? "/Volumes", seen });
+  return (
+    <div role="alert" className="space-y-1 rounded-lg border border-warning/40 bg-warning/10 p-3 text-amber-900 dark:text-warning">
+      <div className="flex items-start gap-2">
+        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+        <div className="space-y-1">
+          <p className="font-medium">{t("storage.misreport.title")}</p>
+          <p className="text-xs">{why}</p>
+          <p className="text-xs">
+            {loc.space_source === "host_at_start"
+              ? t("storage.misreport.used.host_at_start", {
+                  when: loc.host_measured_at ? fmtDate(loc.host_measured_at) : "?",
+                  free: fmtBytes(loc.free_bytes ?? 0),
+                  total: fmtBytes(loc.total_bytes ?? 0),
+                })
+              : t("storage.misreport.used.container_misreported")}
+          </p>
+          <p className="text-xs">{t("storage.misreport.steps", { disk: m?.disk ?? folder })}</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function LocationRow({ loc, inContainer }: { loc: StorageLocation; inContainer: boolean }) {
   const t = useT();
   const usedPct = loc.free_bytes != null && loc.total_bytes ? Math.min(100, Math.round(100 * (1 - loc.free_bytes / loc.total_bytes))) : null;
@@ -137,6 +175,9 @@ function LocationRow({ loc, inContainer }: { loc: StorageLocation; inContainer: 
         {loc.free_bytes != null && loc.total_bytes != null ? (
           <>
             <div>{t("storage.freeOfTotal", { free: fmtBytes(loc.free_bytes), total: fmtBytes(loc.total_bytes) })}</div>
+            {loc.space_source === "host_at_start" && loc.host_measured_at && (
+              <div className="text-[11px] text-muted-foreground">{t("storage.measuredAtStart", { when: fmtDate(loc.host_measured_at) })}</div>
+            )}
             <div
               role="meter"
               aria-label={t("storage.col.space")}
