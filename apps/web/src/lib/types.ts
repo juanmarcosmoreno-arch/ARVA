@@ -1784,7 +1784,7 @@ export interface DatabaseKind {
   recognise: string;
   version_from: string;
   typical_size: string;
-  download: "catalogue" | "register" | "bundled" | "release";
+  download: "catalogue" | "register" | "bundled" | "release" | "current";
   download_note: string;
   sources: string[];
   unconfirmed: string[];

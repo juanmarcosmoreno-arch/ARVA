@@ -76,10 +76,11 @@ def record(client, record_id):
 
 def test_every_kind_states_its_facts_and_their_sources(client):
     keys = [k.key for k in kinds.KINDS]
-    assert len(keys) == len(set(keys)) and len(keys) == 17
+    assert len(keys) == len(set(keys)) and len(keys) == 18
     for k in kinds.KINDS:
         assert k.source_url.startswith(("https://", "http://")) and k.licence and k.citation and k.recognise
-        assert k.version_from and k.typical_size and k.download in ("catalogue", "register", "bundled", "release") and k.sources
+        assert k.version_from and k.typical_size and k.download in ("catalogue", "register", "bundled", "release", "current") \
+            and k.sources
         assert k.tools and all(t.versions for t in k.tools)
         offered = catalogue.for_kind(k.key)
         assert bool(offered) == (k.download == "catalogue"), k.key

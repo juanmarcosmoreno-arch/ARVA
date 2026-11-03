@@ -758,6 +758,8 @@ def record_compatibility(record: ReferenceDatabase) -> kinds.Compatibility:
         info = {"database_format_version": facts.get("database_format_version")}
     if record.kind in ("vfdb", "plasmidfinder"):
         info = {"variant": (details.get("detection") or {}).get("variant")}
+    if record.kind == "ncbi_16s":
+        info = facts.get("blastdb") or {}
     return kinds.compatibility(record.kind, info, version=record.version)
 
 

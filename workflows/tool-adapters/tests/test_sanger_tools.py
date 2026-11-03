@@ -149,3 +149,16 @@ def test_real_blastn_seh_against_abricate_vfdb(tmp_path):
                                          titles=True), cwd=tmp_path, stderr_path=tmp_path / "blastn.log")
     got = parse_tabular((tmp_path / "out.tsv").read_text(), titles=True)
     assert got == parse_tabular((FX / "seh_vs_vfdb.tsv").read_text(), titles=True)
+
+
+def test_blastdbcmd_info_of_the_16s_database():
+    """The real `blastdbcmd -db 16S_ribosomal_RNA -info` output of BLAST+ 2.12.0 on the 2026-10-29 build
+    (fixtures/sanger/README.md)."""
+    info = blast.parse_db_info((FX / "blastdbcmd_info_16S_2.12.0.txt").read_text())
+    assert info == {"title": "16S ribosomal RNA (Bacteria and Archaea type strains)", "sequences": 27646,
+                    "letters": 40048476, "date": "Oct 29, 2026 5:36 AM", "blastdb_version": 5}
+    assert blast.info_argv("blastdbcmd", "/db/16S_ribosomal_RNA") == ["blastdbcmd", "-db", "/db/16S_ribosomal_RNA",
+                                                                      "-info"]
+    with pytest.raises(ValueError, match="title, size and version"):
+        blast.parse_db_info("BLAST Database error: No alias or index file found\n")
+    assert blast.BLASTDBCMD_VERSION.search("blastdbcmd: 2.12.0+\n Package: blast 2.12.0").group(1) == "2.12.0"

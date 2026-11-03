@@ -43,3 +43,8 @@ blastn -task megablast -query hlb.fa -subject GCF_000011265.1.fna -outfmt "$OF" 
   (light database 6.0, in the test cache) names the two overlapping CDSs "Phospholipase C" (2,046,033-2,046,233 and
   2,088,806-2,089,630); NCBI's names the second `sph` (a pseudogene, sphingomyelin phosphodiesterase) and the first
   "phospholipase".
+
+## `blastdbcmd_info_16S_2.12.0.txt`
+
+The output of `blastdbcmd -db <16S>/16S_ribosomal_RNA -info` (blastdbcmd 2.12.0+, the same Ubuntu BLAST+ package) on
+the 2026-10-29 build described above, unchanged (its last line is the local path of that copy).

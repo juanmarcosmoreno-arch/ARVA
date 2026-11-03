@@ -86,8 +86,8 @@ def test_parse_sequence_text_fasta_and_seq():
     reads = parse_sequence_text("﻿>r1 forward read\nacgt\nNNRY\n>r2\nGGCC\n")
     assert [(r.name, r.bases, r.source_format) for r in reads] == [("r1", "ACGTNNRY", "fasta"), ("r2", "GGCC", "fasta")]
     assert not reads[0].has_qualities and codes(reads[0].warnings) == ["no_qualities"]
-    (seq,) = parse_sequence_text("ACGT ACGT\r\nTTTT\n", name="27_784-F")
-    assert (seq.name, seq.bases, seq.source_format) == ("27_784-F", "ACGTACGTTTTT", "seq")
+    (seq,) = parse_sequence_text("ACGT ACGT\r\nTTTT\n", name="sample-F")
+    assert (seq.name, seq.bases, seq.source_format) == ("sample-F", "ACGTACGTTTTT", "seq")
     for bad, msg in (("ACGU", "not DNA"), (">x\n\n", "no sequence"), ("hello\n>x\nACGT", "before the first"),
                      ("", "no sequence"), ("ACGT-ACGT", "not DNA")):
         with pytest.raises(ValueError, match=msg):

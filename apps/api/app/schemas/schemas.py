@@ -1786,7 +1786,7 @@ class DatabaseKindRead(BaseModel):
     recognise: str
     version_from: str
     typical_size: str
-    download: Literal["catalogue", "register", "bundled", "release"]
+    download: Literal["catalogue", "register", "bundled", "release", "current"]
     download_note: str
     sources: list[str]
     unconfirmed: list[str] = []
@@ -4265,3 +4265,101 @@ class StaphTypingNodeIn(BaseModel):
                                     "(unset: the default registered ones)")
     override_applicability: bool = Field(default=False, description="Run although the species evidence does not "
                                          "support the module (recorded on the result)")
+
+
+# --- Sanger reads of one gene (app.services.sanger) --------------------------------------------------------------
+
+class SangerTrimIn(BaseModel):
+    """Trimming of one read: the modified Mott limit (error probability per base), or a manual range (1-based,
+    inclusive, on the read as called) that replaces it."""
+    model_config = ConfigDict(extra="forbid")
+    limit: float = Field(default=0.05, gt=0, lt=1)
+    manual_start: int | None = Field(default=None, ge=1)
+    manual_end: int | None = Field(default=None, ge=1)
+
+
+class SangerConsensusIn(BaseModel):
+    """Alignment scores and ARVA's conflict rule (arva_core.sanger.ConsensusParams); empty fields keep the
+    defaults."""
+    model_config = ConfigDict(extra="forbid")
+    match: float | None = None
+    mismatch: float | None = None
+    gap_open: float | None = None
+    gap_extend: float | None = None
+    min_winner_quality: int | None = None
+    min_quality_difference: int | None = None
+    min_overlap: int | None = None
+    min_overlap_identity: float | None = None
+    reverse_complement_second: bool | None = None
+
+
+class SangerSuspectedIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    kind: Literal["gene", "species"]
+    value: str = Field(max_length=200)
+
+
+class SangerBuildIn(BaseModel):
+    """One read (forward or reverse), or a forward and a reverse read of the same sample."""
+    model_config = ConfigDict(extra="forbid")
+    forward_read_id: str | None = None
+    reverse_read_id: str | None = None
+    forward_trim: SangerTrimIn = Field(default_factory=SangerTrimIn)
+    reverse_trim: SangerTrimIn = Field(default_factory=SangerTrimIn)
+    consensus: SangerConsensusIn = Field(default_factory=SangerConsensusIn)
+    mixed_ratio: float = Field(default=0.33, gt=0, le=1)
+
+
+class SangerIdentificationIn(SangerBuildIn):
+    label: str | None = Field(default=None, max_length=255)
+    suspected: SangerSuspectedIn | None = None
+    notes: str | None = Field(default=None, max_length=5000)
+
+
+class SangerIdentificationUpdateIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    label: str | None = Field(default=None, max_length=255)
+    suspected: SangerSuspectedIn | None = None
+    notes: str | None = Field(default=None, max_length=5000)
+
+
+class SangerReadUpdateIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    direction: Literal["forward", "reverse", "unknown"] | None = None
+    pair_key: str | None = Field(default=None, max_length=255)
+    name: str | None = Field(default=None, max_length=255)
+
+
+class SangerBlastIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    task: Literal["blastn", "megablast", "dc-megablast", "blastn-short"] | None = None
+    evalue: float | None = Field(default=None, gt=0, le=10)
+    max_target_seqs: int | None = Field(default=None, ge=1, le=5000)
+
+
+class SangerSearchIn(BaseModel):
+    """Which sources to search (all of them when none is given), the database of each (its default otherwise), the
+    genomes in ARVA (this sample's newest genome otherwise) and BLAST settings per source."""
+    model_config = ConfigDict(extra="forbid")
+    sources: list[Literal["ncbi_16s", "vfdb", "mlst", "amrfinderplus", "spa", "reference_genomes", "genomes"]] | None \
+        = None
+    database_ids: dict[str, str] = Field(default_factory=dict)
+    assembly_ids: list[str] | None = None
+    blast: dict[str, SangerBlastIn] = Field(default_factory=dict)
+    amr_organism: str | None = Field(default=None, max_length=100, pattern=r"^[A-Z][a-z]+(?:_[a-z]+)?$")
+    confirmed: bool = False
+    # Start the sources that can run and leave out the blocked ones (otherwise any blocked source refuses the run).
+    only_runnable: bool = False
+
+
+class Ncbi16sPlanRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    taxonomy: bool = Field(default=False, description="Also keep NCBI's taxonomy files (about 295 MB more)")
+    destination: str | None = Field(default=None, max_length=4096)
+    folder: str | None = Field(default=None, max_length=400)
+
+
+class Ncbi16sStartRequest(Ncbi16sPlanRequest):
+    confirm_version: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$", description="The build date the plan showed")
+    confirm_bytes: int = Field(ge=0, description="The archive size the plan showed (NCBI's metadata)")
+    accept_terms: bool

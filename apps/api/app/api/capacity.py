@@ -37,11 +37,12 @@ def _content_length(scope: Scope) -> int | None:
 
 
 class UploadCapacityGuard:
-    """Pure ASGI middleware for POST {prefix}/samples/{id}/files, checked against Content-Length."""
+    """Pure ASGI middleware for POST {prefix}/samples/{id}/files and /samples/{id}/sanger/reads (Sanger read files),
+    checked against Content-Length."""
 
     def __init__(self, app: ASGIApp, api_prefix: str):
         self.app = app
-        self.pattern = re.compile(rf"^{re.escape(api_prefix)}/samples/[^/]+/files/?$")
+        self.pattern = re.compile(rf"^{re.escape(api_prefix)}/samples/[^/]+/(?:files|sanger/reads)/?$")
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] == "http" and scope["method"] == "POST" and self.pattern.match(scope["path"]):

@@ -323,12 +323,14 @@ class _CountingReader:
         return data
 
 
-def extract(archive: Path, dest: Path, top_dir: str | None, on_progress: Callable[[int, int], None]) -> int:
+def extract(archive: Path, dest: Path, top_dir: str | None, on_progress: Callable[[int, int], None],
+            keep: Callable[[PurePosixPath], bool] | None = None) -> int:
     """Unpack a (compressed) tar archive into the empty folder `dest`, member by member, without the tarfile
     extraction helpers: only directories, regular files, hard links to earlier files and relative symbolic links
     that stay inside top_dir/ (or the archive, without a top folder) are accepted. Symbolic links are created last,
-    so nothing is ever written through one. on_progress(compressed bytes read, bytes written). Returns the number of
-    members."""
+    so nothing is ever written through one. on_progress(compressed bytes read, bytes written). With `keep`, only the
+    regular files it accepts are written (every member's name is still checked). Returns the number of members
+    written."""
     dest.mkdir(parents=True, exist_ok=False)
     real_dest = os.path.realpath(dest)
     links: list[tuple[PurePosixPath, str]] = []
@@ -348,6 +350,11 @@ def extract(archive: Path, dest: Path, top_dir: str | None, on_progress: Callabl
                             raise UnsafeArchive(f"the archive member {member.name!r} is not a folder")
                         continue
                     target = dest.joinpath(*rel.parts)
+                    if keep is not None and not member.isdir():
+                        if not member.isreg():
+                            raise UnsafeArchive(f"the archive member {member.name!r} is not a plain file")
+                        if not keep(rel):
+                            continue
                     if member.isdir():
                         target.mkdir(parents=True, exist_ok=True)
                     elif member.isreg():

@@ -49,6 +49,8 @@ PROBLEMS = {
     "too_many": "More than {limit} genomes: only the first {limit} were read",
     "not_text": "{file} is not a text file with one genome path per line",
     "spa_format": "{file} does not look like the SpaServer's file: {detail}",
+    "blastdb_unreadable": "blastdbcmd could not read this BLAST database: {detail}",
+    "blastdb_mismatch": "{file} states {stated} sequences but the BLAST database holds {found}",
 }
 
 
@@ -479,6 +481,90 @@ def _spa_types(root: Path) -> Detection | None:
     return d
 
 
+NCBI_16S = "16S_ribosomal_RNA"
+# A version 5 nucleotide BLAST database as NCBI's archive holds it (listing of 16S_ribosomal_RNA.tar.gz, 2026-11-03).
+NCBI_16S_FILES = tuple(f"{NCBI_16S}.{ext}" for ext in ("nsq", "nin", "nhr", "ndb", "nnd", "nni", "nog", "nos", "not",
+                                                      "ntf", "nto"))
+NCBI_16S_METADATA = f"{NCBI_16S}-nucl-metadata.json"
+NCBI_16S_TAXONOMY = ("taxdb.btd", "taxdb.bti", "taxonomy4blast.sqlite3")
+_BLASTDB_DATE = re.compile(r"[A-Z][a-z]{2} \d{1,2}, \d{4}")
+
+
+def blastdbcmd_info(db: Path) -> tuple[dict | None, str | None]:
+    """(what `blastdbcmd -info` prints about the database, why it could not be read) with the blastdbcmd of the
+    BLAST+ ARVA runs. It only reads the database."""
+    import subprocess
+
+    from arva_tools.blast import BLASTDBCMD_VERSION, info_argv, parse_db_info, sibling
+    from arva_tools.registry import detect as detect_tool
+
+    tool = detect_tool("blast")
+    exe = sibling(tool.path, "blastdbcmd") if tool.path else None
+    if exe is None:
+        return None, "blastdbcmd (BLAST+) is not installed"
+    try:
+        out = subprocess.run(info_argv(exe, str(db)), capture_output=True, text=True, timeout=60, check=False)
+        version = subprocess.run([exe, "-version"], capture_output=True, text=True, timeout=30, check=False)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return None, str(exc)
+    if out.returncode != 0:
+        return None, (out.stderr or out.stdout).strip()[:300] or f"exit status {out.returncode}"
+    try:
+        info = parse_db_info(out.stdout)
+    except ValueError as exc:
+        return None, str(exc)
+    m = BLASTDBCMD_VERSION.search(version.stdout)
+    return {**info, "reader": m.group(1) if m else None}, None
+
+
+def _ncbi_16s(root: Path) -> Detection | None:
+    if not (root / f"{NCBI_16S}.nsq").is_file():
+        return None
+    d = Detection("ncbi_16s", str(root), "folder")
+    d.require(root, *NCBI_16S_FILES)
+    for name in NCBI_16S_TAXONOMY:
+        if (root / name).is_file():
+            d.files.append(_check(root, name, "optional"))
+    if (root / f"{NCBI_16S}.tar.gz.md5").is_file():
+        d.files.append(_check(root, f"{NCBI_16S}.tar.gz.md5", "optional"))
+    d.facts["taxonomy_files"] = [n for n in NCBI_16S_TAXONOMY if (root / n).is_file()]
+    meta = None
+    if (root / NCBI_16S_METADATA).is_file():
+        try:
+            meta = json.loads(read_text(root / NCBI_16S_METADATA))
+        except ValueError as exc:
+            d.problems.append(Problem("version_unreadable", {"file": NCBI_16S_METADATA, "kind": "NCBI 16S",
+                                                             "detail": str(exc)}))
+        else:
+            day = str(meta.get("last-updated") or "")[:10] if isinstance(meta, dict) else ""
+            if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", day):
+                d.problems.append(Problem("version_unreadable", {"file": NCBI_16S_METADATA, "kind": "NCBI 16S",
+                                                                 "detail": "it has no last-updated date"}))
+            else:
+                d.files.append(_check(root, NCBI_16S_METADATA, "version"))
+                d.version, d.version_file, d.version_detail = day, NCBI_16S_METADATA, "last-updated"
+                d.facts["metadata"] = {k: meta.get(k) for k in ("dbname", "description", "number-of-sequences",
+                                                                "number-of-letters", "last-updated",
+                                                                "bytes-total-compressed", "files")}
+    if not d.ok:
+        return d
+    info, why = blastdbcmd_info(root / NCBI_16S)
+    d.facts["blastdb"] = info
+    if info is None:
+        d.problems.append(Problem("blastdb_unreadable", {"detail": why or "?"}))
+        return d
+    if d.version is None and info.get("date") and (m := _BLASTDB_DATE.match(info["date"])):
+        from datetime import datetime
+
+        d.version = datetime.strptime(m.group(0), "%b %d, %Y").date().isoformat()
+        d.version_file, d.version_detail = "blastdbcmd -info", "Date"
+    if meta and isinstance(meta, dict) and meta.get("number-of-sequences") not in (None, info["sequences"]):
+        d.problems.append(Problem("blastdb_mismatch", {"file": NCBI_16S_METADATA,
+                                                       "stated": meta["number-of-sequences"],
+                                                       "found": info["sequences"]}))
+    return d
+
+
 def _sylph(path: Path) -> Detection | None:
     if path.suffix not in (".syldb", ".syl2db", ".sylqueries"):
         return None
@@ -556,7 +642,7 @@ def _mlst_schemes(root: Path) -> Detection | None:
 
 
 FOLDER_DETECTORS = (_bakta, _amrfinderplus, _gtdbtk, _skani, _kraken2, _checkm2, _busco, _plasmidfinder, _mobsuite,
-                    _genomad, _interproscan, _spa_types, _vfdb, _mlst_schemes, _abricate_db)
+                    _genomad, _interproscan, _spa_types, _vfdb, _mlst_schemes, _abricate_db, _ncbi_16s)
 FILE_DETECTORS = (_sylph, _mash, _vfdb_file)
 
 

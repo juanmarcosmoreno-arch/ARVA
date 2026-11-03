@@ -2247,8 +2247,8 @@ Exploratory analyses of a project's stored results; every result is labelled "ex
 ## Sanger reads of one gene (scientific core)
 
 `scientific-core/arva_core/sanger.py`; the facts and decisions behind it are in
-[sanger-design-notes.md](sanger-design-notes.md). The API, jobs and screens that use it come later; nothing in this
-module sends data anywhere.
+[sanger-design-notes.md](sanger-design-notes.md). The API and its jobs are in `app/services/sanger.py` and
+`app/tasks/sanger.py` (below); nothing is sent anywhere.
 
 - **Reading**: `.ab1` (ABIF) files with Biopython 1.88 (`Bio.SeqIO`, format `abi`): base calls `PBAS2`, Phred
   qualities `PCON2`, peak scans `PLOC2`, the four processed traces `DATA9`–`DATA12` with their bases from `FWO_1`, and
@@ -2296,6 +2296,53 @@ module sends data anywhere.
   cases; `workflows/tool-adapters/tests/test_sanger_tools.py` on real BLAST+ 2.12.0 outputs: the 3100 16S read
   against NCBI's 16S database (2026-10-29 build: *S. epidermidis* at 99.85 %, four other hits at 99.71 %, read as
   genus *Staphylococcus*), MW2's seh against ABRicate's VFDB and VFDB's hlb split in MW2.
+
+## Sanger identification (API and searches)
+
+- **Where the reads live**: under the sample (strain) they come from; the uploaded files stay unchanged in `raw/`.
+  When that sample has a genome in ARVA, its newest genome is the default "genomes" source.
+- **Pairing** (ARVA's heuristic, shown and changeable): the direction from the end of the read's name (`-F`, `_R`,
+  `Fwd`, `Rev`, `Forward`, `Reverse`, or a primer with its letter such as `784F`), then a primer name before it
+  (`_784`), and what is left is the pair key; a leading block of 8 hexadecimal characters and a hyphen, as in the
+  files Macrogen delivered to the user (`57bbff46-1-27_784-F.ab1`), is not part of the key. One forward and one
+  reverse read with the same key of the same sample are proposed as a pair.
+- **One job per source**, each recording its tool, version, exact commands and (with `record_use`) its database's
+  kind, version, version source, checksum and path; the worker checks the sequence's SHA-256, the database record
+  and, for genomes, each genome's contigs SHA-256 again before running:
+  - NCBI 16S (kind `ncbi_16s`): `blastn -task megablast -evalue 1e-10 -max_target_seqs 500` with the subject title,
+    names from the titles;
+  - VFDB (ABRicate 1.4.0's bundled copy): `blastn -task blastn -evalue 1e-5`, gene, product and factor from its
+    headers;
+  - PubMLST alleles (mlst's bundled BLAST database `blast/mlst.fa`): megablast, scheme, locus and allele from the ids;
+  - a reference genome collection: megablast against each genome (`-subject`, decompressed when gzipped), species,
+    strain and type material from the collection;
+  - genomes in ARVA: megablast against the contigs, each hit named by the annotated features of the genome's latest
+    annotation it overlaps, with the share of the feature covered; the species is ARVA's own species identification
+    of that genome when it gave one;
+  - AMRFinderPlus 4.2.7 nucleotide (translated) search with its curated thresholds, and spaTyper with the user's
+    Ridom files.
+  The BLAST settings are ARVA's choices (megablast for near-identical references as in the manual check of the
+  design notes, blastn for VFDB) and can be changed per source; they are shown before the run and recorded.
+- **Results**: the BLAST rows of every source are ranked together (bit score, identity, query coverage) and rows
+  tied with the best are marked, never hidden; the 16S reading uses the NCBI 16S rows only; the suspicion is
+  compared with the rows that carry a gene name (gene) or a species or genus (species). AMRFinderPlus and spaTyper
+  results are listed on their own. Changing the suspicion needs no new search.
+- **NCBI's 16S database**: NCBI publishes only the current build. ARVA reads its metadata file (date, size,
+  sequence count) and MD5 file, downloads the archive after the user confirms the date and size, checks the MD5,
+  records the archive's SHA-256 and extracts only the database files (NCBI's taxonomy files only when asked; the
+  organism comes from the titles). A folder the user already has is registered instead; `blastdbcmd -info` reads it.
+- **Report**: HTML (English or Spanish), JSON and CSV with the reads, trimming, consensus and conflicts, every search
+  with its database and version, the ranked hits, the 16S reading with its criteria and sources, the suspicion, the
+  searched sequence and the limitations.
+- **Verification**: `apps/api/tests/test_sanger_api.py`: imports and refusals, pairing, the consensus of 3100.ab1
+  with a reverse read built from its own calls, real BLAST+ searches (NCBI 16S 2026-10-29 build: genus
+  *Staphylococcus*; the annotation fixture genome named by its Prokka feature; VFDB's seh; mlst's arcC_1;
+  a one-genome reference collection), AMRFinderPlus on a mecA fragment with the constructed release, the 16S
+  download from a local stand-in of NCBI's folder, and the migration up and down. On the user's own pair (local
+  check, nothing committed) the API gives the numbers of section 6 of the design notes: 784F kept 23–582, 1401R
+  15–587, a 599-base consensus with 534 identical overlapping columns and no conflict, 100 % to *S. taiwanensis* and
+  *S. borealis*, 25 species at or above 99 %, read as genus *Staphylococcus*; "*S. aureus*" as the suspicion is
+  "ambiguous".
 
 ## What ARVA does not do yet
 

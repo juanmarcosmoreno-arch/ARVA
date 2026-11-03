@@ -1,0 +1,9 @@
+Database: 16S ribosomal RNA (Bacteria and Archaea type strains)
+	27,646 sequences; 40,048,476 total bases
+
+Date: Oct 29, 2026  5:36 AM	Longest sequence: 3,600 bases
+
+BLASTDB Version: 5
+
+Volumes:
+	/root/.arva-testdata/ncbi-16s/2026-10-29/16S_ribosomal_RNA

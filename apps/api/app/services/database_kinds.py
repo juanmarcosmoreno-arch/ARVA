@@ -456,6 +456,40 @@ KINDS: tuple[DatabaseKind, ...] = (
                      "update."),
     ),
     DatabaseKind(
+        key="ncbi_16s",
+        name="NCBI 16S ribosomal RNA (type strains)",
+        description="NCBI's BLAST database of 16S rRNA sequences of Bacteria and Archaea type strains (RefSeq "
+                    "Targeted Loci), for naming the organism of a Sanger 16S read or consensus with blastn.",
+        tools=(ToolUse("BLAST+", "BLAST+ 2.12.0 (the version ARVA runs) reads the current build, a version 5 BLAST "
+                                 "database (blastdbcmd -info and blastn checked on the 2026-10-29 build)",
+                       integrated=True),),
+        source_url="https://ftp.ncbi.nlm.nih.gov/blast/db/",
+        licence="NCBI places no restrictions on the use or distribution of the data; some submitters may claim "
+                "rights in their data (NCBI website and data usage policies)",
+        licence_url="https://www.ncbi.nlm.nih.gov/home/about/policies/",
+        citation="O'Leary N.A. et al. (2016) Reference sequence (RefSeq) database at NCBI: current status, taxonomic "
+                 "expansion, and functional annotation. Nucleic Acids Research 44(D1):D733-D745, "
+                 "doi:10.1093/nar/gkv1189.",
+        recognise="16S_ribosomal_RNA.nsq, .nin and .nhr with the other files of a version 5 BLAST database (.ndb, "
+                  ".nnd, .nni, .nog, .nos, .not, .ntf, .nto); 16S_ribosomal_RNA-nucl-metadata.json when kept. "
+                  "blastdbcmd -info is read for the title, date, sequence count and BLAST database version.",
+        version_from="\"last-updated\" in 16S_ribosomal_RNA-nucl-metadata.json (the build date, e.g. 2026-10-29); "
+                     "without that file, the date blastdbcmd -info prints. NCBI keeps only the current build.",
+        typical_size="Build of 2026-10-29: 72,729,050-byte archive; the database files are about 18 MB (27,646 "
+                     "sequences), NCBI's taxonomy files in the same archive about 295 MB more.",
+        download="current",
+        download_note="NCBI publishes only the current build, as one archive with an MD5 file and a metadata file "
+                      "giving its date. After you confirm the size and date, ARVA downloads it over HTTPS, checks the "
+                      "MD5 and extracts only the database files (NCBI's taxonomy files only if you ask). It never "
+                      "runs update_blastdb.pl. An older build is available only if you kept it: register its folder.",
+        sources=("NCBI BLAST database FTP listing and 16S_ribosomal_RNA-nucl-metadata.json (2026-11-03)",
+                 "NCBI BLAST databases README (ftp.ncbi.nlm.nih.gov/blast/db/README: version 5 since 2020-02-04, no "
+                 "incremental updates)", "blastdbcmd 2.12.0 -info on the 2026-10-29 build",
+                 "https://www.ncbi.nlm.nih.gov/refseq/targetedloci/"),
+        unconfirmed=("Which citation NCBI asks for this database: the pages read do not say; ARVA cites RefSeq.",
+                     "Whether NCBI keeps older builds anywhere: none is on the FTP listing."),
+    ),
+    DatabaseKind(
         key="reference_genomes",
         name="Reference genome collection",
         description="Genomes of known species (for example type and reference strains) to identify a genome's "
@@ -528,6 +562,13 @@ def compatibility(kind_key: str, version_json: dict | None = None, installed: st
     docs require)."""
     if kind_key == "mlst_schemes":
         return Compatibility("compatible", "bundled_with_tool", {"tool": "mlst"})
+    if kind_key == "ncbi_16s":
+        # What blastdbcmd -info printed when the folder was detected (database_detect._ncbi_16s).
+        info = version_json or {}
+        if info.get("blastdb_version") and info.get("reader"):
+            return Compatibility("compatible", "blastdb_read", {"tool": "BLAST+", "version": str(info["reader"]),
+                                                                "blastdb": int(info["blastdb_version"])})
+        return Compatibility("unknown", "blastdb_unread", {"tool": "BLAST+"})
     if kind_key in _NO_REQUIREMENT:
         return Compatibility("compatible", "no_requirement", {"tool": _NO_REQUIREMENT[kind_key]})
     if kind_key == "gtdbtk":

@@ -83,6 +83,7 @@ REGION_JOBS = ("region_explorer", "gene_investigation")
 PANGENOME_JOB = "pangenome"
 PHYLOGENY_JOB = "phylogeny"
 VARIANT_JOB = "variant_calling"
+SANGER_JOB = "sanger_identification"
 
 
 class ToolUnavailableError(RuntimeError):
@@ -883,6 +884,33 @@ def create_region_job(db: Session, project: Project, job_type: str, plan: dict) 
     db.add(job)
     db.commit()
     _enqueue([job], run_region_explorer_job if job_type == REGION_JOBS[0] else run_gene_investigation_job)
+    db.refresh(job)
+    return job
+
+
+def create_sanger_job(db: Session, sample: Sample, ident, plan: dict) -> AnalysisJob:
+    """One search of a Sanger identification against one source (app.services.sanger): record_use keeps the
+    database's kind, version, version source, checksum and path on the job; for genomes in ARVA each genome's contigs
+    checksum and annotation are recorded in `parameters` and checked again before the run."""
+    from app.services.databases import record_use
+    from app.tasks.sanger import run_sanger_job
+
+    tool = require_tool(plan["tool"]["id"])
+    res = effective_resources(db)
+    threads = res.cap_threads(res.threads)
+    parameters = {"identification_id": ident.id, "source": plan["source"], "kind": plan["kind"],
+                  "settings": {**plan["settings"], "threads": threads},
+                  "query": {"length": ident.length, "sha256": ident.sha256, "mode": ident.mode},
+                  "genomes": plan.get("genomes") or None, "collection": plan.get("collection")}
+    job = _tool_job(sample, SANGER_JOB, tool, parameters, [], res.record(threads))
+    if plan.get("database"):
+        record = db.get(ReferenceDatabase, plan["database"]["id"])
+        if record is None:
+            raise ValueError(f"the database {plan['database']['name']} no longer exists")
+        record_use(job, record)
+    db.add(job)
+    db.commit()
+    _enqueue([job], run_sanger_job)
     db.refresh(job)
     return job
 

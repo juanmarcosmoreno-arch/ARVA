@@ -24,6 +24,7 @@ from app.models.reference_database import (
     VersionSource,
 )
 from app.models.sample import Sample, SequencingTechnology
+from app.models.sanger import SangerIdentification, SangerRead, SangerSearchResult
 from app.models.species_result import SpeciesResult
 from app.models.typing_result import TypingResult
 from app.models.variant_call import VariantCall
@@ -63,6 +64,9 @@ __all__ = [
     "RawFile",
     "ReferenceDatabase",
     "Sample",
+    "SangerIdentification",
+    "SangerRead",
+    "SangerSearchResult",
     "SequencingTechnology",
     "SpeciesResult",
     "TypingResult",

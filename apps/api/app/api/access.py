@@ -42,6 +42,8 @@ from app.models import (
     Project,
     RawFile,
     Sample,
+    SangerIdentification,
+    SangerRead,
     SpeciesResult,
     VariantCall,
 )
@@ -105,6 +107,10 @@ RESOLVERS: list[tuple[str, str, Callable[[Session, str], str | None]]] = [
     ("/comparisons/results", "result_id", _result_project),
     ("/comparisons/phylogeny/compare", "a", _result_project),
     ("/comparisons/phylogeny/compare", "b", _result_project),
+    ("/sanger", "read_id", _via_sample(SangerRead)),
+    ("/sanger", "identification_id", _via_sample(SangerIdentification)),
+    ("", "forward_read_id", _via_sample(SangerRead)),
+    ("", "reverse_read_id", _via_sample(SangerRead)),
     ("", "project_id", lambda db, i: i if db.get(Project, i) else None),
     ("", "sample_id", _sample_project),
     ("", "sample_ids", _sample_project),
@@ -118,7 +124,7 @@ RESOLVERS: list[tuple[str, str, Callable[[Session, str], str | None]]] = [
     ("", "set_id", _attr(ComparisonSet, "project_id")),
 ]
 BODY_KEYS = {"project_id", "sample_id", "sample_ids", "assembly_id", "assembly_ids", "reference_assembly_id",
-             "annotation_id", "file_id", "file_ids", "job_id", "set_id"}
+             "annotation_id", "file_id", "file_ids", "job_id", "set_id", "forward_read_id", "reverse_read_id"}
 
 
 def resolver(route: str, param: str) -> Callable[[Session, str], str | None] | None:

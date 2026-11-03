@@ -40,6 +40,7 @@ from app.api.routes import (
     regions,
     reports,
     samples,
+    sanger,
     species,
     system,
     tools,
@@ -170,7 +171,7 @@ def create_app() -> FastAPI:
     for module in (dashboard, projects, samples, files, imports, metadata, analyses, tools, reports, overview,
                    assemblies, annotations, explorer, amr, mobile_elements, databases, mlst, species, system,
                    diagnostics, typing, comparative, regions, pangenome, phylogeny, variants, workflows, auth, discover,
-                   assist):
+                   assist, sanger):
         app.include_router(module.router, prefix=settings.api_v1_prefix, dependencies=[Depends(access.guard)])
     return app
 

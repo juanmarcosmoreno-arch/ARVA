@@ -315,6 +315,29 @@ strain closest to *S. aureus* (MW2 and MSSA476 copies identical), which is consi
 *S. aureus*: a higher-resolution gene (rpoB, sodA, tuf or gap) or the genome is needed. This is the result the
 module must be able to state, with these numbers.
 
+## 7. Where the Sanger data live, and the backend (Part 2)
+
+- **Under the sample.** A Sanger read belongs to the sample (strain) it was amplified from, like the sample's
+  sequencing reads, and its file stays unchanged in `raw/<project>/<sample>/sanger/`. A strain that also has a genome
+  in ARVA is the same sample: its newest genome is the default "genomes" source of the identification, and the
+  Sanger and genome results sit side by side. A read file is never attached to an assembly: the link is the sample.
+- **Three tables** (migration `e2c7a9f4b6d1`): `sanger_reads` (one read; a FASTA file may hold several), a
+  `sanger_identifications` row per question asked of one read or a pair (settings, searched sequence, consensus with
+  its evidence, suspicion), and `sanger_search_results` (the rows of one search job). The ranking, the 16S reading
+  and the comparison with the suspicion are computed when shown, so changing the suspicion needs no new search.
+- **One analysis job per source** (`job_type` `sanger_identification`), so that each database is recorded with
+  `record_use` (kind, version, version source, checksum, path) and the Database Manager sees it in use.
+- **NCBI 16S as a Database Manager kind** (`ncbi_16s`): registered folder or downloaded current build, as planned in
+  section 3. Its compatibility is "read by BLAST+ <version>" when `blastdbcmd -info` of the BLAST+ ARVA runs read the
+  folder at detection (BLASTDB version 5 on the 2026-10-29 build); NCBI's README states no minimum BLAST+ version for
+  version 5 databases, so ARVA does not claim one.
+- **Not done in this part**: NCBI's online BLAST (to be an explicit, opt-in action only, never needed); asking NCBI
+  Datasets for `GENOME_GFF` when a reference collection is built (its hits are named by species, not by gene); the
+  screens.
+- **Manual end-to-end check through the API** on the user's pair (local only): the numbers of section 6 (kept
+  23–582 and 15–587, 599-base consensus, 534 identical overlapping columns, no conflict, 100 % to *S. taiwanensis* and
+  *S. borealis*, 25 species at or above 99 %, genus *Staphylococcus*; *S. aureus* suspected: "ambiguous").
+
 ## Not confirmed
 
 - The CLSI MM18 text itself (quoted from three papers).

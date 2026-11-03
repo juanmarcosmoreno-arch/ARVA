@@ -85,6 +85,31 @@ def missing_flags(program: str, help_text: str) -> list[str]:
     return [f for f in wanted if f not in opts]
 
 
+_INFO_COUNTS = re.compile(r"^\s*([\d,]+) sequences; ([\d,]+) total (bases|residues)", re.M)
+_INFO_DATE = re.compile(r"^Date: (.+?)(?:\t|\s{2,}Longest|$)", re.M)
+_INFO_VERSION = re.compile(r"^BLASTDB Version: (\d+)", re.M)
+_INFO_TITLE = re.compile(r"^Database: (.+)$", re.M)
+BLASTDBCMD_VERSION = re.compile(r"blastdbcmd: (\d+\.\d+\.\d+)\+")
+
+
+def info_argv(blastdbcmd: str, db: str) -> list[str]:
+    """`blastdbcmd -db <db> -info` (blastdbcmd 2.12.0 -help: "-info Print BLAST database information")."""
+    return [blastdbcmd, "-db", db, "-info"]
+
+
+def parse_db_info(text: str) -> dict[str, Any]:
+    """What `blastdbcmd -info` prints about a database (blastdbcmd 2.12.0, e.g. on NCBI's 16S_ribosomal_RNA):
+    "Database: <title>", "<n> sequences; <n> total bases", "Date: Oct 29, 2026  5:36 AM" and "BLASTDB Version: 5".
+    Raises ValueError when the title, counts or version are missing."""
+    title, counts, version = _INFO_TITLE.search(text), _INFO_COUNTS.search(text), _INFO_VERSION.search(text)
+    if not (title and counts and version):
+        raise ValueError("blastdbcmd -info did not print the database title, size and version")
+    date = _INFO_DATE.search(text)
+    return {"title": title.group(1).strip(), "sequences": int(counts.group(1).replace(",", "")),
+            "letters": int(counts.group(2).replace(",", "")), "date": " ".join(date.group(1).split()) if date else None,
+            "blastdb_version": int(version.group(1))}
+
+
 def parse_tabular(text: str, titles: bool = False) -> list[dict[str, Any]]:
     """`-outfmt "6 <FIELDS>"` rows as HSPs: positions as reported plus `sstrand` (+/-) and s_lo <= s_hi. With
     `titles`, rows of OUTFMT_TITLES: the extra last column is `stitle` (None when BLAST wrote "N/A")."""

@@ -185,6 +185,24 @@
   (`POST /databases/ncbi/plan`, then `/databases/ncbi` with the confirmed count and fingerprint): a database task
   (`app/tasks/ncbi_collection.py`) downloads, extracts, checks the MD5s and the accession list and installs the
   collection (origin `download`, version source `download`).
+- **Sanger reads of one gene** (`app/models/sanger.py`, migration `e2c7a9f4b6d1`): Sanger data belong to the
+  **sample** they were amplified from, the strain or isolate, like its sequencing reads; when the same strain also
+  has a genome in ARVA it is the same sample, so its genome (with its annotation) is offered first as a source for
+  the Sanger identification and both results are shown on that sample. `sanger_reads`: one read of an uploaded
+  `.ab1`, FASTA or `.seq` file (stored unchanged in `raw/<project>/<sample>/sanger/`, SHA-256, size, record index for
+  a FASTA file of several reads), its direction (forward, reverse, unknown) and pair key proposed from its name or
+  set by the user, length, whether it has qualities and a trace, and its summary (instrument, base caller, mean
+  quality, default trimming). `sanger_identifications`: one question asked of one read or a forward + reverse pair:
+  the trimming and consensus settings, the searched sequence with its SHA-256, the consensus with every column's
+  evidence and every conflict, and what the user suspects (gene or species). A read used by an identification
+  cannot be deleted. `sanger_search_results`: the rows of one search job (`job_type` `sanger_identification`, one
+  job per source, so every database is recorded with `record_use`); the ranking across sources, the 16S reading and
+  the comparison with the suspicion are computed from these rows when they are shown. Routes: `GET
+  /samples/{id}/sanger`, `POST /samples/{id}/sanger/reads` (multipart), `GET|PATCH|DELETE /sanger/reads/{id}`,
+  `/sanger/reads/{id}/trace`, `/sanger/reads/{id}/file`, `POST /samples/{id}/sanger/consensus/preview`,
+  `POST /samples/{id}/sanger/identifications`, `GET|PATCH|DELETE /sanger/identifications/{id}`, `.../genomes`,
+  `.../search/preview`, `.../search`, `.../consensus.fasta`, `.../report?format=html|json|csv&lang=en|es`;
+  NCBI's 16S database: `POST /databases/ncbi-16s/plan` and `/databases/ncbi-16s/download`.
 - **QCResult**: structured output of a sequence-statistics job for one raw file. Headline metrics are
   indexed columns; the full payload is JSON (also written to `results/…/sequence_stats.json`).
 

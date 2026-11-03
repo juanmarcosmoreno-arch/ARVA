@@ -70,6 +70,9 @@ class Settings(BaseSettings):
     # NCBI's folder of AMRFinderPlus database releases (one subfolder per software minor version). Tests point it at
     # a local server.
     amrfinder_db_url: str = "https://ftp.ncbi.nlm.nih.gov/pathogen/Antimicrobial_resistance/AMRFinderPlus/database"
+    # NCBI's BLAST database folder, for the current 16S_ribosomal_RNA build (app.services.ncbi16s_db). Tests point
+    # it at a local server.
+    ncbi_blast_db_url: str = "https://ftp.ncbi.nlm.nih.gov/blast/db"
     # NCBI's dated taxonomy archives, read to build MOB-suite's taxa.sqlite. Tests point it at a local server.
     ncbi_taxonomy_url: str = "https://ftp.ncbi.nlm.nih.gov/pub/taxonomy/taxdump_archive"
 
