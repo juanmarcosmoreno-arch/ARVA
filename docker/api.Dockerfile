@@ -168,7 +168,9 @@ COPY scientific-core ./scientific-core
 COPY workflows/tool-adapters ./workflows/tool-adapters
 COPY apps/api ./apps/api
 COPY apps/workers ./apps/workers
-# The pod5 extra (official Oxford Nanopore library, MPL-2.0) lets the worker read POD5 run metadata.
+# The pod5 extra (official Oxford Nanopore library, MPL-2.0) lets the worker read POD5 run metadata. The scientific
+# core brings Biopython 1.88 (pinned in scientific-core/pyproject.toml; PyPI wheels for amd64 and arm64), which reads
+# Sanger chromatograms (.ab1) and aligns forward and reverse reads in the API's own Python.
 RUN pip install ./scientific-core ./workflows/tool-adapters "./apps/api[pod5]"
 
 COPY docker/api-entrypoint.sh /usr/local/bin/arva-api

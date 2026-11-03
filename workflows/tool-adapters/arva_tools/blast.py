@@ -14,6 +14,11 @@ runs on NCBI genomes (fixtures/region/README.md):
   tblastn and blastp take -comp_based_stats (default 2); ARVA passes it explicitly.
 * `-outfmt "6 <fields>"` writes one tab-separated row per HSP with the named fields. Coordinates are 1-based and
   inclusive; sstart > send when the subject's minus strand aligned (blastn) or a negative frame did (tblastn).
+* `stitle` ("Subject Title" in the -help texts) is the subject's whole FASTA title. ARVA asks for it, as the last
+  column, only when a database's names are in its titles: NCBI's 16S_ribosomal_RNA database ("Staphylococcus
+  epidermidis strain ... 16S ribosomal RNA, partial sequence") and ABRicate's databases (the header after the id);
+  a database made without titles gives "N/A" (seen with mlst's BLAST database of PubMLST alleles). Being last, a
+  title is read whole even if it contains a tab.
 """
 from __future__ import annotations
 
@@ -28,6 +33,8 @@ from arva_tools.base import ToolAdapter, ToolInfo, help_options, read_help
 FIELDS = ("qseqid", "sseqid", "pident", "length", "mismatch", "gapopen", "qstart", "qend", "sstart", "send", "evalue",
           "bitscore", "qlen", "slen", "nident")
 OUTFMT = "6 " + " ".join(FIELDS)
+TITLE_FIELD = "stitle"
+OUTFMT_TITLES = f"{OUTFMT} {TITLE_FIELD}"
 PROGRAMS = {"blastn": ("blastn", "blastn-short", "dc-megablast", "megablast"), "tblastn": ("tblastn", "tblastn-fast"),
             "blastp": ("blastp", "blastp-fast")}
 FILTER_FLAG = {"blastn": "-dust", "tblastn": "-seg", "blastp": "-seg"}
@@ -78,15 +85,17 @@ def missing_flags(program: str, help_text: str) -> list[str]:
     return [f for f in wanted if f not in opts]
 
 
-def parse_tabular(text: str) -> list[dict[str, Any]]:
-    """`-outfmt "6 <FIELDS>"` rows as HSPs: positions as reported plus `sstrand` (+/-) and s_lo <= s_hi."""
+def parse_tabular(text: str, titles: bool = False) -> list[dict[str, Any]]:
+    """`-outfmt "6 <FIELDS>"` rows as HSPs: positions as reported plus `sstrand` (+/-) and s_lo <= s_hi. With
+    `titles`, rows of OUTFMT_TITLES: the extra last column is `stitle` (None when BLAST wrote "N/A")."""
     rows = []
+    want = len(FIELDS) + (1 if titles else 0)
     for n, line in enumerate(text.splitlines(), 1):
         if not line.strip():
             continue
-        f = line.split("\t")
-        if len(f) != len(FIELDS):
-            raise ValueError(f"BLAST line {n} has {len(f)} columns instead of {len(FIELDS)}")
+        f = line.split("\t", len(FIELDS)) if titles else line.split("\t")
+        if len(f) != want:
+            raise ValueError(f"BLAST line {n} has {len(f)} columns instead of {want}")
         try:
             r: dict[str, Any] = {"qseqid": f[0], "sseqid": f[1], "pident": float(f[2]), "evalue": float(f[10]),
                                  "bitscore": float(f[11])}
@@ -101,6 +110,9 @@ def parse_tabular(text: str) -> list[dict[str, Any]]:
             raise ValueError(f"BLAST line {n} has values out of range")
         r["sstrand"] = "+" if r["sstart"] <= r["send"] else "-"
         r["s_lo"], r["s_hi"] = min(r["sstart"], r["send"]), max(r["sstart"], r["send"])
+        if titles:
+            title = f[len(FIELDS)].strip()
+            r[TITLE_FIELD] = None if title in ("", "N/A") else title
         rows.append(r)
     return rows
 
@@ -140,12 +152,13 @@ class BlastAdapter(ToolAdapter):
 
     @staticmethod
     def search_argv(executable: str, params: BlastParams, query: str, out: str, db: str | None = None,
-                    subject: str | None = None) -> list[str]:
+                    subject: str | None = None, titles: bool = False) -> list[str]:
         params.validate()
         if (db is None) == (subject is None):
             raise ValueError("search a database or a subject file, not both")
         target = ["-db", db] if db is not None else ["-subject", subject]
-        argv = [executable, "-task", params.task, "-query", query, *target, "-out", out, "-outfmt", OUTFMT,
+        argv = [executable, "-task", params.task, "-query", query, *target, "-out", out, "-outfmt",
+                OUTFMT_TITLES if titles else OUTFMT,
                 "-evalue", f"{params.evalue:g}", "-max_target_seqs", str(params.max_target_seqs),
                 FILTER_FLAG[params.program], "yes" if params.low_complexity_filter else "no"]
         if params.program == "blastn":

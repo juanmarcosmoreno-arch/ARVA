@@ -2244,6 +2244,59 @@ Exploratory analyses of a project's stored results; every result is labelled "ex
   p 0.2323; uncorrected 1.5246, p 0.2169; common OR 0.9046968, 95 % CI 0.7719074–1.0603298) and with Newcombe's (1998)
   example 56/70 − 48/80 (0.0524 to 0.3339).
 
+## Sanger reads of one gene (scientific core)
+
+`scientific-core/arva_core/sanger.py`; the facts and decisions behind it are in
+[sanger-design-notes.md](sanger-design-notes.md). The API, jobs and screens that use it come later; nothing in this
+module sends data anywhere.
+
+- **Reading**: `.ab1` (ABIF) files with Biopython 1.88 (`Bio.SeqIO`, format `abi`): base calls `PBAS2`, Phred
+  qualities `PCON2`, peak scans `PLOC2`, the four processed traces `DATA9`–`DATA12` with their bases from `FWO_1`, and
+  the instrument, base caller and run date. A file whose qualities are all 0 (an ABI 310 file) has "no usable
+  qualities". FASTA and plain `.seq` text are read too, without qualities or trace.
+- **Trimming**: the modified Mott algorithm as the maximum-scoring segment: each base scores `limit − 10^(−Q/10)`,
+  and the kept region ends at the highest running sum (reset when it is not positive) and starts after the last zero
+  before it (CLC Genomics Workbench manual, Quality trimming). The limit is a parameter, 0.05 by default (Biopython's
+  value); the kept range is reported in 1-based positions of the original read with its mean quality and share of
+  bases at Q20 or more. Biopython's own `abi-trim` is not used: its limit is fixed and it starts at the first positive
+  value. A read without qualities is not trimmed unless a range is given by hand.
+- **Chromatogram for display**: the traces between two scans, downsampled by keeping the highest value of each block
+  of scans so no peak is lost, with a marker per base. A base is flagged for review when it is an IUPAC call or when
+  the second channel at its peak is at least 0.33 of the highest (ARVA's flag, adjustable; 0.33 is tracy 0.9.1's
+  default peak ratio).
+- **Consensus of a forward and a reverse read**: the reverse read is reverse-complemented and aligned to the forward
+  read with Biopython's `PairwiseAligner` (global, free end gaps, match 2, mismatch −3, gap open −5, extend −2, N as
+  a wildcard). Every column keeps both reads' base, quality, channel heights at the peak and the peak's scan. Inside
+  the overlap a difference is a conflict: the higher-quality base wins only when it is at least Q20 and 10 above the
+  other (for a base against a gap, the gap read's quality is the lower of its neighbours'); a no-call (N) takes the
+  other read's base; anything else is left as an IUPAC code (or N against a gap), and every conflict is listed.
+  Outside the overlap the single read's base is used and marked. The other orientation is also scored: when it
+  scores higher, the reads are flagged as possibly not a forward/reverse pair. Fewer than 25 overlapping columns or
+  below 90 % identity in the overlap gives no consensus. These rules are ARVA's and are reported with the result.
+- **Hits**: BLAST+ HSPs (`arva_tools.blast`, optionally with the subject title) are chained per subject with
+  `arva_core.region.chain_matches` (pieces up to 50 kb apart join into one "split" match, as hlb interrupted by a
+  prophage in MW2), giving identity (identical bases / aligned columns), query and subject coverage, bit score and the
+  number of separate matches. Identity and coverage are kept unrounded, so a threshold is never passed by rounding
+  (593 of 599 bases is 98.998 %, below 99 %). A genome hit is named by the annotated features it overlaps, with the
+  share of each feature covered. Names come from NCBI 16S titles, ABRicate database headers (VFDB's "hly/hla" is
+  both hly and hla) or mlst allele ids.
+- **16S reading**: CLSI MM18's criteria as quoted by Frickmann et al. 2015, Locher et al. 2022 and Campodónico et al.
+  2025 (the guideline itself was not read): species at ≥ 99 % identity with ≥ 0.8 % to the next species, genus at
+  ≥ 97 %, query coverage ≥ 98 % and more than 440 aligned bases; ARVA also names a genus only when no other genus is
+  within 0.8 %. Every species at or above 99 % and every one within 0.8 % of the best are listed. Caveats: the
+  criteria were set for the first 500 bp of the gene (shown when the read aligns elsewhere), the database holds type
+  strains, and in *Staphylococcus* 16S often cannot separate species (Kosecka-Strojek et al. 2019; Ghebremedhin et
+  al. 2008), with rpoB, sodA, tuf or gap suggested.
+- **What the user suspected**: a gene or a species (one word is a genus). "Match" when it is among the best hits,
+  alone, and meets the thresholds (genes: 80 % identity and 80 % coverage, ABRicate 1.4.0's defaults, coverage being
+  the larger of query and subject coverage; species: the CLSI values); "ambiguous" when other names tie with it
+  (genes: same identity and coverage; species: within 0.8 %); "no match" when it is absent, below the thresholds or
+  beaten by another name. Better and tied hits with other names are always returned.
+- **Verification**: `scientific-core/tests/test_sanger.py` on Biopython's public chromatograms (3100, 310) and rule
+  cases; `workflows/tool-adapters/tests/test_sanger_tools.py` on real BLAST+ 2.12.0 outputs: the 3100 16S read
+  against NCBI's 16S database (2026-10-29 build: *S. epidermidis* at 99.85 %, four other hits at 99.71 %, read as
+  genus *Staphylococcus*), MW2's seh against ABRicate's VFDB and VFDB's hlb split in MW2.
+
 ## What ARVA does not do yet
 
 - No pass/fail thresholds: suitability depends on technology, chemistry and purpose.

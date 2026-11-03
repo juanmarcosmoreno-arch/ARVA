@@ -7,7 +7,14 @@ name = "arva-core"
 version = "0.1.0"
 description = "ARVA scientific core: format detection, validation and sequence statistics"
 requires-python = ">=3.11"
-dependencies = ["numpy>=1.26"]
+dependencies = [
+    "numpy>=1.26",
+    # Sanger chromatograms (.ab1, Bio.SeqIO "abi") and the forward/reverse alignment (Bio.Align.PairwiseAligner) in
+    # arva_core.sanger. Biopython License Agreement (some files also BSD-3-Clause). Pinned: ARVA reads the raw ABIF
+    # tags Biopython 1.88 keeps (docs/sanger-design-notes.md). Wheels for Linux x86-64/ARM64, Windows and Apple
+    # Silicon; none for Intel macOS (there pip builds it from the source distribution, which needs a C compiler).
+    "biopython==1.88",
+]
 
 [project.optional-dependencies]
 dev = ["pytest>=8.3", "scipy==1.18.1"]

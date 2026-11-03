@@ -1100,6 +1100,15 @@ read with Python's own `csv` module. Old `.xls`, `.xlsm`, `.xlsb` and `.ods` fil
 `ARVA_METADATA_MAX_*` variables below; uploads above `ARVA_METADATA_MAX_BYTES` are refused with
 `413` before the body is received.
 
+### Sanger chromatograms (Biopython)
+
+Reading `.ab1` chromatograms and aligning forward and reverse reads needs no extra step either:
+`biopython==1.88` (Biopython License Agreement, with some files also under BSD-3-Clause; it needs NumPy) is a
+dependency of the scientific core, installed by `scripts/setup-dev.sh`, by `pip install ./scientific-core` and in the
+Docker image. PyPI has wheels for Linux x86-64 and ARM64, Windows and Apple Silicon; on an Intel Mac pip builds it
+from the source distribution, which needs a C compiler (Xcode's command-line tools). It is pinned because ARVA reads
+the raw ABIF tags that Biopython 1.88 keeps. It makes no network access.
+
 ## Importing large files from a server folder
 
 Browser uploads work for any size, but multi-gigabyte runs are faster and more robust when ARVA

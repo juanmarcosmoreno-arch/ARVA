@@ -69,6 +69,13 @@ awk -F '\t' -v len="$genome_len" 'NR == 2 && $4 == 1 && $5 == len { ok = 1 } END
   echo "seqkit did not report one sequence of $genome_len bp" >&2
   exit 1
 }
+# Biopython in the image's Python reads a public Sanger chromatogram (Biopython's own test file, in the image with
+# scientific-core/tests/fixtures/sanger) and ARVA trims it as its tests expect.
+docker run --rm "$api_image" python -c "from arva_core import sanger
+r = sanger.read_abi('/opt/arva/scientific-core/tests/fixtures/sanger/3100.ab1')
+t = sanger.trim_read(r).trim
+assert (len(r), t['start'], t['end']) == (795, 19, 697), (len(r), t)
+print('Sanger .ab1 read with Biopython:', len(r), 'bases, kept', t['start'], '-', t['end'])"
 
 echo "==> API with PostgreSQL and Redis"
 docker network create "$net" > /dev/null
