@@ -138,7 +138,7 @@ def _storage(db: Session) -> dict:
     o = locations.overview(db)
     m, b = o["marker"], o["backups"]
     keys = ("role", "host_path", "container_path", "read_only", "available", "free_bytes", "total_bytes",
-            "filesystem", "warnings", "databases")
+            "filesystem", "warnings", "databases", "space_source", "misreport", "host_measured_at")
     return {"marker": m.status, "in_container": o["in_container"], "log_folder_writable": errorlog.log_folder() is not None,
             "locations": [{k: loc[k] for k in keys} for loc in o["locations"]],
             "backups": {"count": b["count"], "latest": b["files"][0]["created_at"] if b["files"] else None,
@@ -382,7 +382,8 @@ def markdown(r: dict) -> str:
         out += [f"Storage marker: {_cell(st['marker'])} · log folder writable: {_cell(st['log_folder_writable'])} · "
                 f"in a container: {_cell(st['in_container'])}", "",
                 *_table(st["locations"], ["role", "host_path", "container_path", "read_only", "available",
-                                          "free_bytes", "total_bytes", "filesystem", "warnings", "databases"]),
+                                          "free_bytes", "total_bytes", "filesystem", "warnings", "databases",
+                                          "space_source"]),
                 "", "Metadata backups:", "", *_pairs(st["backups"]), ""]
     else:
         out += [*_pairs(st), ""]

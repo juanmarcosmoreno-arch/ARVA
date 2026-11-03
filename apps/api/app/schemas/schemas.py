@@ -839,6 +839,16 @@ class UploadResult(BaseModel):
 
 # --- Storage capacity and server-folder import ----------------------------------
 
+class StorageMisreportRead(BaseModel):
+    reason: Literal["parent_share", "size_differs"] = Field(
+        description="parent_share: Docker mounts the folder from a share above its disk (/Volumes); size_differs: the "
+                    "disk's size inside the container is not the launcher's")
+    share: str | None = Field(description="The host folder Docker Desktop shares the mount from, e.g. /Volumes")
+    disk: str | None = Field(description="The disk to share instead, e.g. /Volumes/JM")
+    container_free_bytes: int | None
+    container_total_bytes: int | None
+
+
 class StorageLocationRead(BaseModel):
     role: Literal["data", "databases", "import", "external_databases"]
     container_path: str = Field(description="Where ARVA sees the folder (inside its containers)")
@@ -849,11 +859,20 @@ class StorageLocationRead(BaseModel):
     free_bytes: int | None
     total_bytes: int | None
     filesystem: str | None = Field(description="The host filesystem as the launcher read it (apfs, hfs, exfat, ...)")
-    warnings: list[Literal["not_connected", "fat_filesystem", "low_space"]]
+    warnings: list[Literal["not_connected", "fat_filesystem", "low_space", "space_misreported"]]
     marker: str | None = Field(default=None, description="The data folder's storage marker status")
     stores: list[str]
     slot: str | None = Field(default=None, description="An added database folder's number (/databases-external/<n>)")
     databases: int | None = Field(default=None, description="Reference databases ARVA knows in this folder")
+    space_source: Literal["container", "host_at_start", "container_misreported"] | None = Field(
+        default=None, description="Where free_bytes and total_bytes come from: read in the container; the launcher's "
+                                  "figures from the start, because the container shows another disk's "
+                                  "(space_misreported); or the container's, known to be wrong, without a launcher figure")
+    misreport: StorageMisreportRead | None = Field(
+        default=None, description="Why the container's figures are another disk's, and what it shows")
+    host_free_bytes: int | None = Field(default=None, description="The free space scripts/start.sh measured on the host")
+    host_total_bytes: int | None = Field(default=None, description="The disk size scripts/start.sh measured on the host")
+    host_measured_at: dt.datetime | None = Field(default=None, description="When scripts/start.sh measured them")
 
 
 class StorageMarkerRead(BaseModel):
@@ -992,8 +1011,11 @@ class DockerAdviceRead(BaseModel):
 class ImagePlatformRead(BaseModel):
     running: Literal["linux/amd64", "linux/arm64"] | None = Field(description="This process's architecture")
     chosen: Literal["linux/amd64", "linux/arm64"] | None = Field(description="scripts/start.sh's choice")
-    reason: Literal["chosen", "native", "rosetta_on", "rosetta_unknown", "rosetta_off", "unknown"] | None
-    rosetta: Literal["on", "off", "unknown"] | None = Field(description="Docker Desktop's Rosetta setting as read")
+    reason: Literal["chosen", "native", "rosetta_on", "rosetta_default", "rosetta_unknown", "rosetta_off",
+                    "unknown"] | None
+    rosetta: Literal["on", "off", "default", "unknown"] | None = Field(
+        description="Docker Desktop's Rosetta setting as read; default: its settings file has no such key (it keeps "
+                    "only settings changed from Docker Desktop's defaults)")
     source: Literal["published", "local"] | None
     host_arch: str | None
     emulated: bool | None = Field(description="An image of another architecture than the computer's")
@@ -1848,6 +1870,8 @@ class DatabaseLocationRead(BaseModel):
     free_bytes: int | None
     total_bytes: int | None
     reserve_bytes: int
+    space_misreported: bool = Field(default=False, description="Docker shows another disk's space for this folder; "
+                                                               "the figures are the launcher's from the start")
 
 
 class BrowseRootRead(BaseModel):

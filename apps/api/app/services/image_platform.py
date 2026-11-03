@@ -14,7 +14,7 @@ from typing import Any
 
 from app.services.host import HostFacts
 
-REASONS = ("chosen", "native", "rosetta_on", "rosetta_unknown", "rosetta_off", "unknown")
+REASONS = ("chosen", "native", "rosetta_on", "rosetta_default", "rosetta_unknown", "rosetta_off", "unknown")
 PLATFORMS = ("linux/amd64", "linux/arm64")
 # Debian bookworm builds these packages for amd64 only (docker/api.Dockerfile): an arm64 image has none of them.
 AMD64_ONLY_DEBIAN = ("prokka", "spades", "unicycler")
@@ -58,7 +58,7 @@ def describe(host: HostFacts, environ: Mapping[str, str], machine: str | None = 
         "running": running,
         "chosen": chosen,
         "reason": _one_of(environ.get("ARVA_HOST_IMAGE_REASON"), REASONS),
-        "rosetta": _one_of(environ.get("ARVA_HOST_DOCKER_ROSETTA"), ("on", "off", "unknown")),
+        "rosetta": _one_of(environ.get("ARVA_HOST_DOCKER_ROSETTA"), ("on", "off", "default", "unknown")),
         "source": _one_of(environ.get("ARVA_HOST_IMAGE_SOURCE"), ("published", "local")),
         "host_arch": host_arch,
         "emulated": emulated,
