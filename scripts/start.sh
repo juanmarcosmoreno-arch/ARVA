@@ -8,7 +8,7 @@
 #   --platform linux/amd64|linux/arm64|auto   the image architecture (saved; auto: chosen at each start)
 # The automatic choice: the computer's own architecture, except on Apple silicon, where it is linux/amd64 (every
 # tool, run through Rosetta) when Docker Desktop's "Use Rosetta for x86_64/amd64 emulation on Apple Silicon"
-# setting is on or cannot be read, and linux/arm64 (native, without the tools that have no arm64 build) when it is
+# setting is on, left at Docker Desktop's default (its settings file then has no such key) or cannot be read, and linux/arm64 (native, without the tools that have no arm64 build) when it is
 # off. The choice and why are printed and shown in Settings → Performance.
 #
 # Storage: where ARVA keeps its files is chosen here once and remembered (scripts/lib/arva-locations.sh), so that
@@ -212,6 +212,7 @@ if [ "$show" = 1 ]; then
   fi
   status=0
   arva_check_locations || status=1
+  if [ "$arva_os" = Darwin ]; then sharing_report "$loc_paths"; fi
   say "Change a location with scripts/start.sh and the option, e.g.:" "Cambia una ubicación con scripts/start.sh y la opción, p. ej.:"
   printf '  %s\n' "scripts/start.sh --data-dir /Volumes/<Disk>/ARVA/data --databases-dir /Volumes/<Disk>/ARVA/databases" \
     "scripts/start.sh --add-databases /Volumes/<Disk>/<existing database folder>"
@@ -225,6 +226,11 @@ if ! arva_check_locations; then
   exit 1
 fi
 arva_write_override
+# A folder on an external disk that Docker Desktop shares only through /Volumes (or its default list): ARVA would read
+# the startup disk's free space (the first run explains this and waits; here it is only said).
+if [ "$arva_os" = Darwin ] && [ "$first_run" = 0 ]; then
+  sharing_report "$loc_paths" >&2
+fi
 
 # Printable ASCII only, at most 80 characters (the values are shown and passed on; ARVA validates them again).
 clean() {
@@ -351,6 +357,7 @@ elif [ "$arva_os" = Darwin ]; then
     case "$rosetta" in
       off) image_platform=linux/arm64 image_reason=rosetta_off ;;
       on) image_platform=linux/amd64 image_reason=rosetta_on ;;
+      default) image_platform=linux/amd64 image_reason=rosetta_default ;;
       *) image_platform=linux/amd64 image_reason=rosetta_unknown ;;
     esac
   else
@@ -376,18 +383,19 @@ case "$image_reason" in
   native)
     say "  this computer's own architecture." "  la arquitectura propia de este equipo."
     ;;
-  rosetta_on | rosetta_unknown)
+  rosetta_on | rosetta_default | rosetta_unknown)
     say "  Apple silicon: the amd64 image runs every ARVA tool (Bakta with all its steps, Prokka, MOB-suite, IntegronFinder,
   AgrVATE, ISEScan and GTDB-Tk have no arm64 build), translated by Rosetta, so slower than a native program.
   scripts/start.sh --platform linux/arm64 runs natively without those tools." \
         "  Apple silicon: la imagen amd64 ejecuta todas las herramientas de ARVA (Bakta con todos sus pasos, Prokka, MOB-suite,
   IntegronFinder, AgrVATE, ISEScan y GTDB-Tk no tienen versión arm64), traducidas por Rosetta, así que más lentas que un
   programa nativo. scripts/start.sh --platform linux/arm64 se ejecuta de forma nativa sin esas herramientas."
-    if [ "$image_reason" = rosetta_unknown ]; then
-      say "  Docker Desktop's Rosetta setting could not be read. If it is off, Docker emulates amd64 with QEMU, which is much
-  slower: turn on Settings → General → \"Use Rosetta for x86_64/amd64 emulation on Apple Silicon\"." \
-          "  No se pudo leer el ajuste de Rosetta de Docker Desktop. Si está desactivado, Docker emula amd64 con QEMU, mucho más
-  lento: activa Settings → General → \"Use Rosetta for x86_64/amd64 emulation on Apple Silicon\"."
+    if [ "$image_reason" != rosetta_on ]; then
+      rosetta_note "$rosetta"
+      say "  If it is off, Docker emulates amd64 with QEMU, which is much slower: Settings → General → \"Use Rosetta for
+  x86_64/amd64 emulation on Apple Silicon\"." \
+          "  Si está desactivado, Docker emula amd64 con QEMU, mucho más lento: Settings → General → \"Use Rosetta for
+  x86_64/amd64 emulation on Apple Silicon\"."
     fi
     ;;
   rosetta_off)

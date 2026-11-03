@@ -288,12 +288,33 @@ arva_startup_disk_note() {
   fi
 }
 
+# 1024-byte blocks as bytes, or nothing.
+arva_bytes() {
+  case "$1" in
+    '' | *[!0-9]*) ;;
+    *) printf '%s' "$(($1 * 1024))" ;;
+  esac
+}
+
+# The size and free space of the checked folder's filesystem as measured here, on the host, for the variables
+# ARVA_HOST_$1_TOTAL_BYTES and ARVA_HOST_$1_AVAIL_BYTES. With Docker Desktop on a Mac, a folder on an external disk
+# shared only through /Volumes reports the startup disk's space inside the containers (seen on a real Mac), so ARVA
+# compares its own reading with these (app/services/locations.py).
+arva_export_space() {
+  export "ARVA_HOST_$1_TOTAL_BYTES=$(arva_bytes "$chk_total")" "ARVA_HOST_$1_AVAIL_BYTES=$(arva_bytes "$chk_avail")"
+}
+
 # Checks every saved location and exports what Docker Compose and ARVA need (the ARVA_HOST_* strings are for
-# display only; ARVA validates them again). Returns 1 when ARVA must not start.
+# display only; ARVA validates them again). Returns 1 when ARVA must not start. loc_paths lists every folder that
+# will be mounted, as on this computer (links resolved).
 arva_check_locations() {
   ok=0
-  unset ARVA_HOST_DATA_DIR ARVA_HOST_DATA_FS ARVA_HOST_DATABASES_DIR ARVA_HOST_DATABASES_FS ARVA_HOST_IMPORT_DIR ARVA_HOST_IMPORT_FS
-  loc_data='' loc_databases='' loc_import='' loc_slots='' loc_roots='' loc_mounted=''
+  unset ARVA_HOST_DATA_DIR ARVA_HOST_DATA_FS ARVA_HOST_DATABASES_DIR ARVA_HOST_DATABASES_FS ARVA_HOST_IMPORT_DIR ARVA_HOST_IMPORT_FS \
+    ARVA_HOST_DATA_TOTAL_BYTES ARVA_HOST_DATA_AVAIL_BYTES ARVA_HOST_DATABASES_TOTAL_BYTES ARVA_HOST_DATABASES_AVAIL_BYTES \
+    ARVA_HOST_IMPORT_TOTAL_BYTES ARVA_HOST_IMPORT_AVAIL_BYTES
+  loc_data='' loc_databases='' loc_import='' loc_slots='' loc_roots='' loc_mounted='' loc_paths=''
+  ARVA_HOST_SPACE_MEASURED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null) || ARVA_HOST_SPACE_MEASURED_AT=''
+  export ARVA_HOST_SPACE_MEASURED_AT
   for role in data databases; do
     if [ "$role" = data ]; then
       path=$cfg_data chk_saved_mount=$cfg_data_mount en='data' es='datos'
@@ -312,12 +333,15 @@ arva_check_locations() {
       continue
     fi
     arva_report "$label" rw
+    loc_paths=$(list_add "$loc_paths" "$chk_real")
     if [ "$role" = data ]; then
       loc_data=$chk_real
       export ARVA_HOST_DATA_DIR="$chk_real" ARVA_HOST_DATA_FS="$chk_fs"
+      arva_export_space DATA
     else
       loc_databases=$chk_real
       export ARVA_HOST_DATABASES_DIR="$chk_real" ARVA_HOST_DATABASES_FS="$chk_fs"
+      arva_export_space DATABASES
     fi
   done
   if [ -n "$loc_data" ] && [ "$loc_data" = "$loc_databases" ]; then
@@ -328,11 +352,18 @@ arva_check_locations() {
     if arva_inspect "$cfg_import" ro; then
       arva_report "$(say "Import (read-only)" "Importación (solo lectura)")" ro
       loc_import=$chk_real
+      loc_paths=$(list_add "$loc_paths" "$chk_real")
       export ARVA_HOST_IMPORT_DIR="$chk_real" ARVA_HOST_IMPORT_FS="$chk_fs"
+      arva_export_space IMPORT
     else
       arva_unavailable import "$cfg_import" "import" "importación"
       warn "  ARVA starts without it." "  ARVA se inicia sin ella."
     fi
+  elif [ -n "${ROOT:-}" ] && arva_inspect "$ROOT/import" ro; then
+    # Without a chosen import folder, docker-compose.yml mounts the import/ folder next to it: its path is passed
+    # on for display (it is not a Docker volume), but it is not mounted again here.
+    export ARVA_HOST_IMPORT_DIR="$chk_real" ARVA_HOST_IMPORT_FS="$chk_fs"
+    arva_export_space IMPORT
   fi
   while IFS= read -r path; do
     [ -n "$path" ] || continue
@@ -348,9 +379,12 @@ arva_check_locations() {
     if arva_inspect "$path" ro; then
       arva_report "$(say "Database folder (read-only)" "Carpeta de bases de datos (solo lectura)")" ro
       export "ARVA_HOST_EXTERNAL_DB_$slot=$chk_real" "ARVA_HOST_EXTERNAL_DB_${slot}_FS=$chk_fs"
+      arva_export_space "EXTERNAL_DB_$slot"
       loc_mounted=$(list_add "$loc_mounted" "$slot")
+      loc_paths=$(list_add "$loc_paths" "$chk_real")
     else
-      export "ARVA_HOST_EXTERNAL_DB_$slot=$path" "ARVA_HOST_EXTERNAL_DB_${slot}_FS="
+      export "ARVA_HOST_EXTERNAL_DB_$slot=$path" "ARVA_HOST_EXTERNAL_DB_${slot}_FS=" "ARVA_HOST_EXTERNAL_DB_${slot}_TOTAL_BYTES=" \
+        "ARVA_HOST_EXTERNAL_DB_${slot}_AVAIL_BYTES="
       arva_unavailable databases "$path" "database" "bases de datos"
       warn "  ARVA starts without it; its databases are shown as unavailable (disk not connected) and are not deleted." \
            "  ARVA se inicia sin ella; sus bases de datos se muestran como no disponibles (disco no conectado) y no se borran."
@@ -402,6 +436,8 @@ EOF
             if [ -n "$slot" ]; then
               # shellcheck disable=SC2016 # ${...} is for Docker Compose to read.
               printf '      ARVA_HOST_EXTERNAL_DB_%s: ${ARVA_HOST_EXTERNAL_DB_%s:?set by scripts/start.sh}\n      ARVA_HOST_EXTERNAL_DB_%s_FS: ${ARVA_HOST_EXTERNAL_DB_%s_FS:-}\n' "$slot" "$slot" "$slot" "$slot"
+              # shellcheck disable=SC2016 # ${...} is for Docker Compose to read.
+              printf '      ARVA_HOST_EXTERNAL_DB_%s_TOTAL_BYTES: ${ARVA_HOST_EXTERNAL_DB_%s_TOTAL_BYTES:-}\n      ARVA_HOST_EXTERNAL_DB_%s_AVAIL_BYTES: ${ARVA_HOST_EXTERNAL_DB_%s_AVAIL_BYTES:-}\n' "$slot" "$slot" "$slot" "$slot"
             fi
           done <<EOF
 $loc_slots
