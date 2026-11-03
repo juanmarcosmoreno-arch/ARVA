@@ -13,38 +13,165 @@ if [ "$arva_os" = Darwin ] && [ -z "${LC_ALL:-}${LC_MESSAGES:-}${LANG:-}" ]; the
   case "$(defaults read -g AppleLocale 2>/dev/null || true)" in es*) lang=es ;; esac
 fi
 
-# Docker Desktop's "Use Rosetta for x86_64/amd64 emulation on Apple Silicon" (Settings → General), from its settings
-# file (Docker's settings reference names the key useVirtualizationFrameworkRosetta; settings-store.json since Docker
-# Desktop 4.35, settings.json before). The key's spelling in the file is not documented, so it is matched without
-# regard to case. Prints on, off or unknown.
-docker_rosetta() {
+# Docker Desktop's settings file: settings-store.json since Docker Desktop 4.35, settings.json before. Prints the
+# first one that exists and can be read, or nothing.
+docker_settings_file() {
   dir=${HOME:+$HOME/Library/Group Containers/group.com.docker}
+  [ -n "$dir" ] || return 0
   for file in "$dir/settings-store.json" "$dir/settings.json"; do
-    if [ -z "$dir" ] || [ ! -f "$file" ]; then continue; fi
-    value=$(grep -io '"usevirtualizationframeworkrosetta"[[:space:]]*:[[:space:]]*[a-z]*' "$file" 2>/dev/null |
-      head -n 1 | sed 's/.*:[[:space:]]*//' | tr '[:upper:]' '[:lower:]')
-    case "$value" in
-      true) printf on; return 0 ;;
-      false) printf off; return 0 ;;
-    esac
-  done
-  printf unknown
-}
-
-# The folders Docker Desktop shares with its virtual machine (Settings → Resources → File sharing), one per line, from
-# the same settings file (key filesharingDirectories, matched without regard to case; not documented either). Prints
-# nothing when the file or the key cannot be read.
-docker_file_sharing() {
-  dir=${HOME:+$HOME/Library/Group Containers/group.com.docker}
-  for file in "$dir/settings-store.json" "$dir/settings.json"; do
-    if [ -z "$dir" ] || [ ! -f "$file" ]; then continue; fi
-    list=$(tr -d '\n\r' < "$file" 2>/dev/null | grep -io '"filesharingdirectories"[[:space:]]*:[[:space:]]*\[[^]]*\]' |
-      head -n 1 | sed 's/^[^[]*\[//; s/\]$//' | tr ',' '\n' | sed -n 's/^[[:space:]]*"\(\/[^"]*\)"[[:space:]]*$/\1/p')
-    if [ -n "$list" ]; then
-      printf '%s\n' "$list"
+    if [ -f "$file" ] && [ -r "$file" ]; then
+      printf '%s' "$file"
       return 0
     fi
   done
+}
+
+# Docker Desktop's "Use Rosetta for x86_64/amd64 emulation on Apple Silicon" (Settings → General), from its settings
+# file (Docker's settings reference names the key useVirtualizationFrameworkRosetta; the spelling in the file is not
+# documented, so it is matched without regard to case). Prints on, off, default or unknown. "default": the file was
+# read but has no such key. On one real Mac (Docker Desktop with settings-store.json, keys in PascalCase) the file
+# stored only the settings changed from Docker Desktop's defaults: no Rosetta key although Rosetta was on in the
+# window. A missing key therefore means "Docker Desktop's default", not "off"; what that default is, Docker's
+# documentation does not state consistently. "unknown": no settings file could be read.
+docker_rosetta() {
+  file=$(docker_settings_file)
+  if [ -z "$file" ]; then
+    printf unknown
+    return 0
+  fi
+  value=$(grep -io '"usevirtualizationframeworkrosetta"[[:space:]]*:[[:space:]]*[a-z]*' "$file" 2>/dev/null |
+    head -n 1 | sed 's/.*:[[:space:]]*//' | tr '[:upper:]' '[:lower:]')
+  case "$value" in
+    true) printf on ;;
+    false) printf off ;;
+    '') printf default ;;
+    *) printf unknown ;;
+  esac
+}
+
+# The folders Docker Desktop shares with its virtual machine (Settings → File sharing), one per line, from the same
+# settings file (key filesharingDirectories, matched without regard to case; not documented either, and not yet seen
+# in a real file: on the Mac above, with the default list, the file had no such key). Prints nothing when the file
+# or the key cannot be read.
+docker_file_sharing() {
+  file=$(docker_settings_file)
+  [ -n "$file" ] || return 0
+  tr -d '\n\r' < "$file" 2>/dev/null | grep -io '"filesharingdirectories"[[:space:]]*:[[:space:]]*\[[^]]*\]' |
+    head -n 1 | sed 's/^[^[]*\[//; s/\]$//' | tr ',' '\n' | sed -n 's/^[[:space:]]*"\(\/[^"]*\)"[[:space:]]*$/\1/p'
+}
+
+# The disk /Volumes/<Disk> that holds the folder $1, or nothing for a folder elsewhere.
+volume_of() {
+  case "$1" in
+    /Volumes/?*)
+      rest=${1#/Volumes/}
+      printf '/Volumes/%s' "${rest%%/*}"
+      ;;
+  esac
+}
+
+# How Docker Desktop shares the folder $1 on the disk $2 (/Volumes/<Disk>), from its File sharing list ($3, one per
+# line, empty when the settings file has none):
+#   disk         a share of the disk itself or of a folder on it covers the folder (what ARVA asks for);
+#   both         that, and also /Volumes (or /): which of the two Docker uses has not been confirmed;
+#   parent       only /Volumes (or /) covers it;
+#   defaults     the settings file has no list, so Docker Desktop's defaults apply (they include /Volumes);
+#   not_shared   the list covers neither the folder nor /Volumes ("mounts denied" when ARVA starts);
+#   unknown      no settings file could be read.
+# Observed on a real Mac: through the /Volumes share, the free space ARVA reads inside Docker is the startup disk's
+# (df in the container showed /run/host_mark/Volumes with the startup disk's size); with /Volumes/<Disk> shared
+# instead (and /Volumes removed), the external disk's own.
+docker_share_state() {
+  if [ -z "$(docker_settings_file)" ]; then
+    printf unknown
+    return 0
+  fi
+  if [ -z "$3" ]; then
+    printf defaults
+    return 0
+  fi
+  own=0 parent=0
+  while IFS= read -r s; do
+    [ -n "$s" ] || continue
+    s=${s%/}
+    case "$1/" in "$s"/*) ;; *) continue ;; esac
+    case "$s" in
+      '' | /Volumes) parent=1 ;;
+      "$2" | "$2"/*) own=1 ;;
+    esac
+  done <<EOF
+$3
+EOF
+  if [ "$own" = 1 ] && [ "$parent" = 1 ]; then
+    printf both
+  elif [ "$own" = 1 ]; then
+    printf disk
+  elif [ "$parent" = 1 ]; then
+    printf parent
+  else
+    printf not_shared
+  fi
+}
+
+# The steps that share the disk $1 itself.
+sharing_steps() {
+  say "    Docker Desktop → Settings → File sharing (under Resources in some versions) → + → Cmd+Shift+G → type $1 →
+    Open; then select /Volumes in the list and remove it (−) → Apply (& restart). Then run ARVA again." \
+      "    Docker Desktop → Settings → File sharing (en algunas versiones dentro de Resources) → + → Cmd+Shift+G →
+    escribir $1 → Abrir; luego seleccionar /Volumes en la lista y quitarla (−) → Apply (& restart). Después volver
+    a abrir ARVA."
+}
+
+# What to do about each folder of the list $1 (one per line) on a disk under /Volumes that Docker Desktop does not
+# share as that disk. Prints nothing when every disk is shared as itself. Sets sharing_bad to the disks with a problem.
+sharing_report() {
+  sharing_bad=''
+  shared=$(docker_file_sharing)
+  seen=''
+  while IFS= read -r folder; do
+    [ -n "$folder" ] || continue
+    disk=$(volume_of "$folder")
+    [ -n "$disk" ] || continue
+    if list_has "$seen" "$disk"; then continue; fi
+    seen=$(list_add "$seen" "$disk")
+    state=$(docker_share_state "$folder" "$disk" "$shared")
+    case "$state" in
+      parent | defaults)
+        sharing_bad=$(list_add "$sharing_bad" "$disk")
+        if [ "$state" = defaults ]; then
+          say "  Docker Desktop's settings file lists no File sharing folders, so its default list applies (/Users,
+  /Volumes, /private, /tmp, /var/folders): $disk reaches ARVA only through /Volumes." \
+              "  El archivo de ajustes de Docker Desktop no tiene una lista de File sharing, así que se usa la lista por
+  omisión (/Users, /Volumes, /private, /tmp, /var/folders): $disk llega a ARVA solo a través de /Volumes."
+        else
+          say "  Docker Desktop shares $disk with ARVA only through /Volumes." \
+              "  Docker Desktop comparte $disk con ARVA solo a través de /Volumes."
+        fi
+        say "  Through /Volumes, ARVA (inside Docker) reads the free space of the Mac's startup disk instead of $disk's
+  (seen on a real Mac), so its free-space checks would use the wrong disk. Share the disk itself:" \
+            "  A través de /Volumes, ARVA (dentro de Docker) lee el espacio libre del disco de arranque de la Mac en lugar
+  del de $disk (comprobado en una Mac real), así que sus controles de espacio usarían el disco equivocado.
+  Compartir el disco mismo:"
+        sharing_steps "$disk"
+        ;;
+      both)
+        say "  Docker Desktop shares $disk and also /Volumes. Whether Docker then reports $disk's own free space has not
+  been confirmed: remove /Volumes from Docker Desktop → Settings → File sharing; ARVA also checks this once it runs
+  (Settings → Storage)." \
+            "  Docker Desktop comparte $disk y también /Volumes. No está confirmado que Docker informe entonces el espacio
+  libre propio de $disk: quitar /Volumes en Docker Desktop → Settings → File sharing; ARVA también lo comprueba
+  una vez en marcha (Ajustes → Almacenamiento)."
+        ;;
+      not_shared)
+        sharing_bad=$(list_add "$sharing_bad" "$disk")
+        say "  Docker Desktop does not share $folder, so Docker refuses to mount it (\"mounts denied\"). Share its disk:" \
+            "  Docker Desktop no comparte $folder, así que Docker se niega a montarla (\"mounts denied\"). Compartir su disco:"
+        sharing_steps "$disk"
+        ;;
+    esac
+  done <<EOF
+$1
+EOF
 }
 
 # One answer from standard input (a terminal, or a pipe in the tests); at the end of the input, the default.
@@ -120,22 +247,28 @@ eligiendo \"Mac with Apple chip\" o \"Mac with Intel chip\" (menú Apple → Ace
     fi
     say "Docker Desktop is installed but not running: opening it…" "Docker Desktop está instalado pero no está en marcha: abriéndolo…"
     open -a Docker >/dev/null 2>&1 || true
-    waited=0 limit=${ARVA_DOCKER_WAIT:-180}
-    case "$limit" in '' | *[!0-9]*) limit=180 ;; esac
-    until docker info >/dev/null 2>&1; do
-      if [ "$waited" -ge "$limit" ]; then
-        say "Docker Desktop did not become ready within $limit s. Open it from Applications, wait until its whale icon in the
-menu bar stops moving, then run ARVA again." \
-            "Docker Desktop no estuvo listo en $limit s. Abrirlo desde Aplicaciones, esperar a que el ícono de la ballena en la
-barra de menús deje de moverse y volver a abrir ARVA."
-        return 1
-      fi
-      sleep 2
-      waited=$((waited + 2))
-    done
+    wiz_wait_docker || return 1
   fi
   say "Docker is running." "Docker está en marcha."
   return 0
+}
+
+# Waits until Docker answers (at most ARVA_DOCKER_WAIT seconds, default 180), e.g. while Docker Desktop restarts
+# after "Apply & restart".
+wiz_wait_docker() {
+  waited=0 limit=${ARVA_DOCKER_WAIT:-180}
+  case "$limit" in '' | *[!0-9]*) limit=180 ;; esac
+  until docker info >/dev/null 2>&1; do
+    if [ "$waited" -ge "$limit" ]; then
+      say "Docker Desktop did not become ready within $limit s. Open it from Applications, wait until its whale icon in the
+menu bar stops moving, then run ARVA again." \
+          "Docker Desktop no estuvo listo en $limit s. Abrirlo desde Aplicaciones, esperar a que el ícono de la ballena en la
+barra de menús deje de moverse y volver a abrir ARVA."
+      return 1
+    fi
+    sleep 2
+    waited=$((waited + 2))
+  done
 }
 
 # The mounted disks under /Volumes (ARVA_VOLUMES_ROOT in the tests): the startup disk and read-only volumes (such as
@@ -279,26 +412,64 @@ el Finder a esta ventana."
   fi
 }
 
-# Docker Desktop must share every chosen folder with its virtual machine, or it refuses to mount it ("Mounts denied").
+# Docker Desktop must share every chosen folder with its virtual machine, or it refuses to mount it ("mounts
+# denied"), and a folder on an external disk must be shared as that disk, or ARVA reads the startup disk's free
+# space (sharing_report). As for Rosetta, the steps are shown, Enter is waited for and the list is read again.
 wiz_sharing() {
   [ "$arva_os" = Darwin ] || return 0
-  shared=$(docker_file_sharing)
-  [ -n "$shared" ] || return 0
-  printf '%s\n%s\n%s\n%s\n' "$want_data" "$want_databases" "$want_import" "$want_add" | while IFS= read -r folder; do
-    [ -n "$folder" ] || continue
-    covered=0
-    while IFS= read -r s; do
-      case "$folder/" in "${s%/}"/*) covered=1 ;; esac
-    done <<EOF
-$shared
-EOF
-    if [ "$covered" = 0 ]; then
-      say "  Docker Desktop does not share $folder: add it (or its disk under /Volumes) in Docker Desktop → Settings →
-  Resources → File sharing, then Apply & restart." \
-          "  Docker Desktop no comparte $folder: agregarla (o su disco en /Volumes) en Docker Desktop → Settings →
-  Resources → File sharing y luego Apply & restart."
+  folders=$(printf '%s\n%s\n%s\n%s\n' "$want_data" "$want_databases" "$want_import" "$want_add")
+  wiz_rule "File sharing" "Uso compartido de archivos (File sharing)"
+  sharing_report "$folders"
+  if [ -z "$sharing_bad" ]; then
+    if [ -n "$(printf '%s\n' "$folders" | sed -n '/^\/Volumes\//p')" ] && [ -z "$(docker_settings_file)" ]; then
+      say "  Docker Desktop's settings file was not found, so ARVA cannot tell how it shares the disk; it checks the free
+  space it sees once it runs (Settings → Storage)." \
+          "  No se encontró el archivo de ajustes de Docker Desktop, así que ARVA no puede saber cómo comparte el disco;
+  comprueba el espacio libre que ve una vez en marcha (Ajustes → Almacenamiento)."
+    else
+      say "  Docker Desktop shares the chosen folders." "  Docker Desktop comparte las carpetas elegidas."
     fi
-  done
+    return 0
+  fi
+  ask "Press Enter when done." "Presionar Enter cuando esté listo."
+  wiz_wait_docker || true
+  before=$sharing_bad
+  sharing_report "$folders" >/dev/null
+  while IFS= read -r disk; do
+    [ -n "$disk" ] || continue
+    if list_has "$sharing_bad" "$disk"; then
+      say "  Docker Desktop's settings still do not show $disk shared as a disk (if you did change it, the settings file
+  may keep the list under a name ARVA does not know). ARVA starts anyway and checks the free space it sees in
+  Settings → Storage." \
+          "  Los ajustes de Docker Desktop todavía no muestran $disk compartido como disco (si se cambió, puede que el
+  archivo de ajustes guarde la lista con un nombre que ARVA no conoce). ARVA se inicia igual y comprueba el espacio
+  libre que ve en Ajustes → Almacenamiento."
+    else
+      say "  Docker Desktop now shares $disk." "  Docker Desktop ahora comparte $disk."
+    fi
+  done <<EOF
+$before
+EOF
+}
+
+# What the Rosetta setting as read ($1: off, default or unknown) means; the amd64 image is used in every case but off.
+rosetta_note() {
+  case "$1" in
+    off) say "  Docker Desktop's Rosetta setting is off." "  El ajuste de Rosetta de Docker Desktop está desactivado." ;;
+    default)
+      say "  Docker Desktop's settings file does not store the Rosetta setting: it keeps only settings changed from Docker
+  Desktop's defaults, and Docker's documentation does not say consistently whether Rosetta is on by default. Nothing
+  failed; check the setting in Docker Desktop." \
+          "  El archivo de ajustes de Docker Desktop no guarda el ajuste de Rosetta: solo guarda los ajustes cambiados
+  respecto de los valores por omisión, y la documentación de Docker no indica de forma coherente si Rosetta viene
+  activado. No falló nada; comprobar el ajuste en Docker Desktop."
+      ;;
+    *)
+      say "  No Docker Desktop settings file was found to read the Rosetta setting from; check it in Docker Desktop." \
+          "  No se encontró el archivo de ajustes de Docker Desktop del que leer el ajuste de Rosetta; comprobarlo en
+  Docker Desktop."
+      ;;
+  esac
 }
 
 # Apple silicon: the amd64 image (every tool, through Rosetta) or the native arm64 image (without Bakta's CDS step,
@@ -337,17 +508,14 @@ wiz_platform() {
     softwareupdate --install-rosetta --agree-to-license"
   fi
   if [ "$rosetta" != on ]; then
-    if [ "$rosetta" = off ]; then
-      say "  Docker Desktop's Rosetta setting is off." "  El ajuste de Rosetta de Docker Desktop está desactivado."
-    else
-      say "  Docker Desktop's Rosetta setting could not be read." "  No se pudo leer el ajuste de Rosetta de Docker Desktop."
-    fi
+    rosetta_note "$rosetta"
     say "  Turn on Docker Desktop → Settings → General → \"Use Rosetta for x86_64/amd64 emulation on Apple Silicon\"
-  (Apply & restart); without it Docker emulates amd64 with QEMU, which is much slower." \
+  (Apply & restart) if it is off; without it Docker emulates amd64 with QEMU, which is much slower." \
         "  Activar Docker Desktop → Settings → General → \"Use Rosetta for x86_64/amd64 emulation on Apple Silicon\"
-  (Apply & restart); sin él Docker emula amd64 con QEMU, que es mucho más lento."
+  (Apply & restart) si está desactivado; sin él Docker emula amd64 con QEMU, que es mucho más lento."
     ask "Press Enter when done." "Presionar Enter cuando esté listo."
     rosetta=$(docker_rosetta)
+    if [ "$rosetta" = on ]; then say "  Rosetta is on." "  Rosetta está activado."; fi
   fi
   if [ "$rosetta" = off ]; then want_platform=linux/amd64; else want_platform=auto; fi
 }
