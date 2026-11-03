@@ -164,7 +164,7 @@ enum SelfTest {
             check("log tail reads whole lines", tail.read() == "one\n")
             let handle = try FileHandle(forWritingTo: logURL)
             _ = try handle.seekToEnd()
-            try handle.write(contentsOf: Data("o\u{1B}[1mthree\u{1B}[0m\r\n".utf8))
+            try handle.write(contentsOf: Data("o\n\u{1B}[1mthree\u{1B}[0m\r\n".utf8))
             try handle.close()
             check("log tail reads only what was added", tail.read() == "two\nthree\n")
             check("log tail has nothing new", tail.read() == "")
