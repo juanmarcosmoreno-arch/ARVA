@@ -183,7 +183,11 @@ def staging_dir(record_id: str, root: Path | None = None) -> Path:
 
 
 def free_bytes(path: Path) -> int:
-    return shutil.disk_usage(path).free
+    """The free space of a database folder as ARVA counts it (the launcher's figure from the start when Docker
+    reports another disk's: app/services/locations.py, free_space)."""
+    from app.services.locations import free_space
+
+    return int(free_space(path).free_bytes or 0)
 
 
 def available_bytes(path: Path) -> int:
@@ -242,15 +246,16 @@ def bakta_version(info: dict) -> str:
 def writable_locations() -> list[dict]:
     """The database folders ARVA may download and extract into (today the one chosen with scripts/start.sh
     --databases-dir), with their free space."""
-    from app.services.locations import folder_available, locations, usage
+    from app.services.locations import locations, status
 
     out = []
     for loc in locations():
         if loc.role == "databases" and not loc.read_only:
-            ok = folder_available(loc.container_path)
-            free, total = usage(loc.container_path) if ok else (None, None)
-            out.append({"path": loc.container_path, "host_path": loc.host_path, "available": ok, "free_bytes": free,
-                        "total_bytes": total, "reserve_bytes": get_settings().min_free_bytes})
+            st = status(loc)
+            out.append({"path": loc.container_path, "host_path": loc.host_path, "available": st.available,
+                        "free_bytes": st.free_bytes, "total_bytes": st.total_bytes,
+                        "reserve_bytes": get_settings().min_free_bytes,
+                        "space_misreported": "space_misreported" in st.warnings})
     return out
 
 
@@ -967,13 +972,16 @@ def delete(db: Session, record_id: str) -> None:
 # --- Disk usage and use by jobs ---------------------------------------------------------------------------------
 
 def usage(db: Session) -> dict:
+    from app.services.locations import free_space
+
     root = databases_dir()
-    total = shutil.disk_usage(root)
+    total = free_space(root)
     records = list(db.scalars(select(ReferenceDatabase)))
     installed = sum(r.size_bytes or 0 for r in records if r.origin in OWNED and r.size_bytes)
     registered = sum(r.size_bytes or 0 for r in records if r.origin is DatabaseOrigin.register and r.size_bytes)
     return {
-        "db_dir": str(root), "host_db_dir": _shown(root), "free_bytes": free_bytes(root), "total_bytes": total.total,
+        "db_dir": str(root), "host_db_dir": _shown(root), "free_bytes": int(total.free_bytes or 0),
+        "total_bytes": int(total.total_bytes or 0),
         "reserve_bytes": get_settings().min_free_bytes, "installed_bytes": installed, "registered_bytes": registered,
         "partial_bytes": tree_bytes(root / DOWNLOADS), "staging_bytes": tree_bytes(root / STAGING),
     }

@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import json
 import platform
-import shutil
 import time
 import traceback
 from collections.abc import Callable
@@ -197,13 +196,20 @@ def _ensure_space(db: Session, job: AnalysisJob, root: Path) -> None:
     ids = job.input_raw_file_ids or []
     inputs = int(db.scalar(select(func.coalesce(func.sum(RawFile.size_bytes), 0)).where(RawFile.id.in_(ids)))
                  or 0) if ids else 0
+    from app.services.locations import free_space
+
     needed = get_settings().min_free_bytes + inputs
     try:
-        free = shutil.disk_usage(root).free
+        # Docker Desktop may report another disk's space for the data folder; then the launcher's figure from the
+        # start is used (app/services/locations.py).
+        space = free_space(root)
     except OSError:
         return
+    free = int(space.free_bytes or 0)
     if free < needed:
-        raise JobFailure(f"Only {fmt_bytes(free)} is free in the ARVA data folder; this job needs at least "
+        note = (" (free space as measured by scripts/start.sh when ARVA started: Docker reports another disk's for "
+                "this folder, see Settings → Storage)") if space.misreported else ""
+        raise JobFailure(f"Only {fmt_bytes(free)} is free in the ARVA data folder{note}; this job needs at least "
                          f"{fmt_bytes(needed)} (the {fmt_bytes(needed - inputs)} reserve plus the size of its input "
                          "files) before it starts, so nothing was run. Free some space and run the job again.",
                          "insufficient_storage", free=fmt_bytes(free), needed=fmt_bytes(needed))

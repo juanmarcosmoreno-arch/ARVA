@@ -262,7 +262,7 @@ def test_a_job_is_not_started_when_the_data_folder_lacks_the_reserved_space(clie
     jid = _job(pid, None)
     ran = []
     usage = namedtuple("usage", "total used free")
-    monkeypatch.setattr("app.tasks.common.shutil.disk_usage", lambda _p: usage(10**12, 10**12 - 10**6, 10**6))
+    monkeypatch.setattr("shutil.disk_usage", lambda _p: usage(10**12, 10**12 - 10**6, 10**6))
     assert run_job(jid, lambda ctx: ran.append(1)) == "failed"
     assert not ran
     with SessionLocal() as db:

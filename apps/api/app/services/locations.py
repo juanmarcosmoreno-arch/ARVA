@@ -6,6 +6,22 @@ read-only) and the external database folders (ARVA_EXTERNAL_DB_ROOTS: existing d
 never modified or deleted). scripts/start.sh passes each folder's path on the host and its filesystem as ARVA_HOST_*
 variables: untrusted strings, validated here and only shown.
 
+Free space. scripts/start.sh also passes the size and free space of each folder's disk as it measured them on the host
+(ARVA_HOST_<NAME>_TOTAL_BYTES, ARVA_HOST_<NAME>_AVAIL_BYTES) and when (ARVA_HOST_SPACE_MEASURED_AT). Seen on a real
+Mac with Docker Desktop: a folder on an external disk (/Volumes/JM/ARVA/data) that Docker Desktop shares only through
+/Volumes (its default File sharing list) is mounted from /run/host_mark/Volumes, and inside the container its free
+space and size are the Mac's startup disk's; with /Volumes/JM itself shared (and /Volumes removed) the mount comes
+from /run/host_mark/Volumes/JM and shows the external disk's. A location's space is "misreported" when the mount
+comes from a share above its disk (/run/host_mark/Volumes or /run/host_mark for a /Volumes/<Disk>/... folder) or when
+the size the container reads differs from the launcher's by more than SIZE_TOLERANCE. Then:
+* the location carries the warning space_misreported, the launcher's figures and their time;
+* every free-space check (uploads, jobs, database downloads and extractions) uses the launcher's free space from the
+  start instead of the other disk's: it does not count what ARVA has written since, so the warning stays until the
+  disk is shared as itself (Docker Desktop → Settings → File sharing → /Volumes/<Disk>, /Volumes removed) and ARVA
+  is started again; without a launcher figure the container's figure is kept, flagged as wrong;
+* the low-space warning is judged on the launcher's figure.
+Natively, on Linux, and whenever the mount and the sizes agree, nothing changes.
+
 The data folder holds a marker file, .arva-storage, with an ID written at its first use and recorded in the metadata
 (app setting "storage"). When the folder is not there, or holds another ID, its external disk is not connected or
 another disk is in its place: writes are then refused (503) and jobs fail, instead of writing elsewhere. A marker
@@ -50,6 +66,15 @@ _FS = re.compile(r"[a-z0-9_+-]{1,32}")
 _CONTROL = re.compile(r"[\x00-\x1f\x7f]")
 _BACKUP = re.compile(r"arva-metadata-(auto|manual|pre-restore)-(\d{8}T\d{6}Z)\.dump")
 _SLOT = re.compile(r"ARVA_HOST_EXTERNAL_DB_(\d{1,10})")
+_BYTES = re.compile(r"\d{1,20}")
+# Docker Desktop's mount sources inside its Linux VM: /run/host_mark<shared host folder> (seen in /proc/mounts on a
+# real Mac: "/run/host_mark/Volumes /data fakeowner rw,...").
+HOST_MARK = "/run/host_mark"
+PROC_MOUNTS = "/proc/self/mounts"
+# The container's size of a folder's disk may differ from the launcher's by rounding and the filesystem's own
+# reservation; a different disk differs by far more.
+SIZE_TOLERANCE = 0.02
+SIZE_TOLERANCE_MIN_BYTES = 1024**3
 
 # The English texts of the coded refusals; the interface has them as api.error.<code> (apps/web/src/i18n).
 MESSAGES = {
@@ -139,6 +164,21 @@ def in_container() -> bool:
     return detection().container.in_container
 
 
+def byte_count(value: str | None) -> int | None:
+    text = (value or "").strip()
+    return int(text) if _BYTES.fullmatch(text) else None
+
+
+def measured_at(environ: Mapping[str, str] | None = None) -> datetime | None:
+    """When scripts/start.sh measured the host figures (ARVA_HOST_SPACE_MEASURED_AT), or None."""
+    environ = os.environ if environ is None else environ
+    try:
+        return datetime.strptime((environ.get("ARVA_HOST_SPACE_MEASURED_AT") or "").strip(),
+                                 "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=UTC)
+    except ValueError:
+        return None
+
+
 @dataclass(frozen=True)
 class Location:
     role: str  # data | databases | import | external_databases
@@ -148,6 +188,17 @@ class Location:
     filesystem: str | None
     stores: tuple[str, ...]
     slot: str | None = None
+    # The folder's disk as scripts/start.sh measured it on the host (None without the launcher).
+    host_total_bytes: int | None = None
+    host_free_bytes: int | None = None
+
+
+def _space(environ: Mapping[str, str], name: str) -> dict[str, int | None]:
+    total = byte_count(environ.get(f"ARVA_HOST_{name}_TOTAL_BYTES"))
+    free = byte_count(environ.get(f"ARVA_HOST_{name}_AVAIL_BYTES"))
+    if total is None or free is None or free > total or total == 0:
+        return {"host_total_bytes": None, "host_free_bytes": None}
+    return {"host_total_bytes": total, "host_free_bytes": free}
 
 
 def _external_hosts(environ: Mapping[str, str]) -> dict[str, tuple[str | None, str | None]]:
@@ -171,17 +222,22 @@ def locations(environ: Mapping[str, str] | None = None) -> list[Location]:
     data, databases = s.storage_root.resolve(), s.databases_dir.resolve()
     out = [
         Location("data", str(data), False, *host("DATA", data),
-                 ("raw", "processed", "results", "reports", "logs", "backups")),
-        Location("databases", str(databases), False, *host("DATABASES", databases), ("downloads",)),
+                 ("raw", "processed", "results", "reports", "logs", "backups"), **_space(environ, "DATA")),
+        Location("databases", str(databases), False, *host("DATABASES", databases), ("downloads",),
+                 **_space(environ, "DATABASES")),
     ]
     for root in s.import_roots:
-        given, fs = host("IMPORT", root) if str(root) == "/import" else ((str(root) if native else None), None)
-        out.append(Location("import", str(root), True, given, fs, ("import",)))
+        if str(root) == "/import":
+            out.append(Location("import", str(root), True, *host("IMPORT", root), ("import",),
+                                **_space(environ, "IMPORT")))
+        else:
+            out.append(Location("import", str(root), True, str(root) if native else None, None, ("import",)))
     hosts = _external_hosts(environ)
     for root in s.external_db_roots:
         slot = root.name if root.name.isdigit() else None
         given, fs = hosts.get(slot or "", (str(root) if native else None, None))
-        out.append(Location("external_databases", str(root), True, given, fs, ("external",), slot))
+        space = _space(environ, f"EXTERNAL_DB_{slot}") if slot else {}
+        out.append(Location("external_databases", str(root), True, given, fs, ("external",), slot, **space))
     return out
 
 
@@ -212,6 +268,101 @@ def usage(path: str) -> tuple[int | None, int | None]:
     except OSError:
         return None, None
     return u.free, u.total
+
+
+# --- Free space as seen through Docker Desktop's file sharing ---------------------------------------------------
+
+def _unescape(field_text: str) -> str:
+    """A /proc/mounts field: space, tab, newline and backslash are written as octal escapes (\\040 ...)."""
+    return re.sub(r"\\([0-7]{3})", lambda m: chr(int(m.group(1), 8)), field_text)
+
+
+def mount_source(path: str) -> str | None:
+    """The source of the mount whose target is exactly `path` (the last one listed, as it hides the others)."""
+    try:
+        with open(PROC_MOUNTS, encoding="utf-8", errors="replace") as fh:
+            lines = fh.read(1_000_000).splitlines()
+    except OSError:
+        return None
+    found = None
+    for line in lines:
+        fields = line.split()
+        if len(fields) >= 2 and _unescape(fields[1]) == path:
+            found = _unescape(fields[0])
+    return found
+
+
+def volume_of(host: str | None) -> str | None:
+    """/Volumes/<Disk> for a host path on a Mac's external disk, else None."""
+    m = re.match(r"(/Volumes/[^/]+)(?:/|$)", host or "")
+    return m.group(1) if m else None
+
+
+def docker_share(source: str | None) -> str | None:
+    """The host folder Docker Desktop shares a mount from (/run/host_mark/Volumes -> /Volumes), or None."""
+    if not source or not (source == HOST_MARK or source.startswith(HOST_MARK + "/")):
+        return None
+    return source[len(HOST_MARK):] or "/"
+
+
+@dataclass(frozen=True)
+class Space:
+    """The free space and size ARVA uses for a location, and where they come from: "container" (read here),
+    "host_at_start" (the launcher's, because the container's belongs to another disk) or "container_misreported"
+    (the container's, known to be another disk's, with no launcher figure to use instead)."""
+    free_bytes: int | None
+    total_bytes: int | None
+    source: str
+    misreported: bool = False
+    reason: str | None = None  # parent_share | size_differs
+    container_free_bytes: int | None = None
+    container_total_bytes: int | None = None
+    share: str | None = None
+    disk: str | None = None
+
+
+def misreport(loc: Location, container_total: int | None) -> tuple[str | None, str | None, str | None]:
+    """(reason, Docker's share, the disk to share) when the container's figures are not the location's disk's."""
+    disk = volume_of(loc.host_path)
+    share = docker_share(mount_source(loc.container_path))
+    if disk and share and (share == "/" or (share != disk and disk.startswith(share.rstrip("/") + "/"))):
+        return "parent_share", share, disk
+    if loc.host_total_bytes and container_total is not None:
+        tolerance = max(SIZE_TOLERANCE_MIN_BYTES, SIZE_TOLERANCE * loc.host_total_bytes)
+        if abs(container_total - loc.host_total_bytes) > tolerance:
+            return "size_differs", share, disk
+    return None, share, disk
+
+
+def _space_for(loc: Location, free: int | None, total: int | None) -> Space:
+    reason, share, disk = misreport(loc, total)
+    if reason is None:
+        return Space(free, total, "container", share=share, disk=disk)
+    if loc.host_free_bytes is not None:
+        return Space(loc.host_free_bytes, loc.host_total_bytes, "host_at_start", True, reason, free, total, share, disk)
+    return Space(free, total, "container_misreported", True, reason, free, total, share, disk)
+
+
+def space_of(loc: Location) -> Space:
+    return _space_for(loc, *usage(loc.container_path))
+
+
+def location_of(path: str | Path) -> Location | None:
+    """The most specific location that holds `path` (as ARVA sees it)."""
+    text = str(path)
+    for loc in sorted(locations(), key=lambda x: len(x.container_path), reverse=True):
+        root = loc.container_path.rstrip("/")
+        if text == root or text.startswith(root + "/"):
+            return loc
+    return None
+
+
+def free_space(path: str | Path) -> Space:
+    """The free space a write to `path` may count on: the location's (space_of) or, outside every location, the
+    filesystem's own. Raises OSError when the path cannot be read, as shutil.disk_usage does."""
+    u = shutil.disk_usage(path)
+    loc = location_of(path)
+    return Space(u.free, u.total, "container") if loc is None else _space_for(loc, u.free, u.total)
 
 
 def folder_available(path: str | Path) -> bool:
@@ -449,19 +600,23 @@ class LocationStatus:
     free_bytes: int | None
     total_bytes: int | None
     warnings: list[str] = field(default_factory=list)
+    space: Space | None = None
 
 
 def status(loc: Location) -> LocationStatus:
     available = folder_available(loc.container_path)
-    free, total = usage(loc.container_path) if available else (None, None)
+    sp = space_of(loc) if available else None
+    free, total = (sp.free_bytes, sp.total_bytes) if sp else (None, None)
     warnings = []
     if not available:
         warnings.append("not_connected")
     if loc.filesystem in FAT:
         warnings.append("fat_filesystem")
-    if not loc.read_only and free is not None and free < LOW_SPACE_BYTES:
+    if sp is not None and sp.misreported:
+        warnings.append("space_misreported")
+    if not loc.read_only and free is not None and free < LOW_SPACE_BYTES and (sp is None or sp.source != "container_misreported"):
         warnings.append("low_space")
-    return LocationStatus(loc, available, free, total, warnings)
+    return LocationStatus(loc, available, free, total, warnings, sp)
 
 
 def overview(db) -> dict[str, Any]:
@@ -469,10 +624,12 @@ def overview(db) -> dict[str, Any]:
 
     marker = inspect(db)
     paths = list(db.scalars(select(ReferenceDatabase.path).where(ReferenceDatabase.path.isnot(None))))
+    when = measured_at()
     out = []
     for st in map(status, locations()):
         loc = st.location
         root = loc.container_path.rstrip("/")
+        sp = st.space
         out.append({
             "role": loc.role, "container_path": loc.container_path, "host_path": loc.host_path,
             "read_only": loc.read_only, "available": st.available, "free_bytes": st.free_bytes,
@@ -480,8 +637,39 @@ def overview(db) -> dict[str, Any]:
             "marker": marker.status if loc.role == "data" else None, "stores": list(loc.stores), "slot": loc.slot,
             "databases": sum(1 for p in paths if p == root or p.startswith(root + "/"))
             if loc.role in ("databases", "external_databases", "import") else None,
+            "space_source": sp.source if sp else None,
+            "misreport": None if sp is None or not sp.misreported else {
+                "reason": sp.reason, "share": sp.share, "disk": sp.disk or volume_of(loc.host_path),
+                "container_free_bytes": sp.container_free_bytes, "container_total_bytes": sp.container_total_bytes},
+            "host_free_bytes": loc.host_free_bytes, "host_total_bytes": loc.host_total_bytes,
+            "host_measured_at": when if loc.host_total_bytes is not None else None,
         })
     return {"marker": marker, "locations": out, "backups": backups_overview(), "in_container": in_container()}
+
+
+def _misreport_text(loc: dict[str, Any], es: bool) -> str:
+    """The launcher summary's line about a location whose space Docker reports from another disk."""
+    m = loc["misreport"]
+    disk = m["disk"] or ("su disco" if es else "its disk")
+    seen = fmt_bytes(m["container_total_bytes"]) if m["container_total_bytes"] is not None else "?"
+    host = fmt_bytes(loc["host_total_bytes"]) if loc["host_total_bytes"] is not None else "?"
+    if es:
+        why = (f"Docker Desktop la comparte a través de {m['share']}, y así ARVA lee dentro de Docker el espacio de "
+               "otro disco (el de arranque de la Mac)" if m["reason"] == "parent_share" else
+               f"dentro de Docker su disco mide {seen}, pero en la Mac {host}: ARVA lee el espacio de otro disco")
+        used = ("los controles de espacio usan la cifra que midió scripts/start.sh al iniciar"
+                if loc["space_source"] == "host_at_start" else
+                "no hay cifra del lanzador, así que los controles usan la de Docker, que es de otro disco")
+        return (f"ATENCIÓN: {why}; {used}. Compartir el disco mismo: Docker Desktop → Settings → File sharing → + → "
+                f"Cmd+Shift+G → {disk} → quitar /Volumes → Apply, y volver a abrir ARVA.")
+    why = (f"Docker Desktop shares it through {m['share']}, so inside Docker ARVA reads another disk's space (the "
+           "Mac's startup disk)" if m["reason"] == "parent_share" else
+           f"inside Docker its disk measures {seen} but {host} on the Mac: ARVA reads another disk's space")
+    used = ("the free-space checks use the figure scripts/start.sh measured at start"
+            if loc["space_source"] == "host_at_start" else
+            "there is no launcher figure, so the checks use Docker's, which is another disk's")
+    return (f"ATTENTION: {why}; {used}. Share the disk itself: Docker Desktop → Settings → File sharing → + → "
+            f"Cmd+Shift+G → {disk} → remove /Volumes → Apply, then start ARVA again.")
 
 
 def _report(lang: str) -> int:
@@ -495,10 +683,21 @@ def _report(lang: str) -> int:
              "external_databases": ("Added database folder", "Carpeta de bases de datos añadida")}
     print("Almacenamiento" if es else "Storage")
     for loc in o["locations"]:
-        where = loc["host_path"] or ("volumen de Docker" if es else "Docker volume")
+        if loc["host_path"]:
+            where = loc["host_path"]
+        elif loc["role"] == "import" and loc["container_path"] == "/import":
+            # docker-compose.yml mounts the import/ folder next to it (not a Docker volume).
+            where = ("la carpeta import/ junto a docker-compose.yml" if es
+                     else "the import/ folder next to docker-compose.yml")
+        elif loc["role"] in ("data", "databases"):
+            where = "volumen de Docker" if es else "Docker volume"
+        else:
+            where = "no indicada por el lanzador" if es else "not given by the launcher"
         space = (f"{fmt_bytes(loc['free_bytes'])} libres" if es else f"{fmt_bytes(loc['free_bytes'])} free") \
             if loc["free_bytes"] is not None else ("no disponible" if es else "not available")
         print(f"  {names[loc['role']][es]}: {where} ({space})")
+        if loc["misreport"]:
+            print("    " + _misreport_text(loc, es))
     if state.status != "ok":
         exc = StorageUnavailable(state)
         print(("  ATENCIÓN: " + render(MESSAGES_ES[exc.code], exc.params)) if es else f"  ATTENTION: {exc}")

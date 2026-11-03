@@ -31,6 +31,8 @@ class StorageCapacity:
     total_bytes: int
     min_free_bytes: int
     upload_overhead_factor: int
+    # The free space is the launcher's figure from the start, because Docker reports another disk's for this folder.
+    misreported: bool = False
 
     @property
     def available_for_data_bytes(self) -> int:
@@ -47,11 +49,19 @@ _SPOOL_NOTE = (
 )
 
 
+_MISREPORTED_NOTE = (
+    "Inside Docker this folder shows another disk's free space, so ARVA counts the figure scripts/start.sh measured "
+    "on this computer when ARVA started (Settings → Storage explains how to share the disk itself)."
+)
+
+
 class InsufficientStorageError(ValueError):
     def __init__(self, needed_bytes: int, capacity: StorageCapacity, note: str = "",
                  where: str = "the ARVA data directory"):
         self.needed_bytes = needed_bytes
         self.capacity = capacity
+        if capacity.misreported:
+            note = f"{note} {_MISREPORTED_NOTE}".strip()
         super().__init__(
             f"Not enough free space in {where}: {_exact(needed_bytes)} needed "
             f"but only {_exact(capacity.available_for_data_bytes)} can be used "
@@ -74,10 +84,16 @@ def upload_overhead_factor(root: Path) -> int:
 
 
 def storage_capacity() -> StorageCapacity:
+    """The data folder's free space as ARVA counts it: when Docker reports another disk's space for it (Docker
+    Desktop sharing an external disk only through /Volumes), the figure scripts/start.sh measured on the host at
+    start (app/services/locations.py, free_space)."""
+    from app.services.locations import free_space
+
     root = get_storage().root
-    usage = shutil.disk_usage(root)
+    space = free_space(root)
     return StorageCapacity(
-        str(root), usage.free, usage.total, get_settings().min_free_bytes, upload_overhead_factor(root)
+        str(root), int(space.free_bytes or 0), int(space.total_bytes or 0), get_settings().min_free_bytes,
+        upload_overhead_factor(root), space.misreported,
     )
 
 
