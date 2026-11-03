@@ -94,6 +94,34 @@ describe("Storage section", () => {
     await waitFor(() => expect(adopt).toHaveBeenCalledOnce());
   });
 
+  it("warns when Docker shows another disk's free space, with the launcher's figures and the fix", async () => {
+    // CONSTRUCTED from what was seen on a real Mac: /Volumes/JM/ARVA/data mounted from /run/host_mark/Volumes showed
+    // the startup disk (229 GB, 8.6 GB free) while the launcher measured JM at 931.5 GB, 57.3 GB free.
+    const wrong: StorageCapacity = {
+      ...mac,
+      locations: [
+        loc({
+          host_path: "/Volumes/JM/ARVA/data", filesystem: "apfs", marker: "ok", free_bytes: 57.3 * GB, total_bytes: 931.5 * GB,
+          warnings: ["space_misreported"], space_source: "host_at_start", host_free_bytes: 57.3 * GB, host_total_bytes: 931.5 * GB,
+          host_measured_at: "2026-11-03T09:12:00Z",
+          misreport: { reason: "parent_share", share: "/Volumes", disk: "/Volumes/JM", container_free_bytes: 8.6 * GB, container_total_bytes: 229 * GB },
+        }),
+      ],
+    };
+    vi.spyOn(api, "storage").mockResolvedValue(wrong);
+    wrap(<StorageSection />);
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Docker shows ARVA another disk's free space");
+    expect(alert).toHaveTextContent("Docker Desktop shares /Volumes/JM/ARVA/data through /Volumes");
+    expect(alert).toHaveTextContent("(8.60 GB free of 229.0 GB)");
+    expect(alert).toHaveTextContent("(57.3 GB free of 931.5 GB)");
+    expect(alert).toHaveTextContent("Cmd+Shift+G → /Volumes/JM → Open; select /Volumes in the list and remove it");
+    const row = screen.getAllByRole("row").find((r) => within(r).queryByText("/Volumes/JM/ARVA/data"))!;
+    expect(within(row).getByText("Docker shows another disk's free space")).toBeInTheDocument();
+    expect(within(row).getByText(/^measured by scripts\/start\.sh at /)).toBeInTheDocument();
+    expect(within(row).queryByText("Less than 20 GB free")).not.toBeInTheDocument();
+  });
+
   it("asks the backup service for a backup", async () => {
     vi.spyOn(api, "storage").mockResolvedValue(mac);
     const backup = vi.spyOn(api, "requestBackup").mockResolvedValue({ ...mac.backups!, pending_since: "2026-10-29T10:00:00Z" });

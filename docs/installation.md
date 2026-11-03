@@ -70,7 +70,12 @@ needs the Apple Virtualization framework; Docker's settings page lists it as off
 reference as on, so check it). It reads the setting from Docker Desktop's settings file
 (`~/Library/Group Containers/group.com.docker/settings-store.json`, or `settings.json` in older versions); when the
 setting is **off**, it chooses the native **arm64 image** instead, because Docker would otherwise emulate amd64
-with QEMU, which is much slower; when it cannot read the setting it keeps amd64 and says how to check.
+with QEMU, which is much slower; when it cannot read the setting it keeps amd64 and says how to check. On one real
+Mac (Docker Desktop with `settings-store.json`) the file held only settings changed from Docker Desktop's defaults,
+in PascalCase (`AutoStart`, `Cpus`, `SwapMiB`, `UseContainerdSnapshotter`, …): there was **no Rosetta key although
+Rosetta was on** in the window. A readable file without the key is therefore reported as Docker Desktop's *default*
+(`ARVA_HOST_DOCKER_ROSETTA=default`, reason `rosetta_default`), not as a failure: the amd64 image is kept and the
+launcher asks to check the setting, because Docker's documentation does not agree on what that default is.
 
 The trade-off, honestly: translated programs run slower than native ones, and ARVA has not measured how much on a
 real Mac (nor has it run on one). Rosetta translates ahead of time, so the cost is mostly CPU time in tools such as
@@ -129,8 +134,12 @@ and no location options, it asks first (`scripts/lib/arva-firstrun.sh`; Spanish 
 4. On Apple silicon, the image: amd64 (every tool, through Rosetta) or arm64 (native, without the tools that have
    no arm64 build). For amd64 it checks Rosetta 2 (`arch -x86_64 /usr/bin/true`) and Docker Desktop's Rosetta
    setting, and explains how to turn it on.
-5. When Docker Desktop's settings file lists the shared folders (`filesharingDirectories`, matched without regard to
-   case because the spelling is not documented), each chosen folder outside them gets the File sharing instruction.
+5. File sharing: a chosen folder that Docker Desktop's list does not cover gets the File sharing instruction, and a
+   folder on an external disk (`/Volumes/<Disk>/…`) that only `/Volumes` (or the default list, when the settings file
+   has none) covers gets the explanation and steps of [Docker Desktop file sharing and free
+   space](#docker-desktop-file-sharing-and-free-space); the wizard then waits for Enter and reads the list again, as
+   for Rosetta. The key of the list (`filesharingDirectories`, matched without regard to case) has not been seen in a
+   real file; the launcher never edits Docker's settings file.
 
 The answers set the same values as `--data-dir`, `--databases-dir`, `--add-databases`, `--import-dir` and
 `--platform`, are checked the same way and saved only after *Save these choices and start ARVA?*; even an answer
@@ -303,10 +312,11 @@ writable for the data and database folders. Then:
   counts too. On Linux, GNU `stat -f -c %T`.
 - **Free space**: a warning below 20 GB on the data or database disk (ARVA's own threshold).
 - **Docker Desktop file sharing**: Docker Desktop shares `/Users`, `/Volumes`, `/private`, `/tmp` and `/var/folders`
-  by default (Docker Desktop settings documentation), so folders on external disks need nothing. A folder elsewhere
-  must be added in Docker Desktop → Settings → Resources → File sharing, otherwise Docker reports "Mounts denied";
-  the launcher says so. If macOS asks whether Docker may access the disk, allow it (System Settings → Privacy &
-  Security → Files & Folders).
+  by default (Docker Desktop settings documentation). That lets a folder on an external disk be mounted, but ARVA
+  then reads the startup disk's free space for it: share the disk itself, see [Docker Desktop file sharing and
+  free space](#docker-desktop-file-sharing-and-free-space). A folder elsewhere must be added in Docker Desktop →
+  Settings → File sharing, otherwise Docker reports "mounts denied"; the launcher says so. If macOS asks whether
+  Docker may access the disk, allow it (System Settings → Privacy & Security → Files & Folders).
 
 The folders reach Docker Compose through a generated override file (`~/.config/arva/compose.storage.yml`,
 rewritten at every start) as **long-syntax bind mounts with `create_host_path: false`**. The Compose
@@ -316,8 +326,51 @@ disk disappears between the check and the start, Docker refuses to start instead
 the internal disk. The override contains no path, only `${ARVA_HOST_…}` variables that the launcher sets after its
 checks; without them `docker compose` refuses to use it. The host paths and filesystems are also passed to the
 containers as `ARVA_HOST_DATA_DIR`, `ARVA_HOST_DATA_FS`, `ARVA_HOST_DATABASES_DIR`, …,
-`ARVA_HOST_EXTERNAL_DB_<n>` (validated again by the API and only displayed). A plain `docker compose up` uses the
-Docker volumes and ignores the saved folders.
+`ARVA_HOST_EXTERNAL_DB_<n>` (validated again by the API and only displayed), with the size and free space of each
+folder's disk as `df -Pk` measured them (`ARVA_HOST_<NAME>_TOTAL_BYTES`, `ARVA_HOST_<NAME>_AVAIL_BYTES`, `<NAME>` being
+`DATA`, `DATABASES`, `IMPORT` or `EXTERNAL_DB_<n>`) and when (`ARVA_HOST_SPACE_MEASURED_AT`, UTC). Without a chosen
+import folder, `ARVA_HOST_IMPORT_DIR` names the `import/` folder next to `docker-compose.yml` that the base file
+mounts at `/import` (it is a bind mount, not a Docker volume). A plain `docker compose up` uses the Docker volumes
+and ignores the saved folders.
+
+### Docker Desktop file sharing and free space
+
+Observed on a real Mac (MacBook Air M2, 8 GB, macOS 27.0.1, Docker Desktop with the new Settings window, docker
+29.9.2; external APFS disk `JM`, data in `/Volumes/JM/ARVA/data`):
+
+1. With Docker Desktop's default File sharing list, `/proc/mounts` in the API container showed
+   `/run/host_mark/Volumes /data fakeowner rw,...`, and `df -h /data /databases` gave `229G 220G 8.6G 97%`: **the
+   Mac's startup disk**, while `df` on the Mac gave `JM` 931.5 GB with 57.3 GB free. Settings → Storage, the
+   first-run checklist ("Less than 20 GB free on the disk of /Volumes/JM/ARVA/data") and every free-space check
+   used the wrong disk. `/import` (`~/ARVA/import`) came from `/run/host_mark/Users`, which is right for it.
+2. With `/Volumes` removed and the disk **not** added, `docker compose up` failed: "mounts denied: The path
+   /Volumes/JM/ARVA/data is not shared from the host and is not known to Docker."
+3. With `/Volumes/JM` added and `/Volumes` removed, `df -h /data` gave `/run/host_mark/Volumes/JM 932G 875G 58G`:
+   the right disk.
+
+Whether keeping `/Volumes` **and** adding `/Volumes/JM` works is not known (one attempt was ambiguous). So: **share
+the disk itself and remove `/Volumes`**: Docker Desktop → Settings → File sharing (under Resources in some versions)
+→ **+** → **Cmd+Shift+G** → `/Volumes/<Disk>` → Open; select `/Volumes` and remove it (**−**) → Apply (& restart);
+then `scripts/start.sh` again. Add every external disk ARVA uses.
+
+What ARVA does about it:
+
+- **The launcher** reads Docker Desktop's File sharing list from its settings file (never editing it). When a
+  chosen folder is under `/Volumes/<Disk>` and the list is absent (the defaults) or covers it only through
+  `/Volumes`, it explains why and how, in English or Spanish; the first-run wizard waits for Enter and reads the list
+  again. With both `/Volumes` and the disk listed it says that this has not been confirmed. Without a readable
+  settings file it says nothing at a normal start.
+- **The API** (`app/services/locations.py`) flags a location `space_misreported` when its mount comes from a share
+  above its disk (`/run/host_mark/Volumes` or `/run/host_mark` for a `/Volumes/<Disk>/…` folder, read from
+  `/proc/self/mounts`) or when the disk size it reads differs from the launcher's by more than 2 % (at least 1 GiB).
+  Then Settings → Storage and the first-run checklist show the warning with the fix (the checklist shows it before
+  any low-space warning, which would be about the wrong disk), the launcher's summary prints it, and **every
+  free-space check** (browser uploads and their 507 answer, server imports, the free space a job needs before it
+  starts, database downloads and extractions) uses **the launcher's free-space figure from the start** instead of
+  the other disk's. That figure does not count what ARVA has written since the start, so it can only grow stale
+  during a session; the messages say where the figure comes from, and the warning stays until the disk is shared as
+  itself and ARVA is started again. Without a launcher figure (a plain `docker compose up`), the container's figure
+  is kept and labelled as another disk's. Natively, on Linux, and whenever mount and size agree, nothing changes.
 
 ### Filesystem: use APFS (or Mac OS Extended)
 
@@ -603,8 +656,14 @@ there is no direct evidence of Racon's changes (Pilon's own list of changes is s
 lists what is missing for each strategy.
 
 Pilon is a Java program. Debian's `/usr/bin/pilon` runs it with a fixed 16 GB heap, so ARVA runs the jar it names
-(`/usr/share/java/pilon.jar`) with `java -Xmx<heap>` itself, the heap chosen in the dialog (default min(16 GB, the
-performance profile's memory per job)). For another installation set `ARVA_TOOL_PILON` to the path of `pilon.jar`. Debian's build
+(`/usr/share/java/pilon.jar`) with `java -Xmx<heap>` itself, the heap chosen in the dialog. Pilon's documentation
+([Requirements & Usage](https://github.com/broadinstitute/pilon/wiki/Requirements-&-Usage)) says "bacterial genomes
+with ~200x of Illumina coverage will require at least 8GB, though 16GB is recommended" and, as a rule of thumb, 1 GB
+per megabase of genome. The performance profile's memory per job can be far less (the Light profile on a Mac whose
+Docker Desktop VM has 3.8 GB gives tools 1 GB), so the default heap is the memory per job **raised towards 8 GB**,
+never above the memory ARVA may give a tool nor 16 GB: there, 3 GB. When even that is below 8 GB the polishing
+dialog says so (give Docker Desktop more memory). A heap typed in the dialog or a workflow node is used as given;
+a batch reserves the Pilon heap it gives. For another installation set `ARVA_TOOL_PILON` to the path of `pilon.jar`. Debian's build
 prints no version number (`Pilon version [COMMIT] [DATE]`), so ARVA reads the version from dpkg and says so on the
 Tools page. `JAVA_TOOL_OPTIONS`, `_JAVA_OPTIONS` and `JDK_JAVA_OPTIONS` are removed from every tool's environment,
 as they would change the recorded heap. Medaka is not integrated (it needs a model matching the reads' basecaller,
@@ -1035,7 +1094,11 @@ is on another disk. Server folder import copies directly and needs only the file
 
 `GET /api/v1/system/storage` reports the figures (also shown on the Import page), with every storage location
 (role, folder on the computer as the launcher gave it, folder inside ARVA, read-only or not, free and total space,
-filesystem warnings, the data folder's marker) and the metadata backups; Settings → Storage shows them.
+filesystem warnings, the data folder's marker) and the metadata backups; Settings → Storage shows them. A location
+whose free space Docker reports from another disk carries `space_misreported`, `space_source` (`host_at_start` or
+`container_misreported`), `misreport` (reason, Docker's share, the disk to share, what the container shows) and the
+launcher's `host_free_bytes`, `host_total_bytes` and `host_measured_at`; the free-space checks then use the
+launcher's figure ([Docker Desktop file sharing and free space](#docker-desktop-file-sharing-and-free-space)).
 
 ## Reference databases (Database Manager)
 
@@ -1295,7 +1358,10 @@ The API test suite **drops and recreates** the schema of the test database — n
 | SPAdes refused with "paths with white space" | The storage folder (`ARVA_STORAGE_ROOT`) contains a space or `* ? [ ]`, which Debian's SPAdes launcher splits: move it |
 | Unicycler: "needs racon" / "needs tblastn" (HTTP 409) | Install `racon` (long reads) or `ncbi-blast+` (always), then **Re-detect** on the Tools page |
 | A SPAdes contig shows a lower coverage than Flye's for the same genome | Expected: SPAdes reports k-mer coverage, which is lower than read depth; ARVA labels each kind and never compares them |
-| Pilon: "ran out of Java heap memory" | Raise the Java heap in the polishing dialog (up to the memory ARVA can use) if the computer has the memory |
+| Pilon: "ran out of Java heap memory" | Raise the Java heap in the polishing dialog (up to the memory ARVA can use) if the computer has the memory; Pilon documents at least 8 GB for a bacterial genome at ~200x, so on a Mac give Docker Desktop more memory |
+| "mounts denied: The path /Volumes/… is not shared from the host and is not known to Docker" | `/Volumes` was removed from Docker Desktop's File sharing without adding the disk: add `/Volumes/<Disk>` ([Docker Desktop file sharing and free space](#docker-desktop-file-sharing-and-free-space)) |
+| Settings → Storage: "Docker shows another disk's free space", or the checklist says less than 20 GB free although the external disk has more | Docker Desktop shares the disk only through `/Volumes`: add `/Volumes/<Disk>`, remove `/Volumes`, start ARVA again |
+| The launcher says Docker Desktop's settings file does not store the Rosetta setting | Not an error: Docker Desktop keeps only changed settings there. Check Settings → General → "Use Rosetta for x86_64/amd64 emulation on Apple Silicon" |
 | Pilon shows *Detection failed*: "does not name the jar it runs" | The `pilon` found is not Debian's launcher: set `ARVA_TOOL_PILON` to the path of `pilon.jar` |
 | Racon: "found no overlaps" | No read aligned to the draft: check that the reads belong to the isolate and that the long-read type (minimap2 preset) matches them |
 | A Racon-polished contig is a few bases shorter than its draft | Expected: Racon trims its consensus where few reads support it, which happens at contig ends; the polishing result lists the bases removed at each end |

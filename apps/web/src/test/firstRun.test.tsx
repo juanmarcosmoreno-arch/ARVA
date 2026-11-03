@@ -62,6 +62,11 @@ describe("first-run checks", () => {
     expect(storageCheck({ ...storage, locations: [loc({ host_path: "/Volumes/JM/ARVA/data", available: false })] }).state).toBe("attention");
     expect(storageCheck({ ...storage, marker: { ...storage.marker!, status: "mismatch" } }).code).toBe("marker");
     expect(storageCheck(undefined).state).toBe("unknown");
+    // Another disk's free space comes before "less than 20 GB free", which would be about the wrong disk.
+    const misreported = loc({ host_path: "/Volumes/JM/ARVA/data", warnings: ["space_misreported", "low_space"],
+      misreport: { reason: "parent_share", share: "/Volumes", disk: "/Volumes/JM", container_free_bytes: 8 * GB, container_total_bytes: 229 * GB } });
+    expect(storageCheck({ ...storage, locations: [misreported] })).toMatchObject({
+      state: "attention", code: "space_misreported", params: { folder: "/Volumes/JM/ARVA/data", disk: "/Volumes/JM" } });
     expect(performanceCheck(performance).state).toBe("done");
     expect(performanceCheck({ ...performance, docker: { status: "adjust" } }).code).toBe("docker_adjust");
     expect(performanceCheck({ ...performance, host: { platform: { value: null, source: null } } } as unknown as PerformanceOverview).code).toBe("host_unknown");

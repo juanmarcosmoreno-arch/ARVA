@@ -5,6 +5,7 @@ As there, every fake output is CONSTRUCTED from documented formats; the Docker D
 (UseVirtualizationFrameworkRosetta, filesharingDirectories) are matched without regard to case because their spelling
 in the file is not documented. Nothing here ran on a real Mac.
 """
+import json
 import os
 import shutil
 import subprocess
@@ -214,6 +215,111 @@ def test_without_a_terminal_or_with_no_setup_nothing_is_asked(tmp_path, shell):
         proc = m.ask(shell, ["1"], *args)
         assert proc.returncode == 0, proc.stderr
         assert "Bienvenido" not in proc.stdout and not m.config.exists()
+
+
+# --- File sharing: an external disk shared only through /Volumes ------------------------------------------------
+# Seen on a real Mac (Docker Desktop, settings-store.json): with the default File sharing list the settings file has
+# no file-sharing key, and inside the containers /data (/Volumes/JM/ARVA/data) came from /run/host_mark/Volumes with
+# the startup disk's size; with /Volumes/JM shared and /Volumes removed, from /run/host_mark/Volumes/JM with JM's.
+# The key name for the list (FilesharingDirectories here) has NOT been seen in a real file: it is matched without
+# regard to case, as the launcher does. ARVA_VOLUMES_ROOT stands for /Volumes.
+
+# The settings keys seen on that Mac before the File sharing change (values constructed): PascalCase, only
+# settings changed from Docker Desktop's defaults, no Rosetta and no file-sharing key.
+REAL_KEYS = ('{"AutoStart": false, "Cpus": 4, "DataFolder": "/x", "DisplayedOnboarding": true, '
+             '"LicenseTermsVersion": 2, "SettingsVersion": 43, "SwapMiB": 1024, "UseContainerdSnapshotter": true}')
+
+
+def sharing(m: FirstRun, *folders: str) -> str:
+    vroot = str(m.tmp / "Volumes")
+    listed = ", ".join(f'"{f.replace("/Volumes", vroot, 1)}"' for f in folders)
+    return '{"UseVirtualizationFrameworkRosetta": true, "FilesharingDirectories": [' + listed + "]}"
+
+
+@pytest.mark.parametrize("shell", SHELLS)
+def test_a_normal_start_explains_how_to_share_the_disk_itself(tmp_path, shell):
+    m = FirstRun(tmp_path)
+    data = m.folder("ARVA", "data")
+    vroot = tmp_path / "Volumes"
+    # Docker Desktop's defaults (no list in its settings file): /Volumes covers the disk.
+    m.settings(REAL_KEYS)
+    proc = m.ask(shell, [], "--data-dir", str(data), lang="en_US.UTF-8")
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    err = " ".join(proc.stderr.split())
+    assert "lists no File sharing folders, so its default list applies" in err
+    assert f"{m.disk} reaches ARVA only through {vroot}" in err
+    assert "reads the free space of the Mac's startup disk" in err
+    assert f"Cmd+Shift+G → type {m.disk} → Open; then select {vroot} in the list and remove it" in err
+    assert any("up" in c for c in m.calls)  # only explained: ARVA still starts
+    # Only /Volumes in the list.
+    m.settings(sharing(m, "/Users", "/Volumes"))
+    err = " ".join(m.ask(shell, [], lang="es_AR.UTF-8").stderr.split())
+    assert f"Docker Desktop comparte {m.disk} con ARVA solo a través de {vroot}" in err and "Cmd+Shift+G" in err
+    # The disk itself: nothing to say.
+    m.settings(sharing(m, "/Users", "/Volumes/JM"))
+    assert "File sharing" not in m.ask(shell, [], lang="en_US.UTF-8").stderr
+    # A folder on the disk (deeper) also counts as the disk's own share.
+    m.settings(sharing(m, "/Users", "/Volumes/JM/ARVA"))
+    assert "File sharing" not in m.ask(shell, [], lang="en_US.UTF-8").stderr
+    # Both: not confirmed which share Docker then uses.
+    m.settings(sharing(m, "/Users", "/Volumes", "/Volumes/JM"))
+    err = " ".join(m.ask(shell, [], lang="en_US.UTF-8").stderr.split())
+    assert f"shares {m.disk} and also {vroot}" in err and "has not been confirmed" in err
+    # Not covered at all: Docker would refuse the mount.
+    m.settings(sharing(m, "/Users"))
+    err = " ".join(m.ask(shell, [], lang="en_US.UTF-8").stderr.split())
+    assert f"Docker Desktop does not share {data}" in err and '"mounts denied"' in err
+    # No settings file: the launcher cannot tell, and says nothing (ARVA checks once it runs).
+    (m.home / "Library" / "Group Containers" / "group.com.docker" / "settings-store.json").unlink()
+    assert "File sharing" not in m.ask(shell, [], lang="en_US.UTF-8").stderr
+
+
+@pytest.mark.parametrize("shell", SHELLS)
+def test_the_first_run_waits_for_the_disk_to_be_shared_and_checks_again(tmp_path, shell):
+    m = FirstRun(tmp_path)
+    m.settings(REAL_KEYS)
+    # The second `docker info` (the one after Enter) stands for the user's change in Docker Desktop.
+    fixed = m.fake / "fixed.json"
+    fixed.write_text(sharing(m, "/Users", "/Volumes/JM"))
+    store = m.home / "Library" / "Group Containers" / "group.com.docker" / "settings-store.json"
+    wrapper = (m.bin / "docker").read_text().replace(
+        '  info) [ ! -e "$FAKE/docker_down" ] || exit 1 ;;',
+        '  info) [ ! -e "$FAKE/docker_down" ] || exit 1\n'
+        '    echo x >> "$FAKE/info.count"\n'
+        f'    if [ "$(wc -l < "$FAKE/info.count")" -eq 2 ]; then cp "$FAKE/fixed.json" \'{store}\'; fi ;;')
+    (m.bin / "docker").write_text(wrapper)
+    # disk 1, these folders, no database folder, no import folder, image 1, Rosetta Enter, File sharing Enter, save.
+    proc = m.ask(shell, ["1", "", "", "", "", "", "", ""], "--setup", lang="en_US.UTF-8")
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    out = " ".join(proc.stdout.split())
+    assert "lists no File sharing folders" in out and "Press Enter when done." in out
+    assert f"Docker Desktop now shares {m.disk}." in out
+    assert any("up" in c for c in m.calls)
+
+
+@pytest.mark.parametrize("shell", SHELLS)
+def test_the_first_run_goes_on_when_the_list_still_does_not_show_the_disk(tmp_path, shell):
+    m = FirstRun(tmp_path)
+    m.settings(REAL_KEYS)
+    proc = m.ask(shell, ["1", "", "", "", "", "", "", ""], "--setup", lang="es_AR.UTF-8")
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    out = " ".join(proc.stdout.split())
+    assert f"todavía no muestran {m.disk} compartido como disco" in out and "ARVA se inicia igual" in out
+
+
+@pytest.mark.parametrize("shell", SHELLS)
+def test_a_settings_file_without_the_rosetta_key_is_docker_desktops_default_not_a_failure(tmp_path, shell):
+    m = FirstRun(tmp_path)
+    m.settings(REAL_KEYS)
+    proc = m.ask(shell, ["0", "", "", "", "", ""], "--setup", lang="es_AR.UTF-8")
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    out = " ".join(proc.stdout.split())
+    assert "no guarda el ajuste de Rosetta" in out and "No falló nada" in out
+    assert "No se pudo leer el ajuste de Rosetta" not in out
+    # The amd64 image stays the automatic choice.
+    assert "ARVA_PLATFORM" not in m.config.read_text()
+    env = json.loads((m.fake / "compose_env.json").read_text())
+    assert (env["ARVA_HOST_DOCKER_ROSETTA"], env["ARVA_HOST_IMAGE_REASON"]) == ("default", "rosetta_default")
 
 
 def test_stop_script_and_mac_launchers(tmp_path):

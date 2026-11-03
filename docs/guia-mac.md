@@ -102,11 +102,46 @@ softwareupdate --install-rosetta --agree-to-license
 
 En una Mac con Intel no hay nada que elegir: se usa amd64, nativa.
 
-### Carpetas compartidas (Settings → Resources → File sharing)
+El lanzador lee este ajuste del archivo de ajustes de Docker Desktop
+(`~/Library/Group Containers/group.com.docker/settings-store.json`). En la Mac de prueba ese archivo **solo guardaba
+los ajustes cambiados respecto de los valores por omisión**: no tenía ninguna entrada de Rosetta aunque Rosetta estaba
+activado en la ventana de Docker Desktop. En ese caso el lanzador dice que el archivo no guarda el ajuste (no que
+algo haya fallado), usa igualmente la imagen amd64 y pide comprobar en Docker Desktop que esté activado.
 
-Docker Desktop comparte por omisión `/Users`, `/Volumes`, `/private`, `/tmp` y `/var/folders`, así que un disco
-externo (`/Volumes/...`) ya está incluido. Si se quitó `/Volumes` de esa lista, volver a agregarlo; si no, Docker
-responde "Mounts denied" al iniciar ARVA.
+### Carpetas compartidas (Settings → File sharing; en algunas versiones Settings → Resources → File sharing)
+
+Docker Desktop comparte por omisión `/Users`, `/Volumes`, `/private`, `/tmp` y `/var/folders`. Con esa lista un
+disco externo se puede montar, pero **el espacio libre que ve ARVA es el de otro disco**. Comprobado en una MacBook
+Air M2 con Docker Desktop y el disco externo `JM` (datos en `/Volumes/JM/ARVA/data`):
+
+- Con la lista por omisión, dentro del contenedor la carpeta de datos venía de `/run/host_mark/Volumes` y
+  `df -h /data` mostraba **229 GB con 8,6 GB libres: el disco de arranque de la Mac**, mientras que en la Mac el
+  disco `JM` tenía 931,5 GB con 57,3 GB libres. Los controles de espacio de ARVA (y el aviso "Quedan menos de 20 GB
+  libres" de la lista de primeros pasos) usaban así el disco equivocado.
+- Quitando `/Volumes` **sin** agregar el disco, Docker no inicia ARVA: "mounts denied: The path
+  /Volumes/JM/ARVA/data is not shared from the host and is not known to Docker".
+- Agregando `/Volumes/JM` y quitando `/Volumes`, `df -h /data` muestra `/run/host_mark/Volumes/JM`, 932 GB, 58 GB
+  libres: el disco correcto.
+
+No se sabe todavía si funciona dejar `/Volumes` **y** agregar `/Volumes/JM` (una prueba no fue concluyente). Por eso:
+**compartir el disco mismo y quitar `/Volumes`**:
+
+1. Docker Desktop → **Settings** → **File sharing**.
+2. Pulsar **+**, luego **Cmd+Shift+G**, escribir `/Volumes/JM` (el nombre del disco) y **Abrir**.
+3. Seleccionar `/Volumes` en la lista y quitarlo (**−**).
+4. **Apply** (o **Apply & restart**) y volver a abrir `ARVA.command`.
+
+Repetir el paso 2 para cada disco externo que use ARVA (por ejemplo, si `BioInf` está en otro disco). El lanzador
+lee la lista de Docker Desktop de su archivo de ajustes (sin modificarlo nunca) y, si el disco solo llega por
+`/Volumes` o por la lista por omisión, lo explica y en el primer inicio espera a que se cambie. Además, una vez en
+marcha, ARVA compara el tamaño del disco que ve dentro de Docker con el que midió el lanzador en la Mac y revisa de
+qué carpeta compartida viene cada montaje: si es otro disco, **Ajustes → Almacenamiento** y la lista de primeros
+pasos muestran el aviso "Docker muestra el espacio libre de otro disco" con estos pasos, y los controles de espacio
+usan la cifra que midió el lanzador al iniciar (que no descuenta lo que ARVA escribe después).
+
+El nombre con que Docker Desktop guarda esa lista en su archivo de ajustes no se ha visto todavía: en la Mac de la
+prueba, con la lista por omisión, el archivo no tenía ninguna entrada de carpetas compartidas. Si el lanzador sigue
+avisando después de cambiarla, lo que vale es lo que muestra **Ajustes → Almacenamiento** una vez iniciado ARVA.
 
 ## 4. Obtener el código de ARVA
 
@@ -209,7 +244,11 @@ español. En cada una, **Enter** acepta lo que está entre corchetes:
    borra nada en ella. Opcionalmente, una carpeta con corridas de secuenciación para importar (también solo
    lectura).
 4. **Arquitectura de las imágenes** (solo chip de Apple): `1` amd64 (todas las herramientas; recomendada) o `2`
-   arm64. Si el ajuste de Rosetta de Docker Desktop está desactivado, explica cómo activarlo y espera.
+   arm64. Si el ajuste de Rosetta de Docker Desktop está desactivado o el archivo de ajustes no lo guarda, explica
+   cómo comprobarlo y espera.
+5. **Carpetas compartidas**: si una carpeta elegida está en un disco externo que Docker Desktop solo comparte a
+   través de `/Volumes` (o con la lista por omisión), explica por qué conviene compartir el disco mismo y cómo
+   (paso 3, carpetas compartidas), espera a que se pulse Enter y vuelve a leer la lista.
 
 Después pregunta **¿Guardar estas elecciones e iniciar ARVA? [S/n]**. Las respuestas quedan en
 `~/.config/arva/arva.conf`; no se vuelven a preguntar. Para responderlas de nuevo:
@@ -348,8 +387,11 @@ Problemas frecuentes:
 | "Docker Desktop no estuvo listo en 180 s" | abrir Docker Desktop, esperar a que la ballena quede quieta y volver a abrir `ARVA.command` |
 | "Docker no pudo descargar … read:packages" | paso 5 (o revisar la conexión a internet) |
 | "La carpeta de datos … no está en el disco en el que estaba" o "¿está conectado su disco?" | conectar el disco `JM` y volver a abrir `ARVA.command` |
-| "Mounts denied" | paso 3, carpetas compartidas |
+| "mounts denied: The path /Volumes/… is not shared from the host and is not known to Docker" | se quitó `/Volumes` de File sharing sin agregar el disco: agregar `/Volumes/<Disco>` (paso 3, carpetas compartidas) |
+| "Docker muestra el espacio libre de otro disco", o "Quedan menos de 20 GB libres" aunque el disco externo tiene más | Docker Desktop comparte el disco solo a través de `/Volumes`: agregar `/Volumes/<Disco>` y quitar `/Volumes` (paso 3) |
+| "El archivo de ajustes de Docker Desktop no guarda el ajuste de Rosetta" | no es un error: comprobar en Docker Desktop → Settings → General que Rosetta esté activado (paso 3) |
 | Un trabajo dice que el sistema lo detuvo con SIGKILL | casi siempre falta memoria: elegir un perfil más liviano en Ajustes → Rendimiento o dar más memoria a Docker Desktop (paso 3) y volver a iniciar ARVA |
+| Pulido con Pilon sin memoria (OutOfMemoryError) | la documentación de Pilon pide al menos 8 GB para un genoma bacteriano con ~200x de Illumina (16 GB recomendados). ARVA le da por omisión hasta lo que puede usar una herramienta (según sus reglas, 3 GB cuando Docker Desktop tiene 3,8 GB) y lo avisa en el diálogo de pulido: dar más memoria a Docker Desktop (paso 3) |
 | Todo muy lento en una Mac con chip de Apple | activar Rosetta en Docker Desktop (paso 3) |
 
 ## 12. Copias de seguridad

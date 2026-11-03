@@ -16,6 +16,11 @@ def test_amd64_image_on_apple_silicon_is_translated_by_rosetta():
     assert "translated: an amd64 image on an arm64 computer, through Rosetta" in image_platform.text_lines(info)[0]
     off = image_platform.describe(APPLE, {**LAUNCHER, "ARVA_HOST_DOCKER_ROSETTA": "off"}, "x86_64", False)
     assert "QEMU (Rosetta está desactivado)" in image_platform.text_lines(off, "es")[0]
+    # A settings file without the Rosetta key (it keeps only changed settings, seen on a real Mac): Docker's default.
+    default = image_platform.describe(APPLE, {**LAUNCHER, "ARVA_HOST_DOCKER_ROSETTA": "default",
+                                              "ARVA_HOST_IMAGE_REASON": "rosetta_default"}, "x86_64", False)
+    assert (default["rosetta"], default["reason"]) == ("default", "rosetta_default")
+    assert "through Rosetta or QEMU" in image_platform.text_lines(default)[0]
 
 
 def test_native_arm64_lists_the_tools_without_an_arm64_build(monkeypatch):
