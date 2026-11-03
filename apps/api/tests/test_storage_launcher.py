@@ -8,6 +8,7 @@ none is copied from a real Mac, and the scripts have not run on one.
 """
 import json
 import os
+import re
 import shutil
 import stat
 import subprocess
@@ -169,14 +170,21 @@ def test_locations_are_checked_saved_and_mounted_read_only_where_they_must_be(tm
     up = next(c for c in m.calls if "up" in c)
     assert up == ["compose", "-f", str(ROOT / "docker-compose.yml"), "-f", str(m.override), "up", "-d", "--build"]
     slot = _slot(bakta)
-    assert {k: v for k, v in m.compose_env.items() if not k.startswith(("ARVA_HOST_PLATFORM", "ARVA_HOST_MODEL",
+    env = m.compose_env
+    assert re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ", env.pop("ARVA_HOST_SPACE_MEASURED_AT"))
+    # The space of each folder's disk as measured on the host (df -Pk blocks of 1024 bytes), for ARVA to compare.
+    total, avail = str(TB_KB * 1024), str(900000000 * 1024)
+    space = {f"ARVA_HOST_{name}_{kind}_BYTES": value for name in ("DATA", "DATABASES", "IMPORT", f"EXTERNAL_DB_{slot}")
+             for kind, value in (("TOTAL", total), ("AVAIL", avail))}
+    assert {k: v for k, v in env.items() if not k.startswith(("ARVA_HOST_PLATFORM", "ARVA_HOST_MODEL",
             "ARVA_HOST_CHIP", "ARVA_HOST_PERF", "ARVA_HOST_EFF", "ARVA_HOST_PHYS", "ARVA_HOST_LOGICAL",
             "ARVA_HOST_MEMORY", "ARVA_HOST_OS", "ARVA_HOST_ARCH", "ARVA_HOST_DOCKER", "ARVA_HOST_IMAGE"))} == {
         "ARVA_HOST_DATA_DIR": str(data), "ARVA_HOST_DATA_FS": "apfs", "ARVA_HOST_DATABASES_DIR": str(dbs),
         "ARVA_HOST_DATABASES_FS": "apfs", "ARVA_HOST_IMPORT_DIR": str(runs), "ARVA_HOST_IMPORT_FS": "apfs",
-        f"ARVA_HOST_EXTERNAL_DB_{slot}": str(bakta), f"ARVA_HOST_EXTERNAL_DB_{slot}_FS": "apfs"}
+        f"ARVA_HOST_EXTERNAL_DB_{slot}": str(bakta), f"ARVA_HOST_EXTERNAL_DB_{slot}_FS": "apfs", **space}
     text = m.override.read_text()
     assert str(tmp_path) not in text and "create_host_path: false" in text
+    assert f"ARVA_HOST_EXTERNAL_DB_{slot}_TOTAL_BYTES: ${{ARVA_HOST_EXTERNAL_DB_{slot}_TOTAL_BYTES:-}}" in text
     assert f"target: /databases-external/{slot}\n    read_only: true" in text
     assert "target: /import\n    read_only: true" in text and "target: /data\n    bind:" in text
     assert "APFS · 858.3 GB free of 1863.0 GB" in proc.stdout

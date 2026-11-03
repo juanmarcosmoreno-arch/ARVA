@@ -39,12 +39,15 @@ docker_rosetta() {
     printf unknown
     return 0
   fi
+  if ! grep -iq '"usevirtualizationframeworkrosetta"' "$file" 2>/dev/null; then
+    printf default
+    return 0
+  fi
   value=$(grep -io '"usevirtualizationframeworkrosetta"[[:space:]]*:[[:space:]]*[a-z]*' "$file" 2>/dev/null |
     head -n 1 | sed 's/.*:[[:space:]]*//' | tr '[:upper:]' '[:lower:]')
   case "$value" in
     true) printf on ;;
     false) printf off ;;
-    '') printf default ;;
     *) printf unknown ;;
   esac
 }
@@ -482,8 +485,8 @@ rosetta_note() {
     off) say "  Docker Desktop's Rosetta setting is off." "  El ajuste de Rosetta de Docker Desktop está desactivado." ;;
     default)
       say "  Docker Desktop's settings file does not store the Rosetta setting: it keeps only settings changed from Docker
-  Desktop's defaults, and Docker's documentation does not say consistently whether Rosetta is on by default. Nothing
-  failed; check the setting in Docker Desktop." \
+  Desktop's defaults, and Docker's documentation does not say consistently whether Rosetta is on by default.
+  Nothing failed; check the setting in Docker Desktop." \
           "  El archivo de ajustes de Docker Desktop no guarda el ajuste de Rosetta: solo guarda los ajustes cambiados
   respecto de los valores por omisión, y la documentación de Docker no indica de forma coherente si Rosetta viene
   activado. No falló nada; comprobar el ajuste en Docker Desktop."
