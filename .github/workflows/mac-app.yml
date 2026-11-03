@@ -1,0 +1,117 @@
+# ARVA.app, the native macOS app: build it with scripts/build-mac-app.sh on a GitHub-hosted Mac, check it (both
+# architectures, signature, Info.plist, bundled launcher files, the app's own --self-test under arm64 and, through
+# Rosetta, x86_64) and keep ARVA-mac.zip as this run's artifact for 30 days (Actions → this run → Artifacts).
+name: Mac app
+
+on:
+  push:
+    branches: [main, claude/affectionate-darwin-oknu0k]
+    paths:
+      - apps/mac/**
+      - scripts/build-mac-app.sh
+      - .github/workflows/mac-app.yml
+      # What the app bundles (scripts/build-mac-app.sh, step 3) and its icon.
+      - docker-compose.yml
+      - scripts/start.sh
+      - scripts/stop.sh
+      - scripts/metadata-backup.sh
+      - scripts/diagnostics.sh
+      - scripts/backup.sh
+      - scripts/restore.sh
+      - scripts/lib/**
+      - import/README.md
+      - apps/api/app/__init__.py
+      - ARVA.command
+      - Detener ARVA.command
+      - docker/api.Dockerfile
+      - docker/web.Dockerfile
+      - docker/nginx.conf
+      - docker/api-entrypoint.sh
+      - apps/web/public/arva-logo.png
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mac-app-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build and check ARVA.app
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Tools
+        run: |
+          sw_vers
+          xcrun swiftc --version
+          xcode-select -p
+
+      - name: Build
+        env:
+          ARVA_BUILD_NUMBER: ${{ github.run_number }}
+        run: scripts/build-mac-app.sh
+
+      - name: Check
+        run: |
+          set -eu
+          app=apps/mac/build/ARVA.app
+          bin=$app/Contents/MacOS/ARVA
+          file "$bin"
+          archs=$(lipo -archs "$bin")
+          echo "Architectures: $archs"
+          for arch in arm64 x86_64; do
+            case " $archs " in *" $arch "*) ;; *) echo "::error::$arch is missing"; exit 1 ;; esac
+          done
+          codesign --verify --deep --strict --verbose=2 "$app"
+          codesign -dv "$app" 2>&1 | grep -E '^(Identifier|Format|Signature)'
+          plutil -lint "$app/Contents/Info.plist"
+          plutil -p "$app/Contents/Info.plist" | grep -E 'CFBundle(Identifier|ShortVersionString|Version|Executable)|LSMinimumSystemVersion'
+          res=$app/Contents/Resources
+          for f in ARVA.icns arva-logo.png en.lproj/InfoPlist.strings es.lproj/InfoPlist.strings \
+            runtime/.arva-runtime-id runtime/docker-compose.yml runtime/scripts/start.sh runtime/scripts/stop.sh \
+            runtime/scripts/metadata-backup.sh runtime/scripts/lib/arva-locations.sh runtime/scripts/lib/arva-firstrun.sh \
+            runtime/import/README.md runtime/apps/api/app/__init__.py runtime/ARVA.command "runtime/Detener ARVA.command"; do
+            test -s "$res/$f" || { echo "::error::$f is missing"; exit 1; }
+          done
+          file "$res/ARVA.icns"
+          ls -l apps/mac/build/ARVA-mac.zip
+
+      - name: Self-test (arm64, English and Spanish)
+        run: |
+          set -eu
+          bin=apps/mac/build/ARVA.app/Contents/MacOS/ARVA
+          ARVA_APP_LANG=en arch -arm64 "$bin" --self-test
+          ARVA_APP_LANG=es arch -arm64 "$bin" --self-test
+
+      - name: Self-test (x86_64 through Rosetta)
+        run: |
+          set -eu
+          bin=apps/mac/build/ARVA.app/Contents/MacOS/ARVA
+          if arch -x86_64 /usr/bin/true 2>/dev/null; then
+            ARVA_APP_LANG=es arch -x86_64 "$bin" --self-test
+          else
+            echo "::notice::Rosetta is not installed on this runner; the x86_64 slice was built and checked with lipo only."
+          fi
+
+      - name: The zip unpacks to a valid app
+        run: |
+          set -eu
+          dir=$(mktemp -d)
+          ditto -x -k apps/mac/build/ARVA-mac.zip "$dir"
+          codesign --verify --deep --strict "$dir/ARVA.app"
+          test -x "$dir/ARVA.app/Contents/Resources/runtime/scripts/start.sh"
+          "$dir/ARVA.app/Contents/MacOS/ARVA" --self-test > /dev/null
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          path: apps/mac/build/ARVA-mac.zip
+          archive: false
+          retention-days: 30
+          if-no-files-found: error

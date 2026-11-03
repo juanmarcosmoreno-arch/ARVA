@@ -1,0 +1,6 @@
+/* Shown by macOS the first time ARVA, or the launcher it runs, reads a folder of this kind. */
+"NSDownloadsFolderUsageDescription" = "ARVA saves the reports and files you download into Downloads.";
+"NSDocumentsFolderUsageDescription" = "ARVA reads the sequencing files and folders you choose.";
+"NSDesktopFolderUsageDescription" = "ARVA reads the sequencing files and folders you choose.";
+"NSRemovableVolumesUsageDescription" = "ARVA keeps your projects and databases on the disk you chose, and checks that it is connected before starting.";
+"NSNetworkVolumesUsageDescription" = "ARVA keeps your projects and databases on the disk you chose, and checks that it is connected before starting.";

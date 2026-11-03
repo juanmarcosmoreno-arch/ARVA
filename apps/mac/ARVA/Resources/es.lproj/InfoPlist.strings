@@ -1,0 +1,6 @@
+/* Lo muestra macOS la primera vez que ARVA, o el lanzador que ejecuta, lee una carpeta de este tipo. */
+"NSDownloadsFolderUsageDescription" = "ARVA guarda en Descargas los informes y archivos que descargas.";
+"NSDocumentsFolderUsageDescription" = "ARVA lee los archivos y carpetas de secuenciación que eliges.";
+"NSDesktopFolderUsageDescription" = "ARVA lee los archivos y carpetas de secuenciación que eliges.";
+"NSRemovableVolumesUsageDescription" = "ARVA guarda tus proyectos y bases de datos en el disco que elegiste y comprueba que esté conectado antes de iniciarse.";
+"NSNetworkVolumesUsageDescription" = "ARVA guarda tus proyectos y bases de datos en el disco que elegiste y comprueba que esté conectado antes de iniciarse.";
