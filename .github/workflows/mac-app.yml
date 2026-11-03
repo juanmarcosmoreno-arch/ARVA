@@ -34,12 +34,15 @@ on:
 permissions:
   contents: read
 
+# Snapshot commits whose message says "(in progress)" are work in progress: they build nothing and, being in
+# their own concurrency group, never cancel the build of a finished commit.
 concurrency:
-  group: mac-app-${{ github.ref }}
+  group: mac-app-${{ github.ref }}-${{ contains(github.event.head_commit.message, '(in progress)') && 'wip' || 'release' }}
   cancel-in-progress: true
 
 jobs:
   build:
+    if: ${{ !contains(github.event.head_commit.message, '(in progress)') }}
     name: Build and check ARVA.app
     runs-on: macos-15
     timeout-minutes: 30
