@@ -20,6 +20,13 @@
 #   --import-dir PATH        sequencing runs to import from, read-only
 #   --show-config            show and check the saved locations, then stop
 #   --reset-config           forget the saved locations (no folder is touched), then stop
+# First run: in a terminal and with no saved locations yet (and none given as options), it first asks, in Spanish
+# when the locale is Spanish, whether Docker Desktop is installed and running, which disk keeps the data and
+# databases (/Volumes/<Disk>/ARVA/{data,databases} proposed), which existing database folders to add read-only and,
+# on Apple silicon, which image architecture (scripts/lib/arva-firstrun.sh); then it starts and opens the browser.
+#   --setup                  ask those questions again (reads the answers from standard input)
+#   --no-setup               never ask (for scripts; a plain run without a terminal never asks either)
+#   --open                   open http://localhost:8080 in the browser once ARVA answers (ARVA.command uses it)
 # Every folder is checked before Docker starts. When the disk of the data or database folder is missing, ARVA does
 # not start, so nothing is written to the internal disk instead.
 #
@@ -34,22 +41,25 @@ set -eu
 
 ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 cd "$ROOT"
+arva_os=$(uname -s 2>/dev/null || true)
 # shellcheck source=SCRIPTDIR/lib/arva-locations.sh
 . "$ROOT/scripts/lib/arva-locations.sh"
-arva_os=$(uname -s 2>/dev/null || true)
+# shellcheck source=SCRIPTDIR/lib/arva-firstrun.sh
+. "$ROOT/scripts/lib/arva-firstrun.sh"
 
 usage() {
   say "Usage: scripts/start.sh [--data-dir PATH] [--databases-dir PATH] [--add-databases PATH]... [--remove-databases PATH]...
                         [--import-dir PATH] [--platform linux/amd64|linux/arm64|auto] [--show-config | --reset-config]
-                        [docker compose up options, e.g. --build]
+                        [--setup | --no-setup] [--open] [docker compose up options, e.g. --build]
 Chosen folders are remembered in ${XDG_CONFIG_HOME:-~/.config}/arva/arva.conf; see docs/installation.md (External disk)." \
 "Uso: scripts/start.sh [--data-dir RUTA] [--databases-dir RUTA] [--add-databases RUTA]... [--remove-databases RUTA]...
                        [--import-dir RUTA] [--platform linux/amd64|linux/arm64|auto] [--show-config | --reset-config]
-                       [opciones de docker compose up, p. ej. --build]
+                       [--setup | --no-setup] [--open] [opciones de docker compose up, p. ej. --build]
 Las carpetas elegidas se recuerdan en ${XDG_CONFIG_HOME:-~/.config}/arva/arva.conf; consulta docs/installation.md (Disco externo)."
 }
 
 want_data='' want_databases='' want_import='' want_add='' want_remove='' want_platform='' show=0 reset=0 build=0
+setup='' open_browser=0
 platform_option() {
   case "$1" in
     linux/amd64 | linux/arm64 | auto) want_platform=$1 ;;
@@ -97,6 +107,9 @@ while [ "$n" -gt 0 ]; do
       ;;
     --platform=*) platform_option "${arg#*=}" ;;
     --show-config) show=1 ;;
+    --setup) setup=1 ;;
+    --no-setup) setup=0 ;;
+    --open) open_browser=1 ;;
     --reset-config) reset=1 ;;
     -h | --help)
       usage
@@ -117,6 +130,18 @@ if [ "$reset" = 1 ]; then
   exit 0
 fi
 arva_read_config
+
+first_run=0
+if [ "$setup" = 1 ]; then
+  first_run=1
+elif [ -z "$setup" ] && [ "$show" = 0 ] && [ -n "$ARVA_CONFIG" ] && [ ! -e "$ARVA_CONFIG" ] && [ -t 0 ] && [ -t 1 ] &&
+  [ -z "$want_data$want_databases$want_import$want_add$want_remove$want_platform" ]; then
+  first_run=1
+fi
+if [ "$first_run" = 1 ] && ! arva_first_run; then
+  say "ARVA did not start; nothing was saved." "ARVA no se inició; no se guardó nada." >&2
+  exit 1
+fi
 
 if [ -n "$want_data$want_databases$want_import$want_add$want_remove" ]; then
   for role in data databases; do
@@ -165,6 +190,8 @@ if [ -n "$want_platform" ]; then
   if [ "$want_platform" = auto ]; then cfg_platform=''; else cfg_platform=$want_platform; fi
   arva_write_config
 fi
+# Answers that keep everything in Docker volumes still leave a (header-only) file, so the questions are not asked again.
+if [ "$first_run" = 1 ] && [ ! -e "$ARVA_CONFIG" ]; then arva_write_config; fi
 
 for legacy in ARVA_DATA_DIR ARVA_DATABASES_DIR ARVA_IMPORT_DIR; do
   if printenv "$legacy" >/dev/null 2>&1 || { [ -f "$ROOT/.env" ] && grep -q "^[[:space:]]*$legacy=" "$ROOT/.env"; }; then
@@ -276,6 +303,15 @@ read_mac() {
 }
 
 if [ "$arva_os" = Darwin ]; then
+  if ! command -v docker >/dev/null 2>&1 && [ -x /Applications/Docker.app/Contents/Resources/bin/docker ]; then
+    PATH=$PATH:/Applications/Docker.app/Contents/Resources/bin
+    export PATH
+  fi
+  if ! command -v docker >/dev/null 2>&1; then
+    say "Docker Desktop is not installed (no docker command was found): https://docs.docker.com/desktop/setup/install/mac-install/" \
+        "Docker Desktop no está instalado (no se encontró el comando docker): https://docs.docker.com/desktop/setup/install/mac-install/"
+    exit 1
+  fi
   if ! docker_info=$(docker info --format '{{.NCPU}} {{.MemTotal}}' 2>/dev/null); then
     say "Docker is not running. Start Docker Desktop, wait until it is ready, then run this script again." \
         "Docker no está en marcha. Abre Docker Desktop, espera a que esté listo y vuelve a ejecutar este script."
@@ -304,24 +340,6 @@ if [ "$arva_os" = Darwin ]; then
   say "  Docker Desktop gives its virtual machine ${docker_cpus:-?} CPUs and $(gb "$docker_memory")" \
       "  Docker Desktop da a su máquina virtual ${docker_cpus:-?} CPU y $(gb "$docker_memory")"
 fi
-
-# Docker Desktop's "Use Rosetta for x86_64/amd64 emulation on Apple Silicon" (Settings → General), from its settings
-# file (Docker's settings reference names the key useVirtualizationFrameworkRosetta; settings-store.json since Docker
-# Desktop 4.35, settings.json before). The key's spelling in the file is not documented, so it is matched without
-# regard to case. Prints on, off or unknown.
-docker_rosetta() {
-  dir=${HOME:+$HOME/Library/Group Containers/group.com.docker}
-  for file in "$dir/settings-store.json" "$dir/settings.json"; do
-    if [ -z "$dir" ] || [ ! -f "$file" ]; then continue; fi
-    value=$(grep -io '"usevirtualizationframeworkrosetta"[[:space:]]*:[[:space:]]*[a-z]*' "$file" 2>/dev/null |
-      head -n 1 | sed 's/.*:[[:space:]]*//' | tr '[:upper:]' '[:lower:]')
-    case "$value" in
-      true) printf on; return 0 ;;
-      false) printf off; return 0 ;;
-    esac
-  done
-  printf unknown
-}
 
 # The image architecture: saved with --platform, else this computer's own, except on Apple silicon (see the top).
 rosetta=''
@@ -414,7 +432,29 @@ log_launcher() {
     "$id" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${version:-unknown}" "$arva_commit" "$1" "$2" "$3" >> "$logs/errors.jsonl" 2>/dev/null || true
 }
 
-if [ "$build" = 0 ] && ! arva_compose pull api web; then
+# In a terminal, a denied pull can be followed by `docker login ghcr.io` right here: Docker itself asks for the token
+# (it never passes through this script) and keeps it in its credential store.
+pull() {
+  arva_compose pull api web && return 0
+  if [ "$first_run" = 0 ] && { [ ! -t 0 ] || [ ! -t 1 ]; }; then return 1; fi
+  if docker image inspect "$ARVA_API_IMAGE:$ARVA_IMAGE_TAG" "$ARVA_WEB_IMAGE:$ARVA_IMAGE_TAG" >/dev/null 2>&1; then return 1; fi
+  say "The images could not be downloaded. If they are private, sign in to ghcr.io with your GitHub user name and a
+personal access token with the read:packages scope (docs/guia-mac.md, step 5)." \
+      "No se pudieron descargar las imágenes. Si son privadas, iniciar sesión en ghcr.io con el nombre de usuario de GitHub y
+un token de acceso personal con el permiso read:packages (docs/guia-mac.md, paso 5)."
+  ask_yes "Sign in now?" "¿Iniciar sesión ahora?" n || return 1
+  ask "GitHub user name:" "Nombre de usuario de GitHub:"
+  case "$reply" in
+    '' | -* | *[!A-Za-z0-9-]*)
+      say "That is not a GitHub user name." "Eso no es un nombre de usuario de GitHub."
+      return 1
+      ;;
+  esac
+  docker login ghcr.io -u "$reply" || return 1
+  arva_compose pull api web
+}
+
+if [ "$build" = 0 ] && ! pull; then
   if docker image inspect "$ARVA_API_IMAGE:$ARVA_IMAGE_TAG" "$ARVA_WEB_IMAGE:$ARVA_IMAGE_TAG" >/dev/null 2>&1; then
     say "The images could not be updated; ARVA starts with the copies already on this computer."         "No se pudieron actualizar las imágenes; ARVA se inicia con las copias que ya hay en este equipo."
   else
@@ -449,3 +489,19 @@ if ! arva_compose exec -T api python -m app.services.locations --lang "$lang"; t
   say "Where ARVA keeps its files is in Settings → Storage." "Dónde guarda ARVA sus archivos está en Ajustes → Almacenamiento."
 fi
 say "Open http://localhost:8080" "Abre http://localhost:8080"
+# Once the web container answers (at most ARVA_OPEN_WAIT seconds, default 60), in the default browser.
+if [ "$open_browser" = 1 ]; then
+  waited=0 limit=${ARVA_OPEN_WAIT:-60}
+  case "$limit" in '' | *[!0-9]*) limit=60 ;; esac
+  if command -v curl >/dev/null 2>&1; then
+    until curl -fsS -o /dev/null --max-time 2 http://localhost:8080/ 2>/dev/null || [ "$waited" -ge "$limit" ]; do
+      sleep 1
+      waited=$((waited + 1))
+    done
+  fi
+  if [ "$arva_os" = Darwin ]; then
+    open http://localhost:8080 >/dev/null 2>&1 || true
+  elif command -v xdg-open >/dev/null 2>&1; then
+    xdg-open http://localhost:8080 >/dev/null 2>&1 || true
+  fi
+fi

@@ -18,6 +18,7 @@ import { Link } from "react-router-dom";
 import { JobStatusBadge, StatTile } from "@/components/domain/bits";
 import { ProjectFormDialog } from "@/components/domain/ProjectFormDialog";
 import { ALL_NAV_ITEMS } from "@/components/layout/nav";
+import { FirstRunChecklist } from "@/components/platform/FirstRunChecklist";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardBody, CardHeader } from "@/components/ui/card";
@@ -26,12 +27,14 @@ import { useT } from "@/i18n";
 import { api } from "@/lib/api";
 import { fmtBytes, fmtDate, fmtDuration, fmtInt } from "@/lib/format";
 import { jobLabel } from "@/lib/results";
+import { useSettings } from "@/store/settings";
 
 const MODULE_KEYS = ["import", "qc", "assembly", "annotation", "genomic", "comparative", "phylogeny", "pangenome", "workflows"];
 
 export function DashboardPage() {
   const t = useT();
   const [creating, setCreating] = useState(false);
+  const showChecklist = useSettings((s) => s.showChecklist);
   const { data, isLoading, error } = useQuery({ queryKey: ["dashboard"], queryFn: api.dashboard, refetchInterval: 5000 });
 
   const modules = MODULE_KEYS.map((k) => ALL_NAV_ITEMS.find((i) => i.key === k)!);
@@ -48,6 +51,7 @@ export function DashboardPage() {
         }
       />
       <ErrorNote error={error} />
+      {showChecklist && <FirstRunChecklist onCreateProject={() => setCreating(true)} />}
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         {isLoading || !data ? (

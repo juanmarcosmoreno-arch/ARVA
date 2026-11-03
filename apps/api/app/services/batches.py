@@ -26,6 +26,7 @@ cancelled, and when the worker starts (so runs interrupted by a restart continue
 from __future__ import annotations
 
 import csv
+import functools
 import hashlib
 import io
 import json
@@ -703,6 +704,21 @@ def _run_internal(db: Session, run: BatchRun, item: BatchItem, status: dict[str,
 
 # --- actions on a run ----------------------------------------------------------------------------------------------
 
+def _serialised(action):
+    """Run a run action under the dispatcher's lock, on freshly read rows: otherwise the dispatcher, between reading
+    an item as 'waiting' and committing its launch, could queue a job of a run the action just cancelled or paused.
+    Inside the dispatcher's own thread the lock is already held."""
+    @functools.wraps(action)
+    def wrapper(db: Session, run: BatchRun, *args, **kwargs):
+        if getattr(_local, "active", False):
+            return action(db, run, *args, **kwargs)
+        with _global_lock():
+            db.expire_all()
+            return action(db, run, *args, **kwargs)
+    return wrapper
+
+
+@_serialised
 def cancel_run(db: Session, run: BatchRun) -> BatchRun:
     from app.services import jobs as jobs_service
 
@@ -725,6 +741,7 @@ def cancel_run(db: Session, run: BatchRun) -> BatchRun:
     return run
 
 
+@_serialised
 def pause_run(db: Session, run: BatchRun) -> BatchRun:
     if run.status != "running":
         raise WorkflowError("Only a running run can be paused", "wf_run_not_running", status=run.status)
@@ -733,6 +750,7 @@ def pause_run(db: Session, run: BatchRun) -> BatchRun:
     return run
 
 
+@_serialised
 def resume_run(db: Session, run: BatchRun) -> BatchRun:
     """Continue a paused run, or rerun what did not complete in a finished, cancelled or interrupted one: failed,
     cancelled and skipped items are queued again (sources are looked up again); completed items keep their
@@ -751,6 +769,7 @@ def resume_run(db: Session, run: BatchRun) -> BatchRun:
     return run
 
 
+@_serialised
 def update_settings(db: Session, run: BatchRun, priority: int | None, max_concurrent: int | None) -> BatchRun:
     settings = dict(run.settings)
     if priority is not None:
@@ -1022,7 +1041,51 @@ def export_run(db: Session, run: BatchRun) -> dict[str, Any]:
             "exported_at": now().isoformat(timespec="seconds")}
 
 
-def report_html(db: Session, run: BatchRun) -> str:
+REPORT_LABELS: dict[str, dict[str, str]] = {
+    "en": {"title": "Workflow run", "run": "run", "workflow": "Workflow", "definition": "definition SHA-256",
+           "status": "status",
+           "summary": "{completed} of {total} steps completed, {failed} failed, {skipped} skipped, {cancelled} "
+                      "cancelled; {jobs} job(s) created, {reused} step(s) reused from the parent run; total job time "
+                      "{seconds} s.",
+           "changed": "Changed parameters (branch)", "samples": "Samples", "sample": "Sample",
+           "completed": "Completed", "failed": "Failed", "skipped": "Skipped", "job_time": "Job time (s)",
+           "errors": "Errors", "step": "Step", "code": "Code", "reason": "Reason", "none": "None.", "tools": "Tools",
+           "tool": "Tool", "version": "Version", "tool_status": "Status when the run was created",
+           "methods": "Methods",
+           "methods_text": "Each step ran as an ordinary ARVA analysis job, launched through the same checks as the "
+                           "analysis's own dialog; the run's export lists every job's tool, version, parameters, "
+                           "inputs, outputs and exact commands. The queue's concurrency, threads and memory per job "
+                           "are ARVA's scheduling settings, not measurements."},
+    "es": {"title": "Ejecución del flujo de trabajo", "run": "ejecución", "workflow": "Flujo de trabajo",
+           "definition": "SHA-256 de la definición", "status": "estado",
+           "summary": "{completed} de {total} pasos completados, {failed} fallidos, {skipped} omitidos, {cancelled} "
+                      "cancelados; {jobs} trabajo(s) creado(s), {reused} paso(s) reutilizado(s) de la ejecución de "
+                      "origen; tiempo total de los trabajos {seconds} s.",
+           "changed": "Parámetros cambiados (rama)", "samples": "Muestras", "sample": "Muestra",
+           "completed": "Completados", "failed": "Fallidos", "skipped": "Omitidos",
+           "job_time": "Tiempo de los trabajos (s)", "errors": "Errores", "step": "Paso", "code": "Código",
+           "reason": "Motivo", "none": "Ninguno.", "tools": "Herramientas", "tool": "Herramienta",
+           "version": "Versión", "tool_status": "Estado cuando se creó la ejecución", "methods": "Métodos",
+           "methods_text": "Cada paso se ejecutó como un trabajo de análisis normal de ARVA, lanzado con las mismas "
+                           "comprobaciones que el diálogo propio del análisis; la exportación de la ejecución indica "
+                           "la herramienta, la versión, los parámetros, las entradas, las salidas y los comandos "
+                           "exactos de cada trabajo. La concurrencia de la cola, los hilos y la memoria por trabajo "
+                           "son ajustes de planificación de ARVA, no mediciones."},
+}
+# Run, item and tool statuses as the report shows them; the export keeps the codes.
+REPORT_STATUS = {"es": {"running": "en curso", "paused": "en pausa", "completed": "completado", "failed": "fallido",
+                        "cancelled": "cancelado", "available": "disponible", "not_installed": "no instalado",
+                        "incompatible": "incompatible"}}
+
+
+def report_html(db: Session, run: BatchRun, lang: str = "en") -> str:
+    """The run's summary page, in `lang` (en or es); error reasons are the jobs' recorded messages."""
+    lang = "es" if lang == "es" else "en"
+    L = REPORT_LABELS[lang]
+
+    def st(code: str) -> str:
+        return escape(REPORT_STATUS.get(lang, {}).get(code, code))
+
     d = run_detail(db, run)
     rows = "".join(
         f"<tr><td>{escape(r['sample_code'] or '')}</td><td>{r['counts']['completed']}/{r['total']}</td>"
@@ -1033,32 +1096,32 @@ def report_html(db: Session, run: BatchRun) -> str:
         f"<td><code>{escape(str(e.get('code', '')))}</code></td><td>{escape(str(e.get('message', '')))}</td></tr>"
         for e in d["errors"])
     tools = "".join(f"<tr><td>{escape(t['name'])}</td><td>{escape(str(t['version']))}</td>"
-                    f"<td>{escape(t['status'])}</td></tr>" for t in run.tools.values())
+                    f"<td>{st(t['status'])}</td></tr>" for t in run.tools.values())
     changes = "".join(f"<li><code>{escape(c['node'])}.{escape(c['path'])}</code>: {escape(json.dumps(c['before']))}"
                       f" → {escape(json.dumps(c['after']))}</li>" for c in run.branch_changes or [])
     c = d["counts"]
-    return f"""<!doctype html><html lang="en"><head><meta charset="utf-8"><title>ARVA · run · {escape(run.name)}</title>
+    summary = escape(L["summary"].format(completed=c["completed"], total=d["total"], failed=c["failed"],
+                                         skipped=c["skipped"], cancelled=c["cancelled"], jobs=d["jobs_created"],
+                                         reused=d["reused"], seconds=d["job_seconds"]))
+    return f"""<!doctype html><html lang="{lang}"><head><meta charset="utf-8"><title>ARVA · {L['run']} · {escape(run.name)}</title>
 <style>body {{ font-family: Inter, -apple-system, Segoe UI, Arial, sans-serif; color:#0B132B; background:#F8FAFC;
 margin:0; padding:32px 16px; line-height:1.5; }} main {{ max-width: 1000px; margin: 0 auto; background:#fff;
 border:1px solid #E5E7EB; border-radius:12px; padding:32px; }} h2 {{ font-size: 18px; color:#1F3B8A; margin-top: 28px; }}
 table {{ border-collapse: collapse; font-size: 13px; }} th, td {{ padding: 5px 8px; border-bottom: 1px solid #EEF2F7;
 text-align: left; }} code {{ font-size: 11px; }} .muted {{ color:#64748B; font-size: 12px; }}</style></head><body><main>
 <div style="letter-spacing:.3em;font-weight:600;color:#1F3B8A;font-size:13px">ARVA</div>
-<h1>Workflow run · {escape(run.name)}</h1>
-<p class="muted">Workflow {escape(str(d['workflow_name']))} v{d['version']} · definition SHA-256
-<code>{escape(run.definition_sha256)}</code> · status {escape(run.status)}</p>
-<p>{c['completed']} of {d['total']} steps completed, {c['failed']} failed, {c['skipped']} skipped, {c['cancelled']}
-cancelled; {d['jobs_created']} job(s) created, {d['reused']} step(s) reused from the parent run; total job time
-{d['job_seconds']} s.</p>
-{"<h2>Changed parameters (branch)</h2><ul>" + changes + "</ul>" if changes else ""}
-<h2>Samples</h2><table><tr><th>Sample</th><th>Completed</th><th>Failed</th><th>Skipped</th><th>Job time (s)</th></tr>
+<h1>{L['title']} · {escape(run.name)}</h1>
+<p class="muted">{L['workflow']} {escape(str(d['workflow_name']))} v{d['version']} · {L['definition']}
+<code>{escape(run.definition_sha256)}</code> · {L['status']} {st(run.status)}</p>
+<p>{summary}</p>
+{f"<h2>{L['changed']}</h2><ul>" + changes + "</ul>" if changes else ""}
+<h2>{L['samples']}</h2><table><tr><th>{L['sample']}</th><th>{L['completed']}</th><th>{L['failed']}</th>
+<th>{L['skipped']}</th><th>{L['job_time']}</th></tr>
 {rows}</table>
-<h2>Errors</h2>{"<table><tr><th>Sample</th><th>Step</th><th>Code</th><th>Reason</th></tr>" + errs + "</table>"
-                  if errs else "<p>None.</p>"}
-<h2>Tools</h2><table><tr><th>Tool</th><th>Version</th><th>Status when the run was created</th></tr>{tools}</table>
-<h2>Methods</h2><p>Each step ran as an ordinary ARVA analysis job, launched through the same checks as the analysis's
-own dialog; the run's export lists every job's tool, version, parameters, inputs, outputs and exact commands. The
-queue's concurrency, threads and memory per job are ARVA's scheduling settings, not measurements.</p>
+<h2>{L['errors']}</h2>{f"<table><tr><th>{L['sample']}</th><th>{L['step']}</th><th>{L['code']}</th><th>{L['reason']}</th></tr>"
+                        + errs + "</table>" if errs else f"<p>{L['none']}</p>"}
+<h2>{L['tools']}</h2><table><tr><th>{L['tool']}</th><th>{L['version']}</th><th>{L['tool_status']}</th></tr>{tools}</table>
+<h2>{L['methods']}</h2><p>{L['methods_text']}</p>
 </main></body></html>"""
 
 

@@ -17,8 +17,9 @@ const MAX_SEQUENCE = 1_000_000;
 const SEARCH_LIMIT = 25;
 
 /** Gene name, locus tag, product text or identifier (server-side search over every sequence), or coordinates. */
-export function ExplorerSearch({ annotationId, contigs, current, onRegion, onFeature }: {
+export function ExplorerSearch({ annotationId, prokka = false, contigs, current, onRegion, onFeature }: {
   annotationId: string;
+  prokka?: boolean;
   contigs: ContigOption[];
   current: string;
   onRegion: (contig: string, start: number, end: number) => void;
@@ -103,6 +104,7 @@ export function ExplorerSearch({ annotationId, contigs, current, onRegion, onFea
           {results.isLoading && <p className="p-2 text-muted-foreground">{t("common.loading")}</p>}
           <ErrorNote error={results.error} />
           {results.data && !items.length && <p className="p-2 text-muted-foreground">{t("explorer.noResults", { q: target.q })}</p>}
+          {results.data && !items.length && prokka && <p className="p-2 text-muted-foreground">{t("annotation.prokkaSearchHint")}</p>}
           {items.length > 0 && (
             <ul id={listId} role="listbox" aria-label={t("explorer.results")}>
               {items.map((f, i) => (

@@ -501,6 +501,17 @@ export const STATUS_COLOR: Record<ItemStatus, string> = {
   skipped: "#F59E0B",
 };
 
+/** A shape per status, so that the run grid does not rely on colour alone. */
+export const STATUS_GLYPH: Record<ItemStatus, string> = {
+  waiting: "○",
+  queued: "◔",
+  running: "◑",
+  completed: "✓",
+  failed: "✕",
+  cancelled: "⊘",
+  skipped: "»",
+};
+
 /** A parameter's translated name (by its last path segment), or null when the dictionary has none. */
 export function paramLabel(t: Translate, path: string): string | null {
   const key = `wf.p.${path.split(".").pop()}`;

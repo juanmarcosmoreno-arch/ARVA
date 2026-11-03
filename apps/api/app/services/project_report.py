@@ -59,6 +59,9 @@ LABELS: dict[str, dict[str, str]] = {
         "demo": "DEMONSTRATION PROJECT — synthetic or example data",
         "scope": "Each sample shows the latest completed result of each analysis. A sample without a run of an "
                  "analysis is marked “not searched”, never “absent”.",
+        "mixed": "The results of these samples come from different assemblies of the sample (the latest of each "
+                 "analysis was run on another assembly than the one shown): {samples}. The JSON report names the "
+                 "assembly of each part.",
     },
     "es": {
         "title": "Informe del proyecto", "brand": "ARVA · PLATAFORMA DE DESCUBRIMIENTO GENÓMICO", "generated": "Generado",
@@ -84,6 +87,9 @@ LABELS: dict[str, dict[str, str]] = {
         "demo": "PROYECTO DE DEMOSTRACIÓN — datos sintéticos o de ejemplo",
         "scope": "Cada muestra muestra el último resultado completado de cada análisis. Una muestra sin ejecución de "
                  "un análisis se marca como «no buscado», nunca como «ausente».",
+        "mixed": "Los resultados de estas muestras proceden de ensamblajes distintos de la muestra (el último de algún "
+                 "análisis se ejecutó sobre otro ensamblaje que el mostrado): {samples}. El informe JSON indica el "
+                 "ensamblaje de cada parte.",
     },
 }
 LIMITATIONS = {
@@ -112,7 +118,8 @@ LIMITATIONS = {
 CSV_COLUMNS = ["sample", "organism", "host", "origin", "collection_date", "sample_type", "technology", "reads",
                "bases", "read_n50", "mean_read_quality", "q30_percent", "assembler", "assembler_version",
                "assembly_kind", "contigs", "total_length", "n50", "gc_percent", "species", "species_tool", "mlst",
-               "mlst_tool", "amr_genes", "amr_tool", "virulence_genes", "replicons", "typing"]
+               "mlst_tool", "amr_genes", "amr_tool", "virulence_genes", "replicons", "typing", "assembly_id",
+               "mixed_assemblies"]
 
 
 def _latest(db: Session, model, sample_id: str):
@@ -135,7 +142,13 @@ def _versions(j: AnalysisJob | None) -> dict[str, Any] | None:
             "database_version": j.database_version}
 
 
+def _assembly_of(job: AnalysisJob | None) -> str | None:
+    return ((job.parameters or {}).get("assembly") or {}).get("assembly_id") if job is not None else None
+
+
 def _sample(db: Session, s: Sample, qc: dict[str, Any] | None) -> dict[str, Any]:
+    """The sample's latest result of each analysis, each with the assembly it was computed on (`assembly_id`);
+    `mixed_assemblies` is set when they are not all from the assembly shown (as Discover flags it)."""
     a = db.scalar(select(Assembly).where(Assembly.sample_id == s.id).order_by(Assembly.created_at.desc()).limit(1))
     sp, m = _latest(db, SpeciesResult, s.id), _latest(db, MlstResult, s.id)
     amr_job = _latest_job(db, s.id, AMR_JOB)
@@ -145,15 +158,20 @@ def _sample(db: Session, s: Sample, qc: dict[str, Any] | None) -> dict[str, Any]
     for t in db.scalars(select(TypingResult).where(TypingResult.sample_id == s.id)
                         .order_by(TypingResult.created_at.desc())):
         typing.setdefault(t.method, {"module": t.module, "method": t.method, "status": t.status, "call": t.call,
-                                     "tool": t.tool, "tool_version": t.tool_version})
+                                     "tool": t.tool, "tool_version": t.tool_version, "assembly_id": t.assembly_id})
     st = a.stats if a else {}
     amr = None
     if amr_job is not None:
         rows = db.scalars(select(AmrResult).where(AmrResult.job_id == amr_job.id, AmrResult.type == "AMR")
                           .order_by(AmrResult.element_symbol)).all()
-        amr = {**_versions(amr_job), "genes": sorted({r.element_symbol for r in rows}),
+        amr = {**_versions(amr_job), "assembly_id": _assembly_of(amr_job),
+               "genes": sorted({r.element_symbol for r in rows}),
                "classes": sorted({r.amr_class for r in rows if r.amr_class})}
+    used = {x for x in (_assembly_of(amr_job), _assembly_of(vf_job), _assembly_of(rep_job),
+                        sp.assembly_id if sp else None, m.assembly_id if m else None,
+                        *(t["assembly_id"] for t in typing.values())) if x}
     return {
+        "mixed_assemblies": bool(used - {a.id if a else None}),
         "id": s.id, "code": s.sample_code, "organism": s.organism, "expected_species": s.expected_species,
         "host": s.host, "country": s.geographic_origin, "collection_date": s.collection_date.isoformat()
         if s.collection_date else None, "source": s.sample_type, "technology": s.sequencing_technology.value,
@@ -165,15 +183,19 @@ def _sample(db: Session, s: Sample, qc: dict[str, Any] | None) -> dict[str, Any]
             "contigs": st.get("contig_count"), "total_length": st.get("total_length"), "n50": st.get("n50"),
             "gc_percent": st.get("gc_percent"), "warnings": len(a.warnings or [])},
         "species": None if sp is None else {"species": sp.species, "status": sp.status, "method": sp.method,
+                                            "assembly_id": sp.assembly_id,
                                             "tool": sp.tool, "tool_version": sp.tool_version,
                                             "database": sp.database_name, "database_version": sp.database_version},
         "mlst": None if m is None else {"scheme": m.scheme, "st": m.st, "status": m.status, "tool": m.tool,
+                                        "assembly_id": m.assembly_id,
                                         "tool_version": m.tool_version, "database_version": m.database_version,
                                         "clonal_complex": (m.clonal_complex or {}).get("value")},
         "amr": amr,
-        "virulence": None if vf_job is None else {**_versions(vf_job), "genes": sorted(set(db.scalars(
+        "virulence": None if vf_job is None else {**_versions(vf_job), "assembly_id": _assembly_of(vf_job),
+                                                  "genes": sorted(set(db.scalars(
             select(VirulenceResult.gene).where(VirulenceResult.job_id == vf_job.id))))},
-        "replicons": None if rep_job is None else {**_versions(rep_job), "replicons": sorted(set(db.scalars(
+        "replicons": None if rep_job is None else {**_versions(rep_job), "assembly_id": _assembly_of(rep_job),
+                                                   "replicons": sorted(set(db.scalars(
             select(MobileElementResult.element).where(MobileElementResult.job_id == rep_job.id,
                                                       MobileElementResult.category == "replicon"))))},
         "typing": list(typing.values()),
@@ -307,6 +329,9 @@ def render_html(data: dict[str, Any], lang: str = "en") -> str:
                                                                  ("mean_read_quality", 1), ("q30_percent", 1),
                                                                  ("gc_percent", 1)))
             if r["qc"] else f"<td colspan='6' class='muted'>{L['not_run']}</td>") + "</tr>" for r in rows)
+    mixed_codes = [r["code"] for r in rows if r.get("mixed_assemblies")]
+    mixed = (f"<p class='warn'>{escape(L['mixed'].format(samples=', '.join(mixed_codes)))}</p>"
+             if mixed_codes else "")
     asm = "".join(
         f"<tr><td>{_cell(r['code'])}</td>" + (
             f"<td>{_cell(r['assembly']['assembler'])} {_cell(r['assembly']['assembler_version'])} "
@@ -393,7 +418,7 @@ def render_html(data: dict[str, Any], lang: str = "en") -> str:
 <th>{L['q30']}</th><th>{L['gc']}</th></tr>{qc}</table>
 <h2>{L['assembly']}</h2>
 <table><tr><th>{L['sample']}</th><th>{L['assembler']}</th><th>{L['contigs']}</th><th>{L['length']}</th><th>{L['n50']}</th>
-<th>{L['gc']}</th></tr>{asm}</table>
+<th>{L['gc']}</th></tr>{asm}</table>{mixed}
 <h2>{L['typing']}</h2>
 <table><tr><th>{L['sample']}</th><th>{L['species']}</th><th>{L['st']}</th><th>{L['other_typing']}</th></tr>{typing}</table>
 <h2>{L['amr']}</h2>
@@ -439,6 +464,7 @@ def render_csv(data: dict[str, Any]) -> str:
             "virulence_genes": "not searched" if r["virulence"] is None else ";".join(r["virulence"]["genes"]),
             "replicons": "not searched" if r["replicons"] is None else ";".join(r["replicons"]["replicons"]),
             "typing": ";".join(f"{t['method']}={t['call'] or t['status']}" for t in r["typing"]),
+            "assembly_id": a.get("id"), "mixed_assemblies": "yes" if r.get("mixed_assemblies") else "no",
         }
         w.writerow({k: safe(v) for k, v in row.items()})
     return out.getvalue()

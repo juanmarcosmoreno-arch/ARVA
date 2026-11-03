@@ -5,6 +5,7 @@ import { Link } from "react-router-dom";
 import { SyntheticNote } from "@/components/annotation/AnnotationDialog";
 import { FailedCard, RunningCard } from "@/components/assembly/RunMonitor";
 import { Explain } from "@/components/guide/Explain";
+import type { GuideId } from "@/guide/metrics";
 import { Button } from "@/components/ui/button";
 import { Card, CardBody, CardHeader } from "@/components/ui/card";
 import { Dialog } from "@/components/ui/dialog";
@@ -107,10 +108,12 @@ function Requirements({ module }: { module: TypingModuleInfo }) {
   );
 }
 
-function Part({ label, value, source, uncertain }: { label: string; value: string; source?: string; uncertain?: boolean }) {
+function Part({ label, value, source, uncertain, explain }: { label: string; value: string; source?: string; uncertain?: boolean; explain?: GuideId }) {
   return (
     <tr>
-      <th className={`${TH} align-top`}>{label}</th>
+      <th className={`${TH} align-top`}>
+        <span className="inline-flex items-center gap-1">{label}{explain && <Explain id={explain} compact />}</span>
+      </th>
       <td className={TD}>
         {value}
         {uncertain ? " ?" : ""}
@@ -168,8 +171,8 @@ export function StaphSummaryCard({ summary }: { summary: StaphSummary }) {
                   source={sourceText(t, summary.sccmec?.source)}
                 />
               )}
-              <Part label={t("typing.part.spa")} value={call("spa")} source={sourceText(t, summary.spa?.source)} />
-              <Part label={t("typing.part.agr")} value={call("agr")} source={sourceText(t, summary.agr?.source)} uncertain={doubt("agr")} />
+              <Part label={t("typing.part.spa")} value={call("spa")} source={sourceText(t, summary.spa?.source)} explain="spa_typing" />
+              <Part label={t("typing.part.agr")} value={call("agr")} source={sourceText(t, summary.agr?.source)} uncertain={doubt("agr")} explain="agr" />
               <Part label={t("typing.part.mec")} value={amr ? genesText(t, [...amr.mecA, ...amr.mecC, ...(amr.mec_other ?? []), ...(amr.mec_homologues ?? [])], true) : t("typing.notSearched")} source={sourceText(t, amr?.source)} uncertain={doubt("mec")} />
               <Part label={t("typing.part.crosscheck")} value={t(`typing.crosscheck.${summary.mec_crosscheck.status}` as TranslationKey)} />
               <Part label={t("typing.part.pvl")} value={genesText(t, amr?.pvl, plus)} source={sourceText(t, amr?.source)} uncertain={doubt("pvl")} />
@@ -480,8 +483,8 @@ export function ProjectTyping({ projectId }: { projectId: string }) {
                 <th className={TH}>{t("projectMlst.sample")}</th>
                 <th className={TH}>{t("typing.shorthand")}</th>
                 <th className={TH}>{t("typing.part.sccmec")}</th>
-                <th className={TH}>{t("typing.part.spa")}</th>
-                <th className={TH}>{t("typing.part.agr")}</th>
+                <th className={TH}><span className="inline-flex items-center gap-1">{t("typing.part.spa")}<Explain id="spa_typing" compact /></span></th>
+                <th className={TH}><span className="inline-flex items-center gap-1">{t("typing.part.agr")}<Explain id="agr" compact /></span></th>
                 <th className={TH}>{t("typing.part.pvl")}</th>
               </tr>
             </thead>

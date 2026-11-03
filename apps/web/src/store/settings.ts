@@ -10,12 +10,15 @@ interface SettingsState {
   language: Language;
   guideLevel: GuideLevel;
   showIntro: boolean;
+  /** The Dashboard's getting-started checklist (components/platform/FirstRunChecklist.tsx). */
+  showChecklist: boolean;
   /** Diagnostic reports replace project, sample and file names (Settings → Diagnostics, and every copy button). */
   diagnosticsAnonymise: boolean;
   setTheme: (t: Theme) => void;
   setLanguage: (l: Language) => void;
   setGuideLevel: (g: GuideLevel) => void;
   setShowIntro: (v: boolean) => void;
+  setShowChecklist: (v: boolean) => void;
   setDiagnosticsAnonymise: (v: boolean) => void;
 }
 
@@ -26,11 +29,13 @@ export const useSettings = create<SettingsState>()(
       language: "en",
       guideLevel: "beginner",
       showIntro: true,
+      showChecklist: true,
       diagnosticsAnonymise: false,
       setTheme: (theme) => set({ theme }),
       setLanguage: (language) => set({ language }),
       setGuideLevel: (guideLevel) => set({ guideLevel }),
       setShowIntro: (showIntro) => set({ showIntro }),
+      setShowChecklist: (showChecklist) => set({ showChecklist }),
       setDiagnosticsAnonymise: (diagnosticsAnonymise) => set({ diagnosticsAnonymise }),
     }),
     { name: "arva-settings" },

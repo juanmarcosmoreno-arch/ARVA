@@ -126,4 +126,15 @@ describe("TreeView", () => {
     expect(screen.getByRole("button", { name: "Enraizar con esto como grupo externo" })).toBeTruthy();
     expect(screen.getByText("Comparar con otro árbol")).toBeTruthy();
   });
+
+  it("selects a node from the keyboard", () => {
+    useSettings.setState({ language: "en" });
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify(META), { status: 200, headers: { "Content-Type": "application/json" } })));
+    const { container } = renderWith(<TreeView result={RESULT} set={SET} />);
+    const node = container.querySelectorAll("circle[data-hit]")[1];
+    expect(node.getAttribute("tabindex")).toBe("0");
+    expect(node.getAttribute("role")).toBe("button");
+    fireEvent.keyDown(node, { key: "Enter" });
+    expect(node.getAttribute("aria-pressed")).toBe("true");
+  });
 });

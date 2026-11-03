@@ -302,8 +302,8 @@ def prokka_plan(db: Session, sample: Sample, a: Assembly, rfam: bool, use_genus:
         database = prokka_database(tool["path"])
         programs = prokka_tool.programs_found()
         if missing := prokka_tool.missing_programs(programs):
-            problems.append({"code": "programs_missing", "message": f"Prokka needs {', '.join(missing)}, which "
-                                                                    "is not installed"})
+            problems.append({"code": "programs_missing", "params": {"programs": ", ".join(missing)},
+                             "message": f"Prokka needs {', '.join(missing)}, which is not installed"})
         if not database["ready"]:
             problems.append({"code": "no_database", "message": f"Prokka's databases were not found in "
                                                                f"{database['path']}"})

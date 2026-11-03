@@ -195,9 +195,10 @@ def project_matrix(project_id: str, reference: str = Query(..., min_length=64, m
 
 
 @router.get("/projects/{project_id}/variants/report.html", response_class=HTMLResponse)
-def project_variant_report(project_id: str, db: Session = Depends(get_db)):
-    """Each reference's runs and, with two samples or more, the pairwise SNP distances, as a self-contained page."""
-    html = variants_report.project_html(db, project_or_404(db, project_id))
+def project_variant_report(project_id: str, lang: Literal["en", "es"] = "en", db: Session = Depends(get_db)):
+    """Each reference's runs and, with two samples or more, the pairwise SNP distances, as a self-contained page in
+    `lang`."""
+    html = variants_report.project_html(db, project_or_404(db, project_id), lang)
     return HTMLResponse(html, headers={"Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'",
                                        "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer"})
 

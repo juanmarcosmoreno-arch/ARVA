@@ -25,3 +25,16 @@ describe("ARVA Guide content", () => {
     }
   });
 });
+
+describe("guide entries reachable from their screens", () => {
+  it("spa type, agr group, GTDB-Tk and dnadiff differences have a help button where they are shown", async () => {
+    const { readFileSync } = await import("node:fs");
+    const path = await import("node:path");
+    const read = (f: string) => readFileSync(path.join(__dirname, "..", f), "utf8");
+    const staph = read("components/genomic/StaphTyping.tsx");
+    expect(staph).toContain('explain="spa_typing"');
+    expect(staph).toContain('explain="agr"');
+    expect(read("components/genomic/SpeciesDialog.tsx")).toContain('<Explain id="gtdb"');
+    expect(read("components/comparative/AlignmentView.tsx")).toContain('<Explain id="structural_differences"');
+  });
+});

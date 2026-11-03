@@ -1979,7 +1979,9 @@ hypothesis, not a cause.
 ## Phylogeny (Phase 7B)
 
 **Sources.** A tree is built from a file another result of the set holds, re-checked against its SHA-256: Panaroo's
-core-genome alignment (`core_gene_alignment.aln`: for each core gene and genome, the copy with the fewest gaps; a
+core-genome alignment (`core_gene_alignment.aln`: for each core gene, meaning a family in at least Panaroo's
+`--core_threshold` share of the genomes, 0.95 unless changed in the pangenome's settings and recorded with it, which is
+not ARVA's ≥ 99 % "core" category, and genome, the copy with the fewest gaps; a
 missing gene is gaps; or `core_gene_alignment_filtered.aln`, without the genes whose alignment entropy is above
 Panaroo's automatic threshold Q3 + 1.5 IQR, at least 0.01), the SNPs of that alignment, one family alignment, a gene
 investigation's MAFFT alignment, or an ANI matrix.

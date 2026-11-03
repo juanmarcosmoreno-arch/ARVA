@@ -2,10 +2,12 @@
 owner-only project changes, deletion while jobs run, and the worker's clean-up when a job's record is gone."""
 import json
 
+import pytest
+from test_auth_access import auth_on, login, make_user  # noqa: F401
+
 from app.db.session import SessionLocal
 from app.models import AnalysisJob, JobStatus
 from app.tasks.common import run_job
-from test_auth_access import auth_on, login, make_user  # noqa: F401
 
 API = "/api/v1"
 
@@ -251,3 +253,68 @@ def test_reference_genome_species_come_only_from_real_binomials_in_headers(tmp_p
         rc._from_header(g, tmp_path / name)
         assert g.species == species, name
         assert g.metadata == ("fasta_header" if species else None)
+
+
+def test_a_job_is_not_started_when_the_data_folder_lacks_the_reserved_space(client, monkeypatch):
+    from collections import namedtuple
+
+    pid = _project(client)
+    jid = _job(pid, None)
+    ran = []
+    usage = namedtuple("usage", "total used free")
+    monkeypatch.setattr("app.tasks.common.shutil.disk_usage", lambda _p: usage(10**12, 10**12 - 10**6, 10**6))
+    assert run_job(jid, lambda ctx: ran.append(1)) == "failed"
+    assert not ran
+    with SessionLocal() as db:
+        job = db.get(AnalysisJob, jid)
+        assert job.error_detail["code"] == "insufficient_storage" and "nothing was run" in job.error_message
+
+
+def test_a_report_is_downloaded_but_not_archived_while_the_data_folder_may_not_be_written(client, storage_root,
+                                                                                         monkeypatch):
+    from app.services import locations
+
+    pid = _project(client)
+
+    def refuse():
+        raise locations.StorageUnavailable(locations.MarkerState(status="mismatch", path=str(storage_root),
+                                                                 disk_id="other", recorded_id="mine"))
+
+    monkeypatch.setattr(locations, "ensure_data", refuse)
+    r = client.get(f"/api/v1/projects/{pid}/report", params={"format": "json"})
+    assert r.status_code == 200 and r.json()["project"]["id"] == pid
+    assert not (storage_root / "reports" / pid).exists()
+
+
+def test_the_imported_assemblies_downgrade_refuses_instead_of_deleting_genomes(monkeypatch):
+    import importlib.util
+    from pathlib import Path
+    from types import SimpleNamespace
+
+    path = Path(__file__).resolve().parents[1] / "migrations/versions/c4e8a2f6d0b1_imported_assemblies.py"
+    spec = importlib.util.spec_from_file_location("mig_c4e8", path)
+    mig = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mig)
+    executed = []
+    fake = SimpleNamespace(get_bind=lambda: SimpleNamespace(scalar=lambda _q: 3),
+                           execute=executed.append, alter_column=lambda *a, **k: executed.append("alter"))
+    monkeypatch.setattr(mig, "op", fake)
+    with pytest.raises(RuntimeError, match="3 imported assemblies exist"):
+        mig.downgrade()
+    assert executed == []
+
+
+def test_variant_and_workflow_run_reports_follow_the_language(client):
+    pid = _project(client)
+    es = client.get(f"{API}/projects/{pid}/variants/report.html", params={"lang": "es"}).text
+    assert '<html lang="es">' in es and "Análisis de variantes" in es and "Limitaciones" in es
+    assert "Variant analysis" not in es and "Métodos" in es
+    en = client.get(f"{API}/projects/{pid}/variants/report.html").text
+    assert '<html lang="en">' in en and "Variant analysis" in en
+    from app.services import batches
+
+    assert set(batches.REPORT_LABELS["en"]) == set(batches.REPORT_LABELS["es"])
+    from app.services import variants_report
+
+    assert set(variants_report.PROJECT_LABELS["en"]) == set(variants_report.PROJECT_LABELS["es"])
+    assert len(variants_report.VARIANT_LIMITATIONS) == len(variants_report.VARIANT_LIMITATIONS_ES)

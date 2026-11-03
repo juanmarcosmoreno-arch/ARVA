@@ -15,11 +15,11 @@ import pytest
 from arva_tools import amrfinderplus as amr_tool
 from arva_tools import registry
 from arva_tools.registry import detect
+from sqlalchemy import select
 from test_amr_api import species_result
 from test_annotation_api import assemble, new_sample
 
 from app.db.session import SessionLocal
-from sqlalchemy import select
 from app.models import AmrResult, AnalysisJob, JobStatus, MlstResult, TypingResult
 from app.services import typing_modules as tm
 

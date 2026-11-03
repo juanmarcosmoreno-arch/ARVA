@@ -103,6 +103,48 @@ The `import/` folder of the repository is mounted read-only at `/import` in the 
 containers for [server-side import](#importing-large-files-from-a-server-folder); choose another host folder with
 `scripts/start.sh --import-dir /absolute/path`.
 
+### On a Mac: first start, ARVA.command and stopping
+
+A step-by-step guide in Spanish for a Mac with an external disk is in [guia-mac.md](guia-mac.md).
+
+**`ARVA.command`** (repository root, executable) opens Terminal when double-clicked in Finder and runs
+`scripts/start.sh --open`; **`Detener ARVA.command`** runs `scripts/stop.sh` (`docker compose down`: containers are
+removed, the metadata volume, images, projects and databases are kept; `-v` is refused). Both add Docker Desktop's
+usual `docker` locations (`/usr/local/bin`, `~/.docker/bin`, `/Applications/Docker.app/Contents/Resources/bin`) to
+`PATH` and keep the window open until Enter. macOS may block a `.command` file downloaded with a browser the first
+time (Finder → right-click → Open, or System Settings → Privacy & Security → Open Anyway), and may ask whether
+Terminal can access files on a removable volume.
+
+**First run.** When `scripts/start.sh` runs in a terminal with no saved configuration (`~/.config/arva/arva.conf`)
+and no location options, it asks first (`scripts/lib/arva-firstrun.sh`; Spanish when `LC_ALL`, `LC_MESSAGES` or
+`LANG` starts with `es`, or, with none of them set, macOS's `AppleLocale`):
+
+1. Docker Desktop: installed (else the download page, Apple chip or Intel chip) and running (else `open -a Docker`
+   and up to `ARVA_DOCKER_WAIT` seconds, default 180, for `docker info` to answer).
+2. Storage: the volumes under `/Volumes` with filesystem and free space (the startup disk and read-only volumes are
+   listed, not offered; exFAT/FAT is flagged), proposing `/Volumes/<Disk>/ARVA/data` and `/Volumes/<Disk>/ARVA/databases`
+   (created after the final confirmation), or other folders, or `0` for Docker volumes.
+3. Existing database folders to add read-only (each checked like `--add-databases`; a path dragged into Terminal,
+   with backslash-escaped spaces or quotes, is accepted), and an optional import folder.
+4. On Apple silicon, the image: amd64 (every tool, through Rosetta) or arm64 (native, without the tools that have
+   no arm64 build). For amd64 it checks Rosetta 2 (`arch -x86_64 /usr/bin/true`) and Docker Desktop's Rosetta
+   setting, and explains how to turn it on.
+5. When Docker Desktop's settings file lists the shared folders (`filesharingDirectories`, matched without regard to
+   case because the spelling is not documented), each chosen folder outside them gets the File sharing instruction.
+
+The answers set the same values as `--data-dir`, `--databases-dir`, `--add-databases`, `--import-dir` and
+`--platform`, are checked the same way and saved only after *Save these choices and start ARVA?*; even an answer
+that keeps everything in Docker volumes writes the file, so the questions are not asked again. `--setup` asks them
+again (reading standard input), `--no-setup` never asks, and without a terminal they are never asked, so scripts and
+the options keep working as before. When the image pull is denied in a terminal, it offers `docker login ghcr.io -u
+<user>` (the user name is checked; Docker itself reads the token) and pulls again. `--open` waits for
+`http://localhost:8080` (at most `ARVA_OPEN_WAIT` seconds, default 60) and opens it with `open` (`xdg-open` on
+Linux). Tested with fake executables only (`apps/api/tests/test_first_run.py`), not on a real Mac.
+
+The Dashboard's **Getting started** checklist (dismissable; Settings → Interface shows it again) shows the real
+status, from the API, of the storage locations, the performance profile, the Bakta database, a reference genome
+collection, the AMRFinderPlus database and the first project, with a link to where each is done.
+
 ### On a Mac: the launcher and the performance profile
 
 Start ARVA with `scripts/start.sh` (it pulls the published images, then runs `docker compose up -d`, passing on
@@ -1181,7 +1223,7 @@ Environment variables (prefix `ARVA_`), also read from `apps/api/.env`:
 | `ARVA_REDIS_URL` | `redis://localhost:6379/0` | Job queue |
 | `ARVA_STORAGE_ROOT` | `./data` | Raw files, results, reports, logs |
 | `ARVA_MAX_UPLOAD_SIZE_BYTES` | 20 GB | Per-file upload/import limit |
-| `ARVA_MIN_FREE_BYTES` | 1073741824 (1 GiB) | Free space that uploads and imports must leave on the storage disk |
+| `ARVA_MIN_FREE_BYTES` | 1073741824 (1 GiB) | Free space that uploads and imports must leave on the storage disk; an analysis job does not start unless this much plus the size of its input files is free |
 | `ARVA_IMPORT_ROOTS` | `[]` (disabled) | Server folders that may be browsed and imported from (JSON list); Docker: `["/import"]` |
 | `ARVA_DB_DIR` | `<ARVA_STORAGE_ROOT>/databases` | Reference databases (Database Manager); Docker: `/databases` |
 | `ARVA_EXTERNAL_DB_ROOTS` | `[]` | Existing database folders used in place, read-only (JSON list); set by `scripts/start.sh --add-databases` (`/databases-external/<n>`) |

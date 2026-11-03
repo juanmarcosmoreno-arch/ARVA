@@ -391,6 +391,14 @@ def extract(archive: Path, dest: Path, top_dir: str | None, on_progress: Callabl
             raise UnsafeArchive(f"the archive member {rel} appears twice")
         target.parent.mkdir(parents=True, exist_ok=True)
         os.symlink(linkname, target)
+    # The lexical check cannot follow a target through another link of the archive (a -> ../.., b -> a/../..):
+    # resolve every link now that all exist, and refuse any that leaves the folder.
+    root = os.path.join(real_dest, top_dir) if top_dir else real_dest
+    for rel, linkname in links:
+        real = os.path.realpath(dest.joinpath(*rel.parts))
+        if real != root and not real.startswith(root + os.sep):
+            raise UnsafeArchive(f"the link {rel} resolves outside the archive's folder ({linkname!r}); nothing was "
+                                "installed")
     return count
 
 

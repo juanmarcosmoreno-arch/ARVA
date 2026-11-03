@@ -37,6 +37,10 @@ elif args and args[0] == "compose":
         open(os.path.join(fake, "compose_env.json"), "w").write(json.dumps(env))
     if args[-2:] == ["backup", "list"]:
         sys.stdout.write(open(os.path.join(fake, "backups")).read() if os.path.exists(os.path.join(fake, "backups")) else "")
+    if args[-2:] == ["backup", "latest"]:
+        # The real command picks the newest backup of this folder's metadata (tests/test_metadata_backup.py).
+        names = open(os.path.join(fake, "backups")).read().split() if os.path.exists(os.path.join(fake, "backups")) else []
+        print(names[0] if names else "")
     if "restore" in args:
         sys.exit(int(os.environ.get("FAKE_RESTORE_STATUS", "0")))
     if "exec" in args:
@@ -320,7 +324,7 @@ def test_restore_asks_first_then_stops_restores_and_starts_again(tmp_path, shell
     done = m.run(shell, "latest", script=RESTORE, stdin="yes\n")
     assert done.returncode == 0, done.stderr
     verbs = [c[c.index("-f") + 4:] for c in m.calls]
-    assert verbs == [["up", "-d", "--wait", "postgres"], ["run", "--rm", "--no-deps", "-T", "backup", "list"],
+    assert verbs == [["up", "-d", "--wait", "postgres"], ["run", "--rm", "--no-deps", "-T", "backup", "latest"],
                      ["stop", "api", "worker", "backup"],
                      ["run", "--rm", "--no-deps", "-T", "backup", "restore", "arva-metadata-manual-20261028T153000Z.dump"],
                      ["up", "-d"]]

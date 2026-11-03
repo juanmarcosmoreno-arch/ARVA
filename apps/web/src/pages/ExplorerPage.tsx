@@ -191,6 +191,7 @@ function CircularView({ annotation, contigs, assembler, sampleCode }: { annotati
     <div className="space-y-3">
       <ExplorerSearch
         annotationId={annotation.id}
+        prokka={annotation.tool.toLowerCase() === "prokka"}
         contigs={options}
         current={params.get("contig") ?? options[0].id}
         onRegion={(contig, start, end) => setParams({ contig, start: String(start), end: String(end) })}
@@ -325,7 +326,7 @@ function Explorer({ annotation, contigs, assembler }: { annotation: Annotation; 
           </Select>
         </label>
         <TopologyBadge circular={contig.circular} source={contig.circularSource} />
-        <ExplorerSearch annotationId={annotation.id} contigs={options} current={contig.id} onRegion={goTo} onFeature={openFeature} />
+        <ExplorerSearch annotationId={annotation.id} prokka={annotation.tool.toLowerCase() === "prokka"} contigs={options} current={contig.id} onRegion={goTo} onFeature={openFeature} />
         <label className="space-y-1 text-xs">
           <span className="block text-muted-foreground">{t("explorer.gcWindow")}</span>
           <Select

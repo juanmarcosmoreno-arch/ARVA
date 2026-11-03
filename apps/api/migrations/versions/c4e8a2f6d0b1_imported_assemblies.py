@@ -22,6 +22,11 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.execute("DELETE FROM assemblies WHERE mode = 'imported'")
+    # Deleting imported genomes would cascade to their annotations, typing, AMR and comparison memberships: refuse.
+    count = op.get_bind().scalar(sa.text("SELECT count(*) FROM assemblies WHERE mode = 'imported'"))
+    if count:
+        raise RuntimeError(f"{count} imported assemblies exist. Remove them first (DELETE FROM assemblies WHERE "
+                           "mode = 'imported') if you accept losing them and every result computed on them "
+                           "(annotations, typing, AMR, mobile elements, comparison memberships); their files stay.")
     op.alter_column("assemblies", "mode", type_=sa.String(length=6), existing_type=sa.String(length=8),
                     existing_nullable=False)

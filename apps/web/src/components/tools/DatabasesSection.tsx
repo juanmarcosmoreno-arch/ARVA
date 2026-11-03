@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { ChevronDown, Database, Download, FolderPlus, Globe, HardDrive } from "lucide-react";
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { AmrReleaseDialog } from "@/components/databases/AmrReleaseDialog";
 import { DownloadDialog } from "@/components/databases/DownloadDialog";
 import { NcbiCollectionDialog } from "@/components/databases/NcbiCollectionDialog";
@@ -34,6 +34,11 @@ export function DatabasesSection() {
   const groups = kinds.data && catalogue.data && records.data ? groupByKind(kinds.data, records.data, catalogue.data) : null;
   const inUse = groups?.filter((g) => g.records.length > 0 || g.versions.length > 0) ?? [];
   const others = groups?.filter((g) => g.records.length === 0 && g.versions.length === 0) ?? [];
+  const loaded = groups !== null;
+  // Links such as the Dashboard checklist's go to /tools#reference-databases; the router does not scroll to a hash.
+  useEffect(() => {
+    if (loaded && window.location.hash === "#reference-databases") document.getElementById("reference-databases")?.scrollIntoView?.({ block: "start" });
+  }, [loaded]);
 
   return (
     <section aria-labelledby="reference-databases" className="space-y-3">

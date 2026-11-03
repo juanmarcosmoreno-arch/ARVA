@@ -68,7 +68,8 @@ METHODS_TEXT = [
     "them) and orders genomes for the heatmap by average-linkage clustering of the Jaccard distance between their "
     "family sets (arva_core.pangenome).",
     "Phylogeny: IQ-TREE (ModelFinder by BIC or a stated model; UFBoot and/or SH-aLRT supports) or FastTree (GTR, "
-    "Gamma, SH-like supports) on Panaroo's core-genome alignment, its SNPs (SNP-sites; constant sites added back with "
+    "Gamma, SH-like supports) on Panaroo's core-genome alignment (the families in at least Panaroo's --core_threshold "
+    "share of the genomes, 0.95 unless changed in the pangenome's settings; not ARVA's >= 99 % core category), its SNPs (SNP-sites; constant sites added back with "
     "-fconst or corrected with +ASC) or one gene's alignment; or neighbour joining computed by ARVA on p, "
     "Jukes-Cantor or 1 - ANI/100 distances (a distance tree). Trees are inferred unrooted; the drawing's root "
     "(midpoint or outgroup) is a display choice (arva_core.phylo).",

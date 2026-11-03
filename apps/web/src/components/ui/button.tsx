@@ -18,6 +18,11 @@ const sizes: Record<Size, string> = {
   icon: "h-9 w-9",
 };
 
+/** The classes of a Button, for a link that looks like one (a button inside a link is invalid and takes two tab stops). */
+export function buttonClass(variant: Variant = "primary", size: Size = "md", className?: string): string {
+  return cn("inline-flex items-center justify-center rounded-lg font-medium transition-colors", variants[variant], sizes[size], className);
+}
+
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: Variant;
   size?: Size;

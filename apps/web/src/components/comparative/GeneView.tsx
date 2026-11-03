@@ -9,7 +9,7 @@ import { Explain } from "@/components/guide/Explain";
 import { type TranslationKey, useT } from "@/i18n";
 import { api } from "@/lib/api";
 import type { ComparisonResultRead } from "@/lib/comparative";
-import { fmtNum } from "@/lib/format";
+import { fmtInt, fmtNum } from "@/lib/format";
 import { type GeneData, type GeneMatch, matchRows, treeFigure } from "@/lib/regions";
 import { FigureCard, figureTheme } from "./FigureCard";
 
@@ -93,7 +93,7 @@ export function GeneView({ result, onNeighbourhood }: {
                       {m.pieces.length > 1 && <span className="ml-1 text-muted-foreground">{t("gene.pieces", { n: m.pieces.length })}</span>}
                       {m.at_contig_edge && <Badge tone="warning" className="ml-1">{t("gene.contigEdge")}</Badge>}
                     </td>
-                    <td className="px-2 py-1.5 font-mono text-[11px]">{m.contig}:{m.start.toLocaleString()}–{m.end.toLocaleString()} ({m.strand})
+                    <td className="px-2 py-1.5 font-mono text-[11px]">{m.contig}:{fmtInt(m.start)}–{fmtInt(m.end)} ({m.strand})
                       {m.on_plasmid_contig && <Badge tone="teal" className="ml-1">{t("gene.plasmidContig")}</Badge>}</td>
                     <td className="px-2 py-1.5 tabular-nums">{fmtNum(m.identity, 1)}</td>
                     <td className="px-2 py-1.5 tabular-nums">{fmtNum(m.query_coverage, 1)}</td>

@@ -27,3 +27,15 @@ describe("assembly warnings name the assembler's own coverage measure", () => {
     expect(graphMeasure(es, { coverage_measure: "depth", coverage_meaning: "mean read depth", coverage_tag: "dp" })).toBe("profundidad de lecturas");
   });
 });
+
+describe("chart axes follow the interface language", () => {
+  it("formats value-axis numbers with the locale and leaves category labels alone", async () => {
+    const { axisNumber } = await import("@/components/charts/theme");
+    const { useSettings } = await import("@/store/settings");
+    useSettings.setState({ language: "es" });
+    expect(axisNumber(25000)).toBe("25.000");
+    expect(axisNumber("core")).toBe("core");
+    useSettings.setState({ language: "en" });
+    expect(axisNumber(2500)).toBe("2,500");
+  });
+});

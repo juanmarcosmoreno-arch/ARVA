@@ -208,7 +208,7 @@ function Backups({ b, writable }: { b: MetadataBackups; writable: boolean }) {
       </p>
       {b.count > 0 && <p className="text-xs text-muted-foreground">{t("storage.backups.count", { n: b.count, folder: b.host_folder ?? b.folder })}</p>}
       {b.pending_since && (
-        <p className={cn("text-xs", waitingLong ? "text-warning" : "text-muted-foreground")}>
+        <p className={cn("text-xs", waitingLong ? "text-amber-700 dark:text-warning" : "text-muted-foreground")}>
           {t(waitingLong ? "storage.backups.pendingLong" : "storage.backups.pending", { when: fmtDate(b.pending_since) })}
         </p>
       )}

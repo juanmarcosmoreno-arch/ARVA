@@ -573,7 +573,7 @@ export const api = {
   snpMatrix: (projectId: string, reference: string) => request<SnpMatrix>(`/projects/${projectId}/variants/matrix?${new URLSearchParams({ reference })}`),
   snpMatrixUrl: (projectId: string, reference: string, format: "csv" | "distances" | "fasta") =>
     `${BASE}/projects/${projectId}/variants/matrix?${new URLSearchParams({ reference, format })}`,
-  variantReportUrl: (projectId: string) => `${BASE}/projects/${projectId}/variants/report.html`,
+  variantReportUrl: (projectId: string, lang: string) => `${BASE}/projects/${projectId}/variants/report.html?lang=${lang}`,
   annotationVariants: (annotationId: string, contig: string, start: number, end: number, run?: string | null) =>
     request<ExplorerVariants>(`/annotations/${annotationId}/variants?${new URLSearchParams({ contig, start: String(start), end: String(end), ...(run ? { run } : {}) })}`),
   sampleMobilome: (sampleId: string, window: number) => request<SampleMobilome>(`/samples/${sampleId}/mobilome?window=${window}`),
@@ -611,7 +611,7 @@ export const api = {
   batchErrors: (id: string) => request<ErrorEntry[]>(`/batches/${id}/errors`),
   batchExportUrl: (id: string) => `${BASE}/batches/${id}/export.json`,
   batchTableUrl: (id: string) => `${BASE}/batches/${id}/table.csv`,
-  batchReportUrl: (id: string) => `${BASE}/batches/${id}/report.html`,
+  batchReportUrl: (id: string, lang: string) => `${BASE}/batches/${id}/report.html?lang=${lang}`,
   sampleBranches: (sampleId: string) => request<SampleBranch[]>(`/samples/${sampleId}/batches`),
 };
 

@@ -282,6 +282,8 @@ def test_real_fastp_run_branch_compare_and_exports(client, project):
     html = client.get(f"{API}/batches/{run['id']}/report.html")
     assert "1 of 1 steps completed" in html.text and html.headers["content-security-policy"].startswith("default-src")
     assert client.get(f"{API}/batches/{branch['id']}/report.html").text.count("qualified_quality_phred") == 1
+    es = client.get(f"{API}/batches/{run['id']}/report.html", params={"lang": "es"}).text
+    assert '<html lang="es">' in es and "1 de 1 pasos completados" in es and "estado completado" in es
     timeline = client.get(f"{API}/samples/{a['id']}/batches").json()
     assert [(r["id"], r["parent_run_id"]) for r in timeline] == [(run["id"], None), (branch["id"], run["id"])]
     assert [s["node_id"] for s in timeline[1]["steps"]] == ["trim"]
@@ -329,3 +331,49 @@ def test_run_refusals(client, project):
     r = client.post(f"{API}/batches", json={"project_id": project["id"], "workflow_id": needs["id"],
                                             "sample_ids": [s["id"]], "confirmed": True})
     assert r.status_code == 409 and "wf_param" in r.json()["params"]["problems"]
+
+
+def test_cancelling_a_run_waits_for_a_launch_the_dispatcher_is_committing(client, project, monkeypatch,
+                                                                           held_queue):
+    import threading
+
+    from sqlalchemy import text
+
+    from app.db.session import engine
+
+    _fake_fastp(monkeypatch)
+    samples = [_sample(client, project, c) for c in ("S1", "S2")]
+    run = _run(client, project, _workflow(client), samples, max_concurrent=1)
+    waiting = next(i for i in _items(run, "trim") if i["status"] == "waiting")
+    done = threading.Event()
+
+    def cancel():
+        with SessionLocal() as db:
+            batches.cancel_run(db, db.get(BatchRun, run["id"]))
+        done.set()
+
+    with engine.connect() as lock:
+        lock.execute(text("SELECT pg_advisory_lock(:k)"), {"k": batches._LOCK_KEY})
+        worker = threading.Thread(target=cancel, daemon=True)
+        try:
+            worker.start()
+            blocked = not done.wait(0.5)
+            # Meanwhile the dispatcher, holding the lock, launches the waiting item.
+            with SessionLocal() as db:
+                job = AnalysisJob(project_id=project["id"], sample_id=waiting["sample_id"], job_type="fastp",
+                                  tool_name="fastp", tool_version="x", parameters={}, input_raw_file_ids=[],
+                                  status=JobStatus.pending, log_text="")
+                db.add(job)
+                db.flush()
+                item = db.get(BatchItem, waiting["id"])
+                item.status, item.job_id = "queued", job.id
+                db.commit()
+                job_id = job.id
+        finally:
+            lock.execute(text("SELECT pg_advisory_unlock(:k)"), {"k": batches._LOCK_KEY})
+            lock.commit()
+    assert blocked
+    worker.join(30)
+    with SessionLocal() as db:
+        assert db.get(BatchItem, waiting["id"]).status == "cancelled"
+        assert db.get(AnalysisJob, job_id).status is JobStatus.cancelled

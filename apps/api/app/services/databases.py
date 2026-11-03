@@ -23,7 +23,9 @@ from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
 
 from sqlalchemy import func, select, update
-from sqlalchemy.orm import Session
+from sqlalchemy.exc import InvalidRequestError
+from sqlalchemy.orm import Session, object_session
+from sqlalchemy.orm.exc import ObjectDeletedError
 
 from app.core.config import get_settings
 from app.core.messages import render
@@ -986,7 +988,15 @@ def usable(db: Session, key: str) -> ReferenceDatabase | None:
 
 def record_use(job: AnalysisJob, record: ReferenceDatabase) -> None:
     """Record on a job the database it reads: kind, key, name, version and how the version was known, the content
-    checksum when the full verification computed one, and the path (all kept after the database's deletion)."""
+    checksum when the full verification computed one, and the path (all kept after the database's deletion).
+    The record is locked until the job is committed, so that delete() (which locks it too, then checks the jobs
+    using it) either sees this job or has finished before it."""
+    session = object_session(record)
+    if session is not None:
+        try:
+            session.refresh(record, with_for_update=True)
+        except (InvalidRequestError, ObjectDeletedError) as exc:
+            raise DatabaseStateError(f"{record.name} was deleted") from exc
     if record.status not in USABLE:
         raise DatabaseStateError(f"{record.name} cannot be used: it is {record.status.value}")
     require_available(record)

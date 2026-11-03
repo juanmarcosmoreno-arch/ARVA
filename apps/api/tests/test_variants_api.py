@@ -6,6 +6,7 @@ runs skip without the tools."""
 import gzip
 import subprocess
 import sys
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -23,6 +24,7 @@ from app.models import (
     JobStatus,
     MobileElementResult,
 )
+from app.services import phylogeny
 from app.services.assemblies import register_assembly
 from app.tasks.common import run_job
 
@@ -250,7 +252,8 @@ def test_mobilome_places_genes_on_plasmids_inside_and_near_elements(client, setu
             db.flush()
             jobs[method] = job.id
         amr_job = AnalysisJob(project_id=ref_sample["project_id"], sample_id=ref_sample["id"], job_type="amr_detection",
-                              tool_name="AMRFinderPlus", tool_version="4", parameters={}, status=JobStatus.completed,
+                              tool_name="AMRFinderPlus", tool_version="4",
+                              parameters={"assembly": {"assembly_id": draft["id"]}}, status=JobStatus.completed,
                               log_text="")
         db.add(amr_job)
         db.flush()
@@ -291,3 +294,13 @@ def test_mobilome_places_genes_on_plasmids_inside_and_near_elements(client, setu
     row = next(r for r in project["samples"] if r["sample_code"] == "REF")
     assert row["plasmid_genes"] == ["blaZ"] and row["element_genes"] == ["inside"]
     assert row["replicon_types"] == ["rep_cluster_1"]
+    with SessionLocal() as db:
+        db.add(AnalysisJob(project_id=ref_sample["project_id"], sample_id=ref_sample["id"], job_type="amr_detection",
+                           tool_name="AMRFinderPlus", tool_version="4",
+                           parameters={"assembly": {"assembly_id": draft["id"]}}, status=JobStatus.completed,
+                           log_text="", created_at=datetime.now(UTC) + timedelta(minutes=5)))
+        db.commit()
+        # A newer completed run that found nothing is the current one: no gene of the older run is shown.
+        assert phylogeny.amr_genes(db, draft["id"]) == []
+    again = client.get(f"{API}/samples/{ref_sample['id']}/mobilome").json()["assemblies"][0]
+    assert again["plasmids"][0]["genes"] == [] and again["counts"]["amr_on_plasmids"] == 0

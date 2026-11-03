@@ -8,7 +8,7 @@ import { ErrorNote, Tabs } from "@/components/ui/misc";
 import { type TranslationKey, useT } from "@/i18n";
 import { api } from "@/lib/api";
 import type { ComparisonSet } from "@/lib/comparative";
-import { fmtBases, fmtBp } from "@/lib/format";
+import { fmtBases, fmtBp, fmtInt } from "@/lib/format";
 import { messageText, toolMessage } from "@/lib/messages";
 import {
   GENE_DEFAULTS,
@@ -101,7 +101,7 @@ function GeneLookup({ set, onPick, picked }: { set: ComparisonSet; onPick: (r: G
         <Button type="submit" variant="outline"><Search className="h-4 w-4" /> {t("region.lookup")}</Button>
       </form>
       <ErrorNote error={rows.error} />
-      {rows.data && rows.data.length === 0 && <p className="text-xs text-muted-foreground">{t("region.lookupNone")}</p>}
+      {rows.data && rows.data.length === 0 && <p className="text-xs text-muted-foreground">{t("region.lookupNone")} {t("region.lookupProkkaHint")}</p>}
       {rows.data && rows.data.length > 0 && (
         <div className="max-h-48 overflow-y-auto rounded-lg border text-xs">
           {rows.data.map((r) => (
@@ -109,7 +109,7 @@ function GeneLookup({ set, onPick, picked }: { set: ComparisonSet; onPick: (r: G
               <input type="radio" className={CHECK} checked={picked?.annotation_id === r.annotation_id && picked.feature_id === r.feature_id} onChange={() => onPick(r)} />
               <span>
                 <span className="font-medium">{r.gene ? <i>{r.gene}</i> : r.locus_tag}</span> · {r.label} · {r.product ?? "—"}
-                <span className="block text-muted-foreground">{r.locus_tag} · {r.contig}:{r.start.toLocaleString()}–{r.end.toLocaleString()} ({r.strand}) · {r.annotator}</span>
+                <span className="block text-muted-foreground">{r.locus_tag} · {r.contig}:{fmtInt(r.start)}–{fmtInt(r.end)} ({r.strand}) · {r.annotator}</span>
               </span>
             </label>
           ))}
@@ -226,7 +226,7 @@ export function RegionDialog({ open, onOpenChange, set, initial }: {
                 <label key={h.key} className="flex items-center gap-2 py-0.5">
                   <input type="radio" className={CHECK} name="hit" onChange={() => { setConfirmed(false); setAnchor(h.feature != null
                     ? { annotation_id: hitAnnotation, feature_id: h.feature } : { assembly_id: hitGenome, contig: h.contig, start: h.start, end: h.end, strand: h.strand === "-" ? "-" : "+" }); }} />
-                  <span className="font-medium">{h.label}</span><span className="text-muted-foreground">{t(`region.mark.${h.kind}` as TranslationKey)} · {h.contig}:{h.start.toLocaleString()}–{h.end.toLocaleString()}</span>
+                  <span className="font-medium">{h.label}</span><span className="text-muted-foreground">{t(`region.mark.${h.kind}` as TranslationKey)} · {h.contig}:{fmtInt(h.start)}–{fmtInt(h.end)}</span>
                 </label>
               ))}
             </div>
@@ -387,6 +387,7 @@ export function GeneDialog({ open, onOpenChange, set }: { open: boolean; onOpenC
               </Field>
               <Button size="sm" variant="outline" disabled={!picked || saveFeature.isPending} onClick={() => saveFeature.mutate()}>{t("gene.saveQuery")}</Button>
             </div>
+            <p className="text-xs text-muted-foreground">{t("gene.librarySharedNote")}</p>
             <ErrorNote error={saveFeature.error} />
           </div>
         )}

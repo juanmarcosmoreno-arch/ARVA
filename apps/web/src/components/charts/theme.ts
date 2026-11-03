@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { fmtMax } from "@/lib/format";
 import { resolveDark, useSettings } from "@/store/settings";
 
 /**
@@ -62,6 +63,8 @@ export function baseOption(t: ChartTheme) {
   };
 }
 
+export const axisNumber = (v: number | string) => (typeof v === "number" ? fmtMax(v) : v);
+
 export function axisStyle(t: ChartTheme, name: string, extra: Record<string, unknown> = {}) {
   return {
     name,
@@ -69,7 +72,8 @@ export function axisStyle(t: ChartTheme, name: string, extra: Record<string, unk
     nameTextStyle: { color: t.muted, fontSize: 11 },
     axisLine: { lineStyle: { color: t.axis } },
     axisTick: { show: false },
-    axisLabel: { color: t.muted, fontSize: 10, hideOverlap: true },
+    // ECharts groups value-axis numbers the English way (2,500) whatever the page language; category labels pass as is.
+    axisLabel: { color: t.muted, fontSize: 10, hideOverlap: true, formatter: axisNumber },
     splitLine: { lineStyle: { color: t.grid } },
     ...extra,
   };

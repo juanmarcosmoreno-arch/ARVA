@@ -13,6 +13,7 @@ import { type TranslationKey, useT } from "@/i18n";
 import { api } from "@/lib/api";
 import { fmtInt, fmtPct } from "@/lib/format";
 import { displayOrder, type SnpMatrix } from "@/lib/variants";
+import { useSettings } from "@/store/settings";
 
 const TH = "px-2 py-1.5 text-left font-medium text-muted-foreground whitespace-nowrap";
 const TD = "px-2 py-1.5 align-top";
@@ -53,6 +54,7 @@ function DistanceHeatmap({ m }: { m: SnpMatrix }) {
  * samples or more the SNP matrix: pairwise SNP distances (heatmap), the sites and their downloads. */
 export function ProjectVariants({ projectId }: { projectId: string }) {
   const t = useT();
+  const language = useSettings((s) => s.language);
   const overview = useQuery({ queryKey: ["projectVariants", projectId], queryFn: () => api.projectVariants(projectId) });
   const refs = overview.data?.references ?? [];
   const [chosen, setChosen] = useState("");
@@ -70,7 +72,7 @@ export function ProjectVariants({ projectId }: { projectId: string }) {
         action={
           <div className="flex items-center gap-2">
             <Explain id="snp_distance" compact />
-            <a href={api.variantReportUrl(projectId)} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs hover:bg-muted">
+            <a href={api.variantReportUrl(projectId, language)} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs hover:bg-muted">
               <FileText className="h-3.5 w-3.5" aria-hidden /> {t("variants.report")}
             </a>
           </div>

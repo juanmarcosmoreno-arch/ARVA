@@ -9,7 +9,7 @@ import { Select } from "@/components/ui/form";
 import { type TranslationKey, useT } from "@/i18n";
 import { api } from "@/lib/api";
 import type { ComparisonResultRead } from "@/lib/comparative";
-import { fmtNum } from "@/lib/format";
+import { fmtInt, fmtNum } from "@/lib/format";
 import { type FeatureRef, type RegionData, type RegionFeature, MARK_COLORS, regionFigure } from "@/lib/regions";
 import { FigureCard, figureTheme } from "./FigureCard";
 
@@ -63,7 +63,7 @@ export function RegionView({ result }: { result: ComparisonResultRead }) {
       <div className="space-y-0.5">
         <p className="font-medium">{f.gene ? <i>{f.gene}</i> : f.locus_tag} <span className="text-muted-foreground">· {tr.label}</span></p>
         <p>{f.product ?? "—"}</p>
-        <p className="text-muted-foreground">{f.start.toLocaleString()}–{f.end.toLocaleString()} ({f.strand}) · {t("region.group")}: {groupName(f.group) ?? "—"}</p>
+        <p className="text-muted-foreground">{fmtInt(f.start)}–{fmtInt(f.end)} ({f.strand}) · {t("region.group")}: {groupName(f.group) ?? "—"}</p>
         {(f.marks ?? []).map((m, i) => <p key={i} style={{ color: MARK_COLORS[m.kind] }}>{t(`region.mark.${m.kind}` as TranslationKey)}: {m.label}</p>)}
       </div>
     );
@@ -98,7 +98,7 @@ export function RegionView({ result }: { result: ComparisonResultRead }) {
             action={<Button size="sm" variant="ghost" onClick={() => setSelected(null)} aria-label={t("common.close")}><X className="h-3.5 w-3.5" /></Button>} />
           <CardBody className="grid gap-x-6 gap-y-1 pt-3 text-xs sm:grid-cols-2">
             <p>{t("region.detail.locus")}: <span className="font-mono">{chosen.locus_tag ?? "—"}</span></p>
-            <p>{t("region.detail.position")}: {chosenTrack.contig}:{chosen.start.toLocaleString()}–{chosen.end.toLocaleString()} ({chosen.strand})</p>
+            <p>{t("region.detail.position")}: {chosenTrack.contig}:{fmtInt(chosen.start)}–{fmtInt(chosen.end)} ({chosen.strand})</p>
             <p>{t("region.detail.type")}: {chosen.type}{chosen.pseudo ? ` · ${t("region.detail.pseudo")}` : ""}{chosen.clipped ? ` · ${t("region.detail.clipped")}` : ""}</p>
             <p>{t("region.group")}: {groupName(chosen.group) ?? "—"}</p>
             {(chosen.marks ?? []).map((m, i) => (
@@ -137,7 +137,7 @@ export function RegionView({ result }: { result: ComparisonResultRead }) {
                     <td className="px-2 py-1.5 tabular-nums">{tr.hit ? fmtNum(tr.hit.query_coverage, 1) : ""}</td>
                     <td className="px-2 py-1.5 tabular-nums">{tr.copies > 1 ? tr.copies : ""}</td>
                     <td className="px-2 py-1.5">
-                      {tr.contig ? `${tr.contig}:${tr.start!.toLocaleString()}–${tr.end!.toLocaleString()}` : "—"}
+                      {tr.contig ? `${tr.contig}:${fmtInt(tr.start!)}–${fmtInt(tr.end!)}` : "—"}
                       {(tr.clipped_left || tr.clipped_right) && <Badge tone="warning" className="ml-1">{t("region.clipped")}</Badge>}
                     </td>
                     <td className="flex gap-1 px-2 py-1">

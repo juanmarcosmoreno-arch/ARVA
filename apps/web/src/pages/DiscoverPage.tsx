@@ -123,7 +123,7 @@ function ProjectDiscover({ projectId }: { projectId: string }) {
             <div className="mb-1 font-medium">{t("discover.features")}</div>
             <p className="text-muted-foreground">{t("discover.featureCount", { n: s.features.length })}</p>
             {!!s.mixed_assemblies.length && (
-              <p className="mt-2 text-warning">{t("discover.mixed", { samples: s.mixed_assemblies.join(", ") })}</p>
+              <p className="mt-2 text-amber-700 dark:text-warning">{t("discover.mixed", { samples: s.mixed_assemblies.join(", ") })}</p>
             )}
           </div>
         </CardBody>
@@ -213,7 +213,7 @@ function Result({ projectId, q, r, summary }: { projectId: string; q: DiscoverQu
       {q.analysis === "lineage" && <LineageView r={r as LineageResult} />}
       {q.analysis === "heatmap" && <HeatmapView r={r as HeatmapResult} />}
       {q.analysis === "pca" && <PcaView r={r as PcaResult} />}
-      {summary.samples < 10 && <p className="text-xs text-warning">{t("discover.smallSample", { n: summary.samples })}</p>}
+      {summary.samples < 10 && <p className="text-xs text-amber-700 dark:text-warning">{t("discover.smallSample", { n: summary.samples })}</p>}
     </div>
   );
 }
@@ -221,7 +221,7 @@ function Result({ projectId, q, r, summary }: { projectId: string; q: DiscoverQu
 function StratCell({ s }: { s: AssociationsResult["rows"][number]["stratified"] | undefined }) {
   const t = useT();
   if (!s) return <>–</>;
-  if (!s.informative_strata) return <span className="text-warning">{t("discover.confounded")}</span>;
+  if (!s.informative_strata) return <span className="text-amber-700 dark:text-warning">{t("discover.confounded")}</span>;
   // One value per line, each kept whole: the cell's four values otherwise wrap mid-value in a narrow column.
   return (
     <span className="flex min-w-[11rem] flex-col">
@@ -382,7 +382,7 @@ function HeatmapView({ r }: { r: HeatmapResult }) {
 function PcaView({ r }: { r: PcaResult }) {
   const t = useT();
   if (!r.applicable) {
-    return <p className="text-sm text-warning">{t(`discover.pca.${r.reason ?? "too_few_samples"}` as TranslationKey, { n: r.minimum ?? 0 })}</p>;
+    return <p className="text-sm text-amber-700 dark:text-warning">{t(`discover.pca.${r.reason ?? "too_few_samples"}` as TranslationKey, { n: r.minimum ?? 0 })}</p>;
   }
   const ev = r.explained_variance_ratio ?? [];
   const option: EChartsOption = {

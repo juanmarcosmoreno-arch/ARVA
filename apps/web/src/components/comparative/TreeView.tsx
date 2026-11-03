@@ -276,7 +276,11 @@ export function TreeView({ result, set }: { result: ComparisonResultRead; set: C
             <g data-export="skip">
               {hits.map((h) => (
                 <circle key={h.node.id} data-hit="1" cx={h.x} cy={h.y} r={h.node.children.length ? 5 : 7} fill={selected?.key === h.node.key ? theme.primary : "transparent"}
-                  fillOpacity={0.5} className="cursor-pointer" onClick={() => { setSelected(h.node); setDistanceTo(""); }}>
+                  fillOpacity={0.5} className="cursor-pointer focus:outline-none focus-visible:[stroke-width:2px]" stroke={theme.primary} strokeWidth={0}
+                  tabIndex={0} role="button" aria-pressed={selected?.key === h.node.key}
+                  aria-label={h.node.children.length ? t("phylo.cladeTitle", { n: h.node.leaves.length, support: h.node.supportText ?? "—" }) : h.node.name ?? ""}
+                  onClick={() => { setSelected(h.node); setDistanceTo(""); }}
+                  onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setSelected(h.node); setDistanceTo(""); } }}>
                   <title>{h.node.children.length ? t("phylo.cladeTitle", { n: h.node.leaves.length, support: h.node.supportText ?? "—" }) : h.node.name ?? ""}</title>
                 </circle>
               ))}

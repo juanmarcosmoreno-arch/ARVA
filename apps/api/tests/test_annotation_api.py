@@ -240,6 +240,7 @@ def test_bakta_request_checks(client, setup, bakta_db):
     assert client.post(url, json=bakta_request(plan, species="coli")).status_code == 422
     r = client.post(url, json={**bakta_request(plan), "skip_options": ["--skip-trna"]})
     assert r.status_code == 409 and "changed since the preview" in r.json()["detail"]
+    assert r.json()["code"] == "annotation_plan_changed"
     assert client.post(f"{API}/assemblies/nope/annotate/bakta/preview", json={}).status_code == 404
 
 

@@ -207,9 +207,9 @@ export function AnnotationDialog({
 
 type T = ReturnType<typeof useT>;
 
-function problemText(t: T, x: { code: string; message: string }) {
+function problemText(t: T, x: { code: string; message: string; params?: Record<string, string> }) {
   const known = ["no_database", "database_unavailable", "tool_unavailable", "nothing_to_annotate", "contig_names", "programs_missing"];
-  return known.includes(x.code) ? `${t(`annotation.planProblem.${x.code}` as "annotation.planProblem.no_database")} (${x.message})` : x.message;
+  return known.includes(x.code) ? t(`annotation.planProblem.${x.code}` as "annotation.planProblem.no_database", { programs: "", ...x.params }) : x.message;
 }
 
 function summaryText(t: T, form: AnnotationForm, p: AnnotationPlan) {

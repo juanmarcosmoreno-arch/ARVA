@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { FlaskConical, FolderKanban, Search } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useId, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useT } from "@/i18n";
 import { api } from "@/lib/api";
@@ -10,6 +10,8 @@ export function GlobalSearch() {
   const navigate = useNavigate();
   const [q, setQ] = useState("");
   const [open, setOpen] = useState(false);
+  const [active, setActive] = useState(0);
+  const listId = useId();
   const projects = useQuery({ queryKey: ["projects"], queryFn: api.projects, enabled: open });
   const samples = useQuery({ queryKey: ["samples", "all"], queryFn: api.allSamples, enabled: open });
 
@@ -40,6 +42,19 @@ export function GlobalSearch() {
     setOpen(false);
     navigate(to);
   };
+  const shown = open && q.trim() !== "";
+  const current = Math.min(active, Math.max(results.length - 1, 0));
+  const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      setOpen(true);
+      if (results.length) setActive((current + (e.key === "ArrowDown" ? 1 : results.length - 1)) % results.length);
+    } else if (e.key === "Enter" && shown && results[current]) {
+      go(results[current].to);
+    } else if (e.key === "Escape") {
+      setOpen(false);
+    }
+  };
 
   return (
     <div className="relative w-full max-w-md">
@@ -47,25 +62,34 @@ export function GlobalSearch() {
       <input
         type="search"
         value={q}
-        onChange={(e) => setQ(e.target.value)}
+        onChange={(e) => { setQ(e.target.value); setActive(0); setOpen(true); }}
         onFocus={() => setOpen(true)}
         onBlur={() => setTimeout(() => setOpen(false), 150)}
-        onKeyDown={(e) => e.key === "Enter" && results[0] && go(results[0].to)}
+        onKeyDown={onKeyDown}
+        role="combobox"
+        aria-expanded={shown && results.length > 0}
+        aria-controls={listId}
+        aria-autocomplete="list"
+        aria-activedescendant={shown && results[current] ? `${listId}-${current}` : undefined}
         placeholder={t("common.search")}
         aria-label={t("common.search")}
         className="h-10 w-full rounded-lg border bg-surface pl-9 pr-3 text-sm placeholder:text-muted-foreground/70"
       />
-      {open && q.trim() && (
-        <div className="absolute z-30 mt-1 w-full overflow-hidden rounded-xl border bg-surface shadow-lg">
+      {shown && (
+        <div id={listId} role="listbox" aria-label={t("common.search")} className="absolute z-30 mt-1 w-full overflow-hidden rounded-xl border bg-surface shadow-lg">
           {results.length === 0 ? (
             <div className="px-4 py-3 text-sm text-muted-foreground">{t("search.noMatches")}</div>
           ) : (
-            results.map((r) => (
-              <button
+            results.map((r, i) => (
+              <div
                 key={`${r.kind}-${r.id}`}
+                id={`${listId}-${i}`}
+                role="option"
+                aria-selected={i === current}
                 onMouseDown={(e) => e.preventDefault()}
+                onMouseEnter={() => setActive(i)}
                 onClick={() => go(r.to)}
-                className="flex w-full items-center gap-3 px-4 py-2.5 text-left hover:bg-muted"
+                className={`flex w-full cursor-pointer items-center gap-3 px-4 py-2.5 text-left hover:bg-muted ${i === current ? "bg-muted" : ""}`}
               >
                 {r.kind === "project" ? (
                   <FolderKanban className="h-4 w-4 text-arva-royal dark:text-arva-cyan" />
@@ -76,7 +100,7 @@ export function GlobalSearch() {
                   <span className="block truncate text-sm">{r.label}</span>
                   <span className="block truncate text-xs text-muted-foreground">{r.sub}</span>
                 </span>
-              </button>
+              </div>
             ))
           )}
         </div>

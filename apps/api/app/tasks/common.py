@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import platform
+import shutil
 import time
 import traceback
 from collections.abc import Callable
@@ -25,11 +26,12 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from arva_tools import ToolExecutionError
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.core import errorlog
+from app.core.config import get_settings
 from app.db.session import SessionLocal
 from app.models import AnalysisJob, JobStatus, RawFile
 from app.storage import LocalStorage, get_storage
@@ -185,10 +187,32 @@ def _log_end(job: AnalysisJob, exc: BaseException) -> None:
                     stderr_tail=getattr(exc, "stderr_tail", None) or None)
 
 
+def _ensure_space(db: Session, job: AnalysisJob, root: Path) -> None:
+    """A tool is not started when the data folder has less free space than ARVA's reserve (ARVA_MIN_FREE_BYTES) plus
+    the size of the job's input files: assemblers, read mapping and pangenome runs write outputs of that order or
+    larger, and filling the disk would make other writes (database backups, logs) fail as well. This is a lower
+    bound, not an estimate of the job's full output."""
+    from app.services.capacity import fmt_bytes
+
+    ids = job.input_raw_file_ids or []
+    inputs = int(db.scalar(select(func.coalesce(func.sum(RawFile.size_bytes), 0)).where(RawFile.id.in_(ids)))
+                 or 0) if ids else 0
+    needed = get_settings().min_free_bytes + inputs
+    try:
+        free = shutil.disk_usage(root).free
+    except OSError:
+        return
+    if free < needed:
+        raise JobFailure(f"Only {fmt_bytes(free)} is free in the ARVA data folder; this job needs at least "
+                         f"{fmt_bytes(needed)} (the {fmt_bytes(needed - inputs)} reserve plus the size of its input "
+                         "files) before it starts, so nothing was run. Free some space and run the job again.",
+                         "insufficient_storage", free=fmt_bytes(free), needed=fmt_bytes(needed))
+
+
 def _quietly(step: Callable[[], object], name: str) -> None:
     try:
         step()
-    except Exception as exc:  # noqa: BLE001 - recorded; the job's own failure is what gets reported
+    except Exception as exc:
         errorlog.record("job", "error", "job_cleanup_failed", params={"step": name}, exc=exc)
 
 
@@ -232,6 +256,7 @@ def run_job(
                                  "disk is not connected, or another disk is in its place), so nothing was written. "
                                  f"Connect the disk, start ARVA again and run the job again. ({problem})",
                                  "storage_unavailable", path=path)
+            _ensure_space(db, job, storage.root)
             body(ctx)
             # Locked until the commit below, so a cancellation is either seen here or finds the job completed.
             if ctx.cancel_requested(lock=True):
@@ -280,11 +305,11 @@ def run_job(
             # A failing clean-up step must not keep the job from being recorded as failed or cancelled.
             if storage_ok:
                 for hook in ctx.before_cleanup:
-                    _quietly(lambda h=hook: h(exc), "before_cleanup")
+                    _quietly(lambda h=hook, e=exc: h(e), "before_cleanup")
                 for rel in partial:
                     _quietly(lambda r=rel: storage.remove_tree(r), "remove_tree")
             if on_failure is not None:
-                _quietly(lambda: on_failure(ctx, exc), "on_failure")
+                _quietly(lambda e=exc: on_failure(ctx, e), "on_failure")
             job.status = JobStatus.cancelled if isinstance(exc, JobCancelled) else JobStatus.failed
             _log_end(job, exc)
             if not isinstance(exc, Exception):

@@ -675,3 +675,18 @@ def test_names_that_are_not_utf8_are_hidden_and_refused(client, import_root):
     # Should such a name get past the request schema, the path check refuses it too.
     with pytest.raises(ImportPathError, match="UTF-8"):
         resolve_file(get_root(0), os.fsdecode(b"weird/bad\xff.fastq"))
+
+
+def test_an_upload_buffered_on_another_disk_needs_room_on_that_disk_too(monkeypatch, reserve, spool_factor,
+                                                                        storage_root):
+    spool = str(storage_root / "spool")
+    monkeypatch.setattr(tempfile, "tempdir", spool)
+
+    def usage(path):
+        free = 10 * GIB if str(path) != spool else RESERVE + 10
+        return SimpleNamespace(total=2000 * GIB, used=0, free=free)
+
+    monkeypatch.setattr(shutil, "disk_usage", usage)
+    assert capacity_service.ensure_upload_space(10).free_bytes == 10 * GIB
+    with pytest.raises(capacity_service.InsufficientStorageError, match="where uploads are buffered"):
+        capacity_service.ensure_upload_space(11)

@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { ChartCard } from "@/components/charts/ChartCard";
 import { axisStyle, baseOption, useChartTheme } from "@/components/charts/theme";
+import { Explain } from "@/components/guide/Explain";
 import { Select } from "@/components/ui/form";
 import { type TranslationKey, useT } from "@/i18n";
 import { api } from "@/lib/api";
@@ -291,7 +292,7 @@ function Differences({ result, data, annotations }: { result: ComparisonResultRe
     <section className="space-y-3 rounded-xl border p-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <h3 className="text-sm font-semibold">{t("comparative.differencesTitle")}</h3>
+          <h3 className="flex items-center gap-1 text-sm font-semibold">{t("comparative.differencesTitle")}<Explain id="structural_differences" compact /></h3>
           <p className="text-xs text-muted-foreground">{t("comparative.differencesSubtitle")}</p>
         </div>
         <div className="flex gap-2">

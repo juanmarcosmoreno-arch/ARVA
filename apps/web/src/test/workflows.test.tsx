@@ -159,6 +159,12 @@ describe("RunView", () => {
     expect(screen.getByText("el archivo de entrada x ya no existe")).toBeInTheDocument();
     expect(screen.getByText("Errores (1)")).toBeInTheDocument();
     expect(screen.getByText("Tabla consolidada").closest("a")).toHaveAttribute("href", "/api/v1/batches/r1/table.csv");
+    expect(screen.getByText("Tabla consolidada").closest("a")?.querySelector("button")).toBeNull();
+    expect(screen.getByText("Informe").closest("a")?.getAttribute("href")).toBe("/api/v1/batches/r1/report.html?lang=es");
+    // Grid cells carry their status as text and can be focused, not only coloured.
+    const cells = screen.getAllByRole("img").filter((c) => c.getAttribute("tabindex") === "0");
+    expect(cells.length).toBeGreaterThan(0);
+    expect(cells.some((c) => /^(completado|fallido)/.test(c.getAttribute("aria-label") ?? ""))).toBe(true);
 
     // A branch is previewed before it can be created, and its confirmation is cleared by any parameter change.
     const preview = vi.spyOn(api, "branchPreview").mockResolvedValue({

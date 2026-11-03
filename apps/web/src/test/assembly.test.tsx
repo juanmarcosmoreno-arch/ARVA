@@ -34,7 +34,7 @@ const assembly: Assembly = {
     contig_rows: { stored: 2, total: 2, truncated: false }, expected_genome_size: { bp: 328_984, status: "given", source: "assembly_parameters", basis: "reads_over_depth", assumed_depth_x: 30 },
     files: { contigs: null, graph: null, info: null },
   },
-  warnings: [{ code: "high_coverage_contigs", heuristic: true, message: "x", params: { count: 1, ratio: 4, median_coverage: 31 }, contigs: ["contig_2"], contigs_total: 1 }],
+  warnings: [{ code: "high_coverage_contigs", heuristic: true, message: "x", params: { count: 1, ratio: 4, median_coverage: 31, measure: "depth", unit: "×" }, contigs: ["contig_2"], contigs_total: 1 }],
 };
 const detail: AssemblyDetail = {
   ...assembly,
@@ -73,7 +73,7 @@ describe("Assembly tab", () => {
     expect(await screen.findByText("INFO: >>>STAGE: repeat")).toBeInTheDocument();
     expect(await screen.findByText("Flye 2.9.3 · --nano-hq")).toBeInTheDocument();
     expect(screen.getByText(/estimado como bases de las lecturas ÷ una profundidad supuesta/)).toBeInTheDocument();
-    expect(screen.getByText(/1 contig con cobertura mayor que 4 × la mediana/)).toBeInTheDocument();
+    expect(screen.getByText(/1 contig con profundidad de lecturas mayor que 4 × la mediana ponderada por longitud de 31×/)).toBeInTheDocument();
     // In the warning's contig list and in the contig table.
     expect(await screen.findAllByText("contig_2")).toHaveLength(2);
     expect(screen.getByText("2", { selector: "td.font-mono" })).toBeInTheDocument();

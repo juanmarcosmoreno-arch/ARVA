@@ -59,7 +59,7 @@ export function AnnotationChartsPanel({ annotation }: { annotation: Annotation }
       <div className="flex flex-wrap items-center gap-2">
         <h4 className="text-sm font-semibold">{t("annotation.charts.title")}</h4>
         <Explain id="annotation_charts" compact />
-        {synthetic && <span className="text-xs font-medium text-warning">{t("annotation.charts.synthetic")}</span>}
+        {synthetic && <span className="text-xs font-medium text-amber-700 dark:text-warning">{t("annotation.charts.synthetic")}</span>}
       </div>
       <div className="grid gap-4 lg:grid-cols-2">
         <TypesChart c={c} prefix={prefix} />

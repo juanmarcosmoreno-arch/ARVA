@@ -58,6 +58,18 @@ export function SettingsPage() {
                 <span className="block text-[11px] text-muted-foreground">{t("settings.showIntroHint")}</span>
               </span>
             </label>
+            <label className="flex items-start gap-2.5">
+              <input
+                type="checkbox"
+                className="mt-0.5 h-4 w-4 accent-[#00B4A6]"
+                checked={s.showChecklist}
+                onChange={(e) => s.setShowChecklist(e.target.checked)}
+              />
+              <span className="space-y-0.5">
+                <span className="block text-sm">{t("settings.showChecklist")}</span>
+                <span className="block text-[11px] text-muted-foreground">{t("settings.showChecklistHint")}</span>
+              </span>
+            </label>
           </CardBody>
         </Card>
         <Card>
@@ -69,7 +81,7 @@ export function SettingsPage() {
                 {health.data?.status === "ok" ? (
                   <span className="text-success">{t("settings.apiConnected")}</span>
                 ) : health.data?.status === "degraded" ? (
-                  <span className="text-warning">{t("settings.apiDegraded")}</span>
+                  <span className="text-amber-700 dark:text-warning">{t("settings.apiDegraded")}</span>
                 ) : health.isLoading ? (
                   "…"
                 ) : (

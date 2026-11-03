@@ -37,6 +37,10 @@ class StorageCapacity:
         return max(0, self.free_bytes - self.min_free_bytes)
 
 
+_BUFFER_NOTE = (
+    "Uploads are first buffered there, on another disk than the data; import large files from a server folder "
+    "instead, which needs no buffer, or free space on that disk (with Docker Desktop: its virtual disk)."
+)
 _SPOOL_NOTE = (
     "Uploads are first buffered in a temporary file on the same disk, so an upload needs twice its size "
     "while it is received; server folder import needs no buffer."
@@ -44,11 +48,12 @@ _SPOOL_NOTE = (
 
 
 class InsufficientStorageError(ValueError):
-    def __init__(self, needed_bytes: int, capacity: StorageCapacity, note: str = ""):
+    def __init__(self, needed_bytes: int, capacity: StorageCapacity, note: str = "",
+                 where: str = "the ARVA data directory"):
         self.needed_bytes = needed_bytes
         self.capacity = capacity
         super().__init__(
-            f"Not enough free space in the ARVA data directory: {_exact(needed_bytes)} needed "
+            f"Not enough free space in {where}: {_exact(needed_bytes)} needed "
             f"but only {_exact(capacity.available_for_data_bytes)} can be used "
             f"({fmt_bytes(capacity.free_bytes)} free, {fmt_bytes(capacity.min_free_bytes)} kept in reserve)."
             + (f" {note}" if note else "")
@@ -89,4 +94,16 @@ def ensure_upload_space(content_length: int) -> StorageCapacity:
     needed = content_length * capacity.upload_overhead_factor
     if needed > capacity.available_for_data_bytes:
         raise InsufficientStorageError(needed, capacity, _SPOOL_NOTE if capacity.upload_overhead_factor > 1 else "")
+    if capacity.upload_overhead_factor == 1:
+        # The body is buffered on another disk first (in Docker: the container's /tmp, on the Docker Desktop disk
+        # that also holds the database), which must not fill up either.
+        spool = tempfile.gettempdir()
+        try:
+            usage = shutil.disk_usage(spool)
+        except OSError:
+            return capacity
+        buffer = StorageCapacity(spool, usage.free, usage.total, capacity.min_free_bytes, 1)
+        if content_length > buffer.available_for_data_bytes:
+            raise InsufficientStorageError(content_length, buffer, _BUFFER_NOTE,
+                                           where=f"the temporary folder {spool} where uploads are buffered")
     return capacity

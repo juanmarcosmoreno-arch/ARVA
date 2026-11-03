@@ -74,7 +74,7 @@ export function ProjectBatchQc({ projectId }: { projectId: string }) {
                 {t(`batch.analysis.${a}` as const)}
               </label>
             ))}
-            {!analyses.length && <p className="text-xs text-warning">{t("batch.noneSelected")}</p>}
+            {!analyses.length && <p className="text-xs text-amber-700 dark:text-warning">{t("batch.noneSelected")}</p>}
           </fieldset>
           <div className="space-y-3">
             <label className="flex items-start gap-2 text-sm">
@@ -123,7 +123,7 @@ export function ProjectBatchQc({ projectId }: { projectId: string }) {
             {t("batch.create", { n: data?.total_jobs ?? 0 })}
           </Button>
           {created !== null && <p role="status" className="text-xs text-success">{t("batch.created", { n: created })}</p>}
-          {changed && <p role="status" className="text-xs text-warning">{t("batch.changed")}</p>}
+          {changed && <p role="status" className="text-xs text-amber-700 dark:text-warning">{t("batch.changed")}</p>}
         </div>
 
         {data && (

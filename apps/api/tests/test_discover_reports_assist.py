@@ -220,3 +220,32 @@ def test_assist_provider_failure_is_logged_not_raised(client, project, fake_prov
     r = client.post("/api/v1/assist/ask", json={"question": "Hi", "about_project_id": pid})
     assert r.status_code == 502 and r.json()["code"] == "assist_provider_failed"
     assert client.get("/api/v1/assist/audit").json()[0]["status"] == "failed"
+
+
+def test_project_report_flags_a_sample_whose_results_come_from_another_assembly(client, project):
+    pid, samples = project
+    s1 = samples[0]
+    with SessionLocal() as db:
+        first = db.query(Assembly).filter(Assembly.sample_id == s1["id"]).one()
+        racon = AnalysisJob(project_id=pid, sample_id=s1["id"], job_type="racon_polish", tool_name="Racon",
+                            tool_version="1.5.0", parameters={}, input_raw_file_ids=[], status=JobStatus.completed,
+                            log_text="")
+        db.add(racon)
+        db.flush()
+        newer = Assembly(sample_id=s1["id"], job_id=racon.id, kind=AssemblyKind.polished, assembler="Racon",
+                         assembler_version="1.5.0", mode=AssemblyMode.long, read_type="nano-hq", input_file_ids=[],
+                         contigs_path="y.fasta", stats={"contig_count": 2}, contigs=[], warnings=[],
+                         parent_assembly_id=first.id)
+        db.add(newer)
+        db.commit()
+        first_id, newer_id = first.id, newer.id
+    data = client.get(f"/api/v1/projects/{pid}/report", params={"format": "json"}).json()
+    row = next(r for r in data["samples"] if r["code"] == "S1")
+    # The newest assembly is shown, but its AMR genes were found on the first one: the row says so.
+    assert row["assembly"]["id"] == newer_id and row["amr"]["assembly_id"] == first_id and row["mixed_assemblies"]
+    assert not next(r for r in data["samples"] if r["code"] == "S2")["mixed_assemblies"]
+    es = client.get(f"/api/v1/projects/{pid}/report", params={"format": "html", "lang": "es"}).text
+    assert "ensamblajes distintos de la muestra" in es and "S1" in es
+    lines = client.get(f"/api/v1/projects/{pid}/report", params={"format": "csv"}).text.splitlines()
+    assert lines[0].endswith("assembly_id,mixed_assemblies")
+    assert next(x for x in lines if x.startswith("S1,")).endswith(f"{newer_id},yes")

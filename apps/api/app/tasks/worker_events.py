@@ -48,7 +48,7 @@ def on_work_horse_killed(rq_job, retpid: int, ret_val: int, rusage) -> None:
     try:
         with SessionLocal() as db:
             jobs.end_killed(db, ref["id"], details.get("signal") if isinstance(details.get("signal"), str) else None)
-    except Exception as exc:  # noqa: BLE001 - the worker goes on; the next reconciliation ends the job instead
+    except Exception as exc:
         errorlog.record("worker", "error", "worker_reconcile_failed", exc=exc, job=ref)
 
 
@@ -61,7 +61,7 @@ def reconcile_quietly(source: str) -> None:
         with SessionLocal() as db:
             if ended := jobs.reconcile_lost(db):
                 errorlog.info("jobs_reconciled", f"{ended} lost job(s) ended ({source})", component="worker")
-    except Exception as exc:  # noqa: BLE001 - must not stop the worker or fail the job that just ran
+    except Exception as exc:
         errorlog.record("worker", "error", "worker_reconcile_failed", params={"source": source}, exc=exc)
 
 

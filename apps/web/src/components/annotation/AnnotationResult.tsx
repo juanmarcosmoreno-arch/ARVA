@@ -231,7 +231,10 @@ function FeatureTable({ annotation }: { annotation: Annotation }) {
                 <td className="px-2 py-1" onClick={(e) => e.stopPropagation()}>
                   <input type="checkbox" className="h-3.5 w-3.5 accent-[#00B4A6]" checked={selected.has(f.id)} onChange={() => toggle(f.id)} aria-label={t("annotation.selectFeature", { id: f.locus_tag ?? f.id })} />
                 </td>
-                <td className="px-2 py-1 font-mono">{f.locus_tag ?? "—"}</td>
+                <td className="px-2 py-1 font-mono">
+                  <button type="button" className="font-mono underline-offset-2 hover:underline focus-visible:underline" aria-expanded={open === f.id}
+                    onClick={(e) => { e.stopPropagation(); setOpen(open === f.id ? null : f.id); }}>{f.locus_tag ?? f.id}</button>
+                </td>
                 <td className="px-2 py-1">{typeLabel(t, f.type)}</td>
                 <td className="whitespace-nowrap px-2 py-1 tabular-nums">
                   {f.contig_in_assembly}:{fmtInt(f.start)}–{fmtInt(f.end)} ({f.strand})

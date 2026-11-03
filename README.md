@@ -94,6 +94,17 @@ control**, **visual first**, **reproducibility** and **modularity**.
 
 ## Quick start
 
+### On a Mac
+
+**Guía en español:** [docs/guia-mac.md](docs/guia-mac.md) — requirements, Docker Desktop settings, getting the code,
+`docker login ghcr.io`, first start, registering existing Bakta and FastANI databases, a first test project,
+troubleshooting, backups, updating, stopping and uninstalling.
+
+Install Docker Desktop, then double-click **`ARVA.command`** (macOS may ask for permission the first time). The first
+start asks, in Spanish when the Mac is in Spanish, which disk keeps the data and databases, which existing database
+folders to use read-only and, on Apple silicon, which image architecture; then it starts ARVA and opens the browser.
+**`Detener ARVA.command`** stops it.
+
 ### Docker (recommended)
 
 ```bash
@@ -154,6 +165,7 @@ ARVA_E2E=1 scripts/test-all.sh    # also the browser golden path (stack must be 
 
 - [Architecture](docs/architecture.md)
 - [Installation](docs/installation.md)
+- [Guía de instalación en Mac (español)](docs/guia-mac.md)
 - [Scientific methods](docs/scientific-methods.md)
 - [Developer guide](docs/developer-guide.md)
 - [Roadmap & current limitations](docs/roadmap.md)

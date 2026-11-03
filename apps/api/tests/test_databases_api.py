@@ -326,6 +326,14 @@ def test_extract_accepts_links_that_stay_inside_and_never_writes_through_them(tm
     with pytest.raises(tasks.UnsafeArchive, match="under another link"):
         tasks.extract(nested, tmp_path / "out2", "db", lambda _r, _w: None)
 
+    chained = tmp_path / "chained.tar"
+    with tarfile.open(chained, "w") as tar:
+        _add(tar, "db/a/b/c/d", type=tarfile.DIRTYPE)
+        _add(tar, "db/a/b/c/d/x", type=tarfile.SYMTYPE, linkname="../../..")
+        _add(tar, "db/a/b/c/d/s", type=tarfile.SYMTYPE, linkname="x/../../../etc")
+    with pytest.raises(tasks.UnsafeArchive, match="resolves outside"):
+        tasks.extract(chained, tmp_path / "out3", "db", lambda _r, _w: None)
+
 
 def test_downloaded_archive_without_the_bakta_files_is_not_installed(client, serve, tmp_path):
     serve(bakta_archive(tmp_path / "partial.tar.xz", omit=("sorf.dmnd",)))

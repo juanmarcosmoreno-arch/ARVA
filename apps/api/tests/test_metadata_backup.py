@@ -39,7 +39,7 @@ def scratch(tmp_path):
     # The data folder ID this metadata recorded, as ARVA's app setting "storage" holds it.
     with db.begin() as conn:
         conn.execute(text("CREATE TABLE app_settings (key varchar(100) PRIMARY KEY, value json)"))
-        conn.execute(text("""INSERT INTO app_settings VALUES ('storage', '{"data_id": "%s"}')""" % DATA_ID))
+        conn.execute(text(f"""INSERT INTO app_settings VALUES ('storage', '{{"data_id": "{DATA_ID}"}}')"""))
     yield db, env, data
     db.dispose()
     with admin.connect() as conn:
@@ -139,7 +139,7 @@ def _set_recorded(db, value):
     with db.begin() as conn:
         conn.execute(text("DELETE FROM app_settings"))
         if value is not None:
-            conn.execute(text("""INSERT INTO app_settings VALUES ('storage', '{"data_id": "%s"}')""" % value))
+            conn.execute(text(f"""INSERT INTO app_settings VALUES ('storage', '{{"data_id": "{value}"}}')"""))
 
 
 def test_no_backup_of_metadata_not_tied_to_this_folder_and_latest_skips_foreign_ones(scratch):

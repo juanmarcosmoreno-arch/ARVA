@@ -106,6 +106,7 @@ export function SpeciesDialog({ open, onOpenChange, sampleId, assemblies }: { op
           </Section>
         )}
 
+        {form.method === "gtdbtk" && <p className="flex items-center gap-1 text-xs text-muted-foreground"><Explain id="gtdb" titled /></p>}
         {p && form.method === "gtdbtk" && p.gtdbtk_memory_gb && (
           <p role="status" className="flex gap-1.5 rounded-lg border border-warning/40 bg-warning/5 p-3 text-xs">
             <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-warning" aria-hidden />

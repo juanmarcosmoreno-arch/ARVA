@@ -27,7 +27,7 @@ export function ErrorScreen({ error, componentStack }: { error: unknown; compone
         </h1>
         <p className="text-sm text-muted-foreground">{t("error.screen.body")}</p>
         {errorId && <p className="font-mono text-xs">{t("error.id", { id: errorId })}</p>}
-        {errorId === null && <p className="text-xs text-warning">{t("error.screen.notRecorded")}</p>}
+        {errorId === null && <p className="text-xs text-amber-700 dark:text-warning">{t("error.screen.notRecorded")}</p>}
         <div className="flex flex-wrap items-center gap-2">
           <CopyErrorDetails errorId={errorId ?? undefined} fallback={() => localErrorDetails(error)} />
           <Button size="sm" onClick={() => window.location.reload()}>

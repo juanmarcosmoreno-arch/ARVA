@@ -8,7 +8,7 @@ import { Link } from "react-router-dom";
 import { ChartCard } from "@/components/charts/ChartCard";
 import { MetricTile } from "@/components/domain/bits";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { Button, buttonClass } from "@/components/ui/button";
 import { Card, CardBody, CardHeader } from "@/components/ui/card";
 import { Dialog } from "@/components/ui/dialog";
 import { Field, Input, Select } from "@/components/ui/form";
@@ -22,6 +22,7 @@ import { profileLabel } from "@/lib/performance";
 import {
   ITEM_STATUSES,
   STATUS_COLOR,
+  STATUS_GLYPH,
   STATUS_TONE,
   finishedShare,
   isActive,
@@ -52,6 +53,7 @@ export function RunStatusBadge({ status }: { status: RunDetail["status"] }) {
  * of its jobs), the exports, queue controls and a new branch with changed parameters. */
 export function RunView({ runId, catalogue }: { runId: string; catalogue: Catalogue }) {
   const t = useT();
+  const language = useSettings((s) => s.language);
   const queryClient = useQueryClient();
   const run = useQuery({
     queryKey: ["batch", runId],
@@ -104,9 +106,9 @@ export function RunView({ runId, catalogue }: { runId: string; catalogue: Catalo
             <Button variant="danger" onClick={() => window.confirm(t("wf.cancelConfirm")) && action.mutate("cancel")}><Ban className="h-4 w-4" /> {t("wf.cancelRun")}</Button>
           )}
           <Button variant="outline" onClick={() => setBranching(true)}><GitBranch className="h-4 w-4" /> {t("wf.newBranch")}</Button>
-          <a href={api.batchTableUrl(r.id)} download><Button variant="outline"><Table2 className="h-4 w-4" /> {t("wf.exportCsv")}</Button></a>
-          <a href={api.batchExportUrl(r.id)} download><Button variant="outline"><Download className="h-4 w-4" /> {t("wf.exportRun")}</Button></a>
-          <a href={api.batchReportUrl(r.id)} target="_blank" rel="noreferrer noopener"><Button variant="outline"><FileText className="h-4 w-4" /> {t("wf.report")}</Button></a>
+          <a href={api.batchTableUrl(r.id)} download className={buttonClass("outline")}><Table2 className="h-4 w-4" /> {t("wf.exportCsv")}</a>
+          <a href={api.batchExportUrl(r.id)} download className={buttonClass("outline")}><Download className="h-4 w-4" /> {t("wf.exportRun")}</a>
+          <a href={api.batchReportUrl(r.id, language)} target="_blank" rel="noreferrer noopener" className={buttonClass("outline")}><FileText className="h-4 w-4" /> {t("wf.report")}</a>
         </div>
       </div>
       <ErrorNote error={action.error} />
@@ -190,7 +192,11 @@ function StatusCell({ item }: { item: RunItem | undefined }) {
     item.duration_seconds != null && fmtDuration(item.duration_seconds), item.error && itemErrorText(t, item.error)].filter(Boolean).join(" · ");
   return (
     <td className="px-1 py-1 text-center">
-      <span className="inline-block h-3.5 w-3.5 rounded-sm align-middle" style={{ background: STATUS_COLOR[item.status], opacity: item.reused_from_item_id ? 0.55 : 1 }} title={title} />
+      <span tabIndex={0} role="img" aria-label={title} title={title}
+        className="inline-flex h-3.5 w-3.5 items-center justify-center rounded-sm align-middle text-[9px] font-bold leading-none text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        style={{ background: STATUS_COLOR[item.status], opacity: item.reused_from_item_id ? 0.55 : 1 }}>
+        <span aria-hidden>{STATUS_GLYPH[item.status]}</span>
+      </span>
       {item.attempt > 1 && <span className="ml-0.5 text-[9px] text-muted-foreground">×{item.attempt}</span>}
     </td>
   );

@@ -1,7 +1,7 @@
 from arva_tools.bakta import BaktaParams
 from arva_tools.prokka import ProkkaParams
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -89,25 +89,30 @@ def preview_bakta(assembly_id: str, payload: BaktaPreviewRequest, db: Session = 
     return _plan_or_400(svc.bakta_plan, db, sample, a, payload.database_id, payload.skip_plot)
 
 
+def _refused(code_status: int, code: str, detail: str, **params: str) -> JSONResponse:
+    return JSONResponse(status_code=code_status, content={"detail": detail, "code": code, "params": params})
+
+
 @router.post("/assemblies/{assembly_id}/annotate/bakta", response_model=AnalysisJobRead,
              status_code=status.HTTP_202_ACCEPTED)
 def start_bakta(assembly_id: str, payload: BaktaRequest, db: Session = Depends(get_db)):
     """Annotate the assembly with Bakta in one background job, skipping exactly the steps the preview showed."""
     sample, a = _assembly(db, assembly_id)
     if not payload.confirmed:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Confirm the summary of the run first")
+        return _refused(status.HTTP_400_BAD_REQUEST, "annotation_not_confirmed", "Confirm the summary of the run first")
     if payload.settings.complete and not payload.complete_confirmed:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "--complete says every sequence is a complete replicon; "
-                                                         "confirm that explicitly")
+        return _refused(status.HTTP_400_BAD_REQUEST, "annotation_complete_not_confirmed",
+                        "--complete says every sequence is a complete replicon; confirm that explicitly")
     values = payload.settings.model_dump()
     if values["species"] and not values["genus"]:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "a species needs a genus")
+        return _refused(status.HTTP_422_UNPROCESSABLE_CONTENT, "annotation_species_needs_genus",
+                        "a species needs a genus")
     plan = _plan_or_400(svc.bakta_plan, db, sample, a, payload.database_id, values["skip_plot"])
     _blocking(plan)
     if plan["skip_options"] != payload.skip_options:
-        raise HTTPException(status.HTTP_409_CONFLICT, "The steps Bakta can run here changed since the preview (it "
-                                                      f"would now skip {', '.join(plan['skip_options']) or 'nothing'}); "
-                                                      "review the preview again")
+        skips = ", ".join(plan["skip_options"]) or "-"
+        return _refused(status.HTTP_409_CONFLICT, "annotation_plan_changed", "The steps Bakta can run here changed "
+                        f"since the preview (it would now skip {skips}); review the preview again", skips=skips)
     record = svc.bakta_database(db, plan["database_id"])
     params = BaktaParams(**values, threads=payload.threads or effective_resources(db).threads)
     return _tool_call(create_bakta_job, db, sample, a, params, record, plan,

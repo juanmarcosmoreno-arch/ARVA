@@ -191,7 +191,10 @@ function Families({ result, data, selected, onSelect }: { result: ComparisonResu
               const f = data.families[i];
               return (
                 <tr key={f.name} onClick={() => onSelect(i)} className={`cursor-pointer hover:bg-muted/50 ${selected === i ? "bg-arva-teal/10" : ""}`}>
-                  <td className="px-2 py-1 font-mono">{f.name}</td>
+                  <td className="px-2 py-1 font-mono">
+                    <button type="button" className="font-mono underline-offset-2 hover:underline focus-visible:underline" aria-pressed={selected === i}
+                      onClick={(e) => { e.stopPropagation(); onSelect(i); }}>{f.name}</button>
+                  </td>
                   <td className="px-2 py-1">{f.gene_names.join(", ")}</td>
                   <td className="px-2 py-1">{f.annotation}</td>
                   <td className="px-2 py-1 tabular-nums" title={holders(data, f).join(", ")}>{f.count}/{data.genomes.length}</td>
@@ -340,7 +343,9 @@ function AssociationsPanel({ result, onSelect }: { result: ComparisonResultRead;
                 <tbody className="divide-y">
                   {assoc.data.rows.slice(0, 50).map((r, i) => (
                     <tr key={i} className="cursor-pointer hover:bg-muted/50" onClick={() => onSelect(r.family_index)}>
-                      <td className="px-2 py-1">{r.group}</td><td className="px-2 py-1 font-mono">{r.family}</td>
+                      <td className="px-2 py-1">{r.group}</td>
+                      <td className="px-2 py-1 font-mono"><button type="button" className="font-mono underline-offset-2 hover:underline focus-visible:underline"
+                        onClick={(e) => { e.stopPropagation(); onSelect(r.family_index); }}>{r.family}</button></td>
                       <td className="px-2 py-1">{r.in_group}/{r.group_size}{r.share_group_ci ? ` (${fmtPct(r.share_group_ci[0] * 100, 0)}–${fmtPct(r.share_group_ci[1] * 100, 0)})` : ""}</td>
                       <td className="px-2 py-1">{r.in_others}/{r.others_size}{r.share_others_ci ? ` (${fmtPct(r.share_others_ci[0] * 100, 0)}–${fmtPct(r.share_others_ci[1] * 100, 0)})` : ""}</td>
                       <td className="px-2 py-1">{fmtNum(r.odds_ratio, 2)} ({fmtNum(r.odds_ratio_ci[0], 2)}–{fmtNum(r.odds_ratio_ci[1], 2)}){r.haldane_corrected ? "*" : ""}</td>

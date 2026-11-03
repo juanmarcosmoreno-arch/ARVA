@@ -1,6 +1,6 @@
 import json
 import re
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, Body, Depends, Query, Request, status
 from fastapi.responses import HTMLResponse, JSONResponse, Response
@@ -319,8 +319,8 @@ def batch_table(run_id: str, db: Session = Depends(get_db)):
 
 
 @router.get("/batches/{run_id}/report.html")
-def batch_report(run_id: str, db: Session = Depends(get_db)):
-    return HTMLResponse(svc.report_html(db, _run(db, run_id)), headers=_SAFE_HEADERS)
+def batch_report(run_id: str, lang: Literal["en", "es"] = "en", db: Session = Depends(get_db)):
+    return HTMLResponse(svc.report_html(db, _run(db, run_id), lang), headers=_SAFE_HEADERS)
 
 
 @router.get("/samples/{sample_id}/batches")
