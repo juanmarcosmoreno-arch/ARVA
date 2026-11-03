@@ -19,6 +19,7 @@ from test_amr_api import species_result
 from test_annotation_api import assemble, new_sample
 
 from app.db.session import SessionLocal
+from sqlalchemy import select
 from app.models import AmrResult, AnalysisJob, JobStatus, MlstResult, TypingResult
 from app.services import typing_modules as tm
 
@@ -329,6 +330,29 @@ def test_mssa_needs_amrfinderplus_and_a_disagreement_is_marked(client, typing_to
     assert card["mec_crosscheck"] == {"sccmec": True, "amrfinderplus": False, "status": "disagree"}
     assert card["shorthand"] == "MSSA?, agr II, PVL-"
     assert {"part": "mec", "reason": "mec_disagree", "params": {}} in card["uncertain"]
+
+
+def test_mecb_rules_out_mssa_and_meca1_is_not_meca(client, typing_tools):
+    typing_tools("n315")
+    sample = new_sample(client, "MECB")
+    a = assemble(client, sample, SYNTHETIC)
+    species_result(sample, a, "Staphylococcus aureus")
+    amr_result(sample, a, "synthetic")
+    with SessionLocal() as db:
+        job = db.scalars(select(AnalysisJob).where(AnalysisJob.sample_id == sample["id"],
+                                                   AnalysisJob.job_type == "amr_detection")).one()
+        # CONSTRUCTED hits (no real genome here carries them): AMRFinderPlus's symbols and subclass for mecB/mecA1.
+        for symbol in ("mecB", "mecA1"):
+            db.add(AmrResult(sample_id=sample["id"], assembly_id=a["id"], job_id=job.id, element_symbol=symbol,
+                             element_name="PBP2a family beta-lactam-resistant peptidoglycan transpeptidase",
+                             type="AMR", subtype="AMR", amr_class="BETA-LACTAM", amr_subclass="METHICILLIN",
+                             method="EXACTX", method_kind="complete"))
+        db.commit()
+    start(client, a, "agr")
+    card = client.get(f"{API}/samples/{sample['id']}/typing").json()["assemblies"][0]["summary"]
+    assert card["shorthand"] == "MRSA?, agr II, PVL-"
+    assert {"part": "mec", "reason": "mec_other", "params": {"genes": "mecB"}} in card["uncertain"]
+    assert card["mec_crosscheck"]["amrfinderplus"] is False
 
 
 def test_typing_results_migration_up_and_down(monkeypatch):

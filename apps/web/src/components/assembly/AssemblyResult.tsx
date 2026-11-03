@@ -12,7 +12,7 @@ import { api } from "@/lib/api";
 import { type ContigSortKey, type SortDir, assemblyLabel, lineageNames, sortContigs } from "@/lib/assembly";
 import { flyeContigRows } from "@/lib/flye";
 import { fmtBases, fmtBp, fmtDate, fmtInt, fmtNum, fmtPct } from "@/lib/format";
-import { messageText } from "@/lib/messages";
+import { assemblyWarningText } from "@/lib/messages";
 import { lineage, polishedFrom } from "@/lib/polishing";
 import { basename } from "@/lib/results";
 import { COVERAGE_LABEL, coverageKind, fmtCoverage } from "@/lib/shortReads";
@@ -171,7 +171,7 @@ export function AssemblyCard({
                     <Badge tone="warning" className="mr-1.5">
                       {t("flye.heuristic")}
                     </Badge>
-                    {messageText(t, "assembly.warning", { code: w.code, params: w.params, text: w.message })}
+                    {assemblyWarningText(t, w)}
                     {w.contigs.length > 0 && (
                       <span className="block text-muted-foreground">
                         {w.contigs.join(", ")}

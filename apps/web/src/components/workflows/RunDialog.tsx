@@ -10,6 +10,7 @@ import { useT } from "@/i18n";
 import { api } from "@/lib/api";
 import { messageText } from "@/lib/messages";
 import type { BatchRunRequest, BatchSettings, WorkflowRead } from "@/lib/workflows";
+import { profileLabel } from "@/lib/performance";
 import { problemText } from "./WorkflowEditor";
 
 const DEFAULTS: BatchSettings = { priority: 0, max_concurrent: 1, threads_per_job: null, memory_per_job_gb: null, max_retries: 0 };
@@ -101,7 +102,7 @@ export function RunDialog({ open, onOpenChange, workflow }: { open: boolean; onO
           <section className="space-y-2 rounded-lg border bg-muted/30 p-3 text-xs">
             <p>{t("wf.planLine", { ready: p.ready_samples, total: p.samples.length, jobs: p.jobs, concurrency: p.concurrency })}</p>
             <p className="text-muted-foreground">
-              {t("wf.budgetLine", { threads: p.settings.threads_per_job, memory: p.settings.memory_per_job_gb, budgetThreads: p.settings.budget_threads, budgetMemory: p.settings.budget_memory_gb, profile: p.settings.profile })}
+              {t("wf.budgetLine", { threads: p.settings.threads_per_job, memory: p.settings.memory_per_job_gb, budgetThreads: p.settings.budget_threads, budgetMemory: p.settings.budget_memory_gb, profile: profileLabel(t, p.settings.profile) })}
             </p>
             <p className="text-muted-foreground">{Object.values(p.tools).map((x) => `${x.name} ${x.version ?? "?"}`).join(" · ")}</p>
             <table className="w-full">

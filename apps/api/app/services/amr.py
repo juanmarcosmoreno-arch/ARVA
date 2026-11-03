@@ -265,9 +265,20 @@ def latest_run(db: Session, assembly_id: str) -> AnalysisJob | None:
     return None
 
 
+def searched_for(parameters: dict[str, Any] | None, column: dict[str, Any]) -> bool:
+    """Whether a run with these parameters looked for this matrix column at all. Point mutations are screened only
+    with --organism, and only that organism's (amrfinderplus.py); plus-scope, virulence and stress elements only with
+    --plus. A run that did not look is 'not searched' for the column, never 'absent'."""
+    p = parameters or {}
+    if column.get("subtype") == "POINT" and p.get("organism") not in column.get("organisms", ()):
+        return False
+    return not (column.get("plus") and not p.get("plus"))
+
+
 def project_overview(db: Session, project: Project) -> dict[str, Any]:
     """The most recent completed run of every sample, and the presence/absence matrix of the elements found (genes
-    and point mutations, by type) across those samples. A sample without a run is 'not searched', not 'absent'."""
+    and point mutations, by type) across those samples. A sample without a run is 'not searched', not 'absent', and
+    so is a run that did not look for the column (searched_for)."""
     samples = list(db.scalars(select(Sample).where(Sample.project_id == project.id).order_by(Sample.sample_code)))
     rows, elements = [], {}
     for s in samples:
@@ -276,13 +287,21 @@ def project_overview(db: Session, project: Project) -> dict[str, Any]:
         present: dict[str, list[str]] = {}
         if latest:
             for h in latest["hits"]:
-                elements.setdefault(h["element_symbol"], {"element_symbol": h["element_symbol"], "type": h["type"],
-                                                          "subtype": h["subtype"], "class": h["amr_class"]})
+                col = elements.setdefault(h["element_symbol"], {
+                    "element_symbol": h["element_symbol"], "type": h["type"], "subtype": h["subtype"],
+                    "class": h["amr_class"], "plus": False, "organisms": []})
+                col["plus"] |= h["scope"] == "plus" or h["type"] in ("VIRULENCE", "STRESS")
+                organism = latest["parameters"].get("organism")
+                if h["subtype"] == "POINT" and organism not in col["organisms"]:
+                    col["organisms"].append(organism)
                 present.setdefault(h["element_symbol"], []).append(h["method_kind"])
         rows.append({"sample_id": s.id, "sample_code": s.sample_code, "runs": len(runs),
                      "latest": {k: latest[k] for k in ("job_id", "created_at", "tool_version", "database_version",
                                                        "parameters", "counts", "warnings")} if latest else None,
                      "present": present})
+    for r in rows:
+        r["not_searched"] = [] if r["latest"] is None else sorted(
+            sym for sym, col in elements.items() if not searched_for(r["latest"]["parameters"], col))
     order = {t: i for i, t in enumerate(MATRIX_TYPES)}
     cols = sorted(elements.values(), key=lambda e: (order.get(e["type"], 9), e["subtype"] != "AMR",
                                                     (e["class"] or "~"), e["element_symbol"].lower()))
@@ -320,13 +339,15 @@ def project_csv(db: Session, project: Project) -> str:
 
 
 def matrix_csv(overview: dict[str, Any]) -> str:
-    """The presence/absence matrix: 1 found, 0 searched and not found, empty not searched."""
+    """The presence/absence matrix: 1 found, 0 searched and not found, empty not searched (no run, or a run that did
+    not look for that element: see searched_for)."""
     out = io.StringIO()
     writer = csv.writer(out)
     writer.writerow(["sample_code", "searched", *[sanitize_spreadsheet_cell(e["element_symbol"])
                                                   for e in overview["elements"]]])
     for r in overview["samples"]:
-        cells = [("1" if e["element_symbol"] in r["present"] else "0") if r["latest"] else ""
+        cells = [("1" if e["element_symbol"] in r["present"] else "0")
+                 if r["latest"] and e["element_symbol"] not in r["not_searched"] else ""
                  for e in overview["elements"]]
         writer.writerow([sanitize_spreadsheet_cell(r["sample_code"]), "yes" if r["latest"] else "no", *cells])
     return out.getvalue()

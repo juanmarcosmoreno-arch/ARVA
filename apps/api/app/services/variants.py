@@ -468,15 +468,19 @@ def matrix_fasta(m: dict[str, Any]) -> str:
 # ---- Genome Explorer ----
 
 def annotation_track(db: Session, annotation: Annotation, contig: str | None, start: int | None, end: int | None,
-                     run_id: str | None) -> dict[str, Any]:
+                     run_id: str | None, visible: set[str] | None = None) -> dict[str, Any]:
     """The variant-calling runs whose reference is this annotation's assembly, and the records of one of them (the
     most recent unless `run_id`) in a region of a contig, named as the annotation names it (the annotator may have
-    renamed the assembly's contigs; the records use the assembly's names)."""
-    runs = db.scalars(select(VariantCall).where(VariantCall.reference_assembly_id == annotation.assembly_id)
-                      .order_by(VariantCall.created_at.desc())).all()
+    renamed the assembly's contigs; the records use the assembly's names). Runs of samples in projects outside
+    `visible` (None: every project) are left out, and `run_id` is taken only from the runs listed."""
+    query = (select(VariantCall, Sample).join(Sample, Sample.id == VariantCall.sample_id)
+             .where(VariantCall.reference_assembly_id == annotation.assembly_id))
+    if visible is not None:
+        query = query.where(Sample.project_id.in_(visible))
+    pairs = db.execute(query.order_by(VariantCall.created_at.desc())).all()
+    runs = [vc for vc, _ in pairs]
     listed = []
-    for vc in runs:
-        s = db.get(Sample, vc.sample_id)
+    for vc, s in pairs:
         listed.append({"id": vc.id, "sample_code": s.sample_code if s else None, "technology": vc.technology,
                        "created_at": vc.created_at, "pass": (vc.summary or {}).get("pass")})
     chosen = next((vc for vc in runs if vc.id == run_id), runs[0] if runs else None)

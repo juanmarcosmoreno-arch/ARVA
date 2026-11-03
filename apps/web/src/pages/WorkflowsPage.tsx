@@ -16,6 +16,7 @@ import { RunCompare } from "@/components/workflows/RunCompare";
 import { RunStatusBadge, RunView } from "@/components/workflows/RunView";
 import { WorkflowEditor, problemText } from "@/components/workflows/WorkflowEditor";
 import { type TranslationKey, useT } from "@/i18n";
+import { profileLabel } from "@/lib/performance";
 import { api } from "@/lib/api";
 import { fmtDate, fmtDuration } from "@/lib/format";
 import { ITEM_STATUSES, STATUS_COLOR, finishedShare, isActive, paramLabel, type Catalogue, type RunSummary, type Template } from "@/lib/workflows";
@@ -174,7 +175,7 @@ function BatchDashboard() {
           <MetricTile label={t("batch.activeRuns")} value={q.active_runs} />
           <MetricTile label={t("batch.inQueue")} value={q.counts.queued + q.counts.running} sub={t("wf.tile.waiting", { n: q.counts.waiting })} />
           <MetricTile label={t("wf.tile.failed")} value={q.counts.failed} />
-          <MetricTile label={t("batch.threads")} value={`${q.reserved_threads} / ${q.budget_threads}`} sub={t("batch.profile", { profile: q.profile })} explain="batch_queue" />
+          <MetricTile label={t("batch.threads")} value={`${q.reserved_threads} / ${q.budget_threads}`} sub={t("batch.profile", { profile: profileLabel(t, q.profile) })} explain="batch_queue" />
           <MetricTile label={t("batch.memory")} value={`${q.reserved_memory_gb} / ${q.budget_memory_gb} GB`} sub={t("batch.estimate")} />
         </div>
       )}

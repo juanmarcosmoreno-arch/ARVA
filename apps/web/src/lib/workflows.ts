@@ -170,6 +170,20 @@ export interface RunPlan {
   concurrency: number;
 }
 
+/** What a branch would run again and reuse (POST /batches/{id}/branch/preview). */
+export interface BranchPlan {
+  node_id: string;
+  changes: { node: string; path: string; before: unknown; after: unknown }[];
+  problems: Problem[];
+  rerun: { node: string; kind: string; scope: string }[];
+  reused: string[];
+  samples: number;
+  jobs: number;
+  settings: RunSettings;
+  concurrency: number;
+  tools: Record<string, { name: string; version: string | null; status: string }>;
+}
+
 export type ItemStatus = "waiting" | "queued" | "running" | "completed" | "failed" | "cancelled" | "skipped";
 export type RunStatus = "running" | "paused" | "completed" | "completed_with_errors" | "cancelled";
 export type Counts = Record<ItemStatus, number>;

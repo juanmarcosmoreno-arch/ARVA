@@ -38,6 +38,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app import __version__
+from app.core.config import get_settings
 from app.models import AnalysisJob, Assembly, JobStatus, Project, RawFile, ReferenceDatabase, Sample
 from app.services.annotation import assembly_record
 from app.services.performance import Resources, effective_resources
@@ -996,6 +997,71 @@ def cancel_job(db: Session, job_id: str) -> AnalysisJob:
         return job
     db.commit()
     return job
+
+
+# A job is committed before its task is queued (create_* then _enqueue): a pending job younger than this may simply
+# not have reached the queue yet.
+ENQUEUE_GRACE_SECONDS = 120
+
+
+def is_lost(job: AnalysisJob, state: str | None) -> bool:
+    """Whether no worker runs this pending or running job, nor ever will: Redis lost its task (it keeps nothing
+    across restarts, docker-compose.yml), or the task ended without run_job finishing the record (the work horse was
+    killed, or run_job raised before it started the job). None (Redis cannot be asked) is never 'lost'."""
+    return state == "missing" or state in _NOT_EXECUTING
+
+
+def reconcile_lost(db: Session) -> int:
+    """End every pending or running job that is_lost, through the cancellation path (partial outputs removed, the
+    reason in its log), so it no longer shows as queued or running, blocks a database's deletion or keeps
+    statistics from being requested again. Run when the worker starts and after every job. Returns how many."""
+    if not get_settings().task_queue_async:
+        return 0
+    ended = 0
+    grace = datetime.now(UTC).timestamp() - ENQUEUE_GRACE_SECONDS
+    for job_id, status, created in db.execute(select(AnalysisJob.id, AnalysisJob.status, AnalysisJob.created_at)
+                                              .where(AnalysisJob.status.in_(ACTIVE))).all():
+        if status is JobStatus.pending and created.timestamp() > grace:
+            continue
+        job = db.get(AnalysisJob, job_id)
+        if job is None or not is_lost(job, _rq_status(job_id)):
+            continue
+        try:
+            cancel_job(db, job_id)
+            ended += 1
+        except (LookupError, JobStateError):
+            db.rollback()
+    return ended
+
+
+def end_killed(db: Session, job_id: str, signal_name: str | None) -> bool:
+    """The work horse running this job died (SIGKILL from outside ARVA, most often for lack of memory) before
+    run_job could record it: the job is marked failed with that reason and its partial outputs removed."""
+    job = db.get(AnalysisJob, job_id, with_for_update=True, populate_existing=True)
+    if job is None or job.status not in ACTIVE:
+        db.rollback()
+        return False
+    storage = get_storage()
+    scope = f"{job.project_id}/{job.sample_id or '_project'}/{job.id}"
+    for rel in (f"results/{scope}", f"processed/{scope}"):
+        storage.remove_tree(rel)
+    tool = job.tool_name
+    if signal_name == "SIGKILL":
+        job.error_message = (f"{tool} was stopped by the operating system with SIGKILL, which usually means the "
+                             "computer (or the container) ran out of memory.")
+        job.error_detail = {"code": "out_of_memory", "params": {"tool": tool}}
+    else:
+        job.error_message = f"The worker process running {tool} ended unexpectedly ({signal_name or 'no signal'})."
+        job.error_detail = {"code": "worker_killed", "params": {"tool": tool, "signal": signal_name or "?"}}
+    job.status = JobStatus.failed
+    job.finished_at = datetime.now(UTC)
+    if job.started_at is not None:
+        job.duration_seconds = round((job.finished_at - job.started_at).total_seconds(), 3)
+    _write_log(job, f"ERROR: {job.error_message}")
+    _write_log(job, "Finished with status 'failed'")
+    db.commit()
+    storage.write_text(f"logs/{job.id}.log", job.log_text or "")
+    return True
 
 
 def _active_resume(db: Session, job: AnalysisJob) -> AnalysisJob | None:

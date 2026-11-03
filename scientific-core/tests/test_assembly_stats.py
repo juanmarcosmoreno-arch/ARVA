@@ -193,7 +193,8 @@ def test_warnings_for_coverage_gc_and_circularity(tmp_path):
     # 5 < 0.25 x 50 = 12.5; 250 > 4 x 50 = 200.
     assert by_code["low_coverage_contigs"]["contigs"] == ["junk"]
     assert by_code["high_coverage_contigs"]["contigs"] == ["plasmid"]
-    assert by_code["high_coverage_contigs"]["params"] == {"median_coverage": 50.0, "ratio": 4.0, "count": 1}
+    assert by_code["high_coverage_contigs"]["params"] == {"median_coverage": 50.0, "ratio": 4.0, "count": 1,
+                                                          "measure": "depth", "unit": "×"}
     # 100 kb >= 50 % of the 106 kb assembly and reported as not circular.
     assert by_code["chromosome_not_circular"]["contigs"] == ["chrom"]
     assert by_code["chromosome_not_circular"]["params"] == {"min_length": 53_000, "basis": "total_length"}

@@ -59,7 +59,8 @@ function Storage({ s }: { s: StorageCapacity }) {
           ))}
         </tbody>
       </table>
-      <div className="grid gap-6 xl:grid-cols-2">
+      {/* grid-cols-1 (minmax(0, 1fr)): a long path in the commands scrolls inside its <pre> instead of widening the page. */}
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
         <Commands locations={locations} />
         {s.backups && <Backups b={s.backups} writable={markerWritable(s.marker)} />}
       </div>
@@ -212,7 +213,7 @@ function Backups({ b, writable }: { b: MetadataBackups; writable: boolean }) {
         </p>
       )}
       {b.last_result?.result === "failed" && (
-        <p className="text-xs text-danger">{t("storage.backups.lastFailed", { when: fmtDate(b.last_result.at), detail: b.last_result.detail ?? "" })}</p>
+        <p className="text-xs text-danger">{t("storage.backups.lastFailed", { when: fmtDate(b.last_result.at), detail: b.last_result.code && b.last_result.code !== "ok" ? t(`storage.backups.code.${b.last_result.code}`) : b.last_result.detail ?? "" })}</p>
       )}
       <ErrorNote error={now.error} />
       <p className="text-xs text-muted-foreground">{t("storage.backups.restore")}</p>

@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { Field, Input, Select } from "@/components/ui/form";
 import { ErrorNote } from "@/components/ui/misc";
-import { useT } from "@/i18n";
+import { dictionaries, type TranslationKey, useT } from "@/i18n";
 import { api } from "@/lib/api";
 import {
   ADAPTER_PATTERN,
@@ -106,7 +106,7 @@ function ToolLine({ tool }: { tool: Tool | undefined }) {
       <div className="flex gap-2 rounded-lg border border-danger/30 bg-danger/5 p-3 text-xs">
         <AlertTriangle className="h-4 w-4 shrink-0 text-danger" />
         <span>
-          {t("filter.unavailable", { name: tool.name, status: tool.status.replace("_", " ") })} <code>{tool.install.conda ?? tool.install.apt}</code>
+          {t("filter.unavailable", { name: tool.name, status: `tools.status.${tool.status}` in dictionaries.en ? t(`tools.status.${tool.status}` as TranslationKey) : tool.status })} <code>{tool.install.conda ?? tool.install.apt}</code>
         </span>
       </div>
     );

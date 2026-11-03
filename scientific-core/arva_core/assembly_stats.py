@@ -304,14 +304,15 @@ def _check(code: str, rule: str, skipped: str | None = None) -> dict[str, Any]:
 
 def assembly_warnings(
     stats: dict[str, Any], mode: AssemblyMode, expected_genome_size_bp: int | None = None,
-    coverage_label: str = "coverage", coverage_unit: str = "×",
+    coverage_label: str = "coverage", coverage_unit: str = "×", coverage_measure: str = "depth",
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Heuristic warnings for compute_assembly_stats() output, and the list of checks with their rules.
 
     Every check is listed, also when it could not be evaluated (with the reason), so an absent
     warning is never mistaken for a passed check that was not run. coverage_label and coverage_unit name
-    what the assembler's coverage measures (e.g. "k-mer coverage" and no unit for SPAdes); the coverage
-    checks compare ratios, so they apply to any of these measures.
+    what the assembler's coverage measures (e.g. "k-mer coverage" and no unit for SPAdes), and coverage_measure is
+    its code in the warning's params (depth, kmer, relative, polish_depth), with the unit, so that a translated text
+    names the same measure; the coverage checks compare ratios, so they apply to any of these measures.
     """
     if mode not in CONTIGS_PER_MB and mode != "imported":
         raise ValueError(f"unknown assembly mode {mode!r}")
@@ -373,7 +374,8 @@ def assembly_warnings(
                 code,
                 f"{len(rows)} contig(s) with {coverage_label} {side} {ratio:g} × the length-weighted median of "
                 f"{median:g}{coverage_unit} (heuristic): {meaning}.",
-                {"median_coverage": median, "ratio": ratio, "count": len(rows)}, rows,
+                {"median_coverage": median, "ratio": ratio, "count": len(rows), "measure": coverage_measure,
+                 "unit": coverage_unit}, rows,
             ))
 
     reference = expected_genome_size_bp or total

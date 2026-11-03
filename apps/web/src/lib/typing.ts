@@ -111,6 +111,8 @@ export interface StaphSummary {
     source: TypingSource;
     mecA: AmrGene[];
     mecC: AmrGene[];
+    mec_other?: AmrGene[];
+    mec_homologues?: AmrGene[];
     pvl: AmrGene[] | null;
     tst: AmrGene[] | null;
     enterotoxins: AmrGene[] | null;

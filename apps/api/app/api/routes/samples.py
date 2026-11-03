@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi.responses import JSONResponse
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
@@ -7,6 +8,7 @@ from app.api.deps import project_or_404, sample_or_404
 from app.db.session import get_db
 from app.models import RawFile, Sample
 from app.schemas.schemas import SampleCreate, SampleRead, SampleUpdate
+from app.services import deletion
 
 router = APIRouter(tags=["samples"])
 
@@ -92,7 +94,16 @@ def update_sample(sample_id: str, payload: SampleUpdate, db: Session = Depends(g
 
 @router.delete("/samples/{sample_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_sample(sample_id: str, db: Session = Depends(get_db)):
-    """Remove the sample's records. Stored raw files remain on disk (raw data is never deleted)."""
-    db.delete(sample_or_404(db, sample_id))
+    """Remove the sample's records and its derived outputs. Stored raw files remain on disk (raw data is never
+    deleted). Refused while one of its jobs is queued or running."""
+    sample = sample_or_404(db, sample_id)
+    project_id = sample.project_id
+    active = deletion.active_jobs(db, project_id, sample.id)
+    if active:
+        return JSONResponse(status_code=status.HTTP_409_CONFLICT, content={
+            "detail": f"{active} job(s) of this sample are queued or running. Cancel them first.",
+            "code": "delete_active_jobs", "params": {"count": active}})
+    db.delete(sample)
     db.commit()
+    deletion.remove_outputs(project_id, sample_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

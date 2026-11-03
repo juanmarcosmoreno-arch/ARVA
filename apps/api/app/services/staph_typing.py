@@ -237,12 +237,26 @@ def _amr(db: Session, assembly_id: str) -> dict[str, Any] | None:
 
     return {"source": _source(job.tool_name, job.tool_version, job.id, database_version=job.database_version,
                               plus=plus),
-            "mecA": genes(lambda h: h.element_symbol.startswith("mecA")),
-            "mecC": genes(lambda h: h.element_symbol.startswith("mecC")),
+            "mecA": genes(lambda h: h.element_symbol == "mecA"),
+            "mecC": genes(lambda h: h.element_symbol == "mecC"),
+            "mec_other": genes(_other_methicillin),
+            "mec_homologues": genes(lambda h: h.element_symbol in MEC_HOMOLOGUES),
             "pvl": genes(lambda h: h.element_symbol in PVL_SYMBOLS) if plus else None,
             "tst": genes(lambda h: h.element_symbol == "tst") if plus else None,
             "enterotoxins": genes(name_has(ENTEROTOXIN_NAME)) if plus else None,
             "exfoliative_toxins": genes(name_has(EXFOLIATIVE_NAME)) if plus else None}
+
+
+# mecA1/mecA2 are the S. sciuri-group homologues (AMRFinderPlus database 2026-08-07.1): shown, never counted as mecA.
+MEC_HOMOLOGUES = ("mecA1", "mecA2")
+
+
+def _other_methicillin(h: AmrResult) -> bool:
+    """A methicillin-resistance gene other than mecA and mecC: mecB, mecD, or any other AMRFinderPlus hit of
+    subclass METHICILLIN (PBP2a family), so a genome carrying one is never labelled MSSA."""
+    if h.element_symbol in ("mecA", "mecC", *MEC_HOMOLOGUES):
+        return False
+    return h.element_symbol in ("mecB", "mecD") or "METHICILLIN" in (h.amr_subclass or "").upper()
 
 
 def _complete(genes: list[dict[str, Any]]) -> bool:
@@ -281,16 +295,27 @@ def summary(db: Session, a: Assembly) -> dict[str, Any]:
              "status": "unavailable" if sccmec_mec is None or amr_mec is None
              else ("agree" if sccmec_mec == amr_mec else "disagree")}
     # MSSA needs AMRFinderPlus's search of the whole genome for mecA and mecC; sccmec's targets alone only show MRSA.
-    mec = amr_mec if amr_mec is not None else (True if sccmec_mec else None)
+    # Another methicillin-resistance gene (mecB, mecD) rules MSSA out too, with a question mark: the label is
+    # usually defined by mecA/mecC.
+    other = bool(amr and amr["mec_other"])
+    mec = (amr_mec or other) if amr_mec is not None else (True if sccmec_mec else None)
     if mec is not None:
         label = "MRSA" if mec else "MSSA"
-        doubt = cross["status"] == "disagree" or (mec and amr_mec_complete is False)
+        doubt = cross["status"] == "disagree" or (mec and amr_mec_complete is False and not other)
+        if other and not amr_mec:
+            doubt = True
+            uncertain.append({"part": "mec", "reason": "mec_other", "params": {
+                "genes": ", ".join(sorted({g["symbol"] for g in amr["mec_other"]}))}})
+        if amr and amr["mec_homologues"] and not mec:
+            doubt = True
+            uncertain.append({"part": "mec", "reason": "mec_homologue", "params": {
+                "genes": ", ".join(sorted({g["symbol"] for g in amr["mec_homologues"]}))}})
         sccmec_part = ""
         if mec and sccmec and sccmec["call"]:
             sccmec_part = f"-{sccmec['call']}"
             if sccmec["status"] in ("type_only", "multiple_subtypes"):
                 uncertain.append({"part": "sccmec", "reason": f"sccmec_{sccmec['status']}", "params": {}})
-        if doubt:
+        if doubt and (cross["status"] == "disagree" or (amr_mec and amr_mec_complete is False)):
             uncertain.append({"part": "mec", "reason": "mec_disagree" if cross["status"] == "disagree"
                               else "mec_partial", "params": {}})
         parts.append(label + sccmec_part + ("?" if doubt else ""))

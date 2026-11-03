@@ -326,7 +326,7 @@ def plan_run(db: Session, project: Project, v: WorkflowVersion, sample_ids: list
     for n in set_nodes:
         if n["kind"] == "comparison_set_input":
             try:
-                nodes.resolve_source(db, n["kind"], None, n["params"], None)
+                nodes.resolve_source(db, n["kind"], None, n["params"], None, project.id)
             except nodes.LaunchRefused as exc:
                 problems.append(core.problem(exc.code, n["id"]))
     settings = _settings(db, given)
@@ -416,7 +416,8 @@ def _resolve_source_item(db: Session, item: BatchItem, n: dict[str, Any], key: s
     override = bindings.get(key, {}).get(n["id"]) if sample else None
     item.started_at = item.finished_at = now()
     try:
-        item.outputs = nodes.resolve_source(db, n["kind"], sample, n["params"], override)
+        item.outputs = nodes.resolve_source(db, n["kind"], sample, n["params"], override,
+                                            db.get(BatchRun, item.run_id).project_id)
         item.inputs = {"rule": "binding" if override else "arva_rule", "params": n["params"]}
         item.status = "completed"
     except nodes.LaunchRefused as exc:
@@ -567,8 +568,10 @@ def _sync(db: Session, run: BatchRun, item: BatchItem) -> None:
     elif job.status is JobStatus.completed:
         try:
             item.outputs = nodes.KINDS[item.node_kind].outputs(db, job)
-        except nodes.WaitForFollowUp:
+        except nodes.WaitForFollowUp as wait:
             item.status = "running"
+            # Its task can be lost like the item's own (Redis keeps nothing across restarts).
+            _check_lost(db, item, wait.follow)
             return
         except nodes.LaunchRefused as exc:
             _fail(item, exc.code, str(exc), **exc.params)
@@ -596,9 +599,8 @@ def _check_lost(db: Session, item: BatchItem, job: AnalysisJob) -> None:
         return
     from app.services import jobs as jobs_service
 
-    state = jobs_service._rq_status(job.id)
-    lost = state == "missing" or (job.status is JobStatus.running and state in jobs_service._NOT_EXECUTING)
-    if not lost:
+    # A pending job whose task already failed (run_job raised before starting it) is lost as well.
+    if not jobs_service.is_lost(job, jobs_service._rq_status(job.id)):
         return
     jobs_service.cancel_job(db, job.id)
     db.refresh(job)
@@ -760,24 +762,42 @@ def update_settings(db: Session, run: BatchRun, priority: int | None, max_concur
     return run
 
 
+def _branch_plan(run: BatchRun, node_id: str, params: dict[str, Any]):
+    if not any(n["id"] == node_id for n in run.definition["nodes"]):
+        raise WorkflowError(f"No node {node_id} in this run", "wf_node_missing", node=node_id)
+    full, problems = check_definition(core.with_params(run.definition, node_id, params))
+    problems += availability(full, refresh=True)
+    old_params = next(n for n in run.definition["nodes"] if n["id"] == node_id)["params"]
+    new_params = next((n for n in full["nodes"] if n["id"] == node_id), {}).get("params") or {}
+    changes = [{"node": node_id, **d} for d in core.param_diff(old_params, new_params)]
+    return full, changes, core.reusable_nodes(run.definition, full), problems
+
+
+def branch_preview(db: Session, run: BatchRun, node_id: str, params: dict[str, Any]) -> dict[str, Any]:
+    """What branch_run would do, without doing it: the parameter changes, the steps that run again (the changed one
+    and everything after it) and those reused, the new jobs, the run's queue settings and resources, the tools, and
+    anything that blocks it."""
+    full, changes, reuse, problems = _branch_plan(run, node_id, params)
+    runnable = [n for n in full["nodes"] if not (core.NODES[n["kind"]].source or core.NODES[n["kind"]].internal)]
+    rerun = [n for n in runnable if n["id"] not in reuse]
+    per_sample = sum(1 for n in rerun if _scope(n["kind"]) == "sample")
+    settings = dict(run.settings)
+    return {"node_id": node_id, "changes": changes, "problems": problems,
+            "rerun": [{"node": n["id"], "kind": n["kind"], "scope": _scope(n["kind"])} for n in rerun],
+            "reused": sorted(n["id"] for n in runnable if n["id"] in reuse),
+            "samples": len(run.sample_ids), "jobs": per_sample * len(run.sample_ids) + len(rerun) - per_sample,
+            "settings": settings, "concurrency": _concurrency(settings), "tools": tool_snapshot(full)}
+
+
 def branch_run(db: Session, run: BatchRun, node_id: str, params: dict[str, Any], name: str | None) -> BatchRun:
     """A new run (branch) with one node's parameters changed: unchanged nodes upstream of the change reuse this
     run's results; the changed node and everything downstream run again as new jobs. Nothing is overwritten."""
-    if not any(n["id"] == node_id for n in run.definition["nodes"]):
-        raise WorkflowError(f"No node {node_id} in this run", "wf_node_missing", node=node_id)
-    changed = core.with_params(run.definition, node_id, params)
-    full, problems = check_definition(changed)
-    problems += availability(full, refresh=True)
+    full, changes, reuse, problems = _branch_plan(run, node_id, params)
     if problems:
         raise WorkflowError(f"The changed workflow cannot run: {problems[0]['code']}", "wf_run_blocked",
                             problems="; ".join(sorted({p["code"] for p in problems})))
-    old_params = next(n for n in run.definition["nodes"] if n["id"] == node_id)["params"]
-    new_params = next(n for n in full["nodes"] if n["id"] == node_id)["params"]
-    diff = core.param_diff(old_params, new_params)
-    if not diff:
+    if not changes:
         raise WorkflowError("These are the run's parameters already", "wf_branch_same", node=node_id)
-    changes = [{"node": node_id, **d} for d in diff]
-    reuse = core.reusable_nodes(run.definition, full)
     v = db.get(WorkflowVersion, run.workflow_version_id) if run.workflow_version_id else None
     wf = v.workflow if v else None
     project = db.get(Project, run.project_id)

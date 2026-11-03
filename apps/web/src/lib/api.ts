@@ -7,7 +7,7 @@ import type { Associations, FamilyDetail, MetadataField, PangenomePlan, Pangenom
 import type { LeafMetadata, PhyloData, PhyloRequest, PhyloSourceOption, PhyloStyle, RfResult, Rooting } from "@/lib/phylo";
 import type { CollectionGenome, ExplorerVariants, ProjectMobilome, ProjectVariants, SampleMobilome, SnpMatrix, VariantOptions, VariantPlan, VariantRecords, VariantRequest, VariantRun } from "@/lib/variants";
 import type { ErrorEntry } from "@/lib/diagnostics";
-import type { BatchRunRequest, Catalogue, Definition, QueueOverview, RunComparison, RunDetail, RunPlan, RunSummary, SampleBranch, ValidationResult, WorkflowRead } from "@/lib/workflows";
+import type { BatchRunRequest, BranchPlan, Catalogue, Definition, QueueOverview, RunComparison, RunDetail, RunPlan, RunSummary, SampleBranch, ValidationResult, WorkflowRead } from "@/lib/workflows";
 import type { TypingMethod, TypingModuleInfo, TypingPlan, TypingProject, TypingRequest, TypingSample } from "@/lib/typing";
 import { useSettings } from "@/store/settings";
 import type {
@@ -603,6 +603,8 @@ export const api = {
   batchAction: (id: string, action: "cancel" | "pause" | "resume") => request<RunDetail>(`/batches/${id}/${action}`, { method: "POST" }),
   batchSettings: (id: string, body: { priority?: number; max_concurrent?: number }) =>
     request<RunDetail>(`/batches/${id}/settings`, json("PUT", body)),
+  branchPreview: (id: string, body: { node_id: string; params: Record<string, unknown> }) =>
+    request<BranchPlan>(`/batches/${id}/branch/preview`, json("POST", body)),
   branchBatch: (id: string, body: { node_id: string; params: Record<string, unknown>; name?: string | null; confirmed: boolean }) =>
     request<RunDetail>(`/batches/${id}/branch`, json("POST", body)),
   compareBatches: (a: string, b: string) => request<RunComparison>(`/batches/compare?${new URLSearchParams({ a, b })}`),

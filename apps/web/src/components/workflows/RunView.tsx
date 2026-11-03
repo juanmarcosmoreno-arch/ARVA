@@ -18,6 +18,7 @@ import { api } from "@/lib/api";
 import { entryMessage } from "@/lib/diagnostics";
 import { fmtDate, fmtDuration, fmtInt } from "@/lib/format";
 import { messageText } from "@/lib/messages";
+import { profileLabel } from "@/lib/performance";
 import {
   ITEM_STATUSES,
   STATUS_COLOR,
@@ -33,6 +34,7 @@ import {
 } from "@/lib/workflows";
 import { resolveDark, useSettings } from "@/store/settings";
 import { ParamPanel } from "./ParamPanel";
+import { problemText } from "./WorkflowEditor";
 import { NODE_TYPES, toFlow } from "./WorkflowCanvas";
 
 export function itemErrorText(t: ReturnType<typeof useT>, e: ItemError): string {
@@ -318,7 +320,9 @@ function ErrorSummary({ run }: { run: RunDetail }) {
 }
 
 /** A new run with one step's parameters changed: the steps before it reuse this run's results; the step and
- * everything after it run again as new jobs. This run is not changed. */
+ * everything after it run again as new jobs. This run is not changed. Like a new run, it is shown first (what runs
+ * again, how many jobs, the resources, the tools and what blocks it) and created only after a confirmation that any
+ * later parameter change clears. */
 function BranchDialog({ open, onOpenChange, run, catalogue }: { open: boolean; onOpenChange: (o: boolean) => void; run: RunDetail; catalogue: Catalogue }) {
   const t = useT();
   const queryClient = useQueryClient();
@@ -330,8 +334,15 @@ function BranchDialog({ open, onOpenChange, run, catalogue }: { open: boolean; o
   const [confirmed, setConfirmed] = useState(false);
   useEffect(() => {
     setParams(node?.params ?? {});
-    setConfirmed(false);
   }, [nodeId]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => setConfirmed(false), [nodeId, params]);
+  const preview = useQuery({
+    queryKey: ["branchPreview", run.id, nodeId, params],
+    queryFn: () => api.branchPreview(run.id, { node_id: nodeId, params }),
+    enabled: open && Boolean(nodeId),
+  });
+  const p = preview.data;
+  const blocked = !p || preview.isFetching || p.problems.length > 0 || p.changes.length === 0;
   const branch = useMutation({
     mutationFn: () => api.branchBatch(run.id, { node_id: nodeId, params, confirmed }),
     onSuccess: (d) => {
@@ -348,15 +359,39 @@ function BranchDialog({ open, onOpenChange, run, catalogue }: { open: boolean; o
             {editable.map((n) => <option key={n.id} value={n.id}>{n.id} · {t(`wf.kind.${n.kind}` as TranslationKey)}</option>)}
           </Select>
         </Field>
-        {kind && <div className="max-h-80 overflow-y-auto rounded-lg border p-3"><ParamPanel kind={kind} params={params} problems={[]} onChange={setParams} /></div>}
-        <label className="flex items-start gap-2 text-xs">
-          <input type="checkbox" className="mt-0.5 accent-arva-teal" checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} />
-          <span>{t("wf.branchConfirm")}</span>
-        </label>
+        {kind && <div className="max-h-80 overflow-y-auto rounded-lg border p-3"><ParamPanel kind={kind} params={params} problems={p?.problems.filter((x) => x.node === nodeId) ?? []} onChange={setParams} /></div>}
+        {preview.isFetching && <Loader2 className="h-4 w-4 animate-spin" aria-label={t("common.loading")} />}
+        <ErrorNote error={preview.error} />
+        {p && (
+          <section className="space-y-2 rounded-lg border bg-muted/30 p-3 text-xs" aria-live="polite">
+            {p.changes.length === 0 ? (
+              <p className="text-amber-700 dark:text-warning">{t("wf.branchNoChange")}</p>
+            ) : (
+              <>
+                <p>{t("wf.branchPlanLine", { steps: p.rerun.length, samples: p.samples, jobs: p.jobs, concurrency: p.concurrency })}</p>
+                <p className="text-muted-foreground">{t("wf.branchRerun", { steps: p.rerun.map((r) => r.node).join(", ") })}</p>
+                {p.reused.length > 0 && <p className="text-muted-foreground">{t("wf.branchReused", { steps: p.reused.join(", ") })}</p>}
+                <p className="text-muted-foreground">
+                  {t("wf.budgetLine", { threads: p.settings.threads_per_job, memory: p.settings.memory_per_job_gb, budgetThreads: p.settings.budget_threads, budgetMemory: p.settings.budget_memory_gb, profile: profileLabel(t, p.settings.profile) })}
+                </p>
+                <p className="text-muted-foreground">{Object.values(p.tools).map((x) => `${x.name} ${x.version ?? "?"}`).join(" · ")}</p>
+              </>
+            )}
+            {p.problems.length > 0 && (
+              <ul className="list-disc space-y-0.5 pl-5 text-danger">
+                {p.problems.map((x, i) => <li key={i}>{x.node ? `${x.node}: ` : ""}{problemText(t, x)}</li>)}
+              </ul>
+            )}
+            <label className="flex items-start gap-2">
+              <input type="checkbox" className="mt-0.5 accent-arva-teal" checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} disabled={blocked} />
+              <span>{t("wf.branchConfirm")}</span>
+            </label>
+          </section>
+        )}
         <ErrorNote error={branch.error} />
         <div className="flex justify-end gap-2">
           <Button variant="outline" onClick={() => onOpenChange(false)}>{t("common.cancel")}</Button>
-          <Button onClick={() => branch.mutate()} disabled={!confirmed || branch.isPending}><GitCompareArrows className="h-4 w-4" /> {t("wf.createBranch")}</Button>
+          <Button onClick={() => branch.mutate()} disabled={!confirmed || blocked || branch.isPending}><GitCompareArrows className="h-4 w-4" /> {t("wf.createBranch")}</Button>
         </div>
       </div>
     </Dialog>

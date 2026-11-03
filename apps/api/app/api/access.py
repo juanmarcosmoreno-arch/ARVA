@@ -18,6 +18,7 @@ Refusals and every allowed change or report download are written to the audit lo
 """
 from __future__ import annotations
 
+import email.message
 import json
 import re
 from collections.abc import Callable
@@ -135,6 +136,17 @@ def _ids(value: Any) -> list[str]:
     return []
 
 
+def _json_body(content_type: str | None) -> bool:
+    """Whether FastAPI reads this request's body as JSON (fastapi.routing: no Content-Type at all, or any
+    application/json or application/*+json type, matched case-insensitively)."""
+    if not content_type:
+        return True
+    message = email.message.Message()
+    message["content-type"] = content_type
+    subtype = message.get_content_subtype()
+    return message.get_content_maintype() == "application" and (subtype == "json" or subtype.endswith("+json"))
+
+
 def _body_refs(node: Any, out: list[tuple[str, str]], depth: int = 0) -> None:
     if depth > 6:
         return
@@ -225,7 +237,7 @@ async def guard(request: Request) -> None:
                 pid = fn(db, value[:64])
                 if pid:
                     main.add(pid)
-        if changing and request.headers.get("content-type", "").startswith("application/json"):
+        if changing and _json_body(request.headers.get("content-type")):
             try:
                 body = json.loads(await request.body() or b"null")
             except ValueError:

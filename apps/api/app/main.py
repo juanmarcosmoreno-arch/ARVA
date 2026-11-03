@@ -12,6 +12,7 @@ from starlette.concurrency import run_in_threadpool
 from app import __version__
 from app.api import access
 from app.api.capacity import UploadCapacityGuard, insufficient_storage_response
+from app.api.local_origin import LocalOrigin
 from app.api.metadata_limit import MetadataUploadLimit
 from app.api.request_context import HEADER, RequestContext, route_of
 from app.api.routes import (
@@ -99,6 +100,7 @@ def create_app() -> FastAPI:
     app.add_middleware(UploadCapacityGuard, api_prefix=settings.api_v1_prefix)
     app.add_middleware(MetadataUploadLimit, api_prefix=settings.api_v1_prefix)
     app.add_middleware(StorageGuard, api_prefix=settings.api_v1_prefix)
+    app.add_middleware(LocalOrigin)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,

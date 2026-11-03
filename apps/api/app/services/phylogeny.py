@@ -349,15 +349,15 @@ def newick_text(db: Session, r: ComparisonResult, root: bool) -> str:
 
 
 def amr_genes(db: Session, assembly_id: str | None) -> list[str] | None:
-    """The AMR element symbols of the assembly's latest AMRFinderPlus run (None when it was never screened)."""
-    if not assembly_id:
-        return None
-    job_id = db.scalar(select(AmrResult.job_id).where(AmrResult.assembly_id == assembly_id)
-                       .order_by(AmrResult.created_at.desc()).limit(1))
-    if job_id is None:
+    """The AMR element symbols of the assembly's latest completed AMRFinderPlus run ([] when it found none; None when
+    no completed run screened it)."""
+    from app.services import amr
+
+    job = amr.latest_run(db, assembly_id) if assembly_id else None
+    if job is None:
         return None
     return sorted({x for x in db.scalars(select(AmrResult.element_symbol).where(
-        AmrResult.job_id == job_id, AmrResult.type == "AMR")).all()})
+        AmrResult.job_id == job.id, AmrResult.type == "AMR")).all()})
 
 
 def leaf_metadata(db: Session, r: ComparisonResult) -> dict[str, Any]:

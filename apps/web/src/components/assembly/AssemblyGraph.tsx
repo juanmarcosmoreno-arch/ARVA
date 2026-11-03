@@ -9,6 +9,7 @@ import { api } from "@/lib/api";
 import { NODE_KINDS, type NodeKind, nodeKind, nodeSize, segmentCoverage, selfLinks } from "@/lib/assembly";
 import { coverageKind, fmtCoverage } from "@/lib/shortReads";
 import { escapeHtml, fmtBp, fmtInt } from "@/lib/format";
+import { graphMeasure } from "@/lib/messages";
 import type { Assembly, AssemblyGraphEdge, AssemblyGraphNode } from "@/lib/types";
 
 /** Segments drawn at most: a force layout of more stays readable on a laptop screen and responsive. */
@@ -46,7 +47,7 @@ export function AssemblyGraphView({ assembly }: { assembly: Assembly }) {
   const nodeTip = (n: AssemblyGraphNode) =>
     `<b>${escapeHtml(n.id)}</b>` +
     row(t("assembly.graph.length"), fmtBp(n.length)) +
-    (coverage(n) !== null ? row(t("assembly.graph.coverage", { meaning: g.coverage_meaning ?? g.coverage_tag ?? "" }), fmtCoverage(coverage(n), coverageKind(assembly))) : "") +
+    (coverage(n) !== null ? row(t("assembly.graph.coverage", { meaning: graphMeasure(t, g) }), fmtCoverage(coverage(n), coverageKind(assembly))) : "") +
     row(t("assembly.graph.contigs"), n.paths.length ? n.paths.join(", ") : "—") +
     row(t("assembly.graph.colour"), t(KIND_LABEL[nodeKind(n)])) +
     (loops.has(n.id) ? row(t("assembly.graph.selfLink"), loops.get(n.id)!.join(", ")) : "");
@@ -114,7 +115,7 @@ export function AssemblyGraphView({ assembly }: { assembly: Assembly }) {
           )}
           <p>{t("assembly.graph.colourNote", { assembler: g.assembler })}</p>
           {loops.size > 0 && <p>{t("assembly.graph.selfLinksNote", { count: loops.size })}</p>}
-          {g.coverage_tag && <p>{t("assembly.graph.coverageNote", { tag: g.coverage_tag, meaning: g.coverage_meaning ?? "", assembler: g.assembler })}</p>}
+          {g.coverage_tag && <p>{t("assembly.graph.coverageNote", { tag: g.coverage_tag, meaning: graphMeasure(t, g), assembler: g.assembler })}</p>}
           {g.dangling_links > 0 && <p>{t("assembly.graph.dangling", { count: g.dangling_links })}</p>}
           <p>{t("assembly.graph.navigate")}</p>
         </>

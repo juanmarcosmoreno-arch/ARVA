@@ -16,6 +16,7 @@ from app.core.config import get_settings
 from app.db.session import engine
 from app.services import locations
 
+DATA_ID = "00000000-0000-4000-8000-000000000001"
 SCRIPT = Path(__file__).resolve().parents[3] / "scripts" / "metadata-backup.sh"
 pytestmark = pytest.mark.skipif(not all(shutil.which(t) for t in ("pg_dump", "pg_restore", "dropdb", "createdb", "psql")),
                                 reason="the PostgreSQL client programs are not installed")
@@ -30,15 +31,19 @@ def scratch(tmp_path):
     url = make_url(get_settings().database_url).set(database=name)
     data = tmp_path / "data"
     data.mkdir()
-    (data / locations.MARKER).write_text('{"id": "00000000-0000-4000-8000-000000000001"}\n')
+    (data / locations.MARKER).write_text(f'{{"id": "{DATA_ID}"}}\n')
     env = {"PATH": os.environ["PATH"], "PGHOST": url.host or "localhost", "PGPORT": str(url.port or 5432),
            "PGUSER": url.username or "", "PGPASSWORD": url.password or "", "PGDATABASE": name,
            "ARVA_BACKUP_DIR": str(data / "backups")}
     db = create_engine(url.render_as_string(hide_password=False))
+    # The data folder ID this metadata recorded, as ARVA's app setting "storage" holds it.
+    with db.begin() as conn:
+        conn.execute(text("CREATE TABLE app_settings (key varchar(100) PRIMARY KEY, value json)"))
+        conn.execute(text("""INSERT INTO app_settings VALUES ('storage', '{"data_id": "%s"}')""" % DATA_ID))
     yield db, env, data
     db.dispose()
     with admin.connect() as conn:
-        for n in (name, f"{name}_restoring"):
+        for n in (name, f"{name}_restoring", f"{name}_replaced"):
             conn.execute(text(f'DROP DATABASE IF EXISTS "{n}" WITH (FORCE)'))
 
 
@@ -128,3 +133,40 @@ def test_the_service_makes_the_backups_asked_for_in_arva(scratch):
     assert list((data / "backups").glob("arva-metadata-manual-*")), loop.stderr.read()
     assert list((data / "backups").glob("arva-metadata-auto-*"))
     assert not (data / "backups" / ".request").exists()
+
+
+def _set_recorded(db, value):
+    with db.begin() as conn:
+        conn.execute(text("DELETE FROM app_settings"))
+        if value is not None:
+            conn.execute(text("""INSERT INTO app_settings VALUES ('storage', '{"data_id": "%s"}')""" % value))
+
+
+def test_no_backup_of_metadata_not_tied_to_this_folder_and_latest_skips_foreign_ones(scratch):
+    db, env, data = scratch
+    with db.begin() as conn:
+        conn.execute(text("CREATE TABLE t (x int)"))
+        conn.execute(text("INSERT INTO t VALUES (1)"))
+    good = _run(env, "backup", "auto")
+    assert good.returncode == 0, good.stderr
+    # A new installation (nothing recorded yet) next to the disk: the service must not put an empty dump on top.
+    _set_recorded(db, None)
+    refused = _run(env, "backup", "auto")
+    assert refused.returncode == 1 and "recorded no data folder" in refused.stderr
+    assert "code=not_tied" in (data / "backups" / ".last-result").read_text()
+    # Another installation's metadata with this disk mounted: refused too, and its old autos are not pruned.
+    _set_recorded(db, "00000000-0000-4000-8000-0000000000ff")
+    assert "code=other_folder" in _run(env, "backup", "manual").stderr + (data / "backups" / ".last-result").read_text()
+    names = [f["name"] for f in locations.backup_files(data)]
+    assert names == [good.stdout.strip()]
+    # A newer backup of foreign metadata on the disk (made before this fix): latest still picks this folder's own.
+    _set_recorded(db, "00000000-0000-4000-8000-0000000000ff")
+    time.sleep(1.1)
+    foreign = _run(env, "backup", "pre-restore")
+    assert foreign.returncode == 0
+    assert _run(env, "list").stdout.split()[0] == foreign.stdout.strip()
+    assert _run(env, "latest").stdout.strip() == good.stdout.strip()
+    db.dispose()
+    restored = _run(env, "restore", "latest")
+    assert restored.returncode == 0, restored.stderr
+    assert _rows(db) == [1]

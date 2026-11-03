@@ -9,7 +9,7 @@ from arva_tools.registry import detect
 from test_annotation_api import GENOME, assemble
 
 from app.db.session import SessionLocal
-from app.models import AnalysisJob, BatchItem, JobStatus
+from app.models import AnalysisJob, BatchItem, BatchRun, JobStatus
 from app.services import batches
 from app.services import jobs as jobs_service
 from app.services import workflow_nodes as nodes
@@ -243,12 +243,21 @@ def test_real_fastp_run_branch_compare_and_exports(client, project):
     run = _run(client, project, wf, [a])
     assert run["status"] == "completed", run["errors"]
     trim = _items(run, "trim")[0]
+    with SessionLocal() as db:
+        runs_before = db.query(BatchRun).count()
     assert trim["tool"] == "fastp" and set(trim["outputs"]["reads"]) == {"r1", "r2", "unpaired"}
     with SessionLocal() as db:
         job = db.get(AnalysisJob, trim["job_id"])
         assert job.job_type == "fastp" and job.commands and job.parameters["qualified_quality_phred"] == 15
         assert job.resources["threads"] <= trim["reserved"]["threads"] == run["settings"]["threads_per_job"]
 
+    preview = client.post(f"{API}/batches/{run['id']}/branch/preview", json={
+        "node_id": "trim", "params": {"params": {"qualified_quality_phred": 25}}}).json()
+    assert preview["changes"] == [{"node": "trim", "path": "params.qualified_quality_phred", "before": 15, "after": 25}]
+    assert [r["node"] for r in preview["rerun"]] == ["trim"] and preview["jobs"] == 1 and preview["problems"] == []
+    assert preview["settings"] == run["settings"] and "fastp" in str(preview["tools"])
+    with SessionLocal() as db:
+        assert db.query(BatchRun).count() == runs_before
     branch = client.post(f"{API}/batches/{run['id']}/branch", json={
         "node_id": "trim", "params": {"params": {"qualified_quality_phred": 25}}, "confirmed": True}).json()
     assert branch["parent_run_id"] == run["id"] and branch["status"] == "completed"

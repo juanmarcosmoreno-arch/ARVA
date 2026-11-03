@@ -30,15 +30,18 @@ GRAPH_MAX_NODES = 2000
 GRAPH_MAX_EDGES = 5000
 # The GFA segment tag that holds each assembler's coverage, and what it measures (arva_core.gfa leaves
 # tags uninterpreted because assemblers define them differently).
+# The third element is the measure's code (the interface's assembly.measureLong.<code>).
 GRAPH_COVERAGE_TAGS = {
-    "Flye": ("dp", "mean read depth"),
-    "SPAdes": ("DP", "k-mer coverage (SPAdes; not read depth)"),
-    "Unicycler": ("dp", "depth relative to the assembly's median depth (Unicycler; 1 = typical chromosome depth)"),
+    "Flye": ("dp", "mean read depth", "depth"),
+    "SPAdes": ("DP", "k-mer coverage (SPAdes; not read depth)", "kmer"),
+    "Unicycler": ("dp", "depth relative to the assembly's median depth (Unicycler; 1 = typical chromosome depth)",
+                  "relative"),
 }
-# How the coverage warnings name each assembler's coverage, and its unit.
-WARNING_COVERAGE = {"SPAdes": ("k-mer coverage", ""), "Unicycler": ("relative depth", "×"),
-                    "Racon": ("mean depth of the mapped polishing reads", "×"),
-                    "Pilon": ("mean depth of the mapped polishing reads", "×")}
+# How the coverage warnings name each assembler's coverage, its unit and its code (the interface's
+# assembly.measure.<code>); Flye's is read depth, the default.
+WARNING_COVERAGE = {"SPAdes": ("k-mer coverage", "", "kmer"), "Unicycler": ("relative depth", "×", "relative"),
+                    "Racon": ("mean depth of the mapped polishing reads", "×", "polish_depth"),
+                    "Pilon": ("mean depth of the mapped polishing reads", "×", "polish_depth")}
 
 
 def expected_genome_size(db: Session, sample_id: str, job_parameters: Mapping[str, Any] | None) -> dict[str, Any]:
@@ -167,6 +170,6 @@ def assembly_graph(assembly: Assembly, max_nodes: int, max_edges: int) -> dict[s
         on = [rows[name] for name in node["paths"] if name in rows]
         node["circular"] = _any_flag(on, "circular")
         node["repeat"] = _any_flag(on, "repeat")
-    tag, meaning = GRAPH_COVERAGE_TAGS.get(assembly.assembler, (None, None))
+    tag, meaning, measure = GRAPH_COVERAGE_TAGS.get(assembly.assembler, (None, None, None))
     return {"assembly_id": assembly.id, "assembler": assembly.assembler, "coverage_tag": tag,
-            "coverage_meaning": meaning, **graph}
+            "coverage_meaning": meaning, "coverage_measure": measure, **graph}

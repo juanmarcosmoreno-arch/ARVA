@@ -40,6 +40,8 @@ SETTING_KEY = "storage"
 EXTERNAL_PREFIX = "/databases-external/"
 REQUEST = ".request"
 LAST_RESULT = ".last-result"
+# Codes scripts/metadata-backup.sh writes with its result; the interface has them as storage.backups.code.<code>.
+BACKUP_CODES = ("ok", "dump_failed", "not_tied", "other_folder")
 # ARVA's own threshold for a "low space" warning (the launcher uses the same).
 LOW_SPACE_BYTES = 20 * 1024**3
 FAT = {"exfat", "msdos", "vfat", "fat", "fat12", "fat16", "fat32"}
@@ -405,7 +407,8 @@ def _last_result(folder: Path) -> dict[str, Any] | None:
         return None
     kind = values.get("kind") if values.get("kind") in ("auto", "manual", "pre-restore") else None
     detail = " ".join(_CONTROL.sub(" ", values.get("detail", "")).split())[:300] or None
-    return {"result": result, "kind": kind, "at": at, "detail": detail}
+    code = values.get("code") if values.get("code") in BACKUP_CODES else None
+    return {"result": result, "kind": kind, "at": at, "detail": detail, "code": code}
 
 
 def _pending(folder: Path) -> datetime | None:

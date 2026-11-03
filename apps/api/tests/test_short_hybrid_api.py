@@ -327,6 +327,7 @@ def test_spades_job_records_everything(client, fakes, storage_root):
     assert rule == "contig k-mer coverage above 4 × the length-weighted median k-mer coverage"
     g = client.get(f"{API}/assemblies/{a['id']}/graph").json()
     assert g["coverage_tag"] == "DP" and g["coverage_meaning"].startswith("k-mer coverage")
+    assert g["coverage_measure"] == "kmer"
     (row,) = client.get(f"{API}/projects/{sample['project_id']}/assemblies").json()
     assert row["coverage_kind"] == "kmer_coverage"
     report = client.get(f"{API}/samples/{sample['id']}/report?format=json").json()

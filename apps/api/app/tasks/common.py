@@ -104,7 +104,9 @@ class JobContext:
         """Read from the database, not the session, so a request made while the job runs is seen."""
         query = select(AnalysisJob.cancel_requested_at).where(AnalysisJob.id == self.job.id)
         with self.db.no_autoflush:
-            return self.db.scalar(query.with_for_update() if lock else query) is not None
+            row = self.db.execute(query.with_for_update() if lock else query).first()
+        # A job whose record is gone (its project or sample was deleted) has nobody left to report to: stop it.
+        return row is None or row[0] is not None
 
     def check_cancelled(self) -> None:
         if self.cancel_requested():
@@ -183,6 +185,13 @@ def _log_end(job: AnalysisJob, exc: BaseException) -> None:
                     stderr_tail=getattr(exc, "stderr_tail", None) or None)
 
 
+def _quietly(step: Callable[[], object], name: str) -> None:
+    try:
+        step()
+    except Exception as exc:  # noqa: BLE001 - recorded; the job's own failure is what gets reported
+        errorlog.record("job", "error", "job_cleanup_failed", params={"step": name}, exc=exc)
+
+
 def run_job(
     job_id: str,
     body: Callable[[JobContext], None],
@@ -204,6 +213,7 @@ def run_job(
         storage = get_storage()
         log = JobLog(db, job)
         ctx = JobContext(db, job, storage, log)
+        partial = (ctx.results_rel, ctx.processed_rel)
         started = time.monotonic()
         job.status = JobStatus.running
         job.started_at = now()
@@ -230,6 +240,13 @@ def run_job(
         except BaseException as exc:
             db.rollback()
             job = db.get(AnalysisJob, job_id)
+            if job is None:
+                errorlog.record("job", "warning", "job_record_gone", params={"job_id": job_id})
+                if storage_ok:
+                    _quietly(lambda: [storage.remove_tree(rel) for rel in partial], "remove_tree")
+                if not isinstance(exc, Exception):
+                    raise
+                return "deleted"
             ctx.job = log.job = job
             job.error_detail = _detail(exc) if isinstance(exc, JobFailure | ToolExecutionError) else None
             if isinstance(exc, JobCancelled):
@@ -260,13 +277,14 @@ def run_job(
                                      f"disk, start ARVA again and run the job again. ({job.error_message})")
                 job.error_detail = {"code": "storage_lost", "params": {"path": path}}
                 log(f"ERROR: {job.error_message}")
+            # A failing clean-up step must not keep the job from being recorded as failed or cancelled.
             if storage_ok:
                 for hook in ctx.before_cleanup:
-                    hook(exc)
-                for rel in (ctx.results_rel, ctx.processed_rel):
-                    storage.remove_tree(rel)
+                    _quietly(lambda h=hook: h(exc), "before_cleanup")
+                for rel in partial:
+                    _quietly(lambda r=rel: storage.remove_tree(r), "remove_tree")
             if on_failure is not None:
-                on_failure(ctx, exc)
+                _quietly(lambda: on_failure(ctx, exc), "on_failure")
             job.status = JobStatus.cancelled if isinstance(exc, JobCancelled) else JobStatus.failed
             _log_end(job, exc)
             if not isinstance(exc, Exception):
@@ -296,5 +314,7 @@ def run_job(
 
 def _batch_queue() -> None:
     from app.services.batches import dispatch_quietly
+    from app.tasks.worker_events import reconcile_quietly
 
     dispatch_quietly("job finished")
+    reconcile_quietly("job finished")

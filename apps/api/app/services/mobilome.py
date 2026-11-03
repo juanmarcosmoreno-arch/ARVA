@@ -25,6 +25,7 @@ from app.models import (
     Sample,
     VirulenceResult,
 )
+from app.services import amr, virulence
 from app.services.mobile_elements import MOBILE_JOB, latest_runs
 
 # The flanking distance of spec §16's regions (10 kb before and after); the user can change it.
@@ -34,16 +35,13 @@ ELEMENT_CATEGORIES = {"insertion_sequence": "insertion_sequence", "mge": "repeti
                       "genomad_virus": "virus", "genomad_plasmid": "genomad_plasmid"}
 
 
-def _latest_job(db: Session, model, assembly_id: str) -> str | None:
-    return db.scalar(select(model.job_id).join(AnalysisJob, AnalysisJob.id == model.job_id)
-                     .where(model.assembly_id == assembly_id, AnalysisJob.status == JobStatus.completed)
-                     .order_by(AnalysisJob.created_at.desc()).limit(1))
-
-
 def _genes(db: Session, a: Assembly) -> tuple[list[dict[str, Any]], dict[str, str | None]]:
+    # The latest completed run of each, chosen among the jobs (not the result rows): a newer run that found nothing
+    # replaces an older one that found genes.
     genes: list[dict[str, Any]] = []
-    amr_job = _latest_job(db, AmrResult, a.id)
-    vf_job = _latest_job(db, VirulenceResult, a.id)
+    amr_run = amr.latest_run(db, a.id)
+    vf_run = virulence.latest_run(db, a.id, a.sample_id)
+    amr_job, vf_job = (amr_run.id if amr_run else None), (vf_run.id if vf_run else None)
     if amr_job:
         for r in db.scalars(select(AmrResult).where(AmrResult.job_id == amr_job)):
             contig = r.assembly_contig or r.contig

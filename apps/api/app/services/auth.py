@@ -60,6 +60,7 @@ MESSAGES = {
     "auth_disabled": "Authentication is off: ARVA runs for one local user.",
     "auth_user_not_found": "No such account.",
     "auth_share_owner_only": "Only the project's owner or an administrator can share it.",
+    "auth_project_owner_only": "Only the project's owner or an administrator can rename or delete it.",
 }
 
 

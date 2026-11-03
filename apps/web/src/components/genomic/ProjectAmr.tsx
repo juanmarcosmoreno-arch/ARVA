@@ -77,7 +77,7 @@ export function ProjectAmr({ projectId }: { projectId: string }) {
                       {!s.latest && <span className="ml-1 text-muted-foreground">{t("projectAmr.notSearched")}</span>}
                     </td>
                     {o.elements.map((e) => {
-                      const cell = matrixCell(Boolean(s.latest), s.present[e.element_symbol]);
+                      const cell = matrixCell(Boolean(s.latest) && !s.not_searched?.includes(e.element_symbol), s.present[e.element_symbol]);
                       return (
                         <td key={e.element_symbol} className={cn("px-1 py-1 text-center", CELL[cell])} title={t(`projectAmr.cell.${cell}`)}>
                           {MARK[cell]}

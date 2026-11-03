@@ -120,10 +120,11 @@ class LocalStorage:
         return StoredFile(relative_path, size, digest.hexdigest())
 
     def remove_tree(self, relative_path: str) -> None:
-        """Delete partial outputs of a failed job, or a kept tool work folder. Original data (raw/) can never be
-        removed."""
-        if not relative_path.startswith(("results/", "processed/", "checkpoints/")):
-            raise StoragePathError(f"refusing to delete outside results/, processed/ or checkpoints/: {relative_path!r}")
+        """Delete partial outputs of a failed job, a kept tool work folder, or the derived outputs of a deleted project
+        or sample. Original data (raw/) can never be removed."""
+        if not relative_path.startswith(("results/", "processed/", "checkpoints/", "reports/")):
+            raise StoragePathError(
+                f"refusing to delete outside results/, processed/, checkpoints/ or reports/: {relative_path!r}")
         target = self.resolve(relative_path)
         if not target.exists():
             return

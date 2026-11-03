@@ -40,8 +40,29 @@ def on_work_horse_killed(rq_job, retpid: int, ret_val: int, rusage) -> None:
         status = str(os.WEXITSTATUS(ret_val) if os.WIFEXITED(ret_val) else ret_val)
     if rusage is not None:
         details["max_rss_kb"] = getattr(rusage, "ru_maxrss", None)
-    errorlog.record("worker", "error", "worker_crashed", params={"status": status}, job=_job(rq_job),
-                    details=details)
+    ref = _job(rq_job)
+    errorlog.record("worker", "error", "worker_crashed", params={"status": status}, job=ref, details=details)
+    from app.db.session import SessionLocal
+    from app.services import jobs
+
+    try:
+        with SessionLocal() as db:
+            jobs.end_killed(db, ref["id"], details.get("signal") if isinstance(details.get("signal"), str) else None)
+    except Exception as exc:  # noqa: BLE001 - the worker goes on; the next reconciliation ends the job instead
+        errorlog.record("worker", "error", "worker_reconcile_failed", exc=exc, job=ref)
+
+
+def reconcile_quietly(source: str) -> None:
+    """End the jobs no worker runs any more (services.jobs.reconcile_lost)."""
+    from app.db.session import SessionLocal
+    from app.services import jobs
+
+    try:
+        with SessionLocal() as db:
+            if ended := jobs.reconcile_lost(db):
+                errorlog.info("jobs_reconciled", f"{ended} lost job(s) ended ({source})", component="worker")
+    except Exception as exc:  # noqa: BLE001 - must not stop the worker or fail the job that just ran
+        errorlog.record("worker", "error", "worker_reconcile_failed", params={"source": source}, exc=exc)
 
 
 def started(queue: str, worker_class: str) -> None:
@@ -49,8 +70,10 @@ def started(queue: str, worker_class: str) -> None:
                   **errorlog.build())
     from app.services.batches import dispatch_quietly
 
-    # Runs interrupted by a restart continue: lost tasks are ended and the queue launches what may start.
+    # Runs interrupted by a restart continue: lost tasks are ended and the queue launches what may start; then the
+    # jobs outside batches that a restart lost are ended too.
     dispatch_quietly("worker started")
+    reconcile_quietly("worker started")
 
 
 def stopped(exc: BaseException) -> None:

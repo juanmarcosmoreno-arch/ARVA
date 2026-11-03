@@ -28,6 +28,8 @@ class Settings(BaseSettings):
 
     # CORS
     cors_origins: list[str] = ["http://localhost:5173", "http://localhost:4173"]
+    # Host names the API answers (app.api.local_origin); anything else, such as a rebound DNS name, is refused.
+    allowed_hosts: list[str] = ["localhost", "127.0.0.1", "::1"]
 
     # Upload limits
     max_upload_size_bytes: int = 20 * 1024 * 1024 * 1024  # 20 GB per file

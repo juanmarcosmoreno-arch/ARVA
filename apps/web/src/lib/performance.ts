@@ -10,6 +10,11 @@ export function profileName(t: T, profile: PerformanceChoice) {
   return t(`perf.profile.${profile}` as TranslationKey);
 }
 
+/** A profile name the server sends as a plain string (batch settings): translated when it is one of ARVA's. */
+export function profileLabel(t: T, profile: string) {
+  return (PROFILE_CHOICES as string[]).includes(profile) ? profileName(t, profile as PerformanceChoice) : profile;
+}
+
 export function factSource(t: T, fact: HostFact | undefined) {
   if (!fact || fact.value === null || fact.value === undefined) return t("perf.source.unknown");
   return t(fact.source === "macos" ? "perf.source.macos" : "perf.source.launcher");

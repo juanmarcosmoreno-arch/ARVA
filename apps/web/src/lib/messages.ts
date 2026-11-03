@@ -103,3 +103,24 @@ export function derivedDescription(t: T, description: string): string {
 export function seqstatsWarnings(t: T, stats: Pick<SequenceStats, "warnings" | "messages">): string[] {
   return stats.messages?.length ? stats.messages.map((m) => messageText(t, "seqstats.warning", m)) : stats.warnings;
 }
+
+/** An assembly warning in the interface language. Its run-time values are words too: the assembly mode, and for
+ * the coverage checks what the assembler's coverage measures (k-mer coverage for SPAdes, relative depth for
+ * Unicycler), so those are translated as well. A coverage warning stored before it carried its measure keeps the
+ * server's text, which names it. */
+export function assemblyWarningText(t: (key: TranslationKey, vars?: TranslationVars) => string, w: { code: string; params: Record<string, string | number>; message: string }): string {
+  const params = { ...w.params };
+  if (typeof params.mode === "string" && `assembly.warningMode.${params.mode}` in dictionaries.en) params.mode = t(`assembly.warningMode.${params.mode}` as TranslationKey);
+  if (w.code.endsWith("_coverage_contigs")) {
+    if (typeof params.measure !== "string" || !(`assembly.measure.${params.measure}` in dictionaries.en)) return w.message;
+    params.measure = t(`assembly.measure.${params.measure}` as TranslationKey);
+  }
+  return messageText(t, "assembly.warning", { code: w.code, params, text: w.message });
+}
+
+/** What an assembly graph's coverage tag measures, in the interface language (the server's English text for an
+ * assembler this version has no code for). */
+export function graphMeasure(t: (key: TranslationKey, vars?: TranslationVars) => string, g: { coverage_measure?: string | null; coverage_meaning: string | null; coverage_tag: string | null }): string {
+  if (g.coverage_measure && `assembly.measure.${g.coverage_measure}` in dictionaries.en) return t(`assembly.measure.${g.coverage_measure}` as TranslationKey);
+  return g.coverage_meaning ?? g.coverage_tag ?? "";
+}

@@ -264,6 +264,15 @@ def update_batch(run_id: str, payload: BatchSettingsUpdateIn, db: Session = Depe
     return _action(db, run_id, lambda d, r: svc.update_settings(d, r, payload.priority, payload.max_concurrent))
 
 
+@router.post("/batches/{run_id}/branch/preview")
+def preview_branch(run_id: str, payload: BatchBranchIn, db: Session = Depends(get_db)):
+    """What the branch would run again and reuse, its jobs, settings and tools, and what blocks it. Nothing runs."""
+    try:
+        return svc.branch_preview(db, _run(db, run_id), payload.node_id, payload.params)
+    except svc.WorkflowError as exc:
+        return _error(exc)
+
+
 @router.post("/batches/{run_id}/branch", status_code=status.HTTP_201_CREATED)
 def branch_batch(run_id: str, payload: BatchBranchIn, db: Session = Depends(get_db)):
     """A new run with one step's parameters changed: the steps before it reuse this run's results, the changed step

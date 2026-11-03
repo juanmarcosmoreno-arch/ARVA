@@ -877,6 +877,7 @@ class BackupResultRead(BaseModel):
     kind: Literal["auto", "manual", "pre-restore"] | None
     at: dt.datetime
     detail: str | None
+    code: Literal["ok", "dump_failed", "not_tied", "other_folder"] | None = None
 
 
 class BackupsRead(BaseModel):
@@ -1339,6 +1340,8 @@ class AssemblyGraphRead(BaseModel):
     assembler: str
     coverage_tag: str | None = Field(description="The segment tag holding this assembler's coverage (Flye: dp)")
     coverage_meaning: str | None = Field(description="What that tag measures (Flye: mean read depth)")
+    coverage_measure: Literal["depth", "kmer", "relative"] | None = Field(
+        default=None, description="Code of that measure, for a translated label")
     format: Literal["GFA1"]
     version: str | None
     segment_count: int

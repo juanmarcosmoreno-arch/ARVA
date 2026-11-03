@@ -10,11 +10,15 @@
 #   metadata-backup.sh backup KIND     one backup now; KIND is auto, manual or pre-restore
 #   metadata-backup.sh restore NAME    replace the database with the backup NAME (or latest), after backing it up
 #   metadata-backup.sh list            the backups, newest first
+#   metadata-backup.sh latest          the newest backup of this data folder's metadata (what restore latest takes)
 #
-# Each kind keeps its newest ARVA_BACKUP_KEEP backups (default 14). A backup is written only while the data
-# folder's storage marker (.arva-storage) is there: without it the external disk is not connected. Every archive is
-# checked with pg_restore --list before it replaces anything; a restore goes into a new database first and replaces
-# the current one only when it succeeded.
+# Each kind keeps its newest ARVA_BACKUP_KEEP backups (default 14). An auto or manual backup is written only when
+# the data folder's storage marker (.arva-storage) holds the ID the database has recorded (app setting "storage"):
+# without the marker the external disk is not connected; with another ID it is another installation's folder; and
+# a database with no ID recorded yet (a new installation, or one waiting for a restore) holds nothing of this
+# folder's, and backing it up would put an empty backup at the top of the list. "latest" is the newest backup whose
+# recorded ID is the marker's. Every archive is checked with pg_restore --list before it replaces anything; a
+# restore goes into a new database first and replaces the current one only when it succeeded.
 set -eu
 
 DIR=${ARVA_BACKUP_DIR:-/data/backups}
@@ -37,11 +41,28 @@ die() {
   exit 1
 }
 
-# The outcome of the last backup, read by ARVA (KEY=VALUE lines; the detail is printable ASCII).
+# The outcome of the last backup, read by ARVA (KEY=VALUE lines; the detail is printable ASCII, the code one the
+# interface translates).
 result() {
   detail=$(printf '%s' "$3" | LC_ALL=C tr -cd '[:print:]' | cut -c 1-300)
-  { printf 'result=%s\nkind=%s\nat=%s\ndetail=%s\n' "$1" "$2" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$detail" > "$DIR/.last-result.tmp" &&
-    mv -f "$DIR/.last-result.tmp" "$DIR/.last-result"; } 2>/dev/null || true
+  { printf 'result=%s\nkind=%s\nat=%s\ncode=%s\ndetail=%s\n' "$1" "$2" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${4:-}" "$detail" \
+    > "$DIR/.last-result.tmp" && mv -f "$DIR/.last-result.tmp" "$DIR/.last-result"; } 2>/dev/null || true
+}
+
+marker_id() {
+  sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\([0-9a-fA-F-]*\)".*/\1/p' "$MARKER" 2>/dev/null | head -n 1
+}
+
+# The data folder ID the database has recorded (empty: none yet, or no ARVA tables).
+recorded_id() {
+  psql --quiet --no-psqlrc --tuples-only --no-align --dbname="${PGDATABASE:-}" \
+    --command="SELECT value::json->>'data_id' FROM app_settings WHERE key = 'storage'" 2>/dev/null | head -n 1 || true
+}
+
+# The data folder ID recorded in a backup archive.
+archive_id() {
+  pg_restore --data-only --table=app_settings --file=- "$1" 2>/dev/null |
+    sed -n 's/.*"data_id"[[:space:]]*:[[:space:]]*"\([0-9a-fA-F-]*\)".*/\1/p' | head -n 1
 }
 
 names() {
@@ -68,6 +89,20 @@ backup() {
     log "No backup: the data folder's storage marker ($MARKER) is missing, so its disk is not connected"
     return 1
   fi
+  if [ "$kind" != pre-restore ]; then
+    disk=$(marker_id)
+    recorded=$(recorded_id)
+    if [ -z "$recorded" ]; then
+      result failed "$kind" "No backup: this metadata is not tied to the data folder yet (new installation, or a restore is needed)" not_tied
+      log "No backup: the database has recorded no data folder yet (new installation, or waiting for a restore)"
+      return 1
+    fi
+    if [ "$recorded" != "$disk" ]; then
+      result failed "$kind" "No backup: the data folder belongs to another ARVA installation (its marker does not match)" other_folder
+      log "No backup: the data folder's marker ($disk) is not the one this database recorded ($recorded)"
+      return 1
+    fi
+  fi
   mkdir -p "$DIR"
   name="arva-metadata-$kind-$(date -u +%Y%m%dT%H%M%SZ).dump"
   while [ -e "$DIR/$name" ]; do
@@ -77,21 +112,35 @@ backup() {
   tmp="$DIR/.partial-$name"
   if pg_dump --format=custom --file="$tmp" && pg_restore --list "$tmp" >/dev/null; then
     mv -f "$tmp" "$DIR/$name"
-    result ok "$kind" "$name"
+    result ok "$kind" "$name" ok
     log "Backup $name ($(wc -c < "$DIR/$name" | tr -d ' ') bytes)"
     prune "$kind"
     printf '%s\n' "$name"
   else
     rm -f "$tmp"
-    result failed "$kind" "pg_dump of database ${PGDATABASE:-?} failed; see the backup service's log"
+    result failed "$kind" "pg_dump of database ${PGDATABASE:-?} failed; see the backup service's log" dump_failed
     log "Backup failed"
     return 1
   fi
 }
 
+latest() {
+  disk=$(marker_id)
+  [ -n "$disk" ] || die "the data folder's storage marker ($MARKER) is missing or unreadable"
+  list | while IFS= read -r candidate; do
+    if [ "$(archive_id "$DIR/$candidate")" = "$disk" ]; then
+      printf '%s\n' "$candidate"
+      break
+    fi
+  done
+}
+
 restore() {
   name=$1
-  if [ "$name" = latest ]; then name=$(list | head -n 1); fi
+  if [ "$name" = latest ]; then
+    name=$(latest)
+    [ -n "$name" ] || die "no backup in $DIR holds this data folder's metadata (marker $(marker_id)); give a NAME from list"
+  fi
   if ! printf '%s\n' "$name" | grep -Eq "$NAME_RE"; then die "give the name of a backup in $DIR (metadata-backup.sh list) or latest"; fi
   file="$DIR/$name"
   [ -f "$file" ] || die "no backup $name in $DIR"
@@ -106,9 +155,22 @@ restore() {
     dropdb --if-exists "$staging"
     die "restoring $name failed; the current metadata was not changed"
   fi
-  dropdb --if-exists --force "$PGDATABASE"
-  psql --quiet --no-psqlrc --dbname=postgres --set ON_ERROR_STOP=1 \
-    --command="ALTER DATABASE \"$staging\" RENAME TO \"$PGDATABASE\""
+  # The current database is renamed aside, not dropped, until the restored one has taken its name.
+  replaced="${PGDATABASE}_replaced"
+  dropdb --if-exists --force "$replaced"
+  sql() { psql --quiet --no-psqlrc --dbname=postgres --set ON_ERROR_STOP=1 --command="$1" >/dev/null; }
+  sql "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '$PGDATABASE' AND pid <> pg_backend_pid()"
+  if ! sql "ALTER DATABASE \"$PGDATABASE\" RENAME TO \"$replaced\""; then
+    dropdb --if-exists "$staging"
+    die "the current database could not be set aside; the current metadata was not changed"
+  fi
+  if ! sql "ALTER DATABASE \"$staging\" RENAME TO \"$PGDATABASE\""; then
+    if sql "ALTER DATABASE \"$replaced\" RENAME TO \"$PGDATABASE\""; then
+      die "the restored database could not take the name $PGDATABASE; the current metadata was put back unchanged"
+    fi
+    die "the restored database could not take the name $PGDATABASE, and the current one could not be renamed back: it is in $replaced, the restored one in $staging"
+  fi
+  dropdb --if-exists --force "$replaced"
   log "Restored $name into $PGDATABASE"
 }
 
@@ -138,5 +200,6 @@ case "${1:-}" in
   backup) backup "${2:-manual}" ;;
   restore) restore "${2:-}" ;;
   list) list ;;
-  *) die "usage: metadata-backup.sh loop | backup KIND | restore NAME|latest | list" ;;
+  latest) latest ;;
+  *) die "usage: metadata-backup.sh loop | backup KIND | restore NAME|latest | list | latest" ;;
 esac

@@ -29,6 +29,7 @@ from app.models import (
     SpeciesResult,
     VirulenceResult,
 )
+from app.services import amr
 from app.services.jobs import AMR_JOB, MOBILE_JOB, VIRULENCE_JOB
 
 FIELDS = ("species", "st", "clonal_complex", "country", "host", "source", "year", "organism")
@@ -95,9 +96,16 @@ def table(db: Session, project: Project) -> dict[str, Any]:
     vf_jobs = _latest_jobs(db, project.id, VIRULENCE_JOB)
     rep_jobs = _latest_jobs(db, project.id, MOBILE_JOB, lambda j: (j.parameters or {}).get("method") == "plasmidfinder")
     found: dict[str, dict[str, set[str]]] = {src: {} for src in SOURCES}
+    amr_cols: dict[str, dict[str, Any]] = {}
     for sid, j in amr_jobs.items():
-        found["amr"][sid] = set(db.scalars(select(AmrResult.element_symbol).where(AmrResult.job_id == j.id,
-                                                                                  AmrResult.type == "AMR")))
+        found["amr"][sid] = set()
+        for symbol, subtype, scope in db.execute(select(AmrResult.element_symbol, AmrResult.subtype, AmrResult.scope)
+                                                 .where(AmrResult.job_id == j.id, AmrResult.type == "AMR")):
+            found["amr"][sid].add(symbol)
+            col = amr_cols.setdefault(symbol, {"subtype": subtype, "plus": False, "organisms": []})
+            col["plus"] |= scope == "plus"
+            if subtype == "POINT":
+                col["organisms"].append((j.parameters or {}).get("organism"))
     for sid, j in vf_jobs.items():
         found["vf"][sid] = set(db.scalars(select(VirulenceResult.gene).where(VirulenceResult.job_id == j.id)))
     for sid, j in rep_jobs.items():
@@ -107,7 +115,10 @@ def table(db: Session, project: Project) -> dict[str, Any]:
     for src in SOURCES:
         names = sorted({g for genes in found[src].values() for g in genes if g})
         for g in names:
-            features[f"{src}:{g}"] = [None if s.id not in found[src] else int(g in found[src][s.id]) for s in samples]
+            # None: not searched, either no run or (AMRFinderPlus) a run that did not look for it (amr.searched_for).
+            features[f"{src}:{g}"] = [
+                None if s.id not in found[src] or (src == "amr" and not amr.searched_for(
+                    amr_jobs[s.id].parameters, amr_cols[g])) else int(g in found[src][s.id]) for s in samples]
 
     jobs = {"amr": amr_jobs, "vf": vf_jobs, "rep": rep_jobs}
     provenance = {src: {"searched": len(jobs[src]),

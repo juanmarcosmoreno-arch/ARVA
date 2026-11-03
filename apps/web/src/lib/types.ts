@@ -899,7 +899,7 @@ export interface MetadataBackups {
   host_folder: string | null;
   count: number;
   files: { name: string; kind: BackupKind; created_at: string; size_bytes: number }[];
-  last_result: { result: "ok" | "failed"; kind: BackupKind | null; at: string; detail: string | null } | null;
+  last_result: { result: "ok" | "failed"; kind: BackupKind | null; at: string; detail: string | null; code?: "ok" | "dump_failed" | "not_tied" | "other_folder" | null } | null;
   /** A backup asked for and not yet made. */
   pending_since: string | null;
   interval_hours: number;
@@ -1266,6 +1266,7 @@ export interface AssemblyGraph {
   /** The segment tag holding this assembler's coverage (Flye: dp) and what it measures. */
   coverage_tag: string | null;
   coverage_meaning: string | null;
+  coverage_measure?: "depth" | "kmer" | "relative" | null;
   format: "GFA1";
   version: string | null;
   segment_count: number;
@@ -3045,8 +3046,10 @@ export interface AmrProjectOverview {
     runs: number;
     latest: { job_id: string; created_at: string; tool_version: string; database_version: string | null; parameters: AmrRun["parameters"]; counts: Record<string, number>; warnings: AmrWarning[] } | null;
     present: Record<string, string[]>;
+    /** Columns this sample's run did not look for (no --organism for point mutations, no --plus): not searched. */
+    not_searched?: string[];
   }[];
-  elements: { element_symbol: string; type: string; subtype: string | null; class: string | null }[];
+  elements: { element_symbol: string; type: string; subtype: string | null; class: string | null; plus?: boolean; organisms?: (string | null)[] }[];
   searched: number;
   versions: string[];
 }

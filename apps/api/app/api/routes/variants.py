@@ -1,10 +1,11 @@
 from typing import Literal
 
 from arva_tools.bcftools import VariantParams
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from sqlalchemy.orm import Session
 
+from app.api.access import visible_projects
 from app.api.deps import get_or_404, project_or_404, sample_or_404
 from app.api.routes.tools import _tool_call
 from app.core.messages import render
@@ -202,13 +203,13 @@ def project_variant_report(project_id: str, db: Session = Depends(get_db)):
 
 
 @router.get("/annotations/{annotation_id}/variants")
-def annotation_variants(annotation_id: str, contig: str | None = Query(None, max_length=255),
+def annotation_variants(annotation_id: str, request: Request, contig: str | None = Query(None, max_length=255),
                         start: int | None = Query(None, ge=1), end: int | None = Query(None, ge=1),
                         run: str | None = Query(None, max_length=36), db: Session = Depends(get_db)):
     """The Genome Explorer's Variants track: runs whose reference is this annotation's assembly and the records of
-    one of them in a region (assembly contig names)."""
+    one of them in a region (assembly contig names); only runs of projects the caller can see."""
     annotation = get_or_404(db, Annotation, annotation_id, "Annotation")
-    return svc.annotation_track(db, annotation, contig, start, end, run)
+    return svc.annotation_track(db, annotation, contig, start, end, run, visible_projects(request))
 
 
 @router.get("/samples/{sample_id}/mobilome")

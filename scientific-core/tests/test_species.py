@@ -108,6 +108,11 @@ def test_mash_is_only_ranked():
 def test_species_and_scope():
     assert species_of("Staphylococcus aureus subsp. aureus NCTC 8325") == "Staphylococcus aureus"
     assert species_of("Staphylococcus sp. HMSC") is None
+    # Assembler headers and tagged headers are not binomials.
+    assert species_of("length=2800000 depth=1.00x circular=true") is None
+    assert species_of("[organism=Staphylococcus aureus] [strain=X]") is None
+    assert species_of("Contig_1 length") is None
+    assert species_of("[Clostridium] scindens ATCC 35704") == "[Clostridium] scindens"
     assert collection_scope(["Escherichia coli", "Shigella flexneri", None]) == {
         "species": 2, "genera": ["Escherichia", "Shigella"]}
 

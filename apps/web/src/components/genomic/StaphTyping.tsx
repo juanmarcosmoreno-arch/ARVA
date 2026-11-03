@@ -147,7 +147,7 @@ export function StaphSummaryCard({ summary }: { summary: StaphSummary }) {
         {summary.uncertain.length > 0 && (
           <ul className="list-disc space-y-0.5 pl-5 text-xs text-amber-700 dark:text-warning">
             {summary.uncertain.map((u) => (
-              <li key={u.part}>{t(`typing.uncertain.${u.reason}` as TranslationKey, { status: "?", score: "?", genes: "", ...u.params })}</li>
+              <li key={`${u.part}-${u.reason}`}>{t(`typing.uncertain.${u.reason}` as TranslationKey, { status: "?", score: "?", genes: "", ...u.params })}</li>
             ))}
           </ul>
         )}
@@ -170,7 +170,7 @@ export function StaphSummaryCard({ summary }: { summary: StaphSummary }) {
               )}
               <Part label={t("typing.part.spa")} value={call("spa")} source={sourceText(t, summary.spa?.source)} />
               <Part label={t("typing.part.agr")} value={call("agr")} source={sourceText(t, summary.agr?.source)} uncertain={doubt("agr")} />
-              <Part label={t("typing.part.mec")} value={amr ? genesText(t, [...amr.mecA, ...amr.mecC], true) : t("typing.notSearched")} source={sourceText(t, amr?.source)} uncertain={doubt("mec")} />
+              <Part label={t("typing.part.mec")} value={amr ? genesText(t, [...amr.mecA, ...amr.mecC, ...(amr.mec_other ?? []), ...(amr.mec_homologues ?? [])], true) : t("typing.notSearched")} source={sourceText(t, amr?.source)} uncertain={doubt("mec")} />
               <Part label={t("typing.part.crosscheck")} value={t(`typing.crosscheck.${summary.mec_crosscheck.status}` as TranslationKey)} />
               <Part label={t("typing.part.pvl")} value={genesText(t, amr?.pvl, plus)} source={sourceText(t, amr?.source)} uncertain={doubt("pvl")} />
               <Part label={t("typing.part.tst")} value={genesText(t, amr?.tst, plus)} source={sourceText(t, amr?.source)} />

@@ -75,9 +75,11 @@ fi
 
 arva_compose up -d --wait postgres
 chosen=$wanted
-if [ "$wanted" = latest ]; then chosen=$(arva_compose run --rm --no-deps -T backup list | head -n 1); fi
+# latest: the newest backup of this data folder's own metadata (its marker's ID), not merely the newest file.
+if [ "$wanted" = latest ]; then chosen=$(arva_compose run --rm --no-deps -T backup latest); fi
 if [ -z "$chosen" ]; then
-  say "There is no backup in the data folder yet; nothing was changed." "Todavía no hay ninguna copia en la carpeta de datos; no se cambió nada." >&2
+  say "No backup in the data folder holds this folder's metadata; nothing was changed. scripts/restore.sh --list shows the backups; give one by name." \
+      "Ninguna copia de la carpeta de datos contiene los metadatos de esta carpeta; no se cambió nada. scripts/restore.sh --list muestra las copias; indica una por su nombre." >&2
   exit 1
 fi
 
@@ -100,6 +102,6 @@ arva_compose up -d
 if [ "$restored" = 1 ]; then
   say "Restored $chosen. ARVA is starting again: open http://localhost:8080" "Restaurada $chosen. ARVA se está iniciando de nuevo: abre http://localhost:8080"
 else
-  say "The restore failed and the metadata was not changed (see the messages above)." "La restauración falló y los metadatos no se cambiaron (consulta los mensajes anteriores)." >&2
+  say "The restore failed; the messages above say whether the metadata was changed." "La restauración falló; los mensajes anteriores indican si los metadatos cambiaron." >&2
   exit 1
 fi

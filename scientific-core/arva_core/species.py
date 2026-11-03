@@ -38,11 +38,18 @@ SOURCES = {
 ANI_METHODS = ("fastani", "skani", "sylph")
 
 
+_GENUS = re.compile(r"\[?[A-Z][a-z]+\]?")
+_EPITHET = re.compile(r"[a-z][a-z-]+")
+
+
 def species_of(organism: str | None) -> str | None:
     """Genus and species epithet of an organism name ("Staphylococcus aureus subsp. aureus NCTC 8325" →
-    "Staphylococcus aureus"); None for "Genus sp." and names that are not binomials."""
+    "Staphylococcus aureus"); None for "Genus sp." and names that are not binomials. The genus must be a capitalised
+    word (or a bracketed one, "[Clostridium]") and the epithet a lower-case word, so that an assembler's FASTA
+    header ("1 length=2800000 depth=1.00x") is never taken for a name."""
     words = (organism or "").split()
-    if len(words) < 2 or not words[1][:1].islower() or words[1] in ("sp.", "spp.", "bacterium", "cf.", "aff."):
+    if len(words) < 2 or not _GENUS.fullmatch(words[0]) or not _EPITHET.fullmatch(words[1]) \
+            or words[1] in ("sp.", "spp.", "bacterium", "cf.", "aff."):
         return None
     return f"{words[0]} {words[1]}"
 

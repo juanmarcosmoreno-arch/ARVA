@@ -159,6 +159,22 @@ describe("RunView", () => {
     expect(screen.getByText("el archivo de entrada x ya no existe")).toBeInTheDocument();
     expect(screen.getByText("Errores (1)")).toBeInTheDocument();
     expect(screen.getByText("Tabla consolidada").closest("a")).toHaveAttribute("href", "/api/v1/batches/r1/table.csv");
+
+    // A branch is previewed before it can be created, and its confirmation is cleared by any parameter change.
+    const preview = vi.spyOn(api, "branchPreview").mockResolvedValue({
+      node_id: "trim", changes: [{ node: "trim", path: "params.x", before: 1, after: 2 }], problems: [], rerun: [{ node: "trim", kind: "fastp", scope: "sample" }],
+      reused: ["reads"], samples: 2, jobs: 2, settings: run.settings, concurrency: 1, tools: { fastp: { name: "fastp", version: "0.23.4", status: "available" } },
+    });
+    const branch = vi.spyOn(api, "branchBatch");
+    fireEvent.click(screen.getAllByRole("button", { name: /Nueva rama/ })[0]);
+    await waitFor(() => expect(screen.getByText(/2 trabajos nuevos/)).toBeInTheDocument());
+    expect(preview).toHaveBeenCalledWith("r1", { node_id: "trim", params: {} });
+    expect(screen.getByText(/perfil Equilibrado/)).toBeInTheDocument();
+    const create = screen.getByRole("button", { name: /Crear rama/ });
+    expect(create).toBeDisabled();
+    fireEvent.click(screen.getByRole("checkbox", { name: /Crear la rama/ }));
+    expect(create).toBeEnabled();
+    expect(branch).not.toHaveBeenCalled();
   });
 });
 

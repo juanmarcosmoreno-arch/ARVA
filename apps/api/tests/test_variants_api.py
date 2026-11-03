@@ -190,6 +190,13 @@ def test_short_and_long_reads_find_the_draft_errors_with_effects_matrix_and_expo
     track = client.get(f"{API}/annotations/{annotation_id}/variants",
                        params={"contig": "contig_1", "start": 4000, "end": 6000}).json()
     assert track["run_id"] == run["id"] and len(track["variants"]) == 1
+    # A caller who cannot see the run's project gets neither the run nor its records, even by naming it.
+    from app.models import Annotation as _Annotation
+    from app.services import variants as variants_service
+    with SessionLocal() as db:
+        hidden = variants_service.annotation_track(db, db.get(_Annotation, annotation_id), "contig_1", 4000, 6000,
+                                                   run["id"], visible={"another-project"})
+    assert hidden == {"runs": [], "run_id": None, "variants": []}
 
     s2 = new_sample(client, p["id"], "S2", "nanopore")
     long_id = upload(client, s2["id"], genome / "ont.fastq.gz")

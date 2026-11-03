@@ -51,7 +51,11 @@ class LaunchRefused(Exception):
 
 
 class WaitForFollowUp(Exception):
-    """The job finished but its result comes from a job it queued (Racon then Pilon)."""
+    """The job finished but its result comes from a job it queued (Racon then Pilon), which is still active."""
+
+    def __init__(self, follow: AnalysisJob):
+        super().__init__(follow.id)
+        self.follow = follow
 
 
 @dataclass
@@ -163,8 +167,14 @@ def _out_polished(db: Session, job: AnalysisJob) -> dict[str, Any]:
     if job.job_type == "racon_polish" and (job.parameters or {}).get("then_pilon"):
         follow = db.scalar(select(AnalysisJob).where(AnalysisJob.parent_job_id == job.id,
                                                      AnalysisJob.job_type == "pilon_polish"))
-        if follow is None or follow.status in (JobStatus.pending, JobStatus.running):
-            raise WaitForFollowUp()
+        # The Pilon job is created in the Racon job's own transaction: none after Racon completed means it could
+        # not be queued (polishing._queue_followups records why), and waiting for it would never end.
+        if follow is None:
+            reason = ((job.result_summary or {}).get("followups") or {}).get("pilon_error") or "no Pilon job exists"
+            raise LaunchRefused("wf_followup_not_queued", f"the Pilon step after Racon was not queued: {reason}",
+                                job_id=job.id)
+        if follow.status in (JobStatus.pending, JobStatus.running):
+            raise WaitForFollowUp(follow)
         if follow.status is not JobStatus.completed:
             raise LaunchRefused("wf_followup_failed", f"the Pilon job {follow.id} queued after Racon ended with status "
                                 f"{follow.status.value}", job_id=follow.id, status=follow.status.value)
@@ -496,13 +506,15 @@ SOURCES = {"reads_long_input": _source_reads_long, "reads_short_input": _source_
 
 
 def resolve_source(db: Session, kind: str, sample: Sample | None, params: dict[str, Any],
-                   override: dict[str, Any] | None) -> dict[str, Any]:
+                   override: dict[str, Any] | None, project_id: str | None = None) -> dict[str, Any]:
     """The outputs of a source node: the user's binding when given (checked to belong to the sample), else ARVA's
-    rule. Raises LaunchRefused when the rule finds nothing or more than one candidate."""
+    rule. Raises LaunchRefused when the rule finds nothing or more than one candidate. A comparison set must be of
+    the run's project (`project_id`): workflows are shared by every account, and the set's steps call the routes
+    directly, past the access checks, so a set of another project is refused as if it did not exist."""
     if kind == "comparison_set_input":
         cset = db.get(ComparisonSet, params.get("set_id") or "")
-        if cset is None:
-            raise LaunchRefused("wf_source_set", "the comparison set no longer exists")
+        if cset is None or cset.project_id != project_id:
+            raise LaunchRefused("wf_source_set", "the comparison set no longer exists in this project")
         return {"set": {"set_id": cset.id}}
     if override:
         return _bound(db, kind, sample, override)
