@@ -444,7 +444,8 @@ el Finder a esta ventana."
 # space (sharing_report). As for Rosetta, the steps are shown, Enter is waited for and the list is read again.
 wiz_sharing() {
   [ "$arva_os" = Darwin ] || return 0
-  folders=$(printf '%s\n%s\n%s\n%s\n' "$want_data" "$want_databases" "$want_import" "$want_add")
+  folders=$(printf '%s\n%s\n%s\n%s\n' "$want_data" "$want_databases" "$want_import" "$want_add" | sed '/^$/d')
+  [ -n "$folders" ] || return 0
   wiz_rule "File sharing" "Uso compartido de archivos (File sharing)"
   sharing_report "$folders"
   if [ -z "$sharing_bad" ]; then
