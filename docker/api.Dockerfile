@@ -35,9 +35,17 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 # architectures; AgrVATE 1.0.2 (snippy 4.6.0, MUMmer 3.23, HMMER, BLAST+; about 2.6 GB) for linux-64 only (snippy's
 # dependencies cannot be solved for linux-aarch64). spaTyper's package bundles copies of the Ridom SpaServer files,
 # which conda_locks.py deletes after installing (docker/conda-locks/spatyper/remove-after-install.txt): ARVA never
-# ships them. A tool without a lock for the image's architecture is left out.
+# ships them. Long-read filtering and assembly: Filtlong 0.3.1 (29 MB) and Flye 2.9.6 (with its own Python 3.13 and
+# its programs flye-modules, flye-minimap2 and flye-samtools; 280 MB, measured on linux-64) have locks for both
+# architectures; they replace Debian's filtlong 0.2.1 and flye 2.9.1, which are no longer installed (ARVA_TOOL_FLYE
+# and ARVA_TOOL_FILTLONG point at the environments, and ARVA does not fall back to PATH when an ARVA_TOOL_<ID> file
+# is missing). Medaka 2.1.1 (Nanopore polishing; PyTorch 2.3.1 CPU build, its own minimap2 2.31, samtools 1.24 and
+# bcftools 1.25; 1.63 GB unpacked, measured on linux-64) has locks for both architectures; its package ships the
+# consensus models r1041_e82_400bps_sup_v5.2.0 and r1041_e82_400bps_hac_v5.2.0 (files whose sha256 conda records),
+# the only ones ARVA lets it use: other models medaka would download on first use from GitHub without a checksum.
+# A tool without a lock for the image's architecture is left out.
 # Build with --build-arg ARVA_CONDA_TOOLS="" for an image without them.
-ARG ARVA_CONDA_TOOLS="mlst fastani skani mash sylph amrfinderplus bakta abricate mobsuite integronfinder sccmec spatyper agrvate iqtree panaroo"
+ARG ARVA_CONDA_TOOLS="filtlong flye medaka mlst fastani skani mash sylph amrfinderplus bakta abricate mobsuite integronfinder sccmec spatyper agrvate iqtree panaroo"
 RUN --mount=type=bind,source=scripts/install-micromamba.sh,target=/build/scripts/install-micromamba.sh \
     --mount=type=bind,source=scripts/conda_locks.py,target=/build/scripts/conda_locks.py \
     --mount=type=bind,source=docker/conda-locks,target=/build/docker/conda-locks \
@@ -57,7 +65,8 @@ RUN --mount=type=bind,source=scripts/install-micromamba.sh,target=/build/scripts
       rm -rf "$mm"; \
     fi
 
-# Flye calls flye-samtools; when the flye package lacks it (Ubuntu's 2.9.3 does), ARVA links it to samtools per run.
+# Flye (from its Bioconda environment above) ships flye-samtools; samtools below is for polishing, mapping and
+# variant calling. A Flye without flye-samtools (Debian's and Ubuntu's packages) gets it linked to samtools per run.
 # minimap2 is the aligner QUAST uses with a reference (bookworm: 2.24, the version QUAST 5.2.0 bundles).
 # SPAdes 3.15.5 and Unicycler 0.5.0 (bookworm's versions, validated with ARVA); Unicycler calls SPAdes, Racon (long
 # reads) and makeblastdb/tblastn from ncbi-blast+ (rotating circular replicons). Both run on Debian's own
@@ -82,7 +91,7 @@ RUN --mount=type=bind,source=scripts/install-micromamba.sh,target=/build/scripts
 RUN set -eu; extra=""; \
     if [ "$(dpkg --print-architecture)" = "amd64" ]; then extra="infernal hmmer barrnap prokka spades unicycler"; fi; \
     apt-get update \
-    && apt-get install -y --no-install-recommends seqkit fastp filtlong fastqc flye samtools minimap2 \
+    && apt-get install -y --no-install-recommends seqkit fastp fastqc samtools minimap2 \
        racon ncbi-blast+ pilon bwa mummer default-jre-headless \
        aragorn pilercr diamond-aligner prodigal mafft fasttree snp-sites bcftools $extra \
        libpango-1.0-0 libpangoft2-1.0-0 libharfbuzz-subset0 fonts-dejavu-core \
@@ -128,7 +137,10 @@ ENV ARVA_TOOL_MULTIQC=/opt/arva-tools/multiqc/bin/multiqc \
     ARVA_TOOL_NANOPLOT=/opt/arva-tools/nanoplot/bin/NanoPlot \
     ARVA_TOOL_QUAST=/opt/arva-tools/quast/bin/quast.py \
     ARVA_TOOL_BAKTA=/opt/arva-tools/bin/bakta
-ENV ARVA_TOOL_AMRFINDERPLUS=/opt/arva-tools/conda/amrfinderplus/bin/amrfinder \
+ENV ARVA_TOOL_FILTLONG=/opt/arva-tools/conda/filtlong/bin/filtlong \
+    ARVA_TOOL_FLYE=/opt/arva-tools/conda/flye/bin/flye \
+    ARVA_TOOL_MEDAKA=/opt/arva-tools/conda/medaka/bin/medaka \
+    ARVA_TOOL_AMRFINDERPLUS=/opt/arva-tools/conda/amrfinderplus/bin/amrfinder \
     ARVA_TOOL_MLST=/opt/arva-tools/conda/mlst/bin/mlst \
     ARVA_TOOL_FASTANI=/opt/arva-tools/conda/fastani/bin/fastANI \
     ARVA_TOOL_SKANI=/opt/arva-tools/conda/skani/bin/skani \

@@ -11,6 +11,6 @@ channels:
   - bioconda
 dependencies:
   - fastp=0.23.4
-  - filtlong=0.2.1
+  - filtlong=0.3.1
   - fastqc=0.12.1
   - seqkit=2.8.2

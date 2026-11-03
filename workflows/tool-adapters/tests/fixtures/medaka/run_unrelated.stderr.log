@@ -1,0 +1,40 @@
+[17:25:24 - MdlStrTGZ] Successfully removed temporary files from /tmp/tmpah4_3lj_.
+[17:25:25 - MdlStrTGZ] Successfully removed temporary files from /tmp/tmp0dsn7gcp.
+[17:25:26 - MdlStrTGZ] Successfully removed temporary files from /tmp/tmpacihbprw.
+[17:25:26 - MdlStrTGZ] Successfully removed temporary files from /tmp/tmpbn5ocudw.
+Creating fai index file /work/u2.fasta.fai
+Creating mmi index file /work/u2.fasta.map-ont.mmi
+[M::mm_idx_gen::0.002*2.00] collected minimizers
+[M::mm_idx_gen::0.003*2.28] sorted minimizers
+[M::main::0.004*1.93] loaded/built the index for 1 target sequence(s)
+[M::mm_idx_stat] kmer size: 15; skip: 10; is_hpc: 0; #seq: 1
+[M::mm_idx_stat::0.004*1.89] distinct minimizers: 3696 (100.00% are singletons); average occurrences: 1.000; average spacing: 5.411; total length: 20000
+[M::main] Version: 2.31-r1302
+[M::main] CMD: minimap2 -I 16G -x map-ont -d /work/u2.fasta.map-ont.mmi /work/u2.fasta
+[M::main] Real time: 0.005 sec; CPU: 0.009 sec; Peak RSS: 0.004 GB
+[M::main::0.002*1.65] loaded/built the index for 1 target sequence(s)
+[M::mm_mapopt_update::0.002*1.58] mid_occ = 10
+[M::mm_idx_stat] kmer size: 15; skip: 10; is_hpc: 0; #seq: 1
+[M::mm_idx_stat::0.002*1.53] distinct minimizers: 3696 (100.00% are singletons); average occurrences: 1.000; average spacing: 5.411; total length: 20000
+[M::worker_pipeline::0.120*1.42] mapped 515 sequences
+[M::main] Version: 2.31-r1302
+[M::main] CMD: minimap2 -x map-ont --secondary=no -L --MD -A 2 -B 4 -O 4,24 -E 2,1 -t 2 -a /work/u2.fasta.map-ont.mmi /work/input/ont.fastq.gz
+[M::main] Real time: 0.120 sec; CPU: 0.171 sec; Peak RSS: 0.011 GB
+[17:25:28 - Predict] Processing region(s): x:0-20000
+[17:25:28 - Predict] Using model: /opt/arva-tools/conda/medaka/lib/python3.12/site-packages/medaka/data/r1041_e82_400bps_sup_v5.2.0_model_pt.tar.gz.
+[17:25:28 - Predict] Using minimum mapQ threshold of 1 for read filtering.
+[17:25:28 - MdlStrTGZ] Model GRUModel(
+  (gru): GRU(10, 128, num_layers=2, batch_first=True, bidirectional=True)
+  (linear): Linear(in_features=256, out_features=5, bias=True)
+)
+[17:25:28 - MdlStrTGZ] loading weights from /tmp/tmpuyds749v/model/weights.pt
+[17:25:28 - MdlStrTGZ] Successfully removed temporary files from /tmp/tmpuyds749v.
+[17:25:28 - Predict] Model device: cpu
+[17:25:28 - Predict] Running prediction at full precision
+[17:25:28 - Predict] Processing 1 long region(s) with batching.
+[17:25:28 - PWorker] Running inference for 0.0M draft bases.
+[17:25:28 - PWorker] Processed 0 batches
+[17:25:28 - PWorker] All done, 0 remainder regions.
+[17:25:28 - Predict] Finished processing all regions.
+[17:25:29 - DataIndx] Loaded 1/1 (100.00%) sample files.
+[17:25:29 - Stitcher] Copying contig 'x' verbatim from input.

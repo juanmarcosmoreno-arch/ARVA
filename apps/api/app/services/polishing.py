@@ -2,14 +2,26 @@
 each strategy needs.
 
 Strategies follow the reads, not one recipe for every technology: long reads → Racon (generic consensus; no
-technology-specific error model), short reads → Pilon, both → Racon, then Pilon on Racon's result. Every check uses
-recorded evidence only and never changes what the user chose; suggestions are labelled as such.
+technology-specific error model) or, for Oxford Nanopore reads, Medaka (a neural network trained for the reads'
+basecaller model), short reads → Pilon, both → Racon, then Pilon on Racon's result. Every check uses recorded evidence
+only and never changes what the user chose; suggestions are labelled as such.
+
+Medaka's model is never guessed: it is the one the user picks from the models Medaka's package ships, or, when none
+is given, the one medaka's own mapping (medaka/options.py basecaller_models) gives for the basecall model ARVA read
+from the reads' headers, and only when the package ships it.
 """
 from __future__ import annotations
 
+import subprocess
 from typing import Any
 
 from arva_tools import ToolStatus
+from arva_tools.medaka import (
+    DEFAULT_BATCH_SIZE,
+    model_for_basecaller,
+    offered_models,
+    read_catalogue,
+)
 from arva_tools.pilon import java_executable, java_version
 from arva_tools.registry import detect
 from sqlalchemy.orm import Session
@@ -20,9 +32,15 @@ from app.services.flye import CONFIDENT, InputError, read_type_suggestion
 from app.services.performance import Resources, effective_resources
 from app.storage import get_storage
 
-STRATEGIES = ("racon", "pilon", "hybrid")
-STRATEGY_TOOLS = {"racon": ("racon", "minimap2", "samtools"), "pilon": ("pilon", "bwa", "samtools"),
-                  "hybrid": ("racon", "minimap2", "pilon", "bwa", "samtools")}
+STRATEGIES = ("racon", "medaka", "pilon", "hybrid")
+# Medaka runs its own minimap2 (mini_align) inside its environment; ARVA's minimap2 and samtools align the reads to
+# the draft and to the result for the indirect indicators, as for Racon.
+STRATEGY_TOOLS = {"racon": ("racon", "minimap2", "samtools"), "medaka": ("medaka", "minimap2", "samtools"),
+                  "pilon": ("pilon", "bwa", "samtools"), "hybrid": ("racon", "minimap2", "pilon", "bwa", "samtools")}
+LONG_STRATEGIES = ("racon", "medaka")
+TOOL_NAMES = {"racon": "Racon", "medaka": "Medaka", "pilon": "Pilon", "hybrid": "Racon and Pilon"}
+# Medaka's models are for Oxford Nanopore reads; ARVA aligns them with minimap2's Nanopore preset.
+MEDAKA_PRESET = "map-ont"
 OPTIONAL_TOOLS = ("dnadiff",)
 # Each minimap2 preset and the platform of its reads.
 PRESET_PLATFORM = {"map-ont": "nanopore", "map-pb": "pacbio", "map-hifi": "pacbio"}
@@ -64,10 +82,16 @@ def draft_for(db: Session, sample: Sample, assembly_id: str) -> Assembly:
 
 
 def strategy_of(inputs: short_hybrid.Inputs) -> str | None:
-    """The strategy the chosen reads imply."""
+    """The strategy the chosen reads imply (with long reads only, Racon; Medaka is the other choice)."""
     if inputs.long and inputs.short:
         return "hybrid"
     return "racon" if inputs.long else "pilon" if inputs.short else None
+
+
+def strategies_for(inputs: short_hybrid.Inputs) -> tuple[str, ...]:
+    """Every strategy the chosen reads allow."""
+    implied = strategy_of(inputs)
+    return LONG_STRATEGIES if implied == "racon" else (implied,) if implied else ()
 
 
 def suggested_strategy(sample: Sample) -> str | None:
@@ -93,13 +117,16 @@ def check_request(sample: Sample, inputs: short_hybrid.Inputs, ev: list[dict[str
     sample's sequencing technology."""
     if strategy not in STRATEGIES:
         raise InputError(f"strategy must be one of {', '.join(STRATEGIES)}")
-    implied = strategy_of(inputs)
-    if implied != strategy:
-        needs = {"racon": "long reads and no short reads", "pilon": "short reads and no long reads",
+    if strategy not in strategies_for(inputs):
+        needs = {"racon": "long reads and no short reads", "medaka": "Oxford Nanopore long reads and no short reads",
+                 "pilon": "short reads and no long reads",
                  "hybrid": "both long reads (for Racon) and short reads (for Pilon)"}
         raise InputError(f"The {strategy} strategy needs {needs[strategy]}")
-    tool = {"racon": "Racon", "pilon": "Pilon", "hybrid": "Racon and Pilon"}[strategy]
-    short_hybrid.check_inputs(sample, inputs, ev, tool, confirmed)
+    short_hybrid.check_inputs(sample, inputs, ev, TOOL_NAMES[strategy], confirmed)
+    if strategy == "medaka":
+        preset = MEDAKA_PRESET if preset is None else preset
+        if preset != MEDAKA_PRESET:
+            raise InputError("Medaka polishes Oxford Nanopore assemblies; its reads are aligned with the map-ont preset")
     if inputs.long is None or (preset is None and not preset_required):
         return
     if preset not in PRESET_PLATFORM:
@@ -124,7 +151,7 @@ def _tool(tool_id: str) -> dict[str, Any]:
 
 def tools_status() -> dict[str, Any]:
     """Every tool a polishing strategy can use, detected afresh, with Java for Pilon."""
-    tools = {t: _tool(t) for t in ("racon", "minimap2", "pilon", "bwa", "samtools", "dnadiff")}
+    tools = {t: _tool(t) for t in ("racon", "medaka", "minimap2", "pilon", "bwa", "samtools", "dnadiff")}
     java = java_executable()
     tools["java"] = {"status": ToolStatus.available.value if java else ToolStatus.not_installed.value,
                      "version": java_version(java) if java else None, "version_validated": False,
@@ -134,7 +161,81 @@ def tools_status() -> dict[str, Any]:
 
 def strategies_available(tools: dict[str, Any]) -> list[str]:
     ok = {t for t, d in tools.items() if d["status"] == ToolStatus.available.value}
-    return [s for s, needed in STRATEGY_TOOLS.items() if set(needed) <= ok and (s == "racon" or "java" in ok)]
+    return [s for s, needed in STRATEGY_TOOLS.items() if set(needed) <= ok and (s in LONG_STRATEGIES or "java" in ok)]
+
+
+# --- Medaka's model ---------------------------------------------------------------------------------------------
+
+SUGGESTION_TEXT = {
+    "no_basecall_model": "ARVA found no basecall model in the reads' headers",
+    "several_basecall_models": "the reads' headers name several basecall models ({models})",
+    "unknown_basecall_model": "medaka's own mapping has no model for the basecall model {basecall}",
+    "fast_unsupported": "{basecall} is a 'fast' basecalling model, which Medaka does not support (medaka: basecall "
+                        "again with a 'high accuracy' or 'super accuracy' model first)",
+    "mapped_not_bundled": "medaka's model for the basecall model {basecall} is {model}, which its package does not "
+                          "ship; ARVA does not let Medaka download models",
+    "mapped": "medaka's model for the basecall model {basecall} is {model}",
+}
+
+
+def suggestion_text(s: dict[str, Any]) -> str:
+    return SUGGESTION_TEXT[s["status"]].format(models=", ".join(s["basecall_models"]), basecall=s["basecall_model"],
+                                               model=s["model"])
+
+
+def medaka_catalogue() -> tuple[dict[str, Any] | None, str | None]:
+    """Medaka's model lists and the models its package ships (arva_tools.medaka.read_catalogue), or why not."""
+    d = detect("medaka", refresh=True)
+    if d.status is not ToolStatus.available or not d.path:
+        return None, d.message or "Medaka is not installed"
+    try:
+        return read_catalogue(d.path), None
+    except (OSError, RuntimeError, subprocess.TimeoutExpired, KeyError, TypeError, ValueError) as exc:
+        return None, str(exc)
+
+
+def _header_models(ev: list[dict[str, Any]]) -> list[str]:
+    return sorted({m for e in ev if e.get("role") == "long" for m in e.get("basecall_models") or []})
+
+
+def medaka_plan(ev: list[dict[str, Any]], catalogue: dict[str, Any] | None, error: str | None) -> dict[str, Any]:
+    """The models ARVA can run Medaka with and the one medaka's mapping gives for the long reads' basecall model."""
+    if catalogue is None:
+        return {"available": False, "error": error, "version": None, "models": [], "bundled": [], "default_model": None,
+                "suggestion": None, "default_batch_size": DEFAULT_BATCH_SIZE}
+    has_long = any(e.get("role") == "long" for e in ev)
+    return {"available": True, "error": None, "version": catalogue["version"], "models": offered_models(catalogue),
+            "bundled": catalogue["bundled_models"], "default_model": catalogue["default_consensus"],
+            "suggestion": model_for_basecaller(catalogue, _header_models(ev)) if has_long else None,
+            "default_batch_size": DEFAULT_BATCH_SIZE}
+
+
+def choose_medaka_model(catalogue: dict[str, Any], ev: list[dict[str, Any]], model: str | None,
+                        accept_mismatch: bool) -> dict[str, Any]:
+    """The model a Medaka run uses, and why. Without `model`, medaka's own mapping for the basecall model of the
+    reads' headers, when the package ships that model; otherwise the user's choice among the shipped models, which
+    must be confirmed when it differs from the mapping's. Raises InputError instead of guessing."""
+    offered = offered_models(catalogue)
+    suggestion = model_for_basecaller(catalogue, _header_models(ev))
+    if suggestion["status"] == "fast_unsupported":
+        raise InputError(f"Medaka cannot polish with these reads: {suggestion_text(suggestion)}")
+    if model is None:
+        if suggestion["status"] != "mapped":
+            raise InputError(f"Choose the Medaka model: {suggestion_text(suggestion)}. Models ARVA can use: "
+                             f"{', '.join(offered) or 'none'}")
+        model, source = suggestion["model"], "basecall_model"
+    else:
+        source = "user"
+    if model not in offered:
+        raise InputError(f"The Medaka model {model} is not one of the models Medaka's package ships "
+                         f"({', '.join(offered) or 'none'}); ARVA does not let Medaka download models")
+    mismatch = suggestion["model"] is not None and suggestion["model"] != model
+    if mismatch and not accept_mismatch:
+        raise InputError(f"The model {model} is not the one for these reads: {suggestion_text(suggestion)}. Confirm "
+                         "the choice to use it anyway")
+    bundled = next(m for m in catalogue["bundled_models"] if m["name"] == model)
+    return {"model": model, "source": source, "suggestion": suggestion, "mismatch_accepted": mismatch,
+            "file": bundled["file"], "sha256": bundled["sha256"], "medaka_version": catalogue["version"]}
 
 
 def resources(res: Resources) -> dict[str, int]:
@@ -163,15 +264,26 @@ def plan(db: Session, sample: Sample, draft: Assembly, inputs: short_hybrid.Inpu
     except InputError as exc:
         problem = str(exc)
     tools = tools_status()
+    medaka_problem = None
+    if "medaka" in strategies_for(inputs):
+        try:
+            check_request(sample, inputs, ev, "medaka", None, confirmed=True)
+        except InputError as exc:
+            medaka_problem = str(exc)
+    catalogue, error = medaka_catalogue() if tools["medaka"]["status"] == ToolStatus.available.value else \
+        (None, tools["medaka"]["message"] or "Medaka is not installed")
     return {
         "draft": draft_summary(draft),
         "tools": tools,
         "strategies_available": strategies_available(tools),
         "files": ev,
         "strategy": strategy,
+        "strategies_for_reads": list(strategies_for(inputs)),
         "suggested_strategy": suggested_strategy(sample),
         "preset_suggestion": preset_suggestion(sample, ev),
         "problem": problem,
+        "medaka": {**medaka_plan(ev, catalogue, error), "problem": medaka_problem,
+                   "draft_is_flye": draft.assembler == "Flye" and draft.parent_assembly_id is None},
         "sample_technology": sample.sequencing_technology,
         "confirmation_required": short_hybrid.needs_confirmation(sample),
         **resources(effective_resources(db)),

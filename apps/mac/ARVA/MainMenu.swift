@@ -17,11 +17,19 @@ enum MainMenu {
         return top
     }
 
+    /// The app menu's status line shown while the Mac is kept awake (SleepGuard); hidden otherwise.
+    static let sleepStatusTag = 4801
+
     static func build() -> NSMenu {
         let bar = NSMenu()
 
+        let sleepStatus = item(SleepGuard.statusText, nil)
+        sleepStatus.tag = sleepStatusTag
+        sleepStatus.isEnabled = false
+        sleepStatus.isHidden = true
         let app = submenu("ARVA", [
             item(L("About ARVA", "Acerca de ARVA"), #selector(NSApplication.orderFrontStandardAboutPanel(_:))),
+            sleepStatus,
             .separator(),
             item(L("Set Up Again…", "Volver a configurar…"), #selector(AppDelegate.arvaSetupAgain(_:))),
             .separator(),
@@ -80,5 +88,12 @@ enum MainMenu {
         bar.addItem(help)
         NSApp.helpMenu = help.submenu
         return bar
+    }
+
+    /// Shows the status line (nil hides it).
+    static func setSleepStatus(_ text: String?) {
+        guard let item = NSApp.mainMenu?.items.first?.submenu?.item(withTag: sleepStatusTag) else { return }
+        if let text { item.title = text }
+        item.isHidden = text == nil
     }
 }

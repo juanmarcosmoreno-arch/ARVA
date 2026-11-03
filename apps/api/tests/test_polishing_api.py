@@ -1,8 +1,10 @@
 """Polishing: request checks by strategy, role and technology, the preview, the assembly lineage migration, and real
-Racon, Pilon and hybrid runs on a draft with known errors (scripts/make_polishing_draft.py), skipped without the
-tools."""
+Racon, Medaka, Pilon and hybrid runs on a draft with known errors (scripts/make_polishing_draft.py), skipped without
+the tools."""
+import gzip
 import subprocess
 import sys
+import uuid
 from pathlib import Path
 
 import pytest
@@ -139,7 +141,8 @@ def test_polishing_preview_explains_strategy_tools_and_problems(client, setup):
     plan = r.json()
     assert plan["strategy"] == "hybrid" and plan["suggested_strategy"] == "hybrid" and plan["problem"] is None
     assert plan["draft"]["assembly_id"] == draft["id"] and plan["draft"]["circular_contigs"] == 2
-    assert set(plan["tools"]) == {"racon", "minimap2", "pilon", "java", "bwa", "samtools", "dnadiff"}
+    assert set(plan["tools"]) == {"racon", "medaka", "minimap2", "pilon", "java", "bwa", "samtools", "dnadiff"}
+    assert plan["strategies_for_reads"] == ["hybrid"] and plan["medaka"]["problem"] is None
     assert [f["role"] for f in plan["files"]] == ["r1", "r2", "long"]
     assert plan["preset_suggestion"]["heuristic"] is True
     # The test computer has 64 GB; the profile's memory per job (44 GB) exceeds Debian's 16 GB default heap.
@@ -147,6 +150,14 @@ def test_polishing_preview_explains_strategy_tools_and_problems(client, setup):
     only_pairs = client.post(f"{API}/assemblies/{draft['id']}/polishing/preview",
                              json={"inputs": {"r1_file_id": ids["r1"]}}).json()
     assert only_pairs["strategy"] == "pilon" and "R2" in only_pairs["problem"]
+    only_long = client.post(f"{API}/assemblies/{draft['id']}/polishing/preview",
+                            json={"inputs": {"long_file_id": ids["long"]}}).json()
+    assert only_long["strategy"] == "racon" and only_long["strategies_for_reads"] == ["racon", "medaka"]
+    assert only_long["medaka"]["draft_is_flye"] is True and only_long["medaka"]["problem"] is None
+    if only_long["medaka"]["available"]:
+        # The synthetic reads' headers name no basecall model: ARVA does not pick a model for them.
+        assert only_long["medaka"]["suggestion"]["status"] == "no_basecall_model"
+        assert only_long["medaka"]["suggestion"]["model"] is None
     none = client.post(f"{API}/assemblies/{draft['id']}/polishing/preview", json={"inputs": {}}).json()
     assert none["strategy"] is None and none["problem"].startswith("Choose the reads to polish with")
 
@@ -370,3 +381,106 @@ def test_a_changed_draft_is_refused_and_leaves_nothing(client, setup, storage_ro
                            racon={"read_type": "map-ont"}).json()["id"])
     assert d["status"] == "failed" and "changed since the job was queued" in d["error_message"]
     assert len(client.get(f"{API}/samples/{sample['id']}/assemblies").json()) == 1
+
+
+# --- Medaka --------------------------------------------------------------------------------------------------
+
+SUP = "r1041_e82_400bps_sup_v5.2.0"
+HAC = "r1041_e82_400bps_hac_v5.2.0"
+
+
+def dorado_reads(src: Path, dst: Path, model: str = "dna_r10.4.1_e8.2_400bps_sup@v5.2.0") -> Path:
+    """The synthetic reads with Dorado-style headers (UUID read ids, RG:Z:<run id>_<basecall model>_<barcode>), the
+    form ARVA (and medaka) read the basecall model from."""
+    with gzip.open(src, "rt") as fin, gzip.open(dst, "wt") as fout:
+        for n, line in enumerate(fin):
+            if n % 4 == 0:
+                line = (f"@{uuid.UUID(int=n // 4 + 1)}\tqs:f:15.2\tch:i:12\tst:Z:2026-05-27T10:00:00.000+00:00\t"
+                        f"RG:Z:{'a' * 40}_{model}_barcode04\n")
+            fout.write(line)
+    return dst
+
+
+@pytest.fixture
+def nanopore(client, genome, tmp_path):
+    sample = new_sample(client, "nanopore")
+    ids = {"plain": upload(client, sample["id"], genome / "ont.fastq.gz"),
+           "dorado": upload(client, sample["id"], dorado_reads(genome / "ont.fastq.gz", tmp_path / "bc04.fastq.gz")),
+           "r1": upload(client, sample["id"], genome / "illumina_R1.fastq.gz"),
+           "r2": upload(client, sample["id"], genome / "illumina_R2.fastq.gz")}
+    return sample, ids, draft_assembly(client, sample, genome / "draft.fasta", [ids["dorado"]])
+
+
+@pytest.mark.skipif(not ready("medaka", "minimap2", "samtools"), reason="needs Medaka, minimap2, samtools")
+def test_medaka_model_is_medakas_own_choice_or_the_users_never_a_guess(client, nanopore):
+    sample, ids, draft = nanopore
+    plain, dorado = {"long_file_id": ids["plain"]}, {"long_file_id": ids["dorado"]}
+    plan = client.post(f"{API}/assemblies/{draft['id']}/polishing/preview", json={"inputs": dorado}).json()
+    m = plan["medaka"]
+    assert m["available"] and m["version"] == "2.1.1" and m["models"] == [HAC, SUP] and m["default_model"] == SUP
+    assert [b["checksum"] for b in m["bundled"]] == ["matches_package", "matches_package"]
+    assert m["suggestion"] == {"status": "mapped", "basecall_model": "dna_r10.4.1_e8.2_400bps_sup@v5.2.0",
+                               "basecall_models": ["dna_r10.4.1_e8.2_400bps_sup@v5.2.0"], "model": SUP,
+                               "source": "medaka.options.basecaller_models"}
+    assert "medaka" in plan["strategies_available"] and plan["files"][0]["basecall_models"] == [
+        "dna_r10.4.1_e8.2_400bps_sup@v5.2.0"]
+    cases = [
+        (plain, {}, 400, "Choose the Medaka model: ARVA found no basecall model in the reads' headers"),
+        (plain, {"model": "r1041_e82_400bps_sup_v4.3.0"}, 400, "not one of the models Medaka's package ships"),
+        (dorado, {"model": HAC}, 400, "Confirm the choice"),
+        (dorado, {"model": SUP, "batch_size": 0}, 422, "batch_size"),
+        ({"r1_file_id": ids["r1"], "r2_file_id": ids["r2"]}, {}, 400, "medaka strategy needs Oxford Nanopore long reads"),
+        ({**dorado, "r1_file_id": ids["r1"], "r2_file_id": ids["r2"]}, {}, 400, "medaka strategy needs"),
+    ]
+    for inputs, settings, code, message in cases:
+        r = polish(client, draft["id"], "medaka", inputs, medaka=settings)
+        assert r.status_code == code and message in r.text, (settings, r.text)
+    client.patch(f"{API}/samples/{sample['id']}", json={"sequencing_technology": "pacbio"})
+    r = polish(client, draft["id"], "medaka", dorado)
+    assert r.status_code == 400 and "map-ont is for nanopore reads" in r.json()["detail"]
+    client.patch(f"{API}/samples/{sample['id']}", json={"sequencing_technology": "nanopore"})
+    r = polish(client, draft["id"], "medaka", dorado, medaka={"model": HAC, "accept_model_mismatch": True}, threads=1)
+    assert r.status_code == 202, r.text
+    p = job(client, r.json()["id"])["parameters"]
+    assert p["model"] == HAC and p["medaka_model"]["source"] == "user" and p["medaka_model"]["mismatch_accepted"]
+    r = polish(client, draft["id"], "medaka", plain, medaka={"model": SUP}, threads=1)
+    assert r.status_code == 202, r.text
+    p = job(client, r.json()["id"])["parameters"]
+    assert p["medaka_model"]["source"] == "user" and p["medaka_model"]["suggestion"]["status"] == "no_basecall_model"
+
+
+@pytest.mark.skipif(not ready("medaka", "minimap2", "samtools", "dnadiff"),
+                    reason="needs Medaka, minimap2, samtools, MUMmer")
+def test_medaka_polishes_with_the_model_for_the_reads_basecaller(client, nanopore):
+    sample, ids, draft = nanopore
+    r = polish(client, draft["id"], "medaka", {"long_file_id": ids["dorado"]}, threads=2)
+    assert r.status_code == 202, r.text
+    d = job(client, r.json()["id"])
+    assert d["status"] == "completed", d["log_text"]
+    assert d["job_type"] == "medaka_polish" and d["tool_name"] == "Medaka" and d["tool_version"] == "2.1.1"
+    p = d["parameters"]
+    assert (p["model"], p["threads"], p["batch_size"], p["read_type"], p["strategy"]) == (SUP, 2, 100, "map-ont",
+                                                                                          "medaka")
+    assert p["medaka_model"]["source"] == "basecall_model" and len(p["medaka_model"]["sha256"]) == 64
+    (run,) = [c for c in d["commands"] if Path(c[0]).name == "medaka_consensus"]
+    assert run[run.index("-m") + 1] == SUP and run[run.index("-t") + 1] == "2" and run[run.index("-b") + 1] == "100"
+    s = d["result_summary"]
+    assert s["polisher"] == "Medaka" and s["rounds_run"] == 1 and s["strategy"] == "medaka"
+    assert s["rounds"][0]["changes"]["snp"]["events"] == 7 and s["direct"]["source"] == "dnadiff"
+    assert s["medaka"]["unpolished"] == {"contigs": {}, "bases": 0, "verbatim_contigs": []}
+    assert [Path(f).name for f in s["medaka"]["model_files"]] == [f"{SUP}_model_pt.tar.gz"]
+    assert {x["program"] for x in s["medaka"]["programs"]} >= {"minimap2", "samtools"}
+    assert not [o for o in s["observations"] if o["code"].startswith("medaka_")]
+    assert d["progress"]["stages"] == ["medaka_consensus", "alignment_stats", "comparison"]
+    names = {Path(o).name for o in d["output_paths"]}
+    assert {"polished.fasta", "medaka_consensus.log", "medaka_unpolished_regions.bed", "dnadiff_round1.report",
+            "polished.depth_profile.json"} <= names
+    assert not any("/work/" in o for o in d["output_paths"])
+    polished = client.get(f"{API}/assemblies/{s['polished_assembly_id']}").json()
+    assert (polished["kind"], polished["parent_assembly_id"], polished["assembler"]) == ("polished", draft["id"], "Medaka")
+    assert polished["coverage_kind"] == "mapped_read_depth" and polished["read_type"] == "map-ont"
+    assert sorted(c["name"] for c in polished["contigs"]) == ["contig_1", "contig_2"]
+    assert polished["stats"]["total_length"] == 108_000
+    report = client.get(f"{API}/samples/{sample['id']}/report", params={"format": "json"}).json()
+    step = next(st for st in report["processing"] if st["job_id"] == d["id"])
+    assert step["highlights"][1].startswith(f"Medaka model {SUP} (shipped in the package")

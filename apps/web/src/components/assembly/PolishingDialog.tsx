@@ -15,6 +15,7 @@ import { fmtBases, fmtInt, technologyLabel } from "@/lib/format";
 import { toolMessage } from "@/lib/messages";
 import {
   MAX_ROUNDS,
+  MEDAKA_BATCH_DEFAULT,
   PILON_FIXES,
   POLISHING_FORM_DEFAULTS,
   PRESETS,
@@ -22,10 +23,14 @@ import {
   STRATEGY_ROLES,
   changedPilon,
   changedRacon,
+  medakaMismatch,
+  medakaModel,
   polishingProblems,
   polishingRequest,
   rolesFor,
   strategyForData,
+  usesPilon,
+  usesRacon,
   type PolishingForm,
 } from "@/lib/polishing";
 import { referenceCandidates } from "@/lib/quast";
@@ -36,12 +41,14 @@ import { Choice, RolePicker } from "./ShortReadPanels";
 
 const STRATEGY_TOOLS: Record<PolishingStrategy, PolishingToolId[]> = {
   racon: ["racon", "minimap2", "samtools"],
+  medaka: ["medaka", "minimap2", "samtools"],
   pilon: ["pilon", "java", "bwa", "samtools"],
   hybrid: ["racon", "minimap2", "pilon", "java", "bwa", "samtools"],
 };
 
-/** Polishes one of the sample's assemblies: the strategy follows the reads (long → Racon, short → Pilon, both →
- * Racon then Pilon), every setting is explained and sent explicitly, and the run is summarised before it starts. */
+/** Polishes one of the sample's assemblies: the strategy follows the reads (long → Racon or, for Oxford Nanopore
+ * reads, Medaka; short → Pilon; both → Racon then Pilon), every setting is explained and sent explicitly, and the run
+ * is summarised before it starts. */
 export function PolishingDialog({
   open,
   onOpenChange,
@@ -99,8 +106,8 @@ export function PolishingDialog({
     set("strategy", s);
     setRoles((r) => ({ ...defaultRoles(files, true), ...Object.fromEntries(Object.entries(r).filter(([, v]) => v)) }));
   };
-  const usesLong = form.strategy !== "pilon";
-  const usesShort = form.strategy !== "racon";
+  const usesLong = usesRacon(form.strategy);
+  const usesShort = usesPilon(form.strategy);
   const suggested = p?.suggested_strategy ?? strategyForData(data);
   const references = referenceCandidates(files);
   const quastTool = useTool("quast");
@@ -147,12 +154,14 @@ export function PolishingDialog({
           />
           {plan.isFetching && <p className="text-xs text-muted-foreground">{t("quast.checking")}</p>}
           <ErrorNote error={plan.error} />
-          {p?.problem && (
+          {(form.strategy === "medaka" ? p?.medaka?.problem : p?.problem) && (
             <p className="flex gap-1.5 text-xs text-amber-700 dark:text-warning">
-              <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden /> {p.problem}
+              <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden /> {form.strategy === "medaka" ? p?.medaka?.problem : p?.problem}
             </p>
           )}
         </Section>
+
+        {form.strategy === "medaka" && <MedakaSection form={form} set={set} plan={p} />}
 
         {usesLong && (
           <Section title={t("polishing.racon.title")} hint={t("polishing.racon.hint")} action={<Explain id="racon" compact />}>
@@ -205,7 +214,7 @@ export function PolishingDialog({
             </Advanced>
             <p className="text-xs text-muted-foreground">{t("polishing.racon.fixed")}</p>
             <p className="flex gap-1.5 rounded-lg bg-muted p-2.5 text-xs text-muted-foreground">
-              <Info className="h-3.5 w-3.5 shrink-0" aria-hidden /> {t("polishing.medaka")}
+              <Info className="h-3.5 w-3.5 shrink-0" aria-hidden /> {t("polishing.medakaAlternative")}
             </p>
           </Section>
         )}
@@ -349,8 +358,9 @@ function Tools({ plan, strategy }: { plan: PolishingPlan; strategy: PolishingStr
 function Summary({ form, plan }: { form: PolishingForm; plan: PolishingPlan | undefined }) {
   const t = useT();
   const items = [t(`polishing.summary.${form.strategy}`)];
-  if (form.strategy !== "pilon") items.push(t("polishing.summary.racon_rounds", { rounds: form.raconRounds, preset: form.preset || "?" }));
-  if (form.strategy !== "racon")
+  if (usesRacon(form.strategy)) items.push(t("polishing.summary.racon_rounds", { rounds: form.raconRounds, preset: form.preset || "?" }));
+  if (form.strategy === "medaka") items.push(t("polishing.summary.medaka_model", { model: medakaModel(form, plan) ?? "?", batch: form.medakaBatch }));
+  if (usesPilon(form.strategy))
     items.push(
       t("polishing.summary.pilon_rounds", {
         rounds: form.pilonRounds,
@@ -371,5 +381,69 @@ function Summary({ form, plan }: { form: PolishingForm; plan: PolishingPlan | un
         ))}
       </ul>
     </section>
+  );
+}
+
+/** Medaka's model and batch size. The model is medaka's own choice for the reads' basecall model (medaka/options.py)
+ * when ARVA read one from their headers and the package ships it; otherwise the user picks one of the shipped
+ * models, and a choice that differs from medaka's mapping must be confirmed. ARVA never guesses one. */
+function MedakaSection({ form, set, plan }: { form: PolishingForm; set: <K extends keyof PolishingForm>(key: K, value: PolishingForm[K]) => void; plan: PolishingPlan | undefined }) {
+  const t = useT();
+  const m = plan?.medaka;
+  const s = m?.suggestion ?? null;
+  const mapped = s?.status === "mapped" ? s.model : null;
+  return (
+    <Section title={t("polishing.medaka.title")} hint={t("polishing.medaka.hint")} action={<Explain id="medaka" compact />}>
+      {m && !m.available && (
+        <p className="flex gap-1.5 text-xs text-amber-700 dark:text-warning">
+          <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden /> {t("polishing.medaka.unavailable", { error: m.error ?? "" })}
+        </p>
+      )}
+      {s && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-arva-teal/30 bg-arva-teal/5 p-2.5 text-xs" role="note">
+          <span className="flex items-center gap-1.5">
+            <Lightbulb className="h-3.5 w-3.5 text-arva-teal" aria-hidden />
+            {t(`polishing.medaka.suggestion.${s.status}`, { basecall: s.basecall_model ?? "", models: s.basecall_models.join(", "), model: s.model ?? "" })}
+          </span>
+          {mapped && form.medakaModel && form.medakaModel !== mapped && (
+            <Button size="sm" variant="outline" onClick={() => set("medakaModel", "")}>
+              {t("flye.suggestion.use")}
+            </Button>
+          )}
+        </div>
+      )}
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Field label={t("polishing.medaka.model")} hint={t("polishing.medaka.modelHint")}>
+          <Select value={form.medakaModel} onChange={(e) => set("medakaModel", e.target.value)} aria-label={t("polishing.medaka.model")}>
+            <option value="">{mapped ? t("polishing.medaka.modelFromReads", { model: mapped }) : t("polishing.presetChoose")}</option>
+            {(m?.models ?? []).map((name) => (
+              <option key={name} value={name}>
+                {name}
+                {name === m?.default_model ? ` (${t("polishing.medaka.medakaDefault")})` : ""}
+              </option>
+            ))}
+          </Select>
+        </Field>
+        <Field label={t("polishing.medaka.batch")} hint={t("polishing.medaka.batchHint", { default: m?.default_batch_size ?? MEDAKA_BATCH_DEFAULT })}>
+          <Input type="number" min={1} max={1000} value={form.medakaBatch} onChange={(e) => set("medakaBatch", e.target.value)} />
+        </Field>
+      </div>
+      {medakaMismatch(form, plan) && (
+        <label className="flex items-start gap-2 rounded-lg border border-warning/40 bg-warning/5 p-2.5 text-xs">
+          <input type="checkbox" className={CHECK} checked={form.medakaAcceptMismatch} onChange={(e) => set("medakaAcceptMismatch", e.target.checked)} />
+          <span>
+            {t("polishing.medaka.mismatch", { model: form.medakaModel, expected: s?.model ?? "", basecall: s?.basecall_model ?? "" })}
+            <span className="block text-muted-foreground">{t("polishing.medaka.mismatchHint")}</span>
+          </span>
+        </label>
+      )}
+      {m && !m.draft_is_flye && (
+        <p role="note" className="flex gap-1.5 rounded-lg bg-warning/10 p-2.5 text-xs text-amber-800 dark:text-warning">
+          <Info className="h-3.5 w-3.5 shrink-0" aria-hidden /> {t("polishing.medaka.notFlye")}
+        </p>
+      )}
+      <p className="text-xs text-muted-foreground">{t("polishing.medaka.models", { models: (m?.models ?? []).join(", ") || "—", version: m?.version ?? "?" })}</p>
+      <p className="text-xs text-muted-foreground">{t("polishing.medaka.fixed")}</p>
+    </Section>
   );
 }

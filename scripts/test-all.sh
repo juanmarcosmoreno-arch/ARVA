@@ -14,7 +14,7 @@ if [ -z "${ARVA_TOOL_QUAST:-}" ] && [ -x "$HOME/.arva-tools/quast/bin/quast.py" 
   export ARVA_TOOL_QUAST="$HOME/.arva-tools/quast/bin/quast.py"
 fi
 # Bioconda tools live in environments created from docker/conda-locks (scripts/conda_locks.py install <tool>).
-for spec in MLST:mlst/bin/mlst FASTANI:fastani/bin/fastANI SKANI:skani/bin/skani MASH:mash/bin/mash \
+for spec in FLYE:flye/bin/flye FILTLONG:filtlong/bin/filtlong MEDAKA:medaka/bin/medaka MLST:mlst/bin/mlst FASTANI:fastani/bin/fastANI SKANI:skani/bin/skani MASH:mash/bin/mash \
   SYLPH:sylph/bin/sylph GTDBTK:gtdbtk/bin/gtdbtk AMRFINDERPLUS:amrfinderplus/bin/amrfinder BAKTA:bakta/bin/bakta \
   ABRICATE:abricate/bin/abricate MOBSUITE:mobsuite/bin/mob_recon INTEGRONFINDER:integronfinder/bin/integron_finder \
   ISESCAN:isescan/bin/isescan.py GENOMAD:genomad/bin/genomad SCCMEC:sccmec/bin/sccmec SPATYPER:spatyper/bin/spaTyper \

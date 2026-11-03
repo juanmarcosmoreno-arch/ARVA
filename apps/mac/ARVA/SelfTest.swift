@@ -1,4 +1,5 @@
 import Foundation
+import IOKit.pwr_mgt
 import UniformTypeIdentifiers
 
 /// `ARVA --self-test`: checks the app without opening a window or touching Docker, the saved locations or the
@@ -265,6 +266,44 @@ enum SelfTest {
         let lines = AppDelegate.failureLines(failure)
         check("failure read from the last lines, without warnings", lines.contains("could not download") && !lines.contains("connected"), lines)
         check("details hide the home folder", AppInfo.tilde(AppPaths.home.path + "/x") == "~/x")
+
+        // Keeping the Mac awake while analyses run: the rules with a stand-in, then one real assertion.
+        var created = 0
+        var released: [IOPMAssertionID] = []
+        let fake = SleepGuard.Backend(create: { _ in created += 1; return IOPMAssertionID(41 + created) },
+                                      release: { released.append($0); return true })
+        let guardian = SleepGuard(backend: fake)
+        var changes: [Bool] = []
+        guardian.onChange = { changes.append($0) }
+        guardian.update(activeJobs: 0)
+        check("sleep: nothing running, nothing held", !guardian.isActive && created == 0)
+        guardian.update(activeJobs: 2)
+        guardian.update(activeJobs: 3)
+        check("sleep: held once while analyses run", guardian.isActive && created == 1 && changes == [true])
+        guardian.update(activeJobs: 0)
+        check("sleep: one idle answer (between two jobs of a batch) keeps it", guardian.isActive)
+        guardian.update(activeJobs: 0)
+        check("sleep: released after \(SleepGuard.idlePollsToRelease) idle answers", !guardian.isActive && released == [42]
+              && changes == [true, false])
+        guardian.update(activeJobs: 1)
+        for _ in 1..<SleepGuard.unknownPollsToRelease { guardian.update(activeJobs: nil) }
+        check("sleep: kept while ARVA briefly does not answer", guardian.isActive)
+        guardian.update(activeJobs: nil)
+        check("sleep: released when ARVA stops answering", !guardian.isActive && released == [42, 43])
+        guardian.update(activeJobs: 1)
+        guardian.release()
+        guardian.release()
+        check("sleep: released on stop or quit, once", !guardian.isActive && released == [42, 43, 44])
+        check("sleep: assertion name within IOPMLib's 128 characters", SleepGuard.assertionName.count <= 128)
+        check("sleep: status line", SleepGuard.statusText == (Lang.isSpanish
+            ? "La Mac no se suspenderá mientras haya análisis en curso"
+            : "The Mac will not sleep while analyses are running"), SleepGuard.statusText)
+        if let id = SleepGuard.system.create(SleepGuard.assertionName + " (self-test)") {
+            check("sleep: power management takes the assertion", true)
+            check("sleep: power management releases it", SleepGuard.system.release(id))
+        } else {
+            check("sleep: power management takes the assertion", false, "IOPMAssertionCreateWithName did not succeed")
+        }
 
         print(failures == 0 ? "self-test passed" : "self-test FAILED: \(failures) check(s)")
         return failures == 0 ? 0 : 1

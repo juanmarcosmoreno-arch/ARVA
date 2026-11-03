@@ -21,7 +21,10 @@ from typing import Any
 FORMAT = "arva-workflow"
 FORMAT_VERSION = 1
 
-PORT_TYPES = ("reads_long", "reads_short", "assembly", "annotation", "comparison_set", "alignment", "tree")
+# species_call and mlst_call carry no data a node reads: they order a node after the species identification or the
+# MLST call of the same assembly (S. aureus typing reads that evidence from ARVA's records to decide whether it applies).
+PORT_TYPES = ("reads_long", "reads_short", "assembly", "annotation", "comparison_set", "alignment", "tree",
+              "species_call", "mlst_call")
 SCOPES = ("sample", "set")
 MAX_NODES = 60
 
@@ -94,14 +97,20 @@ NODES: dict[str, NodeSpec] = {s.kind: s for s in (
              (_ASM, Port("long_reads", ("reads_long",), required=False),
               Port("short_reads", ("reads_short",), required=False)),
              (_out("assembly", "assembly"),),
-             {"racon": ("racon", "minimap2"), "pilon": ("pilon", "bwa", "samtools"),
-              "hybrid": ("racon", "minimap2", "pilon", "bwa", "samtools")}, "strategy"),
+             {"racon": ("racon", "minimap2"), "medaka": ("medaka", "minimap2", "samtools"),
+              "pilon": ("pilon", "bwa", "samtools"), "hybrid": ("racon", "minimap2", "pilon", "bwa", "samtools")},
+             "strategy"),
     NodeSpec("quast", "sample", "assembly", (_ASM,), (), {"": ("quast",)}),
     NodeSpec("bakta", "sample", "annotation", (_ASM,), (_out("annotation", "annotation"),), {"": ("bakta",)}),
     NodeSpec("prokka", "sample", "annotation", (_ASM,), (_out("annotation", "annotation"),), {"": ("prokka",)}),
-    NodeSpec("mlst", "sample", "characterisation", (_ASM,), (), {"": ("mlst",)}),
-    NodeSpec("species", "sample", "characterisation", (_ASM,), (),
+    NodeSpec("mlst", "sample", "characterisation", (_ASM,), (_out("evidence", "mlst_call"),), {"": ("mlst",)}),
+    NodeSpec("species", "sample", "characterisation", (_ASM,), (_out("evidence", "species_call"),),
              {m: (m,) for m in ("fastani", "skani", "mash", "sylph", "gtdbtk")}, "method"),
+    # One step of the S. aureus typing module (SCCmec, spa or agr) on an assembly. The optional ports order it after
+    # the species identification and MLST call whose evidence decides whether the module applies.
+    NodeSpec("staph_typing", "sample", "characterisation",
+             (_ASM, Port("species", ("species_call",), required=False), Port("mlst", ("mlst_call",), required=False)),
+             (), {"sccmec": ("sccmec",), "spa": ("spatyper",), "agr": ("agrvate",)}, "method"),
     NodeSpec("amrfinderplus", "sample", "characterisation",
              (_ASM, Port("annotation", ("annotation",), required=False)), (), {"": ("amrfinderplus",)}),
     NodeSpec("virulence", "sample", "characterisation", (_ASM,), (), {"": ("abricate",)}),
@@ -364,14 +373,21 @@ def layout(definition: dict[str, Any]) -> dict[str, Any]:
 _FILTLONG = {"params": {"min_length": 1000, "keep_percent": 90}}
 
 
+# Flye's memory guard (finding 19): on a computer whose memory the estimate says the run may not fit, use only the
+# longest reads up to Flye's documented --asm-coverage for the disjointig stage. It never overrides values the user set.
+_FLYE = {"memory_guard": "auto"}
+
+
 def _long(read_type: str | None) -> list[tuple[str, str, dict]]:
-    return [("long", "reads_long_input", {}), ("filtlong", "filtlong", _FILTLONG), ("flye", "flye", {}),
+    return [("long", "reads_long_input", {}), ("filtlong", "filtlong", _FILTLONG), ("flye", "flye", _FLYE),
             ("polish", "polishing", {"strategy": "racon", "racon": {"read_type": read_type}})]
 
 
 _LONG_EDGES = [("long", "reads", "filtlong", "reads"), ("filtlong", "reads", "flye", "reads"),
                ("flye", "assembly", "polish", "assembly"), ("filtlong", "reads", "polish", "long_reads")]
 _ASM_IN = [("asm", "assembly_input", {"prefer": "latest_polished"})]
+# S. aureus typing after the polished assembly; a sample whose species evidence is not S. aureus skips these steps.
+_STAPH_STEPS = ("sccmec", "spa", "agr")
 _ANN_IN = [("ann", "annotation_input", {"prefer": "latest_polished"})]
 
 # The workflows of spec section 25 that ARVA's integrated tools can run. Parameters not given here take the defaults
@@ -380,11 +396,14 @@ TEMPLATES: dict[str, dict[str, Any]] = {
     "bacterial_genome_complete": layout(_graph(
         [*_long(None), ("quast", "quast", {}), ("bakta", "bakta", {}), ("species", "species", {"method": "skani"}),
          ("mlst", "mlst", {}), ("amr", "amrfinderplus", {}), ("vir", "virulence", {}),
-         ("mob", "mobile_elements", {"method": "mobsuite"})],
+         ("mob", "mobile_elements", {"method": "mobsuite"}),
+         *[(m, "staph_typing", {"method": m}) for m in _STAPH_STEPS]],
         [*_LONG_EDGES, ("polish", "assembly", "quast", "assembly"), ("polish", "assembly", "bakta", "assembly"),
          ("polish", "assembly", "species", "assembly"), ("polish", "assembly", "mlst", "assembly"),
          ("polish", "assembly", "amr", "assembly"), ("bakta", "annotation", "amr", "annotation"),
-         ("polish", "assembly", "vir", "assembly"), ("polish", "assembly", "mob", "assembly")])),
+         ("polish", "assembly", "vir", "assembly"), ("polish", "assembly", "mob", "assembly"),
+         *[e for m in _STAPH_STEPS for e in (("polish", "assembly", m, "assembly"), ("species", "evidence", m, "species"),
+                                             ("mlst", "evidence", m, "mlst"))]])),
     "nanopore_assembly": layout(_graph(
         [*_long("map-ont"), ("quast", "quast", {})], [*_LONG_EDGES, ("polish", "assembly", "quast", "assembly")])),
     "illumina_assembly": layout(_graph(

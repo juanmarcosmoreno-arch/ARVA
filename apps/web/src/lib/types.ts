@@ -1169,8 +1169,22 @@ export interface FlyePlan {
     files_without_stats: string[];
     from_depth: { depth_x: number; total_read_bases: number; bp: number } | null;
   };
+  /** ARVA's memory estimate for the reads (arva_tools.flye.memory_estimate); absent from older servers. */
+  memory?: FlyeMemory;
   sample_technology: SequencingTechnology;
   long_reads_confirmation_required: boolean;
+}
+
+/** ARVA's estimate of whether a Flye run fits the memory ARVA can use: Flye's documented RAM for E. coli at 50x
+ * (its only bacterial benchmark), scaled by the bases the disjointig stage reads. */
+export interface FlyeMemory {
+  reference: { source: string; url: string; genome: string; data: string; genome_size_bp: number; coverage_x: number; ram_gb: number };
+  reference_bases: number;
+  available_gb: number;
+  read_bases: number | null;
+  estimate_gb: number | null;
+  verdict: "fits" | "may_not_fit" | "unknown";
+  expected_genome_size_bp: number | null;
 }
 
 export interface AssemblyWarning {
@@ -1517,7 +1531,7 @@ export interface UnicyclerPlan extends ShortReadPlan {
 
 // --- Polishing ------------------------------------------------------------------------------------------------
 
-export type PolishingStrategy = "racon" | "pilon" | "hybrid";
+export type PolishingStrategy = "racon" | "medaka" | "pilon" | "hybrid";
 /** minimap2 presets for the long reads Racon polishes with. */
 export type LongReadPreset = "map-ont" | "map-pb" | "map-hifi";
 export type PilonFix = "snps" | "indels" | "gaps" | "local";
@@ -1532,7 +1546,27 @@ export interface PolishingTool {
   path: string | null;
 }
 
-export type PolishingToolId = "racon" | "minimap2" | "pilon" | "java" | "bwa" | "samtools" | "dnadiff";
+export type PolishingToolId = "racon" | "medaka" | "minimap2" | "pilon" | "java" | "bwa" | "samtools" | "dnadiff";
+
+/** How medaka's own mapping (medaka/options.py) relates the reads' basecall model to a Medaka model. */
+export type MedakaSuggestionStatus = "mapped" | "mapped_not_bundled" | "unknown_basecall_model" | "fast_unsupported" | "several_basecall_models" | "no_basecall_model";
+
+export interface MedakaPlan {
+  available: boolean;
+  error: string | null;
+  version: string | null;
+  /** Consensus models ARVA can run: shipped in Medaka's package, file checksum matching conda's record. */
+  models: string[];
+  bundled: { name: string; file: string; sha256: string; size: number; checksum: "matches_package" | "differs_from_package" | "unrecorded" }[];
+  /** medaka_consensus' own default (shown, never used silently). */
+  default_model: string | null;
+  suggestion: { status: MedakaSuggestionStatus; basecall_model: string | null; basecall_models: string[]; model: string | null; source: string } | null;
+  default_batch_size: number;
+  /** Why the chosen reads cannot be polished with Medaka. */
+  problem: string | null;
+  /** The draft is an unpolished Flye assembly, the input Medaka's models were trained on. */
+  draft_is_flye: boolean;
+}
 
 export interface PolishingPlan {
   draft: {
@@ -1555,6 +1589,9 @@ export interface PolishingPlan {
   files: AssemblyFileEvidence[];
   /** The strategy the chosen reads imply. */
   strategy: PolishingStrategy | null;
+  /** Every strategy the chosen reads allow. */
+  strategies_for_reads?: PolishingStrategy[];
+  medaka?: MedakaPlan;
   /** The strategy the sample's sequencing technology calls for. */
   suggested_strategy: PolishingStrategy | null;
   preset_suggestion: { heuristic: true; value: LongReadPreset | null; basis: string; flye_read_type: string | null; platform?: "nanopore" | "pacbio" | null };
@@ -1580,6 +1617,13 @@ export interface RaconSettings {
   error_threshold: number;
 }
 
+export interface MedakaSettings {
+  /** null: medaka's own model for the reads' basecall model, when the package ships it. */
+  model: string | null;
+  batch_size: number;
+  accept_model_mismatch: boolean;
+}
+
 export interface PilonSettings {
   rounds: number;
   fix: PilonFix[];
@@ -1594,6 +1638,7 @@ export interface PolishingRequest {
   strategy: PolishingStrategy;
   inputs: UnicyclerInputs;
   racon: RaconSettings;
+  medaka?: MedakaSettings;
   pilon: PilonSettings;
   threads: number | null;
   quast: boolean;
@@ -1653,10 +1698,26 @@ export interface PolishingRound {
   changes_source: "dnadiff" | "pilon_changes" | null;
   pilon_changes?: Changes;
   racon_contigs?: Record<string, { length: number | null; reads: number | null; windows_polished: number | null }>;
+  medaka_unpolished?: MedakaUnpolished;
+}
+
+/** Draft regions Medaka copied unpolished (consensus.fasta.gaps_in_draft_coords.bed), by contig. */
+export interface MedakaUnpolished {
+  contigs: Record<string, { regions: [number, number][]; bases: number }>;
+  bases: number;
+  verbatim_contigs: string[];
 }
 
 export interface PolishingObservation {
-  code: "ends_trimmed" | "contigs_unaligned" | "no_changes" | "edit_distance_increased";
+  code:
+    | "ends_trimmed"
+    | "contigs_unaligned"
+    | "no_changes"
+    | "edit_distance_increased"
+    | "medaka_contig_unpolished"
+    | "medaka_regions_unpolished"
+    | "medaka_model_mismatch"
+    | "medaka_draft_not_flye";
   params: Record<string, string | number | boolean | null>;
   message: string;
 }
@@ -1671,9 +1732,9 @@ export interface AssemblySummaryStats {
   n_count: number;
 }
 
-/** result_summary of a racon_polish or pilon_polish job. */
+/** result_summary of a racon_polish, medaka_polish or pilon_polish job. */
 export interface PolishingSummary {
-  polisher: "Racon" | "Pilon";
+  polisher: "Racon" | "Medaka" | "Pilon";
   polisher_version: string;
   strategy: PolishingStrategy | null;
   draft: { assembly_id: string; assembler: string; assembler_version: string; kind: AssemblyKind };
@@ -1689,6 +1750,14 @@ export interface PolishingSummary {
   observations: PolishingObservation[];
   helpers: { name: string; version: string | null; path: string }[];
   followups: { pilon_job_id?: string; quast_job_id?: string; pilon_error?: string; quast_error?: string };
+  medaka?: {
+    model: { model: string; source: "basecall_model" | "user"; mismatch_accepted: boolean; sha256: string; file: string; suggestion: MedakaPlan["suggestion"] };
+    threads: number;
+    batch_size: number;
+    programs: { program: string; version: string; required: string; pass: boolean }[];
+    model_files: string[];
+    unpolished: MedakaUnpolished;
+  };
 }
 
 export type VersionSource = "file" | "declared" | "checksum" | "download";

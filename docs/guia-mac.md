@@ -361,6 +361,23 @@ completo de referencia es GCF_000144955.2.
 5. Seguir el recorrido: control de calidad, filtrado, ensamblaje, anotación con Bakta, MLST (JKD6159 es ST93),
    especie, resistencia (AMRFinderPlus) y tipificación de *S. aureus*.
 
+Para lecturas de Oxford Nanopore (R10.4.1) el pulido puede hacerse con **Medaka** (estrategia "Lecturas de Oxford
+Nanopore: Medaka" del diálogo de pulido), como en el pipeline habitual Filtlong → Flye → Medaka. ARVA lee el modelo de
+basecalling de las cabeceras de las lecturas (por ejemplo `dna_r10.4.1_e8.2_400bps_sup@v5.2.0`) y, con la
+correspondencia propia de medaka, propone el modelo de Medaka (`r1041_e82_400bps_sup_v5.2.0`). Solo se usan los
+modelos que trae el paquete de Medaka 2.1.1 (sup y hac v5.2.0): no hay nada que descargar ni registrar. Medaka viene
+dentro de la imagen (aproximadamente 1,6 GB más) y usa la CPU; con 3,8 GB para Docker Desktop, si se queda sin
+memoria, bajar el tamaño de lote (-b) en el diálogo.
+
+Con 3,8 GB para Docker Desktop, Flye puede quedarse sin memoria con coberturas altas (en la prueba, 413 Mb de
+lecturas filtradas, unas 148× de 2,8 Mb). El diálogo de Flye estima, con la cifra que documenta Flye (2 GB para
+*E. coli* a 50×), si la ejecución cabe en la memoria que ARVA puede usar y, si no, ofrece el botón
+**Usar --asm-coverage 50** (la opción que Flye documenta para usar menos memoria; necesita un tamaño de genoma). En los
+flujos "Genoma bacteriano, análisis completo" y "Ensamblaje Nanopore", la **protección de memoria de Flye** hace lo mismo sola
+cuando la estimación no cabe y la muestra tiene un tamaño de genoma esperado; lo deja registrado en la ejecución y
+nunca cambia un valor que el paso fija por sí mismo. Se puede apagar en las opciones de la ejecución. En esas mismas
+opciones se elige la estrategia de pulido de la ejecución (por ejemplo Medaka).
+
 Una nota sobre Prokka: Prokka nombra al gen *mecA* como `pbp` (su producto es la PBP2a); ARVA no cambia lo que
 escribe la herramienta, pero lo aclara donde corresponde. Bakta y AMRFinderPlus lo llaman *mecA*.
 
@@ -399,6 +416,8 @@ Problemas frecuentes:
 | "El archivo de ajustes de Docker Desktop no guarda el ajuste de Rosetta" | no es un error: comprobar en Docker Desktop → Settings → General que Rosetta esté activado (paso 3) |
 | Un trabajo dice que el sistema lo detuvo con SIGKILL | casi siempre falta memoria: elegir un perfil más liviano en Ajustes → Rendimiento o dar más memoria a Docker Desktop (paso 3) y volver a iniciar ARVA |
 | Pulido con Pilon sin memoria (OutOfMemoryError) | la documentación de Pilon pide al menos 8 GB para un genoma bacteriano con ~200x de Illumina (16 GB recomendados). ARVA le da por omisión hasta lo que puede usar una herramienta menos 1 GB, que deja para el consumo propio de Java y los demás servicios de ARVA (2 GB cuando Docker Desktop tiene 3,8 GB), y lo avisa en el diálogo de pulido: dar más memoria a Docker Desktop (paso 3) |
+| Pulido con Medaka sin memoria (el trabajo dice que el sistema detuvo Medaka) | bajar el tamaño de lote (-b, por omisión 100; según medaka "controla el uso de memoria") en el diálogo de pulido, o dar más memoria a Docker Desktop (paso 3) |
+| Medaka pide elegir el modelo | ARVA no encontró el modelo de basecalling en las cabeceras de las lecturas (o no corresponde a un modelo que trae Medaka): elegir el modelo que corresponde al basecalling con el que se generaron las lecturas, o pulir con Racon |
 | Todo muy lento en una Mac con chip de Apple | activar Rosetta en Docker Desktop (paso 3) |
 
 ## 12. Copias de seguridad

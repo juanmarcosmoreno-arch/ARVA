@@ -9,3 +9,6 @@ unchanged (the `\r` progress updates included). Each shows one of the three outc
 | `target_500000.log` | `--target_bases 500000` | `keeping 504167 bp` (overshoots by part of one read) |
 | `target_not_enough_reads.log` | `--target_bases 1513780` (= every base of the input) | `not enough reads to reach target` |
 | `target_below_after_filtering.log` | `--min_length 5000 --target_bases 1000000` | `reads already fall below target after filtering` |
+
+Filtlong 0.3.1 (Bioconda package filtlong-0.3.1, ARVA's lock `docker/conda-locks/filtlong/`) writes byte-identical
+logs for the same three commands, and the same kept reads.

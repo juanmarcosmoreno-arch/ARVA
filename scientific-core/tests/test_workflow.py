@@ -87,6 +87,7 @@ def test_topological_order_and_descendants():
 def test_tools_follow_the_method_parameter():
     assert wf.NODES["species"].tool_ids({"method": "fastani"}) == ("fastani",)
     assert wf.NODES["polishing"].tool_ids({"strategy": "pilon"}) == ("pilon", "bwa", "samtools")
+    assert wf.NODES["polishing"].tool_ids({"strategy": "medaka"}) == ("medaka", "minimap2", "samtools")
     assert wf.NODES["phylogeny"].tool_ids({"method": "nj"}) == ()
     assert wf.NODES["comparison_set"].tool_ids({}) == ()
     assert wf.tools_of(wf.TEMPLATES["virulence_screening"]) == {"asm": (), "vir": ("abricate",)}
@@ -112,3 +113,22 @@ def test_reusable_nodes_stop_at_the_first_change():
 def test_param_diff():
     assert wf.param_diff({"a": 1, "b": {"c": 2, "d": 3}}, {"a": 1, "b": {"c": 5}}) == [
         {"path": "b.c", "before": 2, "after": 5}, {"path": "b.d", "before": 3, "after": None}]
+
+
+def test_s_aureus_typing_follows_the_species_evidence_in_the_complete_template():
+    d = wf.TEMPLATES["bacterial_genome_complete"]
+    tools = wf.tools_of(d)
+    assert (tools["sccmec"], tools["spa"], tools["agr"]) == (("sccmec",), ("spatyper",), ("agrvate",))
+    order = wf.topological_order(d)
+    for step in ("sccmec", "spa", "agr"):
+        assert order.index("species") < order.index(step) and order.index("mlst") < order.index(step)
+    assert next(n for n in d["nodes"] if n["id"] == "flye")["params"] == {"memory_guard": "auto"}
+    # The evidence ports carry their own types: an assembly cannot feed them, nor evidence an assembly port.
+    nodes = {"a": {"id": "a", "kind": "assembly_input"}, "s": {"id": "s", "kind": "species"},
+             "t": {"id": "t", "kind": "staph_typing"}}
+    edge = {"source": "a", "source_port": "assembly", "target": "t", "target_port": "species"}
+    assert wf.edge_problem(nodes, edge)["code"] == "wf_edge_type"
+    edge = {"source": "s", "source_port": "evidence", "target": "t", "target_port": "assembly"}
+    assert wf.edge_problem(nodes, edge)["code"] == "wf_edge_type"
+    edge = {"source": "s", "source_port": "evidence", "target": "t", "target_port": "species"}
+    assert wf.edge_problem(nodes, edge) is None

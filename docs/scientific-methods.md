@@ -232,6 +232,7 @@ test suite has run against them; other versions run with a recorded warning.
 | Flye | 2.9.3 | Long-read de novo assembly (Phase 3; with samtools for its `flye-samtools` helper) |
 | SPAdes | 3.15.5 | Short-read de novo assembly of bacterial isolates (Phase 3) |
 | Unicycler | 0.5.0 | Short-read, long-read-only and hybrid assembly (Phase 3; with SPAdes 3.15.5, Racon 1.5.0 and BLAST+ 2.12.0) |
+| Medaka | 2.1.1 (Bioconda) | Oxford Nanopore polishing with the model for the reads' basecaller model (see *Polishing*) |
 
 ### Independent cross-check (SeqKit)
 
@@ -683,6 +684,22 @@ against `flye --help`, the Flye 2.9.3 manual and README, and the source of the i
   warnings"), an estimate `round(total read bases ÷ assumed depth)` (half up; needs ARVA statistics
   for every selected file, and the server recomputes it), or a value typed by the user. ARVA never
   assumes a size. The same size is used for the assembly's genome-size warning, with its basis shown.
+- **Memory estimate before a run (ARVA's, from Flye's documentation).** Flye documents no formula for its memory.
+  Its manual (docs/USAGE.md of Flye 2.9.6, "Flye benchmarks") gives one bacterial figure: *E. coli*, PacBio 50×,
+  4.6 Mb, **2 GB** of RAM; the same page ("Reducing RAM consumption") says the disjointig stage is usually the
+  memory bottleneck, that `--asm-coverage` limits that stage to the longest reads up to the given coverage
+  ("Typically, 40x longest reads is enough"), that all reads are still used in the later stages, and the
+  benchmarks of the large human genomes were run "with `--asm-coverage 50`". ARVA's estimate scales the documented
+  figure in proportion to the bases that stage reads: `2 GB × bases ÷ 230 Mb`, where *bases* is every read base
+  (ARVA read statistics) or, with `--asm-coverage` and a genome size, `min(read bases, asm-coverage × genome
+  size)`. It is compared with the memory ARVA can use (the performance profile's maximum, i.e. the memory of the
+  container). The verdict ("fits", "may not fit", or no estimate without read statistics) is shown in the
+  dialog, with Flye's documented way to use less memory when it may not fit (`--asm-coverage 50`, which
+  requires `--genome-size` and cannot be combined with `--meta`), applied only when the user clicks it; the API
+  records the estimate with the job (`memory_estimate`) and never changes the request. Example: the 413 Mb of
+  filtered reads (≈148× of 2.8 Mb) that ran out of memory in a 3.8 GB Docker Desktop give ≈3.6 GB, above the
+  3 GB ARVA can use there; with `--asm-coverage 50` and 2.8 Mb, ≈1.2 GB. This is a rough guide, not a measurement:
+  repeats, read error and the later stages also use memory, and Flye's figure is for PacBio reads.
 - **Monitoring.** The worker reads Flye's stderr every 5 s while it runs. Each `>>>STAGE: <name>` line
   (configure, assembly, consensus, repeat, contigger, polishing — only with iterations > 0 — and
   finalize, confirmed on real runs) is written to the job log and to `AnalysisJob.progress` (stage,
@@ -912,12 +929,12 @@ QUAST 5.2.0 (PyPI sdist) and real runs on assemblies with known differences from
   handler); the job notes it and the console log is kept. QUAST's locale warning (no `en_US.UTF-8`)
   affects only the dates in the HTML report.
 
-### Polishing (Racon, Pilon) and the before/after comparison
+### Polishing (Racon, Medaka, Pilon) and the before/after comparison
 
 A polished assembly is a new assembly record (`kind` "polished") linked to the draft it was made from
 (`parent_assembly_id`); the draft is never changed. The strategy follows the reads, not one recipe for
-every technology: long reads → Racon, short reads → Pilon, both → Racon then Pilon on Racon's result (the
-Pilon job is queued when Racon's result is registered). Every tool, version, parameter, command, input
+every technology: long reads → Racon or, for Oxford Nanopore reads, Medaka (the user's choice), short reads →
+Pilon, both → Racon then Pilon on Racon's result (the Pilon job is queued when Racon's result is registered). Every tool, version, parameter, command, input
 checksum and log is recorded per round; the draft's contigs checksum is checked again before the run.
 Verified with Racon 1.5.0, minimap2 2.26, Pilon 1.24 (OpenJDK 21), BWA 0.7.17, samtools 1.19.2 and
 MUMmer 3.23 (dnadiff 1.3, NUCmer 3.1) on Ubuntu 24.04, using their help texts, Pilon's bytecode (javap) for its
@@ -932,6 +949,52 @@ defaults, and real runs on the synthetic genome with a draft carrying 16 known e
   more in a second). `--no-trimming` instead left 60 spurious insertions at window boundaries (every 500 bp), so
   ARVA keeps the default and reports the bases lost at each end. One round fixed all 7 substitutions and all
   but 2 indel bases of the known errors; a second fixed the rest.
+- **Medaka (one run).** Verified with Medaka 2.1.1 (ARVA's Bioconda lock `docker/conda-locks/medaka/`, spec
+  `medaka=2.1.1`, 128 packages for linux-64 with PyTorch 2.3.1 CPU, 124 for linux-aarch64; 1.63 GB installed on
+  linux-64) from `medaka_consensus -h`, `medaka tools list_models`, `medaka tools resolve_model -h`, the package's
+  README and sources (fixtures in `workflows/tool-adapters/tests/fixtures/medaka/`). ARVA runs
+  `medaka_consensus -i <reads> -d draft.fasta -o medaka -m <model> -t <threads> -b <batch size>` in the job's work
+  folder on a copy of the draft (medaka writes the draft's `.fai` and `.map-ont.mmi` next to it), with the
+  environment's `bin/` first on PATH (the script runs `medaka`, `mini_align`, `python`, `samtools` and `minimap2` by
+  name). `-b` is medaka's batch size (default 100, "controls memory use"); `-t` is used for the alignment, the
+  inference and the stitching (README: inference "may been seen to use resources equivalent to <threads> + 4" and
+  scales poorly beyond 2 threads). Gap filling from the draft (medaka's default) keeps every contig's name; the
+  regions copied unpolished are read from `consensus.fasta.gaps_in_draft_coords.bed` (kept as
+  `medaka_unpolished_regions.bed`) and the log's "Copying contig '<name>' verbatim from input." lines.
+  - *Model.* The README: "it is important to specify the correct inference model, according to the basecaller
+    used". Medaka's own mapping from basecaller models to its models is `basecaller_models` in medaka/options.py
+    (e.g. `dna_r10.4.1_e8.2_400bps_sup@v5.2.0` → `r1041_e82_400bps_sup_v5.2.0`), the same table
+    `medaka tools resolve_model --model <basecaller>:consensus` and automatic selection use. ARVA reads that table
+    in the environment's own Python (`python -I`; options.py imports only the standard library) and applies it to
+    the basecall model ARVA read from the FASTQ headers (Dorado's `RG:Z:<run id>_<model>_<barcode>` or MinKNOW's
+    `basecall_model_version_id=`, the fields medaka's `_model_from_fastq` reads). Without a model in the request
+    ARVA uses the mapped model only when the package ships it, and otherwise refuses with the reason (no basecall
+    model in the headers, several, a 'fast' model, which medaka does not support, or a model medaka's mapping does
+    not know); the user may then choose one of the shipped models. A choice that differs from the mapped model must
+    be confirmed (`accept_model_mismatch`) and is noted in the result. `-m` always receives the model shown to the
+    user (without `-m`, medaka_consensus would try the same selection and fall back to its default with only a
+    warning).
+  - *Where the models come from (decision).* Medaka 2.1.1's package ships four model files in `medaka/data/`
+    (`<model>_model_pt.tar.gz`): the consensus models `r1041_e82_400bps_sup_v5.2.0` and
+    `r1041_e82_400bps_hac_v5.2.0` and their two variant-calling models (options.py: "current models are those
+    included in PyPI packages"). Any other model, including the bacterial methylation model behind `--bacteria`,
+    is downloaded by medaka on first use (models.resolve_model) from
+    `https://github.com/nanoporetech/medaka/raw/master/medaka/data/<file>`, the repository's master branch, with no
+    checksum, into the package folder or `~/.medaka/data`. ARVA therefore uses only the shipped consensus models:
+    their files are part of a package pinned by its sha256 in the lock, and before every run ARVA checks each file's
+    sha256 against conda's record of the package (`conda-meta/medaka-*.json`) and the job's recorded sha256, and
+    after the run that the log's "Using model: <file>" is that file. The user's model (sup v5.2.0, Dorado v5.2.0
+    basecalling, R10.4.1) is one of them, so a Database Manager entry for models was not needed; older basecaller
+    models (medaka maps them to models it would download) are polished with Racon instead. `--bacteria` is not
+    offered.
+  - *Test.* On the synthetic draft (7 substitutions, 12 indel bases) one run with `r1041_e82_400bps_sup_v5.2.0`
+    and 2 threads gave a sequence identical to the reference (dnadiff: 0 SNPs, 0 indels), kept both contig names
+    and copied nothing unpolished, in about 20 s; HOME stayed empty (no download). The synthetic reads' errors are
+    random, not a basecaller's, so this checks ARVA's handling, not Medaka's accuracy on real data. A draft contig
+    no read aligns to is copied verbatim and listed (fixture `run_unrelated`). Medaka's README: it "has been trained
+    to correct draft sequences output from the Flye assembler" and "should be used directly on the output of
+    Flye"; ARVA notes a draft that is not an unpolished Flye assembly. Medaka runs on the CPU (PyTorch's CPU
+    build); in the amd64 image on Apple silicon it runs under Rosetta, which was not measured.
 - **Pilon round.** `bwa index`, `bwa mem -t <threads> -K 100000000` per library (the fixed batch size makes the
   result independent of the thread count; the SAM is streamed gzip-compressed and read by samtools), `samtools
   sort` and `index`, then `java -Xmx<heap>g -jar pilon.jar --genome <current> --frags <pairs.bam> [--unpaired
@@ -968,9 +1031,10 @@ defaults, and real runs on the synthetic genome with a draft carrying 16 known e
   mapped polishing reads (`mapped_read_depth`, not comparable with Flye's, SPAdes' or Unicycler's values);
   circularity is the draft assembler's flag for the draft contig (Pilon's `_pilon` suffixes removed to match).
   Notes record bases trimmed at contig ends (with a note on circular contigs, which polishers treat as linear),
-  draft contigs with no alignment, a round without changes, and an edit distance that rose.
-- **Not integrated.** Medaka (model-based Nanopore polishing) needs a model matching the reads' basecaller and
-  downloads models; it is planned. A change is not proof of a correction: Racon also changed a Flye draft that
+  draft contigs with no alignment, a round without changes, and an edit distance that rose; for Medaka also the
+  regions and contigs copied unpolished, a confirmed model mismatch and a draft that is not an unpolished Flye
+  assembly.
+- **A change is not proof of a correction:** Racon also changed a Flye draft that
   was already identical to the reference (5 substitutions, 4 indel bases, 36 bases trimmed at the ends); only a
   trusted reference (QUAST with one) can show which version is closer to the truth.
 
@@ -2109,6 +2173,35 @@ fragmented assembly can separate a gene from its element, and an element not sea
   choices made at launch and the parsing of outputs into its records, which a Nextflow process could not reproduce
   faithfully. The run export (JSON) lists every job's tool, version, parameters, inputs, outputs and the exact
   argument vectors it executed.
+
+
+### S. aureus typing, run options and Flye's memory guard in workflows
+
+- **S. aureus typing node (`staph_typing`).** One step of the typing module (method `sccmec`, `spa` or `agr`) on an
+  assembly, launched through the typing route, so its checks (tools, Ridom files for spa, bundled data) apply
+  unchanged. Before launching, the node reads the assembly's species identification and MLST call with the
+  module's own rule (`typing_modules.applicability`): anything but `applicable` (`conflicting`, `not_applicable`,
+  `no_evidence`) **skips** the step with the code `wf_typing_not_applicable`, the status and the species and MLST
+  scheme found, unless the node sets `override_applicability` (which the result then records, as the route does).
+  A skip for this reason is not an error: a run whose other steps completed is `completed`. Two optional input
+  ports, `species` (type `species_call`) and `mlst` (type `mlst_call`), connect the species and MLST steps so the
+  typing runs after them; they carry no data the node uses (the evidence is read from ARVA's records). The
+  "Complete bacterial genome" template runs SCCmec, spa and agr after the polished assembly, each fed by the species
+  and MLST steps. spa needs the user's Ridom SpaServer files (Database Manager); without them the spa step fails
+  with the route's reason. AgrVATE has no linux-aarch64 build (its `.unavailable` lock note), so on an arm64 image
+  the template is not runnable until the agr step is removed.
+- **Run options.** The run dialog offers, for one run, the polishing strategy of every polishing node (for example
+  Medaka) and Flye's memory guard. The run's definition is the saved version with these values set; the run
+  records the options (`settings.run_options`) and each parameter they changed (`settings.option_changes`), and the
+  saved version is not changed.
+- **Flye's memory guard (`memory_guard`, per Flye node).** `off` by default; the long-read templates set `auto`.
+  With `auto`, before the Flye job is queued ARVA computes the memory estimate above for the sample's reads (the
+  Filtlong step waits for the ARVA statistics of its output, which the estimate reads). When it may not fit, the
+  guard adds `--asm-coverage 50` and, when the node sets no genome size, the sample's expected genome size (basis
+  `expected_genome_size`). It never changes a value the node sets itself: it does not apply when the node sets
+  `asm_coverage` or `meta`, and it cannot apply without a genome size or read statistics; in those cases the job
+  runs as configured. What it decided (estimate before and after, options added, or why not) is recorded on the
+  run's item (`inputs.notes.flye_memory`) and shown in the run view.
 
 ## ARVA Discover (Phase 8C)
 

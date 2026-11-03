@@ -7,6 +7,7 @@ import {
   chosenGenomeSize,
   defaultFlyeSelection,
   flyeCandidates,
+  flyeMemory,
   flyeProblems,
   flyeRequestParams,
   selectedTwice,
@@ -113,3 +114,22 @@ describe("Flye texts", () => {
 });
 
 const progressStages = ["configure", "assembly", "consensus", "repeat", "contigger", "polishing", "finalize"];
+
+describe("Flye memory estimate", () => {
+  const memory = { reference: { source: "Flye docs", url: "", genome: "E. coli", data: "PB 50x", genome_size_bp: 4_600_000, coverage_x: 50, ram_gb: 2 }, reference_bases: 230_000_000, available_gb: 3, read_bases: 413_000_000, estimate_gb: 3.59, verdict: "may_not_fit" as const, expected_genome_size_bp: 2_800_000 };
+  const withMemory = (m: Partial<typeof memory> = {}): FlyePlan => ({ ...plan({ expected: { bp: 2_800_000, status: "given", source: "read_statistics" } }), memory: { ...memory, ...m } });
+
+  it("matches the server's figures and suggests Flye's documented --asm-coverage with the expected size", () => {
+    const m = flyeMemory(FLYE_FORM_DEFAULTS, withMemory());
+    expect(m).toEqual({ verdict: "may_not_fit", estimateGb: 3.59, availableGb: 3, suggestion: { asmCoverage: 50, genomeBp: 2_800_000, estimateGb: 1.22 } });
+  });
+
+  it("follows the form: --asm-coverage with a genome size fits, --meta gets no suggestion, no statistics no estimate", () => {
+    const form: FlyeForm = { ...FLYE_FORM_DEFAULTS, genomeChoice: "expected", asmCoverage: "50" };
+    expect(flyeMemory(form, withMemory())).toMatchObject({ verdict: "fits", estimateGb: 1.22, suggestion: null });
+    expect(flyeMemory({ ...FLYE_FORM_DEFAULTS, meta: true }, withMemory())?.suggestion).toBeNull();
+    expect(flyeMemory(FLYE_FORM_DEFAULTS, withMemory({ read_bases: null }))?.verdict).toBe("unknown");
+    expect(flyeMemory(FLYE_FORM_DEFAULTS, withMemory({ expected_genome_size_bp: null }))?.suggestion?.genomeBp).toBeNull();
+    expect(flyeMemory(FLYE_FORM_DEFAULTS, plan())).toBeNull();
+  });
+});

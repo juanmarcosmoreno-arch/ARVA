@@ -162,6 +162,7 @@ def test_filtlong_runs_in_the_c_locale(tmp_path):
 
     exe = tool("filtlong")
     # A locale that is not installed makes Filtlong 0.2.1 abort; LC_ALL=C overrides it (and any digit grouping).
+    # Filtlong 0.3.1 runs the same way.
     run_command(FiltlongAdapter.argv(exe, FiltlongParams(keep_percent=90), ONT), cwd=tmp_path,
                 stderr_path=tmp_path / "filtlong.log", stdout_path=tmp_path / "kept.fq.gz",
                 extra_env={"LANG": "xx_XX.UTF-8", **ENVIRONMENT})
@@ -445,14 +446,19 @@ def test_plasmid_probes_accept_a_rotated_reverse_dimer_and_reject_other_sequence
 
 def test_flye_assembles_the_synthetic_genome(tmp_path):
     """Default synthetic genome (circular 300 kb chromosome with a 5 kb repeat in two copies, circular 15 kb plasmid
-    at two copies) with Nanopore-like reads at 30x. Recorded with Flye 2.9.3 (Ubuntu 2.9.3+dfsg2-1), --nano-hq,
-    2 threads: contig 300,000 bp circular at 31x and 15,000 bp circular at 53x with multiplicity 2, both identical
-    to the reference (reverse strand / rotated start); identical bytes in two runs. Once, the plasmid came out as a
-    30 kb circular contig (two tandem copies), which the assertions accept."""
+    at two copies) with Nanopore-like reads at 30x and a 2% mean error, within --nano-hq's range in Flye 2.9.3's
+    --help (< 5%) and in 2.9.6's (R10, < 3%; 2.9.6's NEWS: "R10 ONT parameters (3% error) are now default for
+    --nano-hq"). --nano-hq, 2 threads, identical bytes run to run. Flye 2.9.3 (Ubuntu 2.9.3+dfsg2-1): 300,001 bp
+    circular at 31x and 15,000 bp circular at 61x with multiplicity 2 (flagged as a repeat, as a contig of
+    multiplicity 2 is). Flye 2.9.6 (Bioconda): 299,999 bp at 30x and the same plasmid contig. With the generator's
+    default 4% error, 2.9.3 gave 300,000 and 15,000 bp (53x), while 2.9.6 gave a 30,027 bp dimer whose second copy
+    has about 150 differences from the reference: reads above 2.9.6's nano-hq error model. Flye can close a small
+    plasmid as two tandem copies (seen once with 2.9.3), which the assertions accept."""
     exe = tool("flye")
     data = tmp_path / "genome"
     subprocess.run([sys.executable, str(Path(__file__).resolve().parents[3] / "scripts" / "make_synthetic_genome.py"),
-                    str(data), "--ont-depth", "30", "--illumina-depth", "1"], check=True, capture_output=True)
+                    str(data), "--ont-depth", "30", "--illumina-depth", "1", "--ont-error-rate", "0.02"],
+                   check=True, capture_output=True)
     link = tmp_path / "in" / read_link_name(1, "ont.fastq.gz", compressed=True)
     link.parent.mkdir()
     link.symlink_to(data / "ont.fastq.gz")
@@ -478,9 +484,9 @@ def test_flye_assembles_the_synthetic_genome(tmp_path):
     assert tuple(seen) == params.stages()
 
     rows = FlyeAdapter.parse_assembly_info((tmp_path / "out" / "assembly_info.txt").read_text())
-    assert len(rows) == 2 and all(r["circular"] and not r["repeat"] for r in rows)
+    assert len(rows) == 2 and all(r["circular"] for r in rows)
     chromosome, plasmid = sorted(rows, key=lambda r: -r["length"])
-    assert abs(chromosome["length"] - 300_000) <= 10
+    assert abs(chromosome["length"] - 300_000) <= 10 and not chromosome["repeat"]
     # Flye can close a small circular plasmid as one unit or as two tandem copies (seen once: 30 kb for this 15 kb
     # plasmid). Either is the plasmid; what must hold is that the contig is whole copies of it, made of its sequence,
     # and that its depth times its copies gives the plasmid's two copies per chromosome.
@@ -762,6 +768,52 @@ def test_racon_corrects_most_known_errors_and_trims_contig_ends(tmp_path, small_
     assert changes["snps"]["substitutions"] == 7
     trimmed = {c["contig"]: c["unaligned_start"] + c["unaligned_end"] for c in changes["coords"]}
     assert all(0 < t < 100 for t in trimmed.values())
+
+
+def test_medaka_ships_the_users_model_and_corrects_the_known_errors(tmp_path, small_genome, polishing_draft):
+    """Recorded with Medaka 2.1.1 (ARVA's Bioconda lock): the package ships r1041_e82_400bps_sup_v5.2.0 (medaka's
+    model for dna_r10.4.1_e8.2_400bps_sup@v5.2.0) with the sha256 conda recorded; one run with it on the synthetic
+    draft leaves no difference from the reference (dnadiff), keeps both contig names, copies nothing verbatim, uses
+    the package's model file and downloads nothing (HOME is an empty folder, which stays empty)."""
+    from arva_tools.medaka import (
+        CONSENSUS,
+        GAPS_BED,
+        OUTPUT_DIR,
+        MedakaAdapter,
+        MedakaParams,
+        model_for_basecaller,
+        offered_models,
+        read_catalogue,
+    )
+
+    exe = tool("medaka")
+    catalogue = read_catalogue(exe)
+    assert catalogue["version"] == "2.1.1" and catalogue["default_consensus"] == "r1041_e82_400bps_sup_v5.2.0"
+    assert offered_models(catalogue) == ["r1041_e82_400bps_hac_v5.2.0", "r1041_e82_400bps_sup_v5.2.0"]
+    choice = model_for_basecaller(catalogue, ["dna_r10.4.1_e8.2_400bps_sup@v5.2.0"])
+    assert (choice["status"], choice["model"]) == ("mapped", "r1041_e82_400bps_sup_v5.2.0")
+    (ont,) = _linked(tmp_path, small_genome, ["ont.fastq.gz"])
+    draft = tmp_path / "draft.fasta"
+    draft.write_bytes(polishing_draft.read_bytes())
+    argv = MedakaAdapter.argv(exe, MedakaParams(choice["model"], threads=2), ont, draft,
+                              MedakaAdapter.help_text(exe), offered_models(catalogue))
+    home = tmp_path / "home"
+    home.mkdir()
+    log = tmp_path / "medaka.log"
+    run_command(argv, cwd=tmp_path, stderr_path=log, extra_env=MedakaAdapter().environment(exe), home=home)
+    parsed = MedakaAdapter.parse_log(log.read_text())
+    assert parsed["finished"] and parsed["verbatim_contigs"] == []
+    assert [Path(p).name for p in parsed["model_files"]] == ["r1041_e82_400bps_sup_v5.2.0_model_pt.tar.gz"]
+    assert Path(parsed["model_files"][0]).parent == Path(catalogue["data_dir"])
+    assert list(home.iterdir()) == []
+    out = tmp_path / OUTPUT_DIR
+    assert MedakaAdapter.parse_gaps((out / GAPS_BED).read_text()) == {}
+    names = [line[1:].strip() for line in (out / CONSENSUS).read_text().splitlines() if line.startswith(">")]
+    # The contigs' order in consensus.fasta can differ from the draft's (seen once: contig_2 before contig_1).
+    assert sorted(names) == ["contig_1", "contig_2"]
+    after = _dnadiff(tmp_path, small_genome / "reference.fasta", out / CONSENSUS, "after")
+    assert after["report"]["reference"]["substituted_bases"] == 0
+    assert after["report"]["reference"]["indel_bases"] == 0
 
 
 def test_pilon_corrects_every_known_error_and_lists_it(tmp_path, small_genome, polishing_draft):

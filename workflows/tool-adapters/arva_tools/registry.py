@@ -23,6 +23,7 @@ from arva_tools.isescan import IsescanAdapter
 from arva_tools.mafft import MafftAdapter
 from arva_tools.mapping import BwaAdapter, Minimap2Adapter, SamtoolsAdapter
 from arva_tools.mash import MashAdapter
+from arva_tools.medaka import MedakaAdapter
 from arva_tools.mlst import MlstAdapter
 from arva_tools.mobsuite import MobsuiteAdapter
 from arva_tools.multiqc import MultiqcAdapter
@@ -46,7 +47,7 @@ from arva_tools.unicycler import UnicyclerAdapter
 ADAPTERS: dict[str, ToolAdapter] = {
     a.info.id: a
     for a in (SeqkitAdapter(), FastqcAdapter(), FastpAdapter(), FiltlongAdapter(), MultiqcAdapter(), NanoplotAdapter(),
-              FlyeAdapter(), SpadesAdapter(), UnicyclerAdapter(), QuastAdapter(), RaconAdapter(), PilonAdapter(),
+              FlyeAdapter(), SpadesAdapter(), UnicyclerAdapter(), QuastAdapter(), RaconAdapter(), MedakaAdapter(), PilonAdapter(),
               Minimap2Adapter(), BwaAdapter(), SamtoolsAdapter(), DnadiffAdapter(), NucmerAdapter(), BaktaAdapter(), ProkkaAdapter(),
               MlstAdapter(), FastaniAdapter(), SkaniAdapter(), MashAdapter(), SylphAdapter(), GtdbtkAdapter(),
               AmrfinderplusAdapter(), AbricateAdapter(), MobsuiteAdapter(), IntegronfinderAdapter(), IsescanAdapter(),

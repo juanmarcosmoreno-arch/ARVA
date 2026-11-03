@@ -31,9 +31,11 @@ from app.models import (
     FileFormat,
     FileOrigin,
     JobStatus,
+    MlstResult,
     RawFile,
     Sample,
     SequencingTechnology,
+    SpeciesResult,
 )
 from app.schemas import schemas as s
 
@@ -43,6 +45,16 @@ FASTQ = (FileFormat.fastq, FileFormat.fastq_gz)
 
 class LaunchRefused(Exception):
     """The analysis's own checks refused the request (or a source found no data): never retried automatically."""
+
+    def __init__(self, code: str, message: str, **params: Any):
+        super().__init__(message)
+        self.code = code
+        self.params = params
+
+
+class NodeSkipped(Exception):
+    """The step does not apply to this sample (e.g. S. aureus typing of another species): the item is skipped with
+    this reason, which the run records; it is not a failure."""
 
     def __init__(self, code: str, message: str, **params: Any):
         super().__init__(message)
@@ -68,6 +80,8 @@ class LaunchContext:
     threads: int
     memory_gb: int
     run_name: str
+    # What ARVA decided for this launch beyond the node's parameters (Flye's memory guard), recorded on the item.
+    notes: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -149,6 +163,15 @@ def _out_long_reads(db: Session, job: AnalysisJob) -> dict[str, Any]:
     files = _derived_files(db, job)
     if not files:
         raise LaunchRefused("wf_output_missing", "the job registered no filtered reads", job_id=job.id)
+    # The filtered reads' ARVA statistics (queued by the filter in its own transaction) are waited for: Flye's
+    # memory estimate reads their bases. A statistics job that failed does not hold the run up.
+    from app.services.jobs import FASTQ_STATS_JOB
+
+    ids = {f.id for f in files}
+    for stats in db.scalars(select(AnalysisJob).where(AnalysisJob.parent_job_id == job.id,
+                                                      AnalysisJob.job_type == FASTQ_STATS_JOB)):
+        if set(stats.input_raw_file_ids or []) & ids and stats.status in (JobStatus.pending, JobStatus.running):
+            raise WaitForFollowUp(stats)
     return {"reads": {"file_ids": [f.id for f in files]}}
 
 
@@ -212,6 +235,16 @@ def _out_none(db: Session, job: AnalysisJob) -> dict[str, Any]:
     return {}
 
 
+def _out_species(db: Session, job: AnalysisJob) -> dict[str, Any]:
+    r = db.scalar(select(SpeciesResult).where(SpeciesResult.job_id == job.id))
+    return {"evidence": {"result_id": r.id if r else None, "species": r.species if r else None}}
+
+
+def _out_mlst(db: Session, job: AnalysisJob) -> dict[str, Any]:
+    r = db.scalar(select(MlstResult).where(MlstResult.job_id == job.id))
+    return {"evidence": {"result_id": r.id if r else None, "scheme": r.scheme if r else None}}
+
+
 # --- launchers -----------------------------------------------------------------------------------------------------
 
 def _routes():
@@ -228,9 +261,11 @@ def _routes():
         species,
         tools,
     )
+    from app.api.routes import typing as typing_routes
+
     return {"amr": amr, "annotations": annotations, "assemblies": assemblies, "comparative": comparative,
             "mlst": mlst, "mobile": mobile_elements, "pangenome": pangenome, "phylogeny": phylogeny,
-            "regions": regions, "species": species, "tools": tools}
+            "regions": regions, "species": species, "tools": tools, "typing": typing_routes}
 
 
 def _assembly_id(ctx: LaunchContext) -> str:
@@ -263,8 +298,57 @@ def _launch_filtlong(ctx: LaunchContext):
 
 
 def _launch_flye(ctx: LaunchContext):
-    req = _request(ctx, "flye", {"raw_file_ids": ctx.inputs["reads"]["file_ids"]})
+    node = _request(ctx, "flye", {"raw_file_ids": ctx.inputs["reads"]["file_ids"]})
+    body = node.model_dump()
+    guard = body.pop("memory_guard")
+    params = body["params"]
+    decision = flye_memory_guard(ctx.db, ctx.sample, body["raw_file_ids"], params, guard)
+    if decision["applied"]:
+        params.update(decision["applied"])
+        ctx.params = {**ctx.params, "params": {**ctx.params.get("params", {}), **decision["applied"]}}
+    ctx.notes["flye_memory"] = decision
+    req = s.FlyeRequest.model_validate(body)
     return call(_routes()["assemblies"].start_flye, ctx.sample.id, req, ctx.db)
+
+
+def flye_memory_guard(db: Session, sample: Sample, file_ids: list[str], params: dict[str, Any],
+                      guard: str) -> dict[str, Any]:
+    """Flye's memory estimate for the node's reads and parameters and, with the guard on ("auto") and an estimate
+    that may not fit, the options it adds: --asm-coverage (Flye's documented 50x) and, when the node set none, the
+    sample's expected genome size. A value the node sets itself is never changed; when the guard cannot apply
+    (asm_coverage or meta set, no genome size known, no read statistics) the run goes ahead as configured and the
+    reason is recorded."""
+    from arva_tools.flye import SUGGESTED_ASM_COVERAGE, FlyeParams
+
+    from app.services import flye
+
+    files = [db.get(RawFile, i) for i in file_ids]
+    ev = flye.evidence(db, [f for f in files if f is not None])
+    current = FlyeParams(**{k: v for k, v in params.items() if k != "threads"})
+    est = flye.memory(db, sample, ev, current)
+    out = {"guard": guard, "estimate": {k: v for k, v in est.items() if k not in ("reference", "reference_bases")},
+           "applied": None, "not_applied": None}
+    if guard == "auto" and est["verdict"] == "unknown":
+        out["not_applied"] = "no_read_statistics"
+    if guard != "auto" or est["verdict"] != "may_not_fit":
+        return out
+    if params.get("asm_coverage") is not None:
+        out["not_applied"] = "asm_coverage_set"
+    elif params.get("meta"):
+        out["not_applied"] = "meta"
+    elif params.get("genome_size_bp") is None and not est["expected_genome_size_bp"]:
+        out["not_applied"] = "no_genome_size"
+    else:
+        applied: dict[str, Any] = {"asm_coverage": SUGGESTED_ASM_COVERAGE}
+        if params.get("genome_size_bp") is None:
+            applied.update(genome_size_bp=est["expected_genome_size_bp"], genome_size_basis="expected_genome_size",
+                           assumed_depth_x=None)
+        size = params.get("genome_size_bp") or applied["genome_size_bp"]
+        after = flye.memory(db, sample, ev, FlyeParams(**{**{k: v for k, v in params.items() if k != "threads"},
+                                                          **applied, "genome_size_bp": size}))
+        out["applied"] = applied
+        out["estimate_after"] = {k: v for k, v in after.items() if k not in ("reference", "reference_bases")}
+    return out
 
 
 def _with_memory(ctx: LaunchContext, key: str) -> None:
@@ -372,6 +456,30 @@ def _members(ctx: LaunchContext, set_id: str) -> list[str]:
     return [m.assembly_id for m in cset.members]
 
 
+def _launch_staph_typing(ctx: LaunchContext):
+    """One S. aureus typing step through the typing route. The module's applicability is read first from the
+    assembly's species identification and MLST records (typing_modules.applicability, the route's own rule): a
+    sample the evidence does not support is skipped with that reason, unless the node overrides it, which the
+    result then records as the route does."""
+    from app.services import staph_typing
+    from app.services import typing_modules as tm
+
+    a = ctx.db.get(Assembly, _assembly_id(ctx))
+    if a is None:
+        raise LaunchRefused("wf_output_missing", "the assembly no longer exists", job_id="")
+    found = tm.applicability(staph_typing.MODULE, tm.evidence(ctx.db, a))
+    if found["override_required"] and not ctx.params.get("override_applicability"):
+        species = (found["evidence"].get("species") or {}).get("value")
+        scheme = (found["evidence"].get("mlst") or {}).get("value")
+        raise NodeSkipped("wf_typing_not_applicable",
+                          f"S. aureus typing does not apply: species evidence {found['status']} (species "
+                          f"{species or 'not identified'}, MLST scheme {scheme or 'none'})",
+                          status=found["status"], species=species or "", scheme=scheme or "")
+    req = _request(ctx, "staph_typing", {})
+    body = s.TypingRequest.model_validate({**req.model_dump(), "confirmed": True})
+    return call(_routes()["typing"].start_typing, a.id, staph_typing.MODULE.key, body, ctx.db)
+
+
 def _launch_phylogeny(ctx: LaunchContext):
     up = ctx.inputs["alignment"]
     p = dict(ctx.params)
@@ -398,7 +506,7 @@ KINDS: dict[str, Kind] = {
                   _launch_fastp, _out_short_reads, None),
     "filtlong": Kind(s.FiltlongRequest, ("file_id",), {"file_id": PLACEHOLDER}, _launch_filtlong, _out_long_reads,
                      None),
-    "flye": Kind(s.FlyeRequest, ("raw_file_ids",), {"raw_file_ids": [PLACEHOLDER]}, _launch_flye, _out_assembly,
+    "flye": Kind(s.FlyeNodeIn, ("raw_file_ids",), {"raw_file_ids": [PLACEHOLDER]}, _launch_flye, _out_assembly,
                  "params.threads"),
     "spades": Kind(s.SpadesRequest, ("inputs",), {"inputs": {}}, _launch_spades, _out_assembly, "params.threads"),
     "unicycler": Kind(s.UnicyclerRequest, ("inputs",), {"inputs": {}}, _launch_unicycler, _out_assembly,
@@ -411,9 +519,10 @@ KINDS: dict[str, Kind] = {
                   _launch_bakta, _out_annotation),
     "prokka": Kind(s.ProkkaNodeIn, ("confirmed",), {"confirmed": True}, _launch_prokka, _out_annotation),
     "mlst": Kind(s.MlstRequest, ("confirmed",), {"confirmed": True}, _assembly_action("mlst", "start_mlst", "mlst"),
-                 _out_none),
+                 _out_mlst),
     "species": Kind(s.SpeciesRequest, ("confirmed",), {"confirmed": True},
-                    _assembly_action("species", "start_species", "species"), _out_none),
+                    _assembly_action("species", "start_species", "species"), _out_species),
+    "staph_typing": Kind(s.StaphTypingNodeIn, (), {}, _launch_staph_typing, _out_none, None),
     "amrfinderplus": Kind(s.AmrRequest, ("annotation_id", "confirmed"), {"confirmed": True},
                           _assembly_action("amr", "start_amr", "amrfinderplus", _amr_annotation), _out_none),
     "virulence": Kind(s.VirulenceRequest, ("confirmed",), {"confirmed": True},

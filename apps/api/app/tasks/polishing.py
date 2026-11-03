@@ -1,5 +1,5 @@
-"""Worker tasks that polish an assembly (Racon with long reads, Pilon with short reads) and compare the result with
-its draft.
+"""Worker tasks that polish an assembly (Racon or Medaka with long reads, Pilon with short reads) and compare the
+result with its draft.
 
 Each round's commands, logs and changes are recorded. The comparison separates:
 
@@ -29,6 +29,15 @@ from arva_tools import ToolExecutionError, ToolStatus, ToolTimeoutError
 from arva_tools.dnadiff import DnadiffAdapter, nucmer_version
 from arva_tools.flye import read_link_name
 from arva_tools.mapping import SORT_MEMORY_DEFAULT_MB, BwaAdapter, Minimap2Adapter, SamtoolsAdapter
+from arva_tools.medaka import (
+    CONSENSUS,
+    GAPS_BED,
+    OUTPUT_DIR,
+    MedakaAdapter,
+    MedakaParams,
+    offered_models,
+    read_catalogue,
+)
 from arva_tools.pilon import PilonAdapter, PilonParams, java_executable, java_version
 from arva_tools.racon import RaconAdapter, RaconParams
 from arva_tools.registry import detect
@@ -374,7 +383,7 @@ def _queue_followups(ctx: JobContext, polished: Assembly, draft: Assembly) -> di
 
 def _finish(ctx: JobContext, polisher: str, draft: Assembly, work: Path, results: Path, final: Path, read_type: str,
             rounds: list[dict], overall: dict | None, before: dict, after: dict, helpers: list[dict],
-            extra: dict) -> None:
+            extra: dict, notes: list[dict] | None = None) -> None:
     """Keep the outputs, register the polished assembly and write the job's summary."""
     polished_path = results / "polished.fasta"
     final.replace(polished_path)
@@ -413,7 +422,7 @@ def _finish(ctx: JobContext, polisher: str, draft: Assembly, work: Path, results
         "indirect": {"aligner": extra.pop("aligner"), "reads": extra.pop("reads_used"), "before": before,
                      "after": after},
         "assembly_stats": {"before": _assembly_summary(draft), "after": _assembly_summary(polished)},
-        "observations": _observations(polisher, draft, overall, before, after, rounds),
+        "observations": [*(notes or []), *_observations(polisher, draft, overall, before, after, rounds)],
         "helpers": helpers,
         "followups": followups,
         **extra,
@@ -530,6 +539,164 @@ def _racon_body(ctx: JobContext) -> None:
 
 def run_racon_job(job_id: str) -> str:
     return run_job(job_id, _racon_body)
+
+
+# --- Medaka --------------------------------------------------------------------------------------------------
+
+def _medaka_model(ctx: JobContext, exe: str, record: dict[str, Any]) -> tuple[list[str], dict[str, Any]]:
+    """The models Medaka's package ships now, after checking that the job's model is still one of them with the
+    file (sha256) recorded when the job was queued."""
+    try:
+        catalogue = read_catalogue(exe)
+    except (OSError, RuntimeError, subprocess.TimeoutExpired, KeyError, TypeError, ValueError) as exc:
+        raise JobFailure(f"Medaka's models could not be read: {exc}", "help_unreadable", tool="Medaka",
+                         detail=str(exc)) from exc
+    offered = offered_models(catalogue)
+    shipped = {m["name"]: m for m in catalogue["bundled_models"]}
+    model = record.get("model")
+    if model not in offered or shipped[model]["sha256"] != record.get("sha256"):
+        raise JobFailure(f"The Medaka model {model} is no longer the file recorded when the job was queued (sha256 "
+                         f"{record.get('sha256')}); nothing was run")
+    ctx.log(f"Medaka model: {model} ({shipped[model]['file']}, shipped in Medaka {catalogue['version']}'s package, "
+            f"sha256 {shipped[model]['sha256']}, matching conda's record of the package); chosen "
+            + ("from the reads' basecall model with medaka's own mapping"
+               if record.get("source") == "basecall_model" else "by the user")
+            + (f"; medaka's mapping gives {record['suggestion']['model']} for these reads, and the user confirmed "
+               f"{model}" if record.get("mismatch_accepted") else ""))
+    return offered, catalogue
+
+
+def _medaka_body(ctx: JobContext) -> None:
+    exe = _resolve_tool(ctx, "medaka")
+    parameters = ctx.job.parameters or {}
+    params = MedakaParams.from_dict(parameters)
+    record = parameters.get("medaka_model") or {}
+    read_type = parameters.get("read_type") or "map-ont"
+    tools = {t: _helper(ctx, t) for t in ("minimap2", "samtools")}
+    dnadiff = _helper(ctx, "dnadiff", required=False)
+    draft = _draft(ctx)
+    offered, catalogue = _medaka_model(ctx, exe, record)
+    results, work, logs, keep = _setup(ctx)
+    reads = _link_reads(ctx, work / "input")
+    if "long" not in reads:
+        raise JobFailure("Medaka needs the long reads, and none were recorded with the job")
+    long = reads["long"]
+    # medaka_consensus writes the draft's .fai and .mmi next to it: it gets its own copy in the work folder.
+    _copy_fasta(ctx.path(draft.contigs_path), work / "round0.fasta")
+    try:
+        help_text = MedakaAdapter.help_text(exe)
+        argv = MedakaAdapter.argv(exe, params, long, work / "round0.fasta", help_text, offered)
+    except (OSError, RuntimeError, subprocess.TimeoutExpired) as exc:
+        raise JobFailure(f"medaka_consensus -h could not be read to check its options: {exc}",
+                         "help_unreadable", tool="Medaka", detail=str(exc)) from exc
+    except ValueError as exc:
+        raise JobFailure(f"Medaka cannot be run as recorded: {exc}") from exc
+    ctx.log(f"Medaka: medaka_consensus with -m {params.model}, -t {params.threads} (alignment, inference and "
+            f"stitching; medaka's README: inference may use threads + 4 and scales poorly beyond 2), -b "
+            f"{params.batch_size} (batch size, controls memory use); gap filling from the draft (medaka's default)")
+    if not (draft.assembler == "Flye" and draft.parent_assembly_id is None):
+        ctx.log(f"Note: Medaka's models were trained on unpolished Flye drafts; this draft is a {draft.assembler} "
+                f"{draft.kind.value} assembly")
+    steps = _Steps(ctx, "Medaka", ["medaka_consensus", "alignment_stats", "comparison"])
+    start = len(ctx.job.commands or [])
+    medaka_log = logs / "medaka_consensus.log"
+    steps.start("medaka_consensus", medaka_log)
+    try:
+        _run(ctx, argv, work, medaka_log.name, log_dir=logs, monitor=steps, extra_env=MedakaAdapter().environment(exe))
+    except ToolExecutionError as exc:
+        if isinstance(exc, ToolTimeoutError):
+            raise
+        reason = MedakaAdapter.failure_reason(medaka_log.read_text(errors="replace") if medaka_log.is_file() else
+                                              exc.stderr_tail, exc.returncode, params.batch_size)
+        if reason is None:
+            raise
+        raise JobFailure(reason) from None
+    log_text = medaka_log.read_text(errors="replace")
+    parsed = MedakaAdapter.parse_log(log_text)
+    out_dir = work / OUTPUT_DIR
+    consensus, gaps_bed = out_dir / CONSENSUS, out_dir / GAPS_BED
+    if not parsed["finished"] or not consensus.is_file():
+        raise JobFailure(MedakaAdapter.failure_reason(log_text, 0, params.batch_size)
+                         or f"medaka_consensus exited without an error but did not write {OUTPUT_DIR}/{CONSENSUS}",
+                         "outputs_missing", tool="Medaka", files=f"{OUTPUT_DIR}/{CONSENSUS}")
+    data_dir = Path(catalogue["data_dir"]).resolve()
+    expected = {(data_dir / f"{params.model}_model_pt.tar.gz")}
+    used = {Path(p).resolve() for p in parsed["model_files"]}
+    if used != expected:
+        raise JobFailure(f"Medaka used the model file(s) {', '.join(sorted(map(str, used))) or 'none logged'}, not "
+                         f"the package's {params.model}; nothing was registered")
+    try:
+        gaps = MedakaAdapter.parse_gaps(gaps_bed.read_text(errors="replace")) if gaps_bed.is_file() else {}
+    except ValueError as exc:
+        raise JobFailure(f"Medaka's list of unpolished regions cannot be read: {exc}",
+                         "output_unreadable", tool="Medaka", detail=str(exc)) from exc
+    draft_names = _fasta_names(work / "round0.fasta")
+    names = _fasta_names(consensus)
+    if sorted(names) != sorted(draft_names):
+        raise JobFailure(f"Medaka wrote contigs {', '.join(names[:5])}, not the draft's {', '.join(draft_names[:5])}; "
+                         "nothing was registered")
+    keep.mkdir(exist_ok=True)
+    if gaps_bed.is_file():
+        gaps_bed.replace(keep / "medaka_unpolished_regions.bed")
+    polished = work / "round1.fasta"
+    consensus.replace(polished)
+    shutil.rmtree(out_dir)
+    for index in work.glob("round0.fasta.*"):
+        index.unlink()
+    steps.log_path = logs / "dnadiff_round1.log"
+    diff = _dnadiff(ctx, dnadiff, work, "round0.fasta", polished.name, "round1", keep, logs)
+    unpolished = {"contigs": gaps, "bases": sum(g["bases"] for g in gaps.values()),
+                  "verbatim_contigs": parsed["verbatim_contigs"]}
+    rounds = [{"round": 1, "changes": _dnadiff_changes(diff) if diff else None,
+               "changes_source": "dnadiff" if diff else None, "dnadiff": diff, "medaka_unpolished": unpolished,
+               "commands": _commands_since(ctx, start)}]
+    if diff:
+        e = diff["events"]
+        ctx.log(f"Medaka (dnadiff): {e['substitutions']:,} substitutions, {e['insertions']:,} insertions "
+                f"({e['inserted_bases']:,} bp), {e['deletions']:,} deletions ({e['deleted_bases']:,} bp)")
+    ctx.log(f"Medaka copied {unpolished['bases']:,} bp in {sum(len(g['regions']) for g in gaps.values())} region(s) "
+            f"unpolished from the draft (too few aligned reads)"
+            + (f"; whole contigs: {', '.join(parsed['verbatim_contigs'])}" if parsed["verbatim_contigs"] else ""))
+    steps.start("alignment_stats", logs / "draft.minimap2.log")
+    before = _long_alignment(ctx, tools, work / "round0.fasta", long, read_type, params.threads, "draft", keep, logs)
+    steps.log_path = logs / "polished.minimap2.log"
+    after = _long_alignment(ctx, tools, polished, long, read_type, params.threads, "polished", keep, logs)
+    steps.start("comparison")
+    steps(finished=True)
+    helpers = [h for h in (tools["minimap2"], tools["samtools"], dnadiff) if h]
+    if dnadiff:
+        dnadiff["nucmer_version"] = nucmer_version(dnadiff["path"])
+    notes = []
+    for contig in parsed["verbatim_contigs"]:
+        notes.append({"code": "medaka_contig_unpolished", "params": {"contig": contig},
+                      "message": f"No read aligned to {contig}: Medaka copied it from the draft unpolished"})
+    partial = {c: g["bases"] for c, g in gaps.items() if c not in parsed["verbatim_contigs"]}
+    if partial:
+        notes.append({"code": "medaka_regions_unpolished", "params": {"bases": sum(partial.values()),
+                                                                       "contigs": len(partial)},
+                      "message": f"Medaka copied {sum(partial.values()):,} bp in {len(partial)} contig(s) from the "
+                                 "draft where too few reads aligned (consensus.fasta.gaps_in_draft_coords.bed)"})
+    if record.get("mismatch_accepted"):
+        notes.append({"code": "medaka_model_mismatch",
+                      "params": {"model": params.model, "expected": record["suggestion"]["model"],
+                                 "basecall": record["suggestion"]["basecall_model"]},
+                      "message": f"Medaka ran with {params.model}, not {record['suggestion']['model']}, the model "
+                                 f"medaka's mapping gives for the reads' basecall model "
+                                 f"{record['suggestion']['basecall_model']} (the user's choice)"})
+    if not (draft.assembler == "Flye" and draft.parent_assembly_id is None):
+        notes.append({"code": "medaka_draft_not_flye", "params": {"assembler": draft.assembler,
+                                                                  "kind": draft.kind.value},
+                      "message": "Medaka's models were trained to correct unpolished Flye drafts; this draft is a "
+                                 f"{draft.assembler} {draft.kind.value} assembly"})
+    _finish(ctx, "Medaka", draft, work, results, polished, read_type, rounds, diff, before, after, helpers,
+            {"aligner": f"minimap2 {tools['minimap2']['version']} -x {read_type}", "reads_used": "long",
+             "medaka": {"model": record, "threads": params.threads, "batch_size": params.batch_size,
+                        "programs": parsed["programs"], "model_files": parsed["model_files"],
+                        "unpolished": unpolished}}, notes)
+
+
+def run_medaka_job(job_id: str) -> str:
+    return run_job(job_id, _medaka_body)
 
 
 # --- Pilon ---------------------------------------------------------------------------------------------------

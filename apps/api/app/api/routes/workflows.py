@@ -188,7 +188,10 @@ def preview_batch(payload: BatchRunIn, db: Session = Depends(get_db)):
     project = project_or_404(db, payload.project_id)
     try:
         _, v = _version(db, payload)
-        return svc.plan_run(db, project, v, payload.sample_ids, payload.bindings, payload.settings.model_dump())
+        plan = svc.plan_run(db, project, v, payload.sample_ids, payload.bindings, payload.settings.model_dump(),
+                            payload.options.model_dump())
+        plan.pop("definition")
+        return plan
     except svc.WorkflowError as exc:
         return _error(exc)
 
@@ -202,7 +205,7 @@ def start_batch(payload: BatchRunIn, db: Session = Depends(get_db)):
     try:
         wf, v = _version(db, payload)
         run = svc.create_run(db, project, wf, v, payload.sample_ids, payload.bindings, payload.settings.model_dump(),
-                             payload.name)
+                             payload.name, options=payload.options.model_dump())
     except svc.WorkflowError as exc:
         db.rollback()
         return _error(exc, status.HTTP_409_CONFLICT if exc.code == "wf_run_blocked" else status.HTTP_400_BAD_REQUEST)

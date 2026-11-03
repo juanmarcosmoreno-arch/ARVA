@@ -545,10 +545,12 @@ ARVA detects tools but never installs them. Without them, ARVA's own read statis
 SeqKit, FastQC, fastp and Filtlong features show as unavailable on the **Tools & Databases** page.
 
 - **Docker**: the API/worker image already contains them (Debian bookworm packages: SeqKit 2.3.0 binary,
-  FastQC 0.11.9, fastp 0.23.2, Filtlong 0.2.1 — validated with ARVA), and for assembly and polishing Flye 2.9.1,
-  SPAdes 3.15.5, Unicycler 0.5.0, Racon 1.5.0, Pilon 1.24, BWA 0.7.17, MUMmer 3.23, BLAST+, samtools 1.16.1 and
-  minimap2 2.24 (SPAdes, Unicycler, Racon, Pilon, BWA and MUMmer are the releases validated on Ubuntu 24.04; Flye
-  2.9.1, samtools 1.16.1 and minimap2 2.24 are not validated, and each job records the versions it ran).
+  FastQC 0.11.9, fastp 0.23.2 — validated with ARVA; Filtlong 0.3.1 from its pinned Bioconda environment,
+  validated), and for assembly and polishing Flye 2.9.6 (Bioconda, validated), SPAdes 3.15.5, Unicycler 0.5.0,
+  Racon 1.5.0, Pilon 1.24, BWA 0.7.17, MUMmer 3.23, BLAST+, samtools 1.16.1 and minimap2 2.24 (SPAdes, Unicycler,
+  Racon, Pilon, BWA and MUMmer are the releases validated on Ubuntu 24.04; samtools 1.16.1 and minimap2 2.24 are
+  not validated, and each job records the versions it ran). Debian's filtlong 0.2.1 and flye 2.9.1 are no longer
+  installed.
 - **Ubuntu 24.04 / Debian**: `sudo apt install seqkit fastqc fastp filtlong flye samtools minimap2 spades unicycler
   racon ncbi-blast+ pilon bwa mummer default-jre-headless` (Ubuntu 24.04: SeqKit 2.3.0, FastQC 0.12.1, fastp 0.23.4,
   Filtlong 0.2.1, Flye 2.9.3, SPAdes 3.15.5, Unicycler 0.5.0, Racon 1.5.0, Pilon 1.24, BWA 0.7.17, samtools 1.19.2,
@@ -624,20 +626,35 @@ When it detects NanoPlot, ARVA imports `nanomath` with NanoPlot's own Python and
 
 ### Flye (long-read assembly)
 
-The Assembly tab of a sample runs Flye on long-read FASTQ files. Install it with samtools:
+The Assembly tab of a sample runs Flye on long-read FASTQ files. ARVA's pinned Bioconda environment (the one the
+Docker image uses; `docker/conda-locks/flye/`, spec `flye=2.9.6`, 25 packages for linux-64 and for linux-aarch64,
+280 MB installed on linux-64 with its own Python 3.13) needs nothing else:
+
+```bash
+python3 scripts/conda_locks.py install flye ~/.arva-tools/conda/flye
+export ARVA_TOOL_FLYE=~/.arva-tools/conda/flye/bin/flye     # scripts/test-all.sh sets it when the folder exists
+```
+
+Bioconda's package installs Flye's programs `flye-modules`, `flye-minimap2` and `flye-samtools` (a samtools of its
+own) next to `flye`; ARVA puts that folder first on Flye's PATH for each run. Flye 2.9.6 has the same options as
+2.9.3; its NEWS says "R10 ONT parameters (3% error) are now default for --nano-hq", and its `--help` describes
+`--nano-hq` as "ONT R10 reads, aka Q20 (<3% error). For R9 Guppy5+, increase --read-error slightly".
+
+Or from Ubuntu's packages, with samtools:
 
 ```bash
 sudo apt install flye samtools          # Ubuntu 24.04: Flye 2.9.3, samtools 1.19.2
 ```
 
-Validated: Flye 2.9.3 (BSD-3-Clause; Ubuntu package 2.9.3+dfsg2-1), which needs Python's `six`
+Validated: Flye 2.9.6 (BSD-3-Clause; Bioconda build py313h7fbb527_1 on linux-64) and Flye 2.9.3 (Ubuntu package
+2.9.3+dfsg2-1), which needs Python's `six`
 (installed with the package) and the system minimap2 and samtools. Flye calls a helper named
 `flye-samtools`, which Debian's and Ubuntu's flye package does not ship: without it every assembly
 stops in its repeat stage. ARVA links `flye-samtools` to `samtools` for each run when it is missing and
 records this; the Tools page shows it as a note, and reports Flye as *Detection failed* when samtools is
 missing too (`ARVA_TOOL_SAMTOOLS` sets an explicit samtools). Older versions than 2.9 are *Incompatible
-version* (no `--nano-hq`); other 2.9.x versions run with a "not validated" warning. The Docker image
-installs Debian bookworm's `flye` (2.9.1) and `samtools` (1.16.1); 2.9.1 has not been validated yet.
+version* (no `--nano-hq`); other 2.9.x versions run with a "not validated" warning. The Docker image runs the
+Bioconda Flye 2.9.6 (Debian bookworm's `flye` 2.9.1 is no longer installed).
 A bacterial genome needs a few GB of memory; Flye's own benchmarks list about 2 GB for *E. coli*
 PacBio reads at 50×.
 ### SPAdes and Unicycler (short-read and hybrid assembly)
@@ -691,8 +708,23 @@ more memory). A heap typed in the dialog or a workflow node is used as given;
 a batch reserves the Pilon heap it gives. For another installation set `ARVA_TOOL_PILON` to the path of `pilon.jar`. Debian's build
 prints no version number (`Pilon version [COMMIT] [DATE]`), so ARVA reads the version from dpkg and says so on the
 Tools page. `JAVA_TOOL_OPTIONS`, `_JAVA_OPTIONS` and `JDK_JAVA_OPTIONS` are removed from every tool's environment,
-as they would change the recorded heap. Medaka is not integrated (it needs a model matching the reads' basecaller,
-and downloads models).
+as they would change the recorded heap.
+
+**Medaka** (Oxford Nanopore polishing) comes from ARVA's pinned Bioconda environment, the one the Docker image uses
+(`docker/conda-locks/medaka/`, spec `medaka=2.1.1`, locks for linux-64 and linux-aarch64; about 1.6 GB installed,
+most of it PyTorch's CPU build; the environment has its own minimap2 2.31, samtools 1.24 and bcftools 1.25):
+
+```bash
+python3 scripts/conda_locks.py install medaka ~/.arva-tools/conda/medaka
+export ARVA_TOOL_MEDAKA=~/.arva-tools/conda/medaka/bin/medaka   # scripts/test-all.sh sets it when the folder exists
+```
+
+The package ships the consensus models `r1041_e82_400bps_sup_v5.2.0` and `r1041_e82_400bps_hac_v5.2.0` (R10.4.1
+E8.2, 400 bps, Dorado v5.2.0 basecalling), and ARVA uses only these: any other model medaka would download on first
+use from GitHub with no checksum. Nothing has to be downloaded or registered for them; the Tools page and the
+polishing dialog list them with their checksums. Reads basecalled with another model are polished with Racon. The
+polishing dialog takes the model from the basecall model in the reads' headers with medaka's own mapping, or asks
+you to choose (see docs/scientific-methods.md, *Polishing*).
 
 The assembly charts, the comparison and the assembly-graph view are drawn by ARVA in the browser from
 the stored statistics and the GFA file; they need no further tool. To explore a large graph in full,
@@ -810,7 +842,7 @@ reset of the data folder; the API and the worker must see it at the same path. T
 circular views, the annotation charts and the report's genome map need no further tools or databases: they are
 drawn by ARVA from the annotator's files.
 
-### Bioconda tools from pinned locks (micromamba): mlst, FastANI, skani, Mash, sylph, GTDB-Tk, AMRFinderPlus, Bakta, ABRicate, MOB-suite, IntegronFinder, ISEScan, geNomad, sccmec, spaTyper, AgrVATE
+### Bioconda tools from pinned locks (micromamba): Filtlong, Flye, mlst, FastANI, skani, Mash, sylph, GTDB-Tk, AMRFinderPlus, Bakta, ABRicate, MOB-suite, IntegronFinder, ISEScan, geNomad, sccmec, spaTyper, AgrVATE
 
 Tools that are not packaged by the distribution or PyPI come from Bioconda (with conda-forge), one environment per
 tool, created **only** from the explicit lock files checked in under `docker/conda-locks/<tool>/` — one per
@@ -836,6 +868,8 @@ python3 scripts/conda_locks.py verify-env mlst ~/.arva-tools/conda/mlst
 
 | Tool | Pinned spec (`docker/conda-locks/<tool>/spec.txt`) | linux-64 | linux-aarch64 | Installed size (linux-64, measured) |
 |---|---|---|---|---|
+| Filtlong | `filtlong=0.3.1` (GPL-3.0; linux-64 build h077b44d_0, linux-aarch64 h1e84f2d_0) | 6 packages | 6 packages (solved, not installed here) | 29 MB |
+| Flye | `flye=2.9.6` (BSD-3-Clause; linux-64 build py313h7fbb527_1, linux-aarch64 py313h30571f8_1; Python 3.13) | 25 packages | 25 packages (solved, not installed here) | 280 MB |
 | mlst | `mlst=2.35.0=hdfd78af_1`, `blast=2.16.0` | 71 packages | 99 packages | 950 MB (BLAST+ 423 MB of it, mlst's PubMLST schemes 186 MB) |
 | FastANI | `fastani=1.34` (Apache-2.0; linux-64 build hb66fcc3_7) | 12 packages | 12 packages | 95 MB |
 | skani | `skani=0.4.0` (MIT; hec9b1f2_0) | 5 packages | 5 packages | 31 MB |

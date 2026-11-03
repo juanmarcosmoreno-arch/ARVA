@@ -207,7 +207,13 @@ def test_samtools_helper_and_detection(tmp_path, monkeypatch):
     beside = exe(flye_dir, "flye-samtools", "")
     assert samtools_helper(str(flye)) == {"provided_by": "installation", "samtools": str(beside),
                                           "path_prepend": str(flye_dir)}
+    # Flye's own folder comes first (Bioconda's flye-samtools, flye-modules and flye-minimap2 sit next to flye), so
+    # another installation's programs on PATH are not mixed with this Flye.
     on_path = exe(other, "flye-samtools", "")
+    assert samtools_helper(str(flye)) == {"provided_by": "installation", "samtools": str(beside),
+                                          "path_prepend": str(flye_dir)}
+    assert FlyeAdapter().detect().reason is None
+    beside.unlink()
     assert samtools_helper(str(flye)) == {"provided_by": "installation", "samtools": str(on_path), "path_prepend": None}
     assert FlyeAdapter().detect().reason is None
 
@@ -297,3 +303,24 @@ def test_only_runs_stopped_from_outside_are_resumable():
     assert FlyeAdapter.resumable_failure("ERROR: Looks like the system ran out of memory", 1)
     no_contigs = (FIXTURES / "no_contigs.stderr.log").read_text()
     assert not FlyeAdapter.resumable_failure(no_contigs, 1) and not FlyeAdapter.resumable_failure("", None)
+
+
+def test_memory_estimate_scales_flyes_documented_e_coli_figure():
+    from arva_tools.flye import MEMORY_REFERENCE_BASES, SUGGESTED_ASM_COVERAGE, memory_estimate
+
+    assert MEMORY_REFERENCE_BASES == 230_000_000 and SUGGESTED_ASM_COVERAGE == 50
+    # The documented case itself: 2 GB for 50x of 4.6 Mb.
+    assert memory_estimate(230_000_000, 2)["estimate_gb"] == 2.0
+    # The user's Mac: 413 Mb of filtered reads (147.6x of 2.8 Mb), 3 GB usable in a 3.8 GB Docker VM.
+    est = memory_estimate(413_000_000, 3, genome_size_bp=2_800_000)
+    assert est["verdict"] == "may_not_fit" and est["estimate_gb"] == 3.59
+    assert est["suggestion"] == {"asm_coverage": 50, "needs_genome_size": False, "genome_size_bp": 2_800_000,
+                                 "estimate_gb": 1.22, "coverage_x": 147.5}
+    with_asm = memory_estimate(413_000_000, 3, asm_coverage=50, genome_size_bp=2_800_000)
+    assert with_asm["verdict"] == "fits" and with_asm["bases_used"] == 140_000_000 and with_asm["suggestion"] is None
+    # No genome size: the suggestion says one is needed; --meta cannot take --asm-coverage, so none is suggested.
+    assert memory_estimate(413_000_000, 3)["suggestion"]["needs_genome_size"] is True
+    assert memory_estimate(413_000_000, 3, meta=True)["suggestion"] is None
+    assert memory_estimate(None, 3)["verdict"] == "unknown"
+    # asm_coverage above the reads' coverage reads every base.
+    assert memory_estimate(100_000_000, 8, asm_coverage=500, genome_size_bp=2_800_000)["bases_used"] == 100_000_000

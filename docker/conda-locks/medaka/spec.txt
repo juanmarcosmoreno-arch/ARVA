@@ -1,0 +1,4 @@
+# Pinned spec of ARVA's Medaka environment; scripts/conda_locks.py update medaka solves it for each platform.
+# Medaka 2.1.1 (Oxford Nanopore Technologies, MPL-2.0): consensus polishing of Nanopore assemblies with a neural
+# network trained for the reads' basecaller model.
+medaka=2.1.1

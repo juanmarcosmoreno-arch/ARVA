@@ -23,7 +23,7 @@ class AssemblyKind(str, enum.Enum):
 # What each program's per-contig coverage measures; the values are not comparable between kinds. A polished
 # assembly's coverage is the mean depth of the polishing reads mapped to it (samtools coverage).
 COVERAGE_KINDS = {"Flye": "read_depth", "SPAdes": "kmer_coverage", "Unicycler": "relative_depth",
-                  "Racon": "mapped_read_depth", "Pilon": "mapped_read_depth"}
+                  "Racon": "mapped_read_depth", "Medaka": "mapped_read_depth", "Pilon": "mapped_read_depth"}
 
 
 class Assembly(Base):

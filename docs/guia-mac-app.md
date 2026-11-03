@@ -135,6 +135,14 @@ ejemplo, otro disco), menú **ARVA → Volver a configurar…**.
   **Edición** tiene Copiar, Pegar y Seleccionar todo como siempre.
 - La ventana recuerda su tamaño y posición.
 - **Disco externo:** si los datos están en un disco externo, conectarlo **antes** de abrir ARVA.app.
+- **La Mac no se suspende mientras haya análisis:** mientras ARVA.app está abierta y ARVA tiene análisis en curso o
+  en espera, la Mac no entra en reposo por inactividad. En el menú **ARVA** aparece «La Mac no se suspenderá
+  mientras haya análisis en curso», y lo mismo debajo del título de la ventana. Cuando ya no hay análisis (dos
+  consultas seguidas sin ninguno, una por minuto), cuando se detiene ARVA o al salir de ARVA.app, la Mac vuelve a
+  suspenderse como siempre. La pantalla sí puede apagarse. **Cerrar la tapa** de la MacBook la suspende igual
+  (macOS no lo evita); para lotes largos, dejarla abierta y conectada a la corriente. Si se sale con **Salir sin
+  detener**, los análisis siguen pero ARVA.app ya no evita el reposo. Para comprobarlo en Terminal:
+  `pmset -g assertions` lista «ARVA: analyses running or waiting» mientras está activo.
 
 ## Salir: qué hace el aviso «¿Detener ARVA?»
 

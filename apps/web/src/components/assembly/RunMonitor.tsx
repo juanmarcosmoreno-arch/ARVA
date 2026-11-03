@@ -112,6 +112,7 @@ function stageDescription(t: ReturnType<typeof useT>, stage: string) {
   if (annotation in dictionaries.en) return t(annotation as TranslationKey);
   const key = `assembly.stage.${stage}`;
   if (/^(racon|pilon)_round_\d+$/.test(stage)) return t(stage.startsWith("racon") ? "polishing.stage.raconRoundHint" : "polishing.stage.pilonRoundHint");
+  if (stage === "medaka_consensus") return t("polishing.stage.medakaHint");
   return key in dictionaries.en ? t(key as TranslationKey) : "";
 }
 

@@ -176,7 +176,8 @@ compared as equal.
   the draft and every polished version.
 - Reports: polished assemblies carry their lineage and the comparison in the HTML/JSON/CSV reports.
 - Guide entries: polishing, Racon, Pilon, direct evidence versus indirect indicators.
-- Not integrated: **Medaka** and **Polypolish** (see *Not yet integrated* below).
+- Not integrated: **Polypolish** (see *Not yet integrated* below). **Medaka** 2.1.1 was added later from a pinned
+  Bioconda environment, with the models its package ships (docs/scientific-methods.md, *Polishing*).
 
 ### 3B3 — Job cancellation, recovery and batch QC (done)
 
@@ -206,7 +207,7 @@ Checked in the package indexes of Ubuntu 24.04 (the development system) and Debi
 
 | Tool | Purpose | Why not yet |
 |---|---|---|
-| Medaka | Model-based Nanopore polishing | Not packaged in Ubuntu 24.04 or Debian bookworm; needs a model matching the reads' basecaller and downloads its models |
+| Medaka | Model-based Nanopore polishing | Integrated later (2.1.1 from Bioconda, models shipped in its package only); not packaged in Ubuntu 24.04 or Debian bookworm |
 | Polypolish | Short-read polishing that handles repeats | Not packaged in Ubuntu 24.04 or Debian bookworm |
 | Raven | Fast long-read assembler | Not packaged in Ubuntu 24.04 or Debian bookworm (would have to be built from source) |
 | Canu | Long-read assembler | Packaged, but in different versions (Ubuntu 2.2, Debian 2.0), so one validation would not cover both systems; not evaluated in ARVA yet (Flye covers long-read isolates) |
@@ -786,7 +787,7 @@ built), large sets (hundreds of genomes).
 
 | Phase | Scope |
 |---|---|
-| 3 ✅ | Assembly (Flye, SPAdes, Unicycler), QUAST, contig plots, GFA view, polishing (Racon, Pilon), job cancellation and Flye resume, batch QC; Medaka, Polypolish, Raven, Canu, MEGAHIT, BUSCO and CheckM2 not yet integrated (above) |
+| 3 ✅ | Assembly (Flye, SPAdes, Unicycler), QUAST, contig plots, GFA view, polishing (Racon, Pilon; Medaka added later), job cancellation and Flye resume, batch QC; Polypolish, Raven, Canu, MEGAHIT, BUSCO and CheckM2 not yet integrated (above) |
 | 4 ✅ | Database Manager, annotation (Bakta; Prokka), Genome Explorer (linear and circular), annotation charts and report section |
 | 5A, 5B ✅ | External storage; database kinds (register in place, download a chosen version to a chosen folder, reference genome collections, one default per kind) |
 | 5C1 ✅ | Pinned Bioconda environments (micromamba, checksummed locks for linux-64 and linux-aarch64); MLST with mlst and its bundled PubMLST schemes |

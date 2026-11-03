@@ -42,7 +42,7 @@ def job(client, job_id):
 
 def test_tools_listing(client):
     tools = {t["id"]: t for t in client.get(f"{API}/tools").json()}
-    assert set(tools) == {"seqkit", "fastqc", "fastp", "filtlong", "multiqc", "nanoplot", "flye", "spades", "unicycler",
+    assert set(tools) == {"seqkit", "fastqc", "fastp", "filtlong", "multiqc", "nanoplot", "flye", "medaka", "spades", "unicycler",
                           "quast", "racon", "pilon", "minimap2", "bwa", "samtools", "dnadiff", "nucmer", "bakta", "prokka",
                           "mlst", "fastani", "skani", "mash", "sylph", "gtdbtk", "amrfinderplus", "abricate", "mobsuite",
                           "integronfinder", "isescan", "genomad", "sccmec", "spatyper", "agrvate", "blast", "mafft",

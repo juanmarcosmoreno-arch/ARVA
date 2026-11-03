@@ -19,6 +19,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private var stopTask: ShellTask?
     private var pollTimer: Timer?
     private var watchdog: Timer?
+    /// Asks ARVA, while it runs, whether analyses are running or waiting (SleepGuard).
+    private var sleepTimer: Timer?
+    private let sleepGuard = SleepGuard()
     private var attempt = 0
     /// Docker Desktop was opened by this app (so quitting may offer to close it again).
     private var launchedDocker = false
@@ -33,6 +36,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.mainMenu = MainMenu.build()
+        sleepGuard.onChange = { [weak self] active in self?.showSleepStatus(active) }
         begin()
         NSApp.activate(ignoringOtherApps: true)
     }
@@ -47,6 +51,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool { true }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        stopSleepWatch()
+    }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         if terminating { return .terminateNow }
@@ -80,6 +88,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         pollTimer = nil
         watchdog?.invalidate()
         watchdog = nil
+        stopSleepWatch()
+    }
+
+    // MARK: Keeping the Mac awake while analyses run
+
+    /// While ARVA runs: ask every minute whether analyses are running or waiting, and hold or release the sleep
+    /// assertion accordingly (the first question a few seconds after ARVA opens).
+    private func startSleepWatch() {
+        stopSleepWatch()
+        sleepTimer = commonTimer(withTimeInterval: SleepGuard.pollInterval, repeats: true) { [weak self] _ in
+            self?.pollActiveJobs()
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 5) { [weak self] in self?.pollActiveJobs() }
+    }
+
+    private func stopSleepWatch() {
+        sleepTimer?.invalidate()
+        sleepTimer = nil
+        sleepGuard.release()
+    }
+
+    private func pollActiveJobs() {
+        guard phase == .running, sleepTimer != nil else { return }
+        countActiveJobs { [weak self] count in
+            guard let self, self.phase == .running, self.sleepTimer != nil else { return }
+            self.sleepGuard.update(activeJobs: count)
+        }
+    }
+
+    private func showSleepStatus(_ active: Bool) {
+        let text = active ? SleepGuard.statusText : ""
+        MainMenu.setSleepStatus(active ? text : nil)
+        mainWeb?.window.subtitle = text
+        if active { note(text + "\n") }
     }
 
     private func begin() {
@@ -577,6 +619,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         web.show()
         splash?.window.orderOut(nil)
         NSApp.activate(ignoringOtherApps: true)
+        startSleepWatch()
     }
 
     private func makeWeb(configuration: WKWebViewConfiguration, isMain: Bool) -> WebWindowController {

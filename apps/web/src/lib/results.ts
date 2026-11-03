@@ -37,6 +37,7 @@ export function jobLabel(type: string, t: (key: TranslationKey) => string) {
   if (type === "unicycler_assembly") return t("unicycler.jobLabel");
   if (type === "quast_evaluation") return t("quast.jobLabel");
   if (type === "racon_polish") return t("polishing.jobLabel.racon");
+  if (type === "medaka_polish") return t("polishing.jobLabel.medaka");
   if (type === "pilon_polish") return t("polishing.jobLabel.pilon");
   if (RAW_SIGNAL_JOBS.has(type)) return t("pod5.jobLabel");
   return LABELLED_JOBS.has(type) ? t(`job.label.${type}` as TranslationKey) : type;

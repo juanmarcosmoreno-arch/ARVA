@@ -1,0 +1,11 @@
+Checking program versions
+This is medaka 2.1.1
+Program    Version    Required   Pass     
+bcftools   1.25       1.11       True     
+bgzip      1.24       1.11       True     
+minimap2   2.31       2.11       True     
+samtools   1.24       1.11       True     
+tabix      1.24       1.11       True     
+Aligning basecalls to draft
+Running medaka inference
+Polished assembly written to out2/consensus.fasta, have a nice day.

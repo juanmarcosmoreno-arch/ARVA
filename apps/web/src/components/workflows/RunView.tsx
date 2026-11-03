@@ -25,6 +25,7 @@ import {
   STATUS_GLYPH,
   STATUS_TONE,
   finishedShare,
+  flyeGuardText,
   isActive,
   nodeProgress,
   nodeTools,
@@ -89,6 +90,16 @@ export function RunView({ runId, catalogue }: { runId: string; catalogue: Catalo
               <Link className="text-arva-royal hover:underline dark:text-arva-cyan" to={`/workflows/compare?a=${r.parent_run_id}&b=${r.id}`}>{t("wf.compareWithParent")}</Link>
             </p>
           )}
+          {r.settings.option_changes?.length ? (
+            <div className="mt-1 text-xs text-muted-foreground">
+              <p>{t("wf.optionChanges")}</p>
+              <ul>
+                {r.settings.option_changes.map((c, i) => (
+                  <li key={i} className="font-mono">{c.node}.{c.path}: {JSON.stringify(c.before)} → {JSON.stringify(c.after)}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
           {r.branch_changes?.length ? (
             <ul className="mt-1 text-xs text-muted-foreground">
               {r.branch_changes.map((c, i) => (
@@ -189,7 +200,8 @@ function StatusCell({ item }: { item: RunItem | undefined }) {
   const t = useT();
   if (!item) return <td className="px-1 py-1 text-center text-muted-foreground">—</td>;
   const title = [t(`wf.status.${item.status}` as TranslationKey), item.tool && `${item.tool} ${item.tool_version ?? ""}`,
-    item.duration_seconds != null && fmtDuration(item.duration_seconds), item.error && itemErrorText(t, item.error)].filter(Boolean).join(" · ");
+    item.duration_seconds != null && fmtDuration(item.duration_seconds), item.error && itemErrorText(t, item.error),
+    flyeGuardText(t, item.notes?.flye_memory)].filter(Boolean).join(" · ");
   return (
     <td className="px-1 py-1 text-center">
       <span tabIndex={0} role="img" aria-label={title} title={title}

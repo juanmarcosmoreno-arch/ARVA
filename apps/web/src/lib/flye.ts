@@ -1,13 +1,13 @@
 import type { TranslationKey } from "@/i18n";
-import { PILON_JOB, RACON_JOB } from "./polishing";
+import { MEDAKA_JOB, PILON_JOB, RACON_JOB } from "./polishing";
 import { QUAST_JOB } from "./quast";
 import { SPADES_JOB, UNICYCLER_JOB } from "./shortReads";
-import type { AnalysisJobDetail, FlyeContigRow, FlyeParams, FlyePlan, FlyeReadType, GenomeSizeBasis, JobStatus, RawFile } from "./types";
+import type { AnalysisJobDetail, FlyeContigRow, FlyeMemory, FlyeParams, FlyePlan, FlyeReadType, GenomeSizeBasis, JobStatus, RawFile } from "./types";
 
 export const FLYE_JOB = "flye_assembly";
 /** Jobs shown in the Assembly tab: assemblers, assembly evaluation and polishing. */
 export const IMPORT_ASSEMBLY_JOB = "assembly_import";
-export const ASSEMBLY_JOBS = new Set([FLYE_JOB, SPADES_JOB, UNICYCLER_JOB, QUAST_JOB, RACON_JOB, PILON_JOB, IMPORT_ASSEMBLY_JOB]);
+export const ASSEMBLY_JOBS = new Set([FLYE_JOB, SPADES_JOB, UNICYCLER_JOB, QUAST_JOB, RACON_JOB, MEDAKA_JOB, PILON_JOB, IMPORT_ASSEMBLY_JOB]);
 
 /** Flye's read-type options with Flye's own descriptions (flye --help). */
 export const READ_TYPES: { value: FlyeReadType; label: TranslationKey }[] = [
@@ -127,6 +127,38 @@ export function flyeProblems(form: FlyeForm, plan: FlyePlan | undefined, fileCou
   if (th !== null && (!isInt(th) || th < 1 || th > max)) out.push("flye.problem.threads");
   if (plan?.long_reads_confirmation_required && !confirmed) out.push("flye.problem.confirm");
   return out;
+}
+
+/** Flye's documented --asm-coverage value: its benchmarks ran the large human datasets "with --asm-coverage 50"
+ * (docs/USAGE.md; the same page says 40x of the longest reads is typically enough). */
+export const SUGGESTED_ASM_COVERAGE = 50;
+
+export interface FlyeMemoryView {
+  verdict: FlyeMemory["verdict"];
+  estimateGb: number | null;
+  availableGb: number;
+  /** What Flye documents to use less memory, when the run may not fit and does not use it already. */
+  suggestion: { asmCoverage: number; genomeBp: number | null; estimateGb: number | null } | null;
+}
+
+const scaled = (m: FlyeMemory, bases: number) => Math.round((m.reference.ram_gb * bases / m.reference_bases) * 100) / 100;
+
+/** The server's estimate (arva_tools.flye.memory_estimate) for what the form would send now. */
+export function flyeMemory(form: FlyeForm, plan: FlyePlan | undefined): FlyeMemoryView | null {
+  const m = plan?.memory;
+  if (!m) return null;
+  const view: FlyeMemoryView = { verdict: "unknown", estimateGb: null, availableGb: m.available_gb, suggestion: null };
+  if (!m.read_bases) return view;
+  const genome = chosenGenomeSize(form, plan).bp;
+  const asm = num(form.asmCoverage);
+  const used = asm && genome ? Math.min(m.read_bases, asm * genome) : m.read_bases;
+  view.estimateGb = scaled(m, used);
+  view.verdict = view.estimateGb <= m.available_gb ? "fits" : "may_not_fit";
+  if (view.verdict === "may_not_fit" && !asm && !form.meta) {
+    const size = genome ?? m.expected_genome_size_bp;
+    view.suggestion = { asmCoverage: SUGGESTED_ASM_COVERAGE, genomeBp: size, estimateGb: size ? scaled(m, Math.min(m.read_bases, SUGGESTED_ASM_COVERAGE * size)) : null };
+  }
+  return view;
 }
 
 export function flyeRequestParams(form: FlyeForm, plan: FlyePlan | undefined): FlyeParams {

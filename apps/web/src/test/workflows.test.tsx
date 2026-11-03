@@ -4,12 +4,14 @@ import type { ReactElement } from "react";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ParamPanel } from "@/components/workflows/ParamPanel";
+import { RunDialog } from "@/components/workflows/RunDialog";
 import { RunView } from "@/components/workflows/RunView";
 import { GUIDE_BY_ID } from "@/guide/metrics";
 import { api } from "@/lib/api";
 import {
   connectionProblem,
   fieldProblem,
+  flyeGuardText,
   newNodeId,
   nodeProgress,
   nodeTools,
@@ -19,6 +21,8 @@ import {
   type NodeKind,
   type RunDetail,
   type RunItem,
+  type RunPlan,
+  type WorkflowRead,
 } from "@/lib/workflows";
 import { useSettings } from "@/store/settings";
 
@@ -189,4 +193,35 @@ it("has guide entries for the builder and the queue in both languages", () => {
     expect(GUIDE_BY_ID[id].en.title).toBeTruthy();
     expect(GUIDE_BY_ID[id].es.limitations.length).toBeGreaterThan(40);
   }
+});
+
+describe("run options", () => {
+  beforeEach(() => useSettings.setState({ language: "es" }));
+
+  it("offers the polishing strategy and Flye's memory guard, sends the choice and shows what it changes", async () => {
+    const settings = { priority: 0, max_concurrent: 1, threads_per_job: 4, memory_per_job_gb: 3, max_retries: 0, profile: "balanced", budget_threads: 4, budget_memory_gb: 3 };
+    const plan: RunPlan = { version: 1, definition_sha256: "f", samples: [{ sample_id: "s", sample_code: "S27", sources: {}, ready: true }], ready_samples: 1, jobs: 3, settings, tools: {}, problems: [], concurrency: 1,
+      options: { polishing_strategy: { kind: "polishing", param: "strategy", nodes: 1, value: "racon" }, flye_memory_guard: { kind: "flye", param: "memory_guard", nodes: 1, value: "auto" } }, option_changes: [] };
+    vi.spyOn(api, "projects").mockResolvedValue([{ id: "p", name: "Cepas" }] as Awaited<ReturnType<typeof api.projects>>);
+    vi.spyOn(api, "samples").mockResolvedValue([{ id: "s", sample_code: "S27" }] as Awaited<ReturnType<typeof api.samples>>);
+    const preview = vi.spyOn(api, "batchPreview").mockImplementation(async (body) =>
+      body.options?.polishing_strategy ? { ...plan, option_changes: [{ node: "polish", option: "polishing_strategy", path: "strategy", before: "racon", after: "medaka" }] } : plan);
+    const workflow = { id: "w", name: "Genoma completo", latest: { version: 1 } } as WorkflowRead;
+    renderWith(<RunDialog open onOpenChange={() => {}} workflow={workflow} />);
+    const strategy = await screen.findByRole("combobox", { name: "Estrategia de pulido" });
+    expect(screen.getByRole("option", { name: "Como está guardado (Lecturas largas: Racon)" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Como está guardado (Activada (solo si puede no caber))" })).toBeInTheDocument();
+    fireEvent.change(strategy, { target: { value: "medaka" } });
+    await waitFor(() => expect(screen.getByText(/Esta ejecución cambia: polish.strategy: "racon" → "medaka"/)).toBeInTheDocument());
+    expect(preview).toHaveBeenLastCalledWith(expect.objectContaining({ options: { polishing_strategy: "medaka" }, confirmed: false }));
+  });
+
+  it("says what Flye's memory guard did for a step", () => {
+    const t = (key: string, p?: Record<string, unknown>) => `${key}${p ? JSON.stringify(p) : ""}`;
+    const estimate = { verdict: "may_not_fit" as const, estimate_gb: 3.59, available_gb: 3 };
+    expect(flyeGuardText(t as never, { guard: "auto", estimate, applied: { asm_coverage: 50, genome_size_bp: 2_800_000 }, not_applied: null })).toBe('wf.flyeGuard.applied{"cov":50,"gb":3.59,"available":3}');
+    expect(flyeGuardText(t as never, { guard: "auto", estimate, applied: null, not_applied: "no_genome_size" })).toBe("wf.flyeGuard.no_genome_size");
+    expect(flyeGuardText(t as never, { guard: "off", estimate, applied: null, not_applied: null })).toBeNull();
+    expect(flyeGuardText(t as never, { guard: "auto", estimate: { ...estimate, verdict: "fits" }, applied: null, not_applied: null })).toBeNull();
+  });
 });

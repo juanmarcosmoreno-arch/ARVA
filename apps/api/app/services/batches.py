@@ -17,6 +17,8 @@ The queue (`dispatch`) is ARVA's own scheduler on top of the task queue:
 * Retries: a job that failed while running is tried again, as a new job, up to `max_retries` times. A launch the
   analysis's checks refused is never retried (it would be refused again).
 * Failure: items that read from a failed, cancelled or skipped item are skipped with that reason.
+* Not applicable: a step that does not apply to a sample (S. aureus typing of another species) is skipped with
+  its reason; such skips leave the run completed.
 * Pause stops new launches; resume puts failed, cancelled and skipped items back in the queue (completed items keep
   their results); cancel cancels queued and running jobs and every waiting item.
 
@@ -64,6 +66,8 @@ from app.services.performance import effective_resources
 ACTIVE_RUN = ("running", "paused")
 TERMINAL_ITEM = ("completed", "failed", "cancelled", "skipped")
 IN_QUEUE = ("queued", "running")
+# Skip reasons that mean "does not apply to this sample", which leave a run completed rather than with errors.
+NOT_APPLICABLE = ("wf_typing_not_applicable",)
 SET_KEY = "_set"
 _LOCK_KEY = 0x41525641  # "ARVA"
 LOCKS_DIR = Path(__file__).resolve().parents[4] / "docker" / "conda-locks"
@@ -291,12 +295,38 @@ def _scope(kind: str) -> str:
     return core.NODES[kind].scope
 
 
+# Run options: choices offered when a run starts that set one parameter on every node of a kind. The run records
+# them and each parameter they changed (settings.run_options, settings.option_changes); the saved version is unchanged.
+RUN_OPTIONS = {"polishing_strategy": ("polishing", "strategy"), "flye_memory_guard": ("flye", "memory_guard")}
+
+
+def apply_options(definition: dict[str, Any], options: dict[str, Any] | None) -> tuple[dict[str, Any], list[dict]]:
+    """The definition with the run options set, and every parameter they changed ({node, path, before, after})."""
+    chosen = {k: v for k, v in (options or {}).items() if v is not None and k in RUN_OPTIONS}
+    out = json.loads(json.dumps(definition))
+    changes: list[dict[str, Any]] = []
+    for n in out["nodes"]:
+        before = dict(n.get("params") or {})
+        after = dict(before)
+        for key, value in chosen.items():
+            kind, param = RUN_OPTIONS[key]
+            if n["kind"] == kind:
+                after[param] = value
+        n["params"] = after
+        changes.extend({"node": n["id"], "option": next(k for k, (kind, param) in RUN_OPTIONS.items()
+                                                        if kind == n["kind"] and param == d["path"]), **d}
+                       for d in core.param_diff(before, after))
+    return out, changes
+
+
 def plan_run(db: Session, project: Project, v: WorkflowVersion, sample_ids: list[str],
-             bindings: dict[str, dict[str, dict[str, Any]]], given: dict[str, Any]) -> dict[str, Any]:
+             bindings: dict[str, dict[str, dict[str, Any]]], given: dict[str, Any],
+             options: dict[str, Any] | None = None) -> dict[str, Any]:
     """What a run would do: per sample, what each source node picks (or why it cannot), the tools, the items and
-    jobs, the queue settings and estimated resources, and anything that blocks the whole run."""
-    definition = v.definition
-    _, problems = check_definition(definition)
+    jobs, the queue settings and estimated resources, and anything that blocks the whole run. Run options apply to
+    the version's definition first (apply_options)."""
+    definition, option_changes = apply_options(v.definition, options)
+    definition, problems = check_definition(definition)
     problems = [p for p in problems] + availability(definition, refresh=True)
     samples = []
     seen = set()
@@ -337,7 +367,19 @@ def plan_run(db: Session, project: Project, v: WorkflowVersion, sample_ids: list
     return {"workflow_version_id": v.id, "version": v.version, "definition_sha256": v.definition_sha256,
             "samples": rows, "ready_samples": ready, "jobs": jobs_per_sample * ready + set_jobs,
             "settings": settings, "tools": tool_snapshot(definition), "problems": problems,
-            "concurrency": _concurrency(settings)}
+            "concurrency": _concurrency(settings), "options": run_options(v.definition),
+            "option_changes": option_changes, "definition": definition}
+
+
+def run_options(definition: dict[str, Any]) -> dict[str, Any]:
+    """The run options this definition offers, each with the value its nodes hold (several values: null)."""
+    out = {}
+    for key, (kind, param) in RUN_OPTIONS.items():
+        values = {json.dumps((n.get("params") or {}).get(param)) for n in definition["nodes"] if n["kind"] == kind}
+        if values:
+            out[key] = {"kind": kind, "param": param, "nodes": sum(1 for n in definition["nodes"] if n["kind"] == kind),
+                        "value": json.loads(next(iter(values))) if len(values) == 1 else None}
+    return out
 
 
 def _concurrency(settings: dict[str, Any]) -> int:
@@ -349,14 +391,18 @@ def _concurrency(settings: dict[str, Any]) -> int:
 def create_run(db: Session, project: Project, wf: Workflow | None, v: WorkflowVersion | None, sample_ids: list[str],
                bindings: dict[str, dict[str, dict[str, Any]]], given: dict[str, Any], name: str | None,
                parent: BatchRun | None = None, reuse: dict[str, str] | None = None,
-               changes: list[dict[str, Any]] | None = None, definition: dict[str, Any] | None = None) -> BatchRun:
-    plan = plan_run(db, project, v, sample_ids, bindings, given) if definition is None else None
-    definition = definition or v.definition
+               changes: list[dict[str, Any]] | None = None, definition: dict[str, Any] | None = None,
+               options: dict[str, Any] | None = None) -> BatchRun:
+    plan = plan_run(db, project, v, sample_ids, bindings, given, options) if definition is None else None
+    definition = plan["definition"] if plan is not None else definition
     if plan is not None and plan["problems"]:
         p = plan["problems"][0]
         raise WorkflowError(f"The run is blocked: {p['code']}", "wf_run_blocked",
                             problems="; ".join(sorted({x["code"] for x in plan["problems"]})))
     settings = plan["settings"] if plan else _settings(db, given)
+    if plan is not None and plan["option_changes"]:
+        settings = {**settings, "run_options": {k: v for k, v in (options or {}).items() if v is not None},
+                    "option_changes": plan["option_changes"]}
     default_name = f"{wf.name} v{v.version}" if wf and v else "workflow run"
     run = BatchRun(project_id=project.id, workflow_version_id=v.id if v else None,
                    parent_run_id=parent.id if parent else None,
@@ -550,10 +596,16 @@ def _propagate(run: BatchRun) -> None:
                 changed = True
 
 
+def not_applicable(item: BatchItem) -> bool:
+    """Skipped because the step does not apply to the sample (workflow_nodes.NodeSkipped): not an error."""
+    return item.status == "skipped" and (item.error or {}).get("code") in NOT_APPLICABLE
+
+
 def _finish_if_done(run: BatchRun) -> None:
     if run.status not in ACTIVE_RUN or any(i.status not in TERMINAL_ITEM for i in run.items):
         return
-    run.status = "completed" if all(i.status == "completed" for i in run.items) else "completed_with_errors"
+    ok = all(i.status == "completed" or not_applicable(i) for i in run.items)
+    run.status = "completed" if ok else "completed_with_errors"
     run.finished_at = now()
 
 
@@ -647,6 +699,12 @@ def _launch(db: Session, run: BatchRun, item: BatchItem, status: dict[str, Batch
     try:
         db.commit()
         job = nodes.KINDS[item.node_kind].launch(ctx)
+    except nodes.NodeSkipped as exc:
+        db.rollback()
+        item.status, item.finished_at = "skipped", now()
+        item.error = {"code": exc.code, "params": {k: v for k, v in exc.params.items() if isinstance(v, str | int | float)},
+                      "message": str(exc)}
+        return False
     except nodes.LaunchRefused as exc:
         db.rollback()
         _fail(item, exc.code, str(exc), **exc.params)
@@ -662,7 +720,7 @@ def _launch(db: Session, run: BatchRun, item: BatchItem, status: dict[str, Batch
     item.job_ids = [*item.job_ids, job.id]
     item.status = "queued"
     item.error = None
-    item.inputs = {**item.inputs, "params_sent": ctx.params}
+    item.inputs = {**item.inputs, "params_sent": ctx.params, **({"notes": ctx.notes} if ctx.notes else {})}
     memory = nodes.memory_gb_for(item.node_kind, dict(node["params"]), run.settings["memory_per_job_gb"],
                                  effective_resources(db).max_memory_gb)
     item.reserved = {"threads": run.settings["threads_per_job"], "memory_gb": memory}
@@ -882,6 +940,7 @@ def _item_view(item: BatchItem, jobs: dict[str, AnalysisJob]) -> dict[str, Any]:
             "duration_seconds": job.duration_seconds if job else None,
             "progress": (job.progress or {}).get("stage") if job else None,
             "outputs": item.outputs, "error": item.error, "reserved": item.reserved,
+            "notes": (item.inputs or {}).get("notes"),
             "reused_from_item_id": item.reused_from_item_id, "depends_on": item.depends_on,
             "started_at": item.started_at, "finished_at": item.finished_at}
 

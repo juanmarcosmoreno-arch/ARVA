@@ -77,6 +77,7 @@ export type GuideId =
   | "kmer_coverage"
   | "polishing"
   | "racon"
+  | "medaka"
   | "pilon"
   | "polishing_evidence"
   | "job_control"
@@ -1636,9 +1637,9 @@ export const GUIDE: GuideEntry[] = [
     references: [REF.racon, REF.pilon, REF.perfectGenome, REF.polypolish, REF.medaka],
     en: {
       title: "Polishing an assembly",
-      what: "Polishing corrects small errors left in an assembly — wrong bases and small insertions or deletions — using reads aligned to it. ARVA offers Racon for long reads, Pilon for short reads, and both in sequence. The result is a new assembly linked to its draft; the draft is never changed.",
+      what: "Polishing corrects small errors left in an assembly — wrong bases and small insertions or deletions — using reads aligned to it. ARVA offers Racon for long reads, Medaka for Oxford Nanopore reads, Pilon for short reads, and Racon then Pilon in sequence. The result is a new assembly linked to its draft; the draft is never changed.",
       why: "Assemblers build a consensus, but some errors remain, especially in long-read assemblies (homopolymer lengths, systematic basecalling errors). They matter downstream: a single indel can shift a reading frame and truncate a predicted protein.",
-      how: "Racon: minimap2 aligns the long reads to the assembly (preset map-ont, map-pb or map-hifi), Racon builds a consensus in 500-bp windows. Pilon: BWA-MEM aligns the short reads, samtools sorts them, Pilon corrects the positions where the pileup disagrees with the assembly and lists every change. Each round starts from the previous result. Hybrid: Racon with the long reads, then Pilon with the short reads on Racon's result, following the order recommended for bacterial genomes (long-read polishing, then short-read polishing).",
+      how: "Racon: minimap2 aligns the long reads to the assembly (preset map-ont, map-pb or map-hifi), Racon builds a consensus in 500-bp windows. Pilon: BWA-MEM aligns the short reads, samtools sorts them, Pilon corrects the positions where the pileup disagrees with the assembly and lists every change. Each round starts from the previous result. Medaka: one run of medaka_consensus with the model trained for the reads' basecaller model (see Medaka). Hybrid: Racon with the long reads, then Pilon with the short reads on Racon's result, following the order recommended for bacterial genomes (long-read polishing, then short-read polishing).",
       interpret: "Read the comparison of every run: what changed in the sequence (direct evidence) and how the reads agree with each version (indirect indicators). Few changes after the first round are expected; many changes in a late round deserve a look.",
       next: "Compare the draft and the polished versions with QUAST, against a trusted reference when there is one, before choosing the assembly for annotation.",
       mistakes: [
@@ -1647,13 +1648,13 @@ export const GUIDE: GuideEntry[] = [
         "Running many rounds by habit: later rounds can also introduce changes.",
         "Polishing with reads from another isolate.",
       ],
-      limitations: "Racon is generic: it uses no model of a technology's errors. Medaka (Oxford Nanopore's model-based polisher) is not integrated yet because it needs a model matching the reads' basecaller and downloads its models. Short reads can be placed in the wrong copy of a repeat, so short-read polishers can introduce errors in repeats (Wick & Holt 2022). Polishers treat contigs as linear, so the ends of circular contigs are polished less well.",
+      limitations: "Racon is generic: it uses no model of a technology's errors. Medaka has such a model, but only for Oxford Nanopore reads and for the basecaller model it was trained for; ARVA runs only the models its package ships. Short reads can be placed in the wrong copy of a repeat, so short-read polishers can introduce errors in repeats (Wick & Holt 2022). Polishers treat contigs as linear, so the ends of circular contigs are polished less well.",
     },
     es: {
       title: "Pulir un ensamblaje",
-      what: "El pulido corrige errores pequeños que quedan en un ensamblaje —bases erróneas e inserciones o deleciones pequeñas— usando lecturas alineadas a él. ARVA ofrece Racon para lecturas largas, Pilon para lecturas cortas, y ambos en secuencia. El resultado es un ensamblaje nuevo enlazado a su borrador; el borrador no se modifica nunca.",
+      what: "El pulido corrige errores pequeños que quedan en un ensamblaje —bases erróneas e inserciones o deleciones pequeñas— usando lecturas alineadas a él. ARVA ofrece Racon para lecturas largas, Medaka para lecturas de Oxford Nanopore, Pilon para lecturas cortas, y Racon y después Pilon en secuencia. El resultado es un ensamblaje nuevo enlazado a su borrador; el borrador no se modifica nunca.",
       why: "Los ensambladores construyen un consenso, pero quedan algunos errores, sobre todo en ensamblajes de lecturas largas (longitud de homopolímeros, errores sistemáticos del basecalling). Importan después: una sola indel puede desplazar el marco de lectura y truncar una proteína predicha.",
-      how: "Racon: minimap2 alinea las lecturas largas al ensamblaje (preajuste map-ont, map-pb o map-hifi) y Racon construye un consenso en ventanas de 500 pb. Pilon: BWA-MEM alinea las lecturas cortas, samtools las ordena y Pilon corrige las posiciones en las que el apilamiento no concuerda con el ensamblaje y lista cada cambio. Cada ronda parte del resultado anterior. Híbrido: Racon con las lecturas largas y después Pilon con las cortas sobre el resultado de Racon, en el orden recomendado para genomas bacterianos (primero pulido con lecturas largas, después con cortas).",
+      how: "Racon: minimap2 alinea las lecturas largas al ensamblaje (preajuste map-ont, map-pb o map-hifi) y Racon construye un consenso en ventanas de 500 pb. Pilon: BWA-MEM alinea las lecturas cortas, samtools las ordena y Pilon corrige las posiciones en las que el apilamiento no concuerda con el ensamblaje y lista cada cambio. Cada ronda parte del resultado anterior. Medaka: una ejecución de medaka_consensus con el modelo entrenado para el modelo de basecalling de las lecturas (ver Medaka). Híbrido: Racon con las lecturas largas y después Pilon con las cortas sobre el resultado de Racon, en el orden recomendado para genomas bacterianos (primero pulido con lecturas largas, después con cortas).",
       interpret: "Lee la comparación de cada ejecución: qué cambió en la secuencia (evidencia directa) y cómo concuerdan las lecturas con cada versión (indicadores indirectos). Es esperable que haya pocos cambios tras la primera ronda; muchos cambios en una ronda tardía merecen una revisión.",
       next: "Compara el borrador y las versiones pulidas con QUAST, frente a una referencia fiable si la hay, antes de elegir el ensamblaje para anotar.",
       mistakes: [
@@ -1662,7 +1663,7 @@ export const GUIDE: GuideEntry[] = [
         "Hacer muchas rondas por costumbre: las rondas tardías también pueden introducir cambios.",
         "Pulir con lecturas de otro aislado.",
       ],
-      limitations: "Racon es genérico: no usa un modelo de los errores de cada tecnología. Medaka (el pulidor basado en modelos de Oxford Nanopore) aún no está integrado porque necesita un modelo que corresponda al basecaller de las lecturas y descarga sus modelos. Las lecturas cortas pueden colocarse en la copia equivocada de una repetición, así que los pulidores de lecturas cortas pueden introducir errores en repeticiones (Wick y Holt 2022). Los pulidores tratan los contigs como lineales, así que los extremos de los contigs circulares se pulen peor.",
+      limitations: "Racon es genérico: no usa un modelo de los errores de cada tecnología. Medaka sí lo tiene, pero solo para lecturas de Oxford Nanopore y para el modelo de basecalling con el que se entrenó; ARVA ejecuta solo los modelos que trae su paquete. Las lecturas cortas pueden colocarse en la copia equivocada de una repetición, así que los pulidores de lecturas cortas pueden introducir errores en repeticiones (Wick y Holt 2022). Los pulidores tratan los contigs como lineales, así que los extremos de los contigs circulares se pulen peor.",
     },
   },
   {
@@ -1697,6 +1698,42 @@ export const GUIDE: GuideEntry[] = [
       ],
       limitations: "Racon no tiene un modelo de los errores sistemáticos de una tecnología, así que no corrige errores presentes en la mayoría de las lecturas en una posición (p. ej. algunas longitudes de homopolímeros). Racon trata cada contig como lineal.",
       advanced: "XC es la fracción de ventanas de un contig que Racon pulió (p. ej. 0,96875 = 31 de 32 ventanas); RC es el número de solapamientos que Racon usó para él.",
+    },
+  },
+  {
+    id: "medaka",
+    references: [REF.medaka, REF.minimap2],
+    en: {
+      title: "Medaka (Oxford Nanopore polishing)",
+      what: "Medaka, from Oxford Nanopore Technologies, corrects an assembly with Nanopore reads aligned to it. A neural network trained for one basecaller model reads the pileup at every position and predicts the consensus base, so it learns errors that are typical of that basecaller (e.g. homopolymer lengths) and that a generic consensus keeps.",
+      why: "For Oxford Nanopore isolates it is the polisher the manufacturer provides and the one many published pipelines use after Flye (e.g. Filtlong, Flye, Medaka). Medaka's README: it has been trained to correct draft sequences output from the Flye assembler and should be used directly on Flye's output.",
+      how: "ARVA runs medaka_consensus once: -i reads, -d a copy of the draft, -m the model, -t threads, -b batch size. It aligns the reads to the draft (mini_align, minimap2), runs the model (medaka inference) and stitches the consensus (medaka sequence); regions without enough aligned reads are copied from the draft and listed. The model: the reads' headers usually name the basecall model (e.g. dna_r10.4.1_e8.2_400bps_sup@v5.2.0, in Dorado's RG read group); ARVA applies medaka's own mapping (medaka/options.py) to it, e.g. r1041_e82_400bps_sup_v5.2.0. When ARVA cannot read the basecall model you choose the model; a choice that differs from medaka's mapping must be confirmed. ARVA then aligns the reads to the draft and the result and compares both sequences with dnadiff, as for every polisher.",
+      interpret: "The direct evidence lists what Medaka changed. Unpolished regions are where too few reads aligned: there the result is the draft. A model for another basecaller model, or a draft that is not an unpolished Flye assembly, can make results worse.",
+      next: "Compare the draft and the polished assembly with QUAST (against a trusted reference if there is one); with short reads, Pilon can polish Medaka's result afterwards.",
+      mistakes: [
+        "Using a model that does not match the reads' basecaller model.",
+        "Running Medaka on reads basecalled with a 'fast' model, which Medaka does not support.",
+        "Running Medaka after Racon or several times: current models are trained on Flye's output.",
+        "Using Medaka for PacBio or short reads.",
+      ],
+      limitations: "ARVA runs only the consensus models Medaka 2.1.1's package ships (r1041_e82_400bps_sup_v5.2.0 and r1041_e82_400bps_hac_v5.2.0, R10.4.1 E8.2 400 bps, Dorado v5.2.0), whose files conda checks: any other model medaka would download on first use from GitHub without a checksum, which ARVA does not allow. Older basecaller models therefore need Racon. The bacterial methylation model (--bacteria) is not in the package and is not offered. Medaka runs on the CPU here; its inference scales poorly beyond 2 threads (README). Medaka treats every contig as linear.",
+      advanced: "The file consensus.fasta.gaps_in_draft_coords.bed (kept as medaka_unpolished_regions.bed) lists the draft regions copied unpolished; a contig with no read at all is logged as 'Copying contig … verbatim from input'. The model's file and sha256 are recorded with the run.",
+    },
+    es: {
+      title: "Medaka (pulido de Oxford Nanopore)",
+      what: "Medaka, de Oxford Nanopore Technologies, corrige un ensamblaje con lecturas de Nanopore alineadas a él. Una red neuronal entrenada para un modelo de basecalling lee el apilamiento en cada posición y predice la base del consenso, así que aprende errores típicos de ese basecalling (p. ej. longitudes de homopolímeros) que un consenso genérico conserva.",
+      why: "Para aislados de Oxford Nanopore es el pulidor que ofrece el fabricante y el que usan muchos pipelines publicados después de Flye (p. ej. Filtlong, Flye, Medaka). README de Medaka: se entrenó para corregir borradores producidos por el ensamblador Flye y debe usarse directamente sobre la salida de Flye.",
+      how: "ARVA ejecuta medaka_consensus una vez: -i lecturas, -d una copia del borrador, -m el modelo, -t hilos, -b tamaño de lote. Alinea las lecturas al borrador (mini_align, minimap2), ejecuta el modelo (medaka inference) y une el consenso (medaka sequence); las regiones sin lecturas alineadas suficientes se copian del borrador y se listan. El modelo: las cabeceras de las lecturas suelen indicar el modelo de basecalling (p. ej. dna_r10.4.1_e8.2_400bps_sup@v5.2.0, en el read group RG de Dorado); ARVA le aplica la correspondencia propia de medaka (medaka/options.py), p. ej. r1041_e82_400bps_sup_v5.2.0. Cuando ARVA no puede leer el modelo de basecalling eliges tú el modelo; una elección distinta de la correspondencia de medaka hay que confirmarla. Después ARVA alinea las lecturas al borrador y al resultado y compara ambas secuencias con dnadiff, como con todo pulidor.",
+      interpret: "La evidencia directa lista lo que cambió Medaka. Las regiones sin pulir son las que tuvieron pocas lecturas alineadas: ahí el resultado es el borrador. Un modelo para otro modelo de basecalling, o un borrador que no es un ensamblaje de Flye sin pulir, puede empeorar el resultado.",
+      next: "Compara el borrador y el ensamblaje pulido con QUAST (frente a una referencia fiable si la hay); con lecturas cortas, Pilon puede pulir después el resultado de Medaka.",
+      mistakes: [
+        "Usar un modelo que no corresponde al modelo de basecalling de las lecturas.",
+        "Ejecutar Medaka con lecturas procesadas con un modelo 'fast', que Medaka no admite.",
+        "Ejecutar Medaka después de Racon o varias veces: los modelos actuales se entrenaron con la salida de Flye.",
+        "Usar Medaka con lecturas de PacBio o cortas.",
+      ],
+      limitations: "ARVA ejecuta solo los modelos de consenso que trae el paquete de Medaka 2.1.1 (r1041_e82_400bps_sup_v5.2.0 y r1041_e82_400bps_hac_v5.2.0, R10.4.1 E8.2 400 bps, Dorado v5.2.0), cuyos archivos verifica conda: cualquier otro modelo medaka lo descargaría al primer uso desde GitHub sin suma de verificación, y ARVA no lo permite. Por eso los modelos de basecalling antiguos necesitan Racon. El modelo de metilación bacteriana (--bacteria) no está en el paquete y no se ofrece. Aquí Medaka usa la CPU; su inferencia escala mal por encima de 2 hilos (README). Medaka trata cada contig como lineal.",
+      advanced: "El archivo consensus.fasta.gaps_in_draft_coords.bed (guardado como medaka_unpolished_regions.bed) lista las regiones del borrador copiadas sin pulir; un contig sin ninguna lectura se registra como 'Copying contig … verbatim from input'. El archivo del modelo y su sha256 se registran con la ejecución.",
     },
   },
   {

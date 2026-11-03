@@ -392,17 +392,20 @@ def flye_ready():
 @pytest.mark.skipif(not flye_ready(), reason="needs Flye (with samtools)")
 def test_flye_assembles_the_synthetic_genome(client, tmp_path, storage_root):
     """The default synthetic genome (300 kb circular chromosome with a 5 kb repeat in two copies, 15 kb plasmid
-    at two copies) with Nanopore-like reads at 30x. Recorded with Flye 2.9.3, 2 threads: both replicons circular at
-    their exact lengths, the plasmid at multiplicity 2."""
+    at two copies) with Nanopore-like reads at 30x and a 2% mean error, within --nano-hq's range in Flye 2.9.3
+    (< 5%) and 2.9.6 (R10, < 3%). Flye 2.9.3 and 2.9.6, 2 threads: both replicons circular at their lengths (within
+    10 bp), the plasmid at multiplicity 2. With the generator's default 4% error, Flye 2.9.6 assembled the plasmid
+    as a 30,027 bp dimer (see workflows/tool-adapters/tests/test_real_tools.py)."""
     data = tmp_path / "genome"
     subprocess.run([sys.executable, str(REPO / "scripts" / "make_synthetic_genome.py"), str(data),
-                    "--ont-depth", "30", "--illumina-depth", "1"], check=True, capture_output=True)
+                    "--ont-depth", "30", "--illumina-depth", "1", "--ont-error-rate", "0.02"],
+                   check=True, capture_output=True)
     sample = new_sample(client)
     f = upload(client, sample["id"], data / "ont.fastq.gz")
     client.post(f"{API}/samples/{sample['id']}/analyses/sequence-stats", json={"raw_file_ids": [f["id"]]})
     plan = client.post(f"{API}/samples/{sample['id']}/assembly/flye/preview",
                        json={"raw_file_ids": [f["id"]], "assumed_depth_x": 30}).json()
-    # Calibrated qualities, about 4 % errors: below Flye's 5 % limit for --nano-hq.
+    # Calibrated qualities, about 2 % errors: below Flye's limit for --nano-hq (5 % in 2.9.3, 3 % in 2.9.6).
     assert plan["read_type_suggestion"]["value"] == "nano-hq"
     genome = plan["genome_size"]["from_depth"]["bp"]
     r = start(client, sample, [f], {"genome_size_bp": genome, "genome_size_basis": "reads_over_depth",
@@ -428,7 +431,9 @@ def test_flye_assembles_the_synthetic_genome(client, tmp_path, storage_root):
     assert g["coverage_tag"] == "dp" and g["path_count"] == 2
     by_contig = {n["paths"][0]: n for n in g["nodes"]}
     assert set(by_contig) == {chromosome["name"], plasmid["name"]}
-    assert all(n["circular"] is True and n["repeat"] is False and len(n["paths"]) == 1 for n in g["nodes"])
+    assert all(n["circular"] is True and len(n["paths"]) == 1 for n in g["nodes"])
+    # Flye flags the plasmid's segment, at multiplicity 2, as a repeat (2.9.3 and 2.9.6 alike on these reads).
+    assert by_contig[chromosome["name"]]["repeat"] is False
     assert {e["source"] for e in g["edges"] if e["source"] == e["target"]} == {n["id"] for n in g["nodes"]}
 
     # Compare with the true genome: shared 31-mers on either strand.
@@ -455,3 +460,50 @@ def test_flye_assembles_the_synthetic_genome(client, tmp_path, storage_root):
         found = kmers(assembled[c["name"]])
         assert len(found & truth) / len(found) >= 0.99, c["name"]
     shutil.rmtree(data)
+
+
+def test_memory_estimate_in_the_preview_the_job_and_the_workflow_guard(client, fake_flye, monkeypatch):
+    """ARVA's estimate (Flye's documented E. coli figure, scaled) is in the preview and recorded on the job; the
+    workflow guard adds --asm-coverage only when the estimate may not fit, and never over the user's own value."""
+    import arva_tools.flye as adapter
+
+    from app.services import workflow_nodes as nodes
+
+    fake_flye()
+    sample = new_sample(client)
+    f = upload(client, sample["id"], ONT)
+    url = f"{API}/samples/{sample['id']}/assembly/flye/preview"
+    m = client.post(url, json={"raw_file_ids": [f["id"]]}).json()["memory"]
+    assert m["verdict"] == "unknown" and m["reference"]["ram_gb"] == 2.0 and m["reference_bases"] == 230_000_000
+    client.post(f"{API}/samples/{sample['id']}/analyses/sequence-stats",
+                json={"raw_file_ids": [f["id"]], "expected_genome_size_bp": 300_000})
+    m = client.post(url, json={"raw_file_ids": [f["id"]]}).json()["memory"]
+    assert m["verdict"] == "fits" and m["read_bases"] == 1_513_780 and m["estimate_gb"] == 0.01
+    assert m["available_gb"] >= 1 and m["expected_genome_size_bp"] == 300_000 and m["suggestion"] is None
+
+    r = start(client, sample, [f])
+    params = job(client, r.json()["id"])["parameters"]
+    assert params["memory_estimate"]["verdict"] == "fits" and "reference" not in params["memory_estimate"]
+
+    with SessionLocal() as db:
+        from app.models import Sample
+
+        s = db.get(Sample, sample["id"])
+        base = {"read_type": "nano-hq", "iterations": 1}
+        assert nodes.flye_memory_guard(db, s, [f["id"]], dict(base), "auto")["applied"] is None
+        # Pretend Flye's documented figure were 10,000 times larger: these reads would then not fit.
+        monkeypatch.setitem(adapter.MEMORY_REFERENCE, "ram_gb", 20_000.0)
+        off = nodes.flye_memory_guard(db, s, [f["id"]], dict(base), "off")
+        assert off["estimate"]["verdict"] == "may_not_fit" and off["applied"] is None and off["not_applied"] is None
+        on = nodes.flye_memory_guard(db, s, [f["id"]], dict(base), "auto")
+        assert on["applied"] == {"asm_coverage": 50, "genome_size_bp": 300_000,
+                                 "genome_size_basis": "expected_genome_size", "assumed_depth_x": None}
+        assert on["estimate_after"]["bases_used"] == 1_513_780  # 50x of 300 kb is more than the reads hold
+        own = nodes.flye_memory_guard(db, s, [f["id"]], {**base, "asm_coverage": 30, "genome_size_bp": 300_000},
+                                      "auto")
+        assert own["applied"] is None and own["not_applied"] == "asm_coverage_set"
+        meta = nodes.flye_memory_guard(db, s, [f["id"]], {**base, "meta": True}, "auto")
+        assert meta["not_applied"] == "meta"
+        sized = nodes.flye_memory_guard(db, s, [f["id"]], {**base, "genome_size_bp": 250_000,
+                                                           "genome_size_basis": "entered"}, "auto")
+        assert sized["applied"] == {"asm_coverage": 50}

@@ -9,7 +9,7 @@ import { ErrorNote } from "@/components/ui/misc";
 import { useT } from "@/i18n";
 import { api } from "@/lib/api";
 import { messageText } from "@/lib/messages";
-import type { BatchRunRequest, BatchSettings, WorkflowRead } from "@/lib/workflows";
+import type { BatchRunRequest, BatchSettings, OfferedOptions, OptionChange, RunOptions, WorkflowRead } from "@/lib/workflows";
 import { profileLabel } from "@/lib/performance";
 import { problemText } from "./WorkflowEditor";
 
@@ -24,6 +24,7 @@ export function RunDialog({ open, onOpenChange, workflow }: { open: boolean; onO
   const [chosen, setChosen] = useState<string[]>([]);
   const [settings, setSettings] = useState<BatchSettings>(DEFAULTS);
   const [name, setName] = useState("");
+  const [options, setOptions] = useState<RunOptions>({});
   const [confirmed, setConfirmed] = useState(false);
   const projects = useQuery({ queryKey: ["projects"], queryFn: api.projects, enabled: open });
   const samples = useQuery({ queryKey: ["samples", projectId], queryFn: () => api.samples(projectId), enabled: Boolean(projectId) });
@@ -31,10 +32,10 @@ export function RunDialog({ open, onOpenChange, workflow }: { open: boolean; onO
     if (!projectId && projects.data?.length) setProjectId(projects.data[0].id);
   }, [projects.data, projectId]);
   useEffect(() => setChosen((samples.data ?? []).map((s) => s.id)), [samples.data]);
-  useEffect(() => setConfirmed(false), [projectId, chosen, settings]);
-  const body: BatchRunRequest = { project_id: projectId, workflow_id: workflow.id, version: workflow.latest?.version, sample_ids: chosen, name: name || null, settings, confirmed };
+  useEffect(() => setConfirmed(false), [projectId, chosen, settings, options]);
+  const body: BatchRunRequest = { project_id: projectId, workflow_id: workflow.id, version: workflow.latest?.version, sample_ids: chosen, name: name || null, settings, options, confirmed };
   const plan = useQuery({
-    queryKey: ["batchPreview", body.project_id, body.sample_ids, settings, workflow.latest?.version],
+    queryKey: ["batchPreview", body.project_id, body.sample_ids, settings, options, workflow.latest?.version],
     queryFn: () => api.batchPreview({ ...body, confirmed: false }),
     enabled: open && Boolean(projectId) && chosen.length > 0,
     retry: false,
@@ -96,6 +97,7 @@ export function RunDialog({ open, onOpenChange, workflow }: { open: boolean; onO
             <Input type="number" min={0} max={3} value={settings.max_retries} onChange={(e) => setSettings({ ...settings, max_retries: Number(e.target.value) || 0 })} />
           </Field>
         </div>
+        {p?.options && Object.keys(p.options).length > 0 && <RunOptionsFields offered={p.options} options={options} setOptions={setOptions} />}
         {plan.isFetching && <Loader2 className="h-4 w-4 animate-spin" />}
         <ErrorNote error={plan.error} />
         {p && (
@@ -125,6 +127,9 @@ export function RunDialog({ open, onOpenChange, workflow }: { open: boolean; onO
                 ))}
               </tbody>
             </table>
+            {p.option_changes && p.option_changes.length > 0 && (
+              <p>{t("wf.options.changed", { changes: changesText(p.option_changes) })}</p>
+            )}
             {p.samples.some((s) => !s.ready) && <p className="text-amber-700 dark:text-warning">{t("wf.notReadyNote")}</p>}
             {p.problems.length > 0 && (
               <ul className="list-disc space-y-0.5 pl-5 text-danger">
@@ -146,5 +151,45 @@ export function RunDialog({ open, onOpenChange, workflow }: { open: boolean; onO
         </div>
       </div>
     </Dialog>
+  );
+}
+
+const STRATEGIES = ["racon", "medaka", "pilon", "hybrid"] as const;
+const GUARDS = ["auto", "off"] as const;
+
+export const changesText = (changes: OptionChange[]) =>
+  changes.map((c) => `${c.node}.${c.path}: ${JSON.stringify(c.before)} → ${JSON.stringify(c.after)}`).join("; ");
+
+/** The run options the workflow offers (polishing strategy, Flye's memory guard): empty keeps the saved value. */
+function RunOptionsFields({ offered, options, setOptions }: { offered: OfferedOptions; options: RunOptions; setOptions: (o: RunOptions) => void }) {
+  const t = useT();
+  const saved = (key: keyof RunOptions, label: (v: string) => string) => {
+    const o = offered[key];
+    return o?.value ? t("wf.options.saved", { value: label(o.value) }) : t("wf.options.mixed");
+  };
+  const strategy = (v: string) => (STRATEGIES as readonly string[]).includes(v) ? t(`polishing.strategy.${v as (typeof STRATEGIES)[number]}`) : v;
+  const guard = (v: string) => (GUARDS as readonly string[]).includes(v) ? t(`wf.options.guard.${v as (typeof GUARDS)[number]}`) : v;
+  return (
+    <section className="space-y-2 rounded-lg border p-3" aria-label={t("wf.options.title")}>
+      <p className="text-xs font-medium">{t("wf.options.title")} <span className="font-normal text-muted-foreground">{t("wf.options.hint")}</span></p>
+      <div className="grid gap-3 sm:grid-cols-2">
+        {offered.polishing_strategy && (
+          <Field label={t("wf.options.polishing")}>
+            <Select value={options.polishing_strategy ?? ""} onChange={(e) => setOptions({ ...options, polishing_strategy: (e.target.value || null) as RunOptions["polishing_strategy"] })}>
+              <option value="">{saved("polishing_strategy", strategy)}</option>
+              {STRATEGIES.map((s) => <option key={s} value={s}>{strategy(s)}</option>)}
+            </Select>
+          </Field>
+        )}
+        {offered.flye_memory_guard && (
+          <Field label={t("wf.options.flyeGuard")} hint={t("wf.options.flyeGuardHint")}>
+            <Select value={options.flye_memory_guard ?? ""} onChange={(e) => setOptions({ ...options, flye_memory_guard: (e.target.value || null) as RunOptions["flye_memory_guard"] })}>
+              <option value="">{saved("flye_memory_guard", guard)}</option>
+              {GUARDS.map((g) => <option key={g} value={g}>{guard(g)}</option>)}
+            </Select>
+          </Field>
+        )}
+      </div>
+    </section>
   );
 }

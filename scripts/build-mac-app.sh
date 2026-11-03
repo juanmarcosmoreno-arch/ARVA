@@ -55,7 +55,7 @@ for arch in arm64 x86_64; do
   printf 'Compiling for %s\n' "$arch"
   xcrun --sdk macosx swiftc -O -swift-version 5 -module-name ARVA \
     -target "$arch-apple-macos13.0" -sdk "$sdk" \
-    -framework AppKit -framework WebKit -framework UniformTypeIdentifiers \
+    -framework AppKit -framework WebKit -framework UniformTypeIdentifiers -framework IOKit \
     -o "$WORK/ARVA-$arch" "$SRC"/*.swift
 done
 lipo -create -output "$APP/Contents/MacOS/ARVA" "$WORK/ARVA-arm64" "$WORK/ARVA-x86_64"

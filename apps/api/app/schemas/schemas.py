@@ -1466,6 +1466,9 @@ class FlyePlanRead(BaseModel):
     files: list[FlyeFileEvidence]
     read_type_suggestion: FlyeReadTypeSuggestion
     genome_size: FlyeGenomeSizeOptions
+    memory: dict[str, Any] = Field(description="ARVA's estimate of whether the reads fit the memory ARVA can use "
+                                   "(Flye's documented E. coli figure scaled by read bases) and, when they may not, "
+                                   "Flye's documented way to use less (--asm-coverage with --genome-size)")
     sample_technology: SequencingTechnology
     long_reads_confirmation_required: bool
 
@@ -1595,7 +1598,7 @@ class DashboardSummary(BaseModel):
 
 # --- Polishing ---------------------------------------------------------------------------------------------------
 
-PolishingStrategy = Literal["racon", "pilon", "hybrid"]
+PolishingStrategy = Literal["racon", "medaka", "pilon", "hybrid"]
 LongReadPreset = Literal["map-ont", "map-pb", "map-hifi"]
 PilonFix = Literal["snps", "indels", "gaps", "local"]
 
@@ -1616,6 +1619,18 @@ class RaconSettingsIn(BaseModel):
     window_length: int = Field(default=500, ge=100, le=10_000, description="Passed as -w (Racon's default 500)")
     quality_threshold: float = Field(default=10.0, ge=0, le=60, description="Passed as -q (Racon's default 10.0)")
     error_threshold: float = Field(default=0.3, gt=0, le=1, description="Passed as -e (Racon's default 0.3)")
+
+
+class MedakaSettingsIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    model: str | None = Field(default=None, max_length=120, description="Passed as -m: one of the models Medaka's "
+                              "package ships (the plan's medaka.models). Unset: medaka's own model for the basecall "
+                              "model ARVA read from the reads' headers, when the package ships it; otherwise refused")
+    batch_size: int = Field(default=100, ge=1, le=1000, description="Passed as -b (medaka_consensus' default 100; "
+                            "\"controls memory use\")")
+    accept_model_mismatch: bool = Field(default=False, description="Use `model` even though medaka's mapping gives "
+                                        "another model for the reads' basecall model")
 
 
 class PilonSettingsIn(BaseModel):
@@ -1640,6 +1655,7 @@ class PolishingRequest(BaseModel):
     strategy: PolishingStrategy
     inputs: PolishingInputsIn
     racon: RaconSettingsIn = Field(default_factory=RaconSettingsIn)
+    medaka: MedakaSettingsIn = Field(default_factory=MedakaSettingsIn)
     pilon: PilonSettingsIn = Field(default_factory=PilonSettingsIn)
     threads: int | None = Field(default=None, ge=1, le=128, description="Capped at the server's thread limit")
     quast: bool = Field(default=False, description="Compare the draft and the polished assemblies with QUAST when done")
@@ -1681,15 +1697,52 @@ class PolishingPresetSuggestion(BaseModel):
     platform: Literal["nanopore", "pacbio"] | None = None
 
 
+class MedakaModelFile(BaseModel):
+    name: str
+    file: str
+    sha256: str
+    size: int
+    checksum: Literal["matches_package", "differs_from_package", "unrecorded"] = Field(
+        description="The file's sha256 against conda's record of the medaka package (conda-meta)")
+
+
+class MedakaModelSuggestion(BaseModel):
+    status: Literal["mapped", "mapped_not_bundled", "unknown_basecall_model", "fast_unsupported",
+                    "several_basecall_models", "no_basecall_model"]
+    basecall_model: str | None
+    basecall_models: list[str]
+    model: str | None = Field(description="medaka's model for the basecall model (medaka/options.py)")
+    source: str
+
+
+class MedakaPlanRead(BaseModel):
+    available: bool
+    error: str | None
+    version: str | None
+    models: list[str] = Field(description="Consensus models ARVA can run: shipped in Medaka's package, checksum "
+                                          "matching conda's record")
+    bundled: list[MedakaModelFile]
+    default_model: str | None = Field(description="medaka_consensus' own default (shown, never used silently)")
+    suggestion: MedakaModelSuggestion | None
+    default_batch_size: int
+    problem: str | None = Field(description="Why the chosen reads cannot be polished with Medaka")
+    draft_is_flye: bool = Field(description="The draft is an unpolished Flye assembly, the input Medaka's models "
+                                            "were trained on")
+
+
 class PolishingPlanRead(BaseModel):
     draft: PolishingDraftRead
-    tools: dict[str, PolishingToolRead] = Field(description="racon, minimap2, pilon, java, bwa, samtools, dnadiff")
+    tools: dict[str, PolishingToolRead] = Field(description="racon, medaka, minimap2, pilon, java, bwa, samtools, "
+                                                            "dnadiff")
     strategies_available: list[PolishingStrategy] = Field(description="Strategies whose tools are all installed")
     files: list[AssemblyFileEvidence]
     strategy: PolishingStrategy | None = Field(description="The strategy the chosen reads imply")
+    strategies_for_reads: list[PolishingStrategy] = Field(default_factory=list,
+                                                          description="Every strategy the chosen reads allow")
     suggested_strategy: PolishingStrategy | None = Field(description="The strategy the sample's technology calls for")
     preset_suggestion: PolishingPresetSuggestion
     problem: str | None
+    medaka: MedakaPlanRead
     sample_technology: SequencingTechnology
     confirmation_required: bool
     max_threads: int
@@ -4125,6 +4178,16 @@ class BatchSettingsIn(BaseModel):
                              "(a launch refused by a check is never retried)")
 
 
+class BatchRunOptionsIn(BaseModel):
+    """Choices made when a run starts, each setting one parameter on every node of a kind (unset: the saved value).
+    The run records them and every parameter they changed; the saved workflow version is not changed."""
+    model_config = ConfigDict(extra="forbid")
+
+    polishing_strategy: PolishingStrategy | None = Field(default=None, description="The polishing nodes' strategy "
+                                                         "(e.g. medaka)")
+    flye_memory_guard: Literal["off", "auto"] | None = Field(default=None, description="The Flye nodes' memory guard")
+
+
 class BatchRunIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -4134,6 +4197,7 @@ class BatchRunIn(BaseModel):
     sample_ids: list[Annotated[str, Field(max_length=36)]] = Field(min_length=1, max_length=1000)
     name: str | None = Field(default=None, max_length=200)
     settings: BatchSettingsIn = BatchSettingsIn()
+    options: BatchRunOptionsIn = BatchRunOptionsIn()
     bindings: dict[str, dict[str, dict[str, Any]]] = Field(
         default={}, description="Per sample id and source node id, the data to use instead of ARVA's rule "
         "(reads: {file_ids} or {r1, r2}; assembly: {assembly_id}; annotation: {annotation_id})")
@@ -4172,3 +4236,28 @@ class ProkkaNodeSettingsIn(ProkkaSettingsIn):
 
 class ProkkaNodeIn(ProkkaRequest):
     settings: ProkkaNodeSettingsIn = ProkkaNodeSettingsIn()
+
+
+FlyeMemoryGuard = Literal["off", "auto"]
+
+
+class FlyeNodeIn(FlyeRequest):
+    memory_guard: FlyeMemoryGuard = Field(
+        default="off", description="auto: when ARVA's memory estimate (from Flye's documented figures) says the run "
+        "may not fit the memory ARVA can use, add --asm-coverage (Flye's documented 50x) with the sample's expected "
+        "genome size. Never applied when the node sets asm_coverage, sets meta, or no genome size is known; what it "
+        "did is recorded with the run")
+
+
+class StaphTypingNodeIn(BaseModel):
+    """One step of the S. aureus typing module; a sample whose species evidence does not support the module skips it
+    (recorded with the reason) unless override_applicability is set."""
+    model_config = ConfigDict(extra="forbid")
+
+    method: TypingMethod
+    settings: dict[str, int] = Field(default={}, description="The step's settings (SccmecSettingsIn for sccmec; "
+                                     "spaTyper and AgrVATE take none)")
+    database_id: str | None = Field(default=None, max_length=36, description="spa: the Ridom SpaServer files to use "
+                                    "(unset: the default registered ones)")
+    override_applicability: bool = Field(default=False, description="Run although the species evidence does not "
+                                         "support the module (recorded on the result)")

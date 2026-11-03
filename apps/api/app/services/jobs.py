@@ -18,6 +18,7 @@ from arva_tools.bakta import flags as bakta_flags
 from arva_tools.fastp import FastpParams
 from arva_tools.filtlong import FiltlongParams
 from arva_tools.flye import FlyeAdapter, FlyeParams, read_checkpoint
+from arva_tools.medaka import MedakaAdapter, MedakaParams, offered_models
 from arva_tools.mlst import MlstAdapter, MlstParams
 from arva_tools.mlst import flags as mlst_flags
 from arva_tools.pilon import FLAGS as PILON_FLAGS
@@ -66,7 +67,8 @@ ASSEMBLY_JOBS = (FLYE_JOB, SPADES_JOB, UNICYCLER_JOB)
 QUAST_JOB = "quast_evaluation"
 RACON_JOB = "racon_polish"
 PILON_JOB = "pilon_polish"
-POLISHING_JOBS = (RACON_JOB, PILON_JOB)
+MEDAKA_JOB = "medaka_polish"
+POLISHING_JOBS = (RACON_JOB, MEDAKA_JOB, PILON_JOB)
 BAKTA_JOB = "bakta_annotation"
 PROKKA_JOB = "prokka_annotation"
 ANNOTATION_JOBS = (BAKTA_JOB, PROKKA_JOB)
@@ -529,6 +531,34 @@ def new_racon_job(sample: Sample, draft: Assembly, reads: RawFile, params: Racon
     return job
 
 
+def new_medaka_job(sample: Sample, draft: Assembly, reads: RawFile, params: MedakaParams, model: dict, extra: dict,
+                   res: Resources, parent_job_id: str | None = None) -> AnalysisJob:
+    """A pending Medaka polishing job (medaka_consensus with a model its package ships, then the comparisons).
+    `model` is polishing.choose_medaka_model's record of the model and why it was chosen."""
+    from app.services.polishing import medaka_catalogue
+
+    tool = require_tool("medaka")
+    for helper in ("minimap2", "samtools"):
+        require_tool(helper)
+    try:
+        text = MedakaAdapter.help_text(tool.path or "medaka")
+    except (OSError, RuntimeError, subprocess.TimeoutExpired) as exc:
+        raise ToolUnavailableError(f"medaka_consensus -h could not be read to check its options: {exc}") from exc
+    catalogue, error = medaka_catalogue()
+    if catalogue is None:
+        raise ToolUnavailableError(f"Medaka's models could not be read: {error}")
+    params.threads = res.cap_threads(params.threads)
+    params.validate()
+    # The argument vector is built once now so that a missing option or model refuses the job before it is queued.
+    MedakaAdapter.argv(tool.path or "medaka", params, Path("reads.fastq.gz"), Path("draft.fasta"), text,
+                       offered_models(catalogue))
+    job = _tool_job(sample, MEDAKA_JOB, tool, {**params.as_dict(), "read_type": "map-ont", "medaka_model": model,
+                                               "draft": draft_record(draft), "inputs": {"long": reads.id}, **extra},
+                    [reads.id], res.record(params.threads))
+    job.parent_job_id = parent_job_id
+    return job
+
+
 def new_pilon_job(sample: Sample, draft: Assembly, inputs: dict[str, RawFile | None], params: PilonParams, extra: dict,
                   res: Resources, parent_job_id: str | None = None) -> AnalysisJob:
     """A pending Pilon polishing job (BWA-MEM alignments, Pilon rounds, comparisons); `inputs` maps r1, r2 and
@@ -551,25 +581,35 @@ def new_pilon_job(sample: Sample, draft: Assembly, inputs: dict[str, RawFile | N
 
 
 def enqueue_polishing(jobs: list[AnalysisJob]) -> None:
-    from app.tasks.polishing import run_pilon_job, run_racon_job
+    from app.tasks.polishing import run_medaka_job, run_pilon_job, run_racon_job
 
+    runners = {RACON_JOB: run_racon_job, MEDAKA_JOB: run_medaka_job, PILON_JOB: run_pilon_job}
     for job in jobs:
-        _enqueue([job], run_racon_job if job.job_type == RACON_JOB else run_pilon_job)
+        _enqueue([job], runners[job.job_type])
 
 
 def create_polishing_job(db: Session, sample: Sample, draft: Assembly, strategy: str, inputs: dict[str, RawFile | None],
-                         racon: RaconParams | None, pilon: PilonParams | None, extra: dict) -> AnalysisJob:
-    """The first job of a polishing strategy: Racon (long reads), Pilon (short reads), or Racon whose completion
-    queues Pilon on its result (hybrid; the Pilon settings and reads are stored in the Racon job as `then_pilon`).
-    Every tool of the strategy is checked now, so a hybrid run does not stop half-way for a missing Pilon."""
+                         racon: RaconParams | None, pilon: PilonParams | None, extra: dict,
+                         medaka: tuple[MedakaParams, dict] | None = None) -> AnalysisJob:
+    """The first job of a polishing strategy: Racon or Medaka (long reads), Pilon (short reads), or Racon whose
+    completion queues Pilon on its result (hybrid; the Pilon settings and reads are stored in the Racon job as
+    `then_pilon`). Every tool of the strategy is checked now, so a hybrid run does not stop half-way for a missing
+    Pilon. `medaka` is the Medaka settings and polishing.choose_medaka_model's record of the model."""
     short = {r: inputs.get(r) for r in ("r1", "r2", "unpaired")}
     long = inputs.get("long")
-    if (strategy != "pilon" and (racon is None or long is None)) or (strategy != "racon" and pilon is None):
+    if strategy == "medaka":
+        if medaka is None or long is None:
+            raise ValueError("the medaka strategy needs its settings and long reads")
+    elif (strategy != "pilon" and (racon is None or long is None)) or (strategy != "racon" and pilon is None):
         raise ValueError(f"the {strategy} strategy needs its settings and reads")
     extra = {**extra, "strategy": strategy}
     res = effective_resources(db)
-    pilon_job = new_pilon_job(sample, draft, short, pilon, extra, res) if pilon is not None and strategy != "racon" else None
-    if strategy == "pilon":
+    pilon_job = new_pilon_job(sample, draft, short, pilon, extra, res) \
+        if pilon is not None and strategy in ("pilon", "hybrid") else None
+    if strategy == "medaka":
+        assert medaka is not None and long is not None
+        job = new_medaka_job(sample, draft, long, medaka[0], medaka[1], extra, res)
+    elif strategy == "pilon":
         job = pilon_job
     else:
         then = None

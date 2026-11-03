@@ -1,7 +1,11 @@
 """Flye — de novo assembly of long reads (Oxford Nanopore, PacBio) with repeat graphs.
 
 Verified against `flye --help`, the 2.9.3 USAGE.md and README, the source of Flye 2.9.3 (Ubuntu package
-2.9.3+dfsg2-1: flye/main.py, config/configurator.py, assembly/assemble.py, utils/sam_parser.py) and real runs:
+2.9.3+dfsg2-1: flye/main.py, config/configurator.py, assembly/assemble.py, utils/sam_parser.py) and real runs, and
+again for Flye 2.9.6 (Bioconda package flye-2.9.6 build 1, ARVA's lock docker/conda-locks/flye/): its --help lists
+the same options as 2.9.3 (tests/fixtures/flye/help_2.9.6.txt); only the read-type descriptions changed, and
+docs/NEWS.md of 2.9.6 says "R10 ONT parameters (3% error) are now default for --nano-hq" and "Fixed rare race
+condition in polishing stage" (2.9.4: "Minor technical changes"; 2.9.5: "Python 3.12 support, Python 2 dropped").
 
 * Argument ranges are Flye's own (main.py): threads 1-128, iterations 0-10, min overlap 1,000-10,000.
   --asm-coverage requires --genome-size and is incompatible with --meta; --read-error is only accepted
@@ -14,10 +18,15 @@ Verified against `flye --help`, the 2.9.3 USAGE.md and README, the source of Fly
   paths that contain spaces; it creates --out-dir with os.mkdir, so the parent folder must exist.
 * Stages, each announced in the log as ">>>STAGE: <name>": configure, assembly, consensus, repeat,
   contigger, polishing (only with iterations > 0), finalize.
-* Debian's flye package 2.9.3+dfsg2-1 (also Ubuntu 24.04's) calls `flye-samtools` (utils/sam_parser.py) but
-  does not ship it, unlike upstream's installation; without it the consensus is empty and the run aborts in
-  the repeat stage. When neither PATH nor Flye's own folder provides it, ARVA links flye-samtools to samtools
-  for the run and records the link and samtools' version.
+* Flye runs its programs flye-modules, flye-minimap2 and flye-samtools by name from PATH (assembly/assemble.py,
+  polishing/alignment.py, utils/sam_parser.py; main.py checks them with `which` before starting). Bioconda's
+  package installs all three next to `flye` (its bin/ folder; flye-samtools is a samtools binary of its own, the
+  recipe does not depend on samtools), so ARVA puts that folder first on Flye's PATH: another Flye's programs
+  on PATH (Debian's /usr/bin/flye-modules) are then never mixed with this one's.
+* Debian's flye package (bookworm's 2.9.1, Ubuntu 24.04's 2.9.3+dfsg2-1) calls `flye-samtools` but does not ship
+  it, unlike upstream's installation; without it the consensus is empty and the run aborts in the repeat stage.
+  When neither Flye's own folder nor PATH provides it, ARVA links flye-samtools to samtools for the run and
+  records the link and samtools' version. The Docker image runs the Bioconda Flye, which needs no link.
 * Results can depend on the thread count and, with more than one thread, differ between runs. On a synthetic
   genome with a 150 kb chromosome and a 15 kb plasmid at two copies (50x), 4 threads assembled the plasmid at
   15 kb in runs whose bytes differed, while 1 or 2 threads (identical bytes run to run) and --deterministic
@@ -201,10 +210,13 @@ class FlyeAdapter(ToolAdapter):
         input_formats=("fastq", "fastq.gz"),
         output_formats=("fasta", "gfa", "tsv"),
         min_version="2.9",
-        tested_versions=("2.9.3",),
-        install={"apt": "flye samtools", "conda": "bioconda::flye"},
+        tested_versions=("2.9.3", "2.9.6"),
+        install={"conda_lock": "python3 scripts/conda_locks.py install flye ~/.arva-tools/conda/flye  # then "
+                               "ARVA_TOOL_FLYE=~/.arva-tools/conda/flye/bin/flye",
+                 "apt": "flye samtools"},
+        conda_platforms=("linux-64", "linux-aarch64"),
     )
-    # `flye --version` prints e.g. "2.9.3-b1797".
+    # `flye --version` prints e.g. "2.9.3-b1797" (Ubuntu's 2.9.3), "2.9.6-b1802" (Bioconda's 2.9.6).
     version_pattern = re.compile(r"^\s*(\d+\.\d+(?:\.\d+)?)", re.M)
 
     def detect(self) -> DetectedTool:
@@ -391,14 +403,15 @@ def read_checkpoint(out_dir: Path, stages: tuple[str, ...]) -> dict[str, Any] | 
 
 
 def samtools_helper(flye_path: str) -> dict[str, Any]:
-    """How the flye-samtools that Flye calls through the shell is provided: on PATH, next to the flye executable
-    (that folder must then be put on Flye's PATH), by an ARVA link to samtools, or not at all."""
-    on_path = shutil.which(SAMTOOLS_HELPER, path=os.environ.get("PATH", ""))
-    if on_path:
-        return {"provided_by": "installation", "samtools": on_path, "path_prepend": None}
+    """How the flye-samtools that Flye calls through the shell is provided: next to the flye executable (as in
+    Bioconda's package; that folder is then put first on Flye's PATH, so its flye-modules and flye-minimap2 are
+    used too), on PATH, by an ARVA link to samtools, or not at all."""
     beside = shutil.which(SAMTOOLS_HELPER, path=str(Path(flye_path).parent))
     if beside:
         return {"provided_by": "installation", "samtools": beside, "path_prepend": str(Path(flye_path).parent)}
+    on_path = shutil.which(SAMTOOLS_HELPER, path=os.environ.get("PATH", ""))
+    if on_path:
+        return {"provided_by": "installation", "samtools": on_path, "path_prepend": None}
     samtools = resolve_executable("samtools", "samtools")
     if samtools:
         return {"provided_by": "arva_link", "samtools": samtools, "path_prepend": None}
@@ -420,7 +433,8 @@ def helper_version(executable: str) -> str | None:
 
 # --- Read-type suggestion (heuristic) ----------------------------------------------------------------------
 
-HQ_MAX_ERROR = 0.05  # Flye: --nano-hq is for reads with < 5% error (--help, README release 2.9)
+HQ_MAX_ERROR = 0.05  # Flye 2.9.3: --nano-hq is for reads with < 5% error (--help, README release 2.9); 2.9.6's
+# --help: "ONT R10 reads, aka Q20 (<3% error). For R9 Guppy5+, increase --read-error slightly"
 Q20_ERROR = 0.01
 
 
@@ -467,4 +481,53 @@ def suggest_read_type(platform: str | None, error_rate: float | None, basecall_m
             out["basis"] = "no_quality_or_read_names"
     else:
         out["basis"] = "platform_unknown"
+    return out
+
+
+# --- Memory estimate (ARVA's scaling of Flye's one documented bacterial figure) -------------------------------------
+
+# Flye 2.9.6 docs/USAGE.md, "Flye benchmarks": E. coli, PacBio 50x, 4.6 Mb assembly, 2 Gb RAM. It is the only
+# bacterial row; Flye documents no formula. The same page ("Reducing RAM consumption") says the disjointig stage is
+# usually the memory bottleneck, that --asm-coverage limits the reads it uses to the longest ones up to that coverage
+# ("Typically, 40x longest reads is enough"), and that all reads are used in the later stages; its benchmarks ran
+# CHM13 T2T, CHM1 and HG002 "with --asm-coverage 50". --asm-coverage requires --genome-size and refuses --meta
+# (flye/main.py, both checked by FlyeParams.validate).
+MEMORY_REFERENCE = {
+    "source": "Flye 2.9.6 docs/USAGE.md, Flye benchmarks (E. coli row)",
+    "url": "https://github.com/mikolmogorov/Flye/blob/2.9.6/docs/USAGE.md#performance",
+    "genome": "E. coli", "data": "PB 50x", "genome_size_bp": 4_600_000, "coverage_x": 50, "ram_gb": 2.0,
+}
+MEMORY_REFERENCE_BASES = MEMORY_REFERENCE["genome_size_bp"] * MEMORY_REFERENCE["coverage_x"]
+SUGGESTED_ASM_COVERAGE = 50
+
+
+def memory_estimate(read_bases: int | None, available_gb: float, asm_coverage: int | None = None,
+                    genome_size_bp: int | None = None, meta: bool = False) -> dict[str, Any]:
+    """Whether a Flye run may fit the memory ARVA can use, by ARVA's estimate: Flye's documented 2 GB for 230 Mb of
+    reads (E. coli, 50x of 4.6 Mb), scaled in proportion to the bases the disjointig stage reads (every read base,
+    or asm_coverage * genome size when that is smaller). It is a rough guide, not a measurement: Flye's memory also
+    depends on the genome's repeats and the reads' error rate, and later stages read every base.
+
+    verdict: "fits", "may_not_fit" or "unknown" (no read bases known). suggestion: what Flye documents to reduce
+    memory (--asm-coverage with --genome-size), when the run may not fit and does not use it already."""
+    out: dict[str, Any] = {"reference": MEMORY_REFERENCE, "reference_bases": MEMORY_REFERENCE_BASES,
+                           "available_gb": available_gb, "read_bases": read_bases,
+                           "asm_coverage": asm_coverage, "genome_size_bp": genome_size_bp, "bases_used": None,
+                           "estimate_gb": None, "verdict": "unknown", "suggestion": None}
+    if not read_bases:
+        return out
+    used = read_bases
+    if asm_coverage and genome_size_bp:
+        used = min(read_bases, asm_coverage * genome_size_bp)
+    estimate = MEMORY_REFERENCE["ram_gb"] * used / MEMORY_REFERENCE_BASES
+    out.update(bases_used=used, estimate_gb=round(estimate, 2),
+               verdict="fits" if estimate <= available_gb else "may_not_fit")
+    if out["verdict"] == "may_not_fit" and not asm_coverage and not meta:
+        reduced = None
+        if genome_size_bp:
+            capped = min(read_bases, SUGGESTED_ASM_COVERAGE * genome_size_bp)
+            reduced = round(MEMORY_REFERENCE["ram_gb"] * capped / MEMORY_REFERENCE_BASES, 2)
+        out["suggestion"] = {"asm_coverage": SUGGESTED_ASM_COVERAGE, "needs_genome_size": genome_size_bp is None,
+                             "genome_size_bp": genome_size_bp, "estimate_gb": reduced,
+                             "coverage_x": round(read_bases / genome_size_bp, 1) if genome_size_bp else None}
     return out

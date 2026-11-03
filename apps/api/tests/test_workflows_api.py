@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 from arva_tools.registry import detect
 from test_annotation_api import GENOME, assemble
+from test_typing_api import typing_tools  # noqa: F401  (a fixture)
 
 from app.db.session import SessionLocal
 from app.models import AnalysisJob, BatchItem, BatchRun, JobStatus
@@ -72,6 +73,8 @@ def test_catalogue_templates_and_parameter_schemas(client):
     assert flye["inputs"] == [{"name": "reads", "accepts": ["reads_long"], "required": True, "collection": False}]
     assert "confirmed" not in kinds["mlst"]["params_schema"]["properties"]
     assert kinds["polishing"]["tools"]["hybrid"][0]["id"] == "racon"
+    assert [t["id"] for t in kinds["polishing"]["tools"]["medaka"]] == ["medaka", "minimap2", "samtools"]
+    assert "medaka" in kinds["polishing"]["params_schema"]["properties"]
     templates = {t["key"]: t for t in cat["templates"]}
     assert len(templates) == 12
     assert {p["params"]["field"] for p in templates["nanopore_assembly"]["needs_parameters"]} == {"params.read_type"}
@@ -377,3 +380,70 @@ def test_cancelling_a_run_waits_for_a_launch_the_dispatcher_is_committing(client
     with SessionLocal() as db:
         assert db.get(BatchItem, waiting["id"]).status == "cancelled"
         assert db.get(AnalysisJob, job_id).status is JobStatus.cancelled
+
+
+def test_staph_typing_node_runs_on_s_aureus_and_is_skipped_with_its_reason_otherwise(client, project, typing_tools):  # noqa: F811
+    """The S. aureus typing node reads the assembly's species evidence (typing_modules.applicability): a sample of
+    another species skips it with the reason, which leaves the run completed; S. aureus runs the ordinary job."""
+    from test_amr_api import species_result
+    from test_annotation_api import assemble as assemble_reads
+    from test_typing_api import SYNTHETIC, mlst_result
+
+    typing_tools("n315")
+    samples = []
+    for code, species in (("SA", "Staphylococcus aureus"), ("EC", "Escherichia coli")):
+        s = client.post(f"{API}/projects/{project['id']}/samples",
+                        json={"sample_code": code, "sequencing_technology": "nanopore"}).json()
+        a = assemble_reads(client, s, SYNTHETIC)
+        species_result(s, a, species)
+        if code == "SA":
+            mlst_result(s, a, "5")
+        samples.append(s)
+    agr = _definition([("asm", "assembly_input", {}), ("agr", "staph_typing", {"method": "agr"})],
+                      [("asm", "assembly", "agr", "assembly")])
+    wf = _workflow(client, agr, "agr")
+    assert [p["code"] for p in wf["problems"]] == []
+    run = _run(client, project, wf, samples)
+    by_sample = {i["sample_id"]: i for i in _items(run, "agr")}
+    done, skipped = by_sample[samples[0]["id"]], by_sample[samples[1]["id"]]
+    assert done["status"] == "completed" and done["tool"] == "AgrVATE"
+    assert skipped["status"] == "skipped" and skipped["job_id"] is None
+    assert skipped["error"]["code"] == "wf_typing_not_applicable"
+    assert skipped["error"]["params"] == {"status": "not_applicable", "species": "Escherichia coli", "scheme": ""}
+    assert run["status"] == "completed" and run["counts"]["skipped"] == 1
+
+
+def test_species_and_mlst_order_the_typing_and_the_template_has_it(client):
+    cat = client.get(f"{API}/workflows/catalogue").json()
+    kinds = {k["kind"]: k for k in cat["kinds"]}
+    assert {"species_call", "mlst_call"} <= set(cat["port_types"])
+    assert kinds["species"]["outputs"] == [{"name": "evidence", "type": "species_call"}]
+    assert [p["name"] for p in kinds["staph_typing"]["inputs"]] == ["assembly", "species", "mlst"]
+    assert set(kinds["staph_typing"]["tools"]) == {"sccmec", "spa", "agr"}
+    assert kinds["flye"]["params_schema"]["properties"]["memory_guard"]["default"] == "off"
+    full = next(t for t in cat["templates"] if t["key"] == "bacterial_genome_complete")["definition"]
+    nodes_ = {n["id"]: n for n in full["nodes"]}
+    assert {nodes_[m]["params"]["method"] for m in ("sccmec", "spa", "agr")} == {"sccmec", "spa", "agr"}
+    assert nodes_["flye"]["params"]["memory_guard"] == "auto"
+    into = {(e["source"], e["target_port"]) for e in full["edges"] if e["target"] == "spa"}
+    assert into == {("polish", "assembly"), ("species", "species"), ("mlst", "mlst")}
+
+
+def test_run_options_change_the_runs_definition_and_are_recorded(client, project, monkeypatch):
+    _fake_fastp(monkeypatch)
+    s = _sample(client, project, "OPT")
+    d = _definition([("asm", "assembly_input", {}), ("pol", "polishing", {"strategy": "racon"})],
+                    [("asm", "assembly", "pol", "assembly")])
+    wf = _workflow(client, d, "Polish")
+    body = {"project_id": project["id"], "workflow_id": wf["id"], "sample_ids": [s["id"]]}
+    plan = client.post(f"{API}/batches/preview", json=body).json()
+    assert plan["options"] == {"polishing_strategy": {"kind": "polishing", "param": "strategy", "nodes": 1,
+                                                      "value": "racon"}}
+    assert plan["option_changes"] == [] and "definition" not in plan
+    plan = client.post(f"{API}/batches/preview", json={**body, "options": {"polishing_strategy": "medaka"}}).json()
+    assert plan["option_changes"] == [{"node": "pol", "option": "polishing_strategy", "path": "strategy",
+                                       "before": "racon", "after": "medaka"}]
+    assert "medaka" in plan["tools"]
+    assert client.post(f"{API}/batches/preview", json={**body, "options": {"polishing_strategy": "x"}}).status_code == 422
+    definition, changes = batches.apply_options(wf["latest"]["definition"], {"flye_memory_guard": "auto"})
+    assert changes == [] and definition == wf["latest"]["definition"]

@@ -10,7 +10,13 @@ import subprocess
 from typing import Any
 
 from arva_tools import ToolStatus
-from arva_tools.flye import FlyeAdapter, FlyeParams, pooled_error_rate, suggest_read_type
+from arva_tools.flye import (
+    FlyeAdapter,
+    FlyeParams,
+    memory_estimate,
+    pooled_error_rate,
+    suggest_read_type,
+)
 from arva_tools.registry import detect
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -199,6 +205,28 @@ def check_genome_size(db: Session, sample: Sample, ev: list[dict[str, Any]], par
                              f"{estimate['bp']:,} bp, not {params.genome_size_bp:,} bp")
 
 
+def read_bases(ev: list[dict[str, Any]]) -> int | None:
+    """The selected files' bases by ARVA's read statistics (None when a file has none yet)."""
+    if not ev or any(e["total_bases"] is None for e in ev):
+        return None
+    return sum(e["total_bases"] for e in ev)
+
+
+def memory(db: Session, sample: Sample, ev: list[dict[str, Any]], params: FlyeParams | None = None,
+           res: Resources | None = None) -> dict[str, Any]:
+    """ARVA's estimate of whether this Flye run fits the memory ARVA can use (arva_tools.flye.memory_estimate):
+    for the given parameters, or, for a preview, for the reads alone with the sample's expected genome size (when
+    known) for the suggestion."""
+    res = res or effective_resources(db)
+    if params is not None:
+        size, asm, meta = params.genome_size_bp, params.asm_coverage, params.meta
+    else:
+        size, asm, meta = expected_genome_size(db, sample.id, None)["bp"], None, False
+    out = memory_estimate(read_bases(ev), res.max_memory_gb, asm, size, meta)
+    out["expected_genome_size_bp"] = expected_genome_size(db, sample.id, None)["bp"]
+    return out
+
+
 def tool_status(res: Resources) -> dict[str, Any]:
     d = detect("flye")
     options: list[str] = []
@@ -221,6 +249,7 @@ def plan(db: Session, sample: Sample, files: list[RawFile], depth_x: float | Non
         "files": ev,
         "read_type_suggestion": read_type_suggestion(sample, ev),
         "genome_size": genome_size_options(db, sample, ev, depth_x),
+        "memory": memory(db, sample, ev),
         "sample_technology": sample.sequencing_technology,
         "long_reads_confirmation_required": needs_confirmation(sample),
     }

@@ -1,0 +1,46 @@
+[17:24:53 - MdlStrTGZ] Successfully removed temporary files from /tmp/tmp6w6qgv9v.
+[17:24:55 - MdlStrTGZ] Successfully removed temporary files from /tmp/tmpmtwo9n84.
+[17:24:56 - MdlStrTGZ] Successfully removed temporary files from /tmp/tmp3y0zphws.
+[17:24:56 - MdlStrTGZ] Successfully removed temporary files from /tmp/tmpezwgjxi_.
+Creating fai index file /work/draft.fasta.fai
+Creating mmi index file /work/draft.fasta.map-ont.mmi
+[M::mm_idx_gen::0.004*1.45] collected minimizers
+[M::mm_idx_gen::0.007*1.93] sorted minimizers
+[M::main::0.009*1.74] loaded/built the index for 2 target sequence(s)
+[M::mm_idx_stat] kmer size: 15; skip: 10; is_hpc: 0; #seq: 2
+[M::mm_idx_stat::0.010*1.70] distinct minimizers: 19819 (98.11% are singletons); average occurrences: 1.019; average spacing: 5.348; total length: 107998
+[M::main] Version: 2.31-r1302
+[M::main] CMD: minimap2 -I 16G -x map-ont -d /work/draft.fasta.map-ont.mmi /work/draft.fasta
+[M::main] Real time: 0.012 sec; CPU: 0.019 sec; Peak RSS: 0.006 GB
+[M::main::0.004*1.33] loaded/built the index for 2 target sequence(s)
+[M::mm_mapopt_update::0.005*1.28] mid_occ = 10
+[M::mm_idx_stat] kmer size: 15; skip: 10; is_hpc: 0; #seq: 2
+[M::mm_idx_stat::0.005*1.25] distinct minimizers: 19819 (98.11% are singletons); average occurrences: 1.019; average spacing: 5.348; total length: 107998
+[M::worker_pipeline::0.542*1.71] mapped 515 sequences
+[M::main] Version: 2.31-r1302
+[M::main] CMD: minimap2 -x map-ont --secondary=no -L --MD -A 2 -B 4 -O 4,24 -E 2,1 -t 2 -a /work/draft.fasta.map-ont.mmi /work/input/ont.fastq.gz
+[M::main] Real time: 0.544 sec; CPU: 0.929 sec; Peak RSS: 0.015 GB
+[bam_sort_core] merging from 0 files and 2 in-memory blocks...
+[17:24:58 - Predict] Processing region(s): contig_1:0-99999 contig_2:0-7999
+[17:24:58 - Predict] Using model: /opt/arva-tools/conda/medaka/lib/python3.12/site-packages/medaka/data/r1041_e82_400bps_sup_v5.2.0_model_pt.tar.gz.
+[17:24:58 - Predict] Using minimum mapQ threshold of 1 for read filtering.
+[17:24:58 - MdlStrTGZ] Model GRUModel(
+  (gru): GRU(10, 128, num_layers=2, batch_first=True, bidirectional=True)
+  (linear): Linear(in_features=256, out_features=5, bias=True)
+)
+[17:24:58 - MdlStrTGZ] loading weights from /tmp/tmp76nk04q5/model/weights.pt
+[17:24:58 - MdlStrTGZ] Successfully removed temporary files from /tmp/tmp76nk04q5.
+[17:24:58 - Predict] Model device: cpu
+[17:24:58 - Predict] Running prediction at full precision
+[17:24:58 - Predict] Processing 1 long region(s) with batching.
+[17:24:58 - PWorker] Running inference for 0.1M draft bases.
+[17:25:04 - PWorker] Processed 1 batches
+[17:25:04 - PWorker] All done, 0 remainder regions.
+[17:25:04 - Predict] Processing 1 short region(s).
+[17:25:04 - PWorker] Running inference for 0.0M draft bases.
+[17:25:05 - PWorker] Processed 1 batches
+[17:25:05 - PWorker] All done, 0 remainder regions.
+[17:25:05 - Predict] Finished processing all regions.
+[17:25:07 - DataIndx] Loaded 1/1 (100.00%) sample files.
+[17:25:07 - DataIndx] Loaded 1/1 (100.00%) sample files.
+[17:25:07 - DataIndx] Loaded 1/1 (100.00%) sample files.

@@ -2,7 +2,7 @@
  * for connecting ports mirror arva_core.workflow.edge_problem; the server checks them again on every save. */
 import { dictionaries, type Translate, type TranslationKey } from "@/i18n";
 
-export type PortType = "reads_long" | "reads_short" | "assembly" | "annotation" | "comparison_set" | "alignment" | "tree";
+export type PortType = "reads_long" | "reads_short" | "assembly" | "annotation" | "comparison_set" | "alignment" | "tree" | "species_call" | "mlst_call";
 
 export interface PortIn {
   name: string;
@@ -148,7 +148,27 @@ export interface RunSettings extends BatchSettings {
   profile: string;
   budget_threads: number;
   budget_memory_gb: number;
+  /** The run options chosen when it started, and the parameters they changed (absent: none). */
+  run_options?: RunOptions;
+  option_changes?: OptionChange[];
 }
+
+/** Run options (BatchRunOptionsIn): one parameter set on every node of a kind for one run; null keeps the saved value. */
+export interface RunOptions {
+  polishing_strategy?: "racon" | "medaka" | "pilon" | "hybrid" | null;
+  flye_memory_guard?: "off" | "auto" | null;
+}
+
+export interface OptionChange {
+  node: string;
+  option: keyof RunOptions;
+  path: string;
+  before: unknown;
+  after: unknown;
+}
+
+/** The run options a definition offers: its nodes of that kind and the value they hold (null: they differ). */
+export type OfferedOptions = Partial<Record<keyof RunOptions, { kind: string; param: string; nodes: number; value: string | null }>>;
 
 export interface SourcePick {
   ok: boolean;
@@ -168,6 +188,8 @@ export interface RunPlan {
   tools: Record<string, { name: string; version: string | null; status: string }>;
   problems: Problem[];
   concurrency: number;
+  options?: OfferedOptions;
+  option_changes?: OptionChange[];
 }
 
 /** What a branch would run again and reuse (POST /batches/{id}/branch/preview). */
@@ -187,6 +209,21 @@ export interface BranchPlan {
 export type ItemStatus = "waiting" | "queued" | "running" | "completed" | "failed" | "cancelled" | "skipped";
 export type RunStatus = "running" | "paused" | "completed" | "completed_with_errors" | "cancelled";
 export type Counts = Record<ItemStatus, number>;
+
+export interface FlyeGuardNote {
+  guard: "off" | "auto";
+  estimate: { verdict: "fits" | "may_not_fit" | "unknown"; estimate_gb: number | null; available_gb: number };
+  applied: { asm_coverage: number; genome_size_bp?: number } | null;
+  not_applied: "asm_coverage_set" | "meta" | "no_genome_size" | "no_read_statistics" | null;
+}
+
+/** The memory guard's decision for a Flye item, as one translated line (null when there is nothing to say). */
+export function flyeGuardText(t: Translate, note: FlyeGuardNote | undefined): string | null {
+  if (!note || note.guard !== "auto") return null;
+  if (note.applied) return t("wf.flyeGuard.applied", { cov: note.applied.asm_coverage, gb: note.estimate.estimate_gb ?? "?", available: note.estimate.available_gb });
+  if (note.not_applied && note.estimate.verdict !== "fits") return t(`wf.flyeGuard.${note.not_applied}`);
+  return null;
+}
 
 export interface ItemError {
   code: string;
@@ -210,6 +247,8 @@ export interface RunItem {
   progress: string | null;
   outputs: Record<string, Record<string, unknown>> | null;
   error: ItemError | null;
+  /** What ARVA decided at launch beyond the node's parameters (Flye's memory guard). */
+  notes?: { flye_memory?: FlyeGuardNote } | null;
   reserved: { threads: number; memory_gb: number } | null;
   reused_from_item_id: string | null;
   depends_on: string[];
@@ -296,6 +335,7 @@ export interface BatchRunRequest {
   sample_ids: string[];
   name?: string | null;
   settings: BatchSettings;
+  options?: RunOptions;
   confirmed: boolean;
 }
 
@@ -309,6 +349,8 @@ export const PORT_COLORS: Record<PortType, string> = {
   comparison_set: "#B45309",
   alignment: "#BE185D",
   tree: "#15803D",
+  species_call: "#64748B",
+  mlst_call: "#78716C",
 };
 
 /** Why an edge from (source, port) to (target, port) cannot exist, as an i18n key; null when it can. */

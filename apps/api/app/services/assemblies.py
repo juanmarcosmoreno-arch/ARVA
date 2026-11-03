@@ -41,6 +41,7 @@ GRAPH_COVERAGE_TAGS = {
 # assembly.measure.<code>); Flye's is read depth, the default.
 WARNING_COVERAGE = {"SPAdes": ("k-mer coverage", "", "kmer"), "Unicycler": ("relative depth", "×", "relative"),
                     "Racon": ("mean depth of the mapped polishing reads", "×", "polish_depth"),
+                    "Medaka": ("mean depth of the mapped polishing reads", "×", "polish_depth"),
                     "Pilon": ("mean depth of the mapped polishing reads", "×", "polish_depth")}
 
 

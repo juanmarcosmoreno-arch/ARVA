@@ -16,10 +16,13 @@ import type {
 } from "./types";
 
 export const RACON_JOB = "racon_polish";
+export const MEDAKA_JOB = "medaka_polish";
 export const PILON_JOB = "pilon_polish";
-export const POLISHING_JOBS = new Set([RACON_JOB, PILON_JOB]);
+export const POLISHING_JOBS = new Set([RACON_JOB, MEDAKA_JOB, PILON_JOB]);
 
-export const STRATEGIES: PolishingStrategy[] = ["racon", "pilon", "hybrid"];
+export const STRATEGIES: PolishingStrategy[] = ["racon", "medaka", "pilon", "hybrid"];
+/** medaka_consensus' default batch size (-b, "controls memory use"); the server accepts 1–1,000. */
+export const MEDAKA_BATCH_DEFAULT = 100;
 export const CHANGE_KINDS: ChangeKind[] = ["snp", "insertion", "deletion", "other"];
 export const PRESETS: LongReadPreset[] = ["map-ont", "map-pb", "map-hifi"];
 export const PILON_FIXES: PilonFix[] = ["snps", "indels", "gaps", "local"];
@@ -29,11 +32,13 @@ export const MAX_ROUNDS = 5;
 /** The read roles each strategy uses. */
 export const STRATEGY_ROLES: Record<PolishingStrategy, ReadRole[]> = {
   racon: ["long"],
+  medaka: ["long"],
   pilon: ["r1", "r2", "unpaired"],
   hybrid: ["long", "r1", "r2", "unpaired"],
 };
 
-/** The strategy the reads a sample has call for: long → Racon, short → Pilon, both → Racon then Pilon. */
+/** The strategy the reads a sample has call for: long → Racon, short → Pilon, both → Racon then Pilon (Medaka, for
+ * Oxford Nanopore reads, is the user's choice among the long-read strategies). */
 export function strategyForData(data: { short: boolean; long: boolean }): PolishingStrategy | null {
   if (data.short && data.long) return "hybrid";
   return data.long ? "racon" : data.short ? "pilon" : null;
@@ -55,6 +60,10 @@ export interface PolishingForm {
   window: string;
   quality: string;
   error: string;
+  /** "" = medaka's own model for the reads' basecall model (the server refuses when there is none). */
+  medakaModel: string;
+  medakaBatch: string;
+  medakaAcceptMismatch: boolean;
   pilonRounds: string;
   stopWhenUnchanged: boolean;
   fix: PilonFix[];
@@ -78,6 +87,9 @@ export const POLISHING_FORM_DEFAULTS: PolishingForm = {
   window: "500",
   quality: "10",
   error: "0.3",
+  medakaModel: "",
+  medakaBatch: String(MEDAKA_BATCH_DEFAULT),
+  medakaAcceptMismatch: false,
   pilonRounds: "1",
   stopWhenUnchanged: true,
   fix: [...PILON_FIXES],
@@ -110,16 +122,40 @@ export function changedPilon(form: PolishingForm): number {
 }
 
 /** Why the form cannot be sent yet (translation keys); the server checks everything again. */
+export const usesRacon = (s: PolishingStrategy) => s === "racon" || s === "hybrid";
+export const usesPilon = (s: PolishingStrategy) => s === "pilon" || s === "hybrid";
+
+/** The Medaka model a run would use: the user's, or medaka's own model for the reads' basecall model. */
+export function medakaModel(form: PolishingForm, plan: PolishingPlan | undefined): string | null {
+  if (form.medakaModel) return form.medakaModel;
+  const s = plan?.medaka?.suggestion;
+  return s?.status === "mapped" ? s.model : null;
+}
+
+/** The user chose a model other than the one medaka's mapping gives for these reads. */
+export function medakaMismatch(form: PolishingForm, plan: PolishingPlan | undefined): boolean {
+  const expected = plan?.medaka?.suggestion?.model;
+  return !!form.medakaModel && !!expected && expected !== form.medakaModel;
+}
+
 export function polishingProblems(form: PolishingForm, roles: Roles, plan: PolishingPlan | undefined, confirmed: boolean): TranslationKey[] {
   const out: TranslationKey[] = [];
   const s = form.strategy;
   const usesLong = s !== "pilon";
-  const usesShort = s !== "racon";
-  if (usesLong && !roles.long) out.push("polishing.problem.long");
+  const usesShort = usesPilon(s);
+  if (usesLong && !roles.long) out.push(s === "medaka" ? "polishing.problem.longMedaka" : "polishing.problem.long");
   if (usesShort && !roles.r1 && !roles.r2 && !roles.unpaired) out.push("polishing.problem.short");
   if (usesShort && !!roles.r1 !== !!roles.r2) out.push("shortReads.problem.pair");
-  if (usesLong && !form.preset) out.push("polishing.problem.preset");
-  if (usesLong) {
+  if (usesRacon(s) && !form.preset) out.push("polishing.problem.preset");
+  if (s === "medaka") {
+    const m = plan?.medaka;
+    if (m?.suggestion?.status === "fast_unsupported") out.push("polishing.problem.medakaFast");
+    else if (m && m.available && !medakaModel(form, plan)) out.push("polishing.problem.medakaModel");
+    if (medakaMismatch(form, plan) && !form.medakaAcceptMismatch) out.push("polishing.problem.medakaMismatch");
+    if (!intIn(form.medakaBatch, 1, 1000)) out.push("polishing.problem.medakaBatch");
+    if (m?.problem) out.push("polishing.problem.medakaReads");
+  }
+  if (usesRacon(s)) {
     const ok =
       intIn(form.raconRounds, 1, MAX_ROUNDS) &&
       intIn(form.match, 1, 100) &&
@@ -137,7 +173,7 @@ export function polishingProblems(form: PolishingForm, roles: Roles, plan: Polis
   }
   if (form.threads.trim() && !intIn(form.threads, 1, plan?.max_threads ?? 1)) out.push("flye.problem.threads");
   if (plan && !plan.strategies_available.includes(s)) out.push("polishing.problem.tools");
-  if (plan?.problem) out.push("shortReads.problem.server");
+  if (plan?.problem && s !== "medaka") out.push("shortReads.problem.server");
   if (plan?.confirmation_required && !confirmed) out.push("shortReads.problem.confirm");
   return out;
 }
@@ -155,6 +191,12 @@ export function polishingRequest(form: PolishingForm, roles: Roles, confirmed: b
       window_length: Number(form.window),
       quality_threshold: Number(form.quality),
       error_threshold: Number(form.error),
+    },
+    medaka: {
+      model: form.medakaModel || null,
+      batch_size: Number(form.medakaBatch),
+      // The confirmation only counts for a model chosen by hand.
+      accept_model_mismatch: !!form.medakaModel && form.medakaAcceptMismatch,
     },
     pilon: {
       rounds: Number(form.pilonRounds),

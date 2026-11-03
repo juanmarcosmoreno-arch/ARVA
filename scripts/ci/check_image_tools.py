@@ -16,6 +16,8 @@ import sys
 from pathlib import Path
 
 PYPI_ON_ARM = {"bakta": "1.12.2"}
+# Bioconda's flye package ships flye-samtools next to flye: a Flye from its lock must not need ARVA's samtools link.
+NO_REASON_FROM_LOCK = {"flye"}
 
 
 def default_conda_tools(dockerfile: Path) -> set[str]:
@@ -74,6 +76,8 @@ def main() -> int:
                     problems.append(f"{tool}: not built by default but detected as {d.status.value}")
             elif d.status is not ToolStatus.available or d.version != expect:
                 problems.append(f"{tool}: expected version {expect}, got {d.status.value} {d.version} {d.message}")
+            elif tool in NO_REASON_FROM_LOCK and d.reason is not None:
+                problems.append(f"{tool}: from its lock, but detection reports {d.reason}: {d.message}")
         rows.append({"tool": tool, "status": d.status.value, "version": d.version, "reason": d.reason,
                      "expected": expect, "path": d.path, "message": d.message})
     missing = set(ADAPTERS) - {r["tool"] for r in rows}

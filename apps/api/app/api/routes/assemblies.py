@@ -4,6 +4,7 @@ from arva_core.formats import is_gzip
 from arva_core.gfa import GfaFormatError
 from arva_tools import ToolStatus
 from arva_tools.flye import FlyeParams
+from arva_tools.medaka import MedakaParams
 from arva_tools.pilon import PilonParams
 from arva_tools.quast import QuastParams
 from arva_tools.racon import RaconParams
@@ -177,6 +178,9 @@ def start_flye(sample_id: str, payload: FlyeRequest, db: Session = Depends(get_d
         "sequencing_technology": sample.sequencing_technology.value,
         "arva_read_type_suggestion": {k: suggestion[k] for k in ("value", "basis", "platform", "platform_source",
                                                                  "mean_error_rate")},
+        # ARVA's estimate before queueing (Flye's documented figure, scaled); recorded, never passed to Flye.
+        "memory_estimate": {k: v for k, v in flye.memory(db, sample, ev, params).items()
+                            if k not in ("reference", "reference_bases")},
     }
     return _tool_call(create_flye_job, db, sample, files, params, provenance)
 
@@ -323,14 +327,23 @@ def preview_polishing(assembly_id: str, payload: PolishingPreviewRequest, db: Se
 @router.post("/assemblies/{assembly_id}/polishing", response_model=AnalysisJobRead,
              status_code=status.HTTP_202_ACCEPTED)
 def start_polishing(assembly_id: str, payload: PolishingRequest, db: Session = Depends(get_db)):
-    """Polish this assembly in the background: Racon with long reads, Pilon with short reads, or Racon then Pilon
-    (hybrid; the Pilon job is queued when Racon's result is registered). Each result is a new assembly linked to its
+    """Polish this assembly in the background: Racon or Medaka (Oxford Nanopore reads, with a model Medaka's package
+    ships) with long reads, Pilon with short reads, or Racon then Pilon (hybrid; the Pilon job is queued when Racon's
+    result is registered). Each result is a new assembly linked to its
     draft, with the comparison of draft and polished sequence; with `quast`, QUAST then compares them."""
     sample, draft, inputs = _polishing_context(db, assembly_id, payload.inputs.roles())
+    medaka_model = None
     try:
         ev = short_hybrid.file_evidence(db, inputs)
-        polishing.check_request(sample, inputs, ev, payload.strategy, payload.racon.read_type, payload.reads_confirmed)
+        preset = None if payload.strategy == "medaka" else payload.racon.read_type
+        polishing.check_request(sample, inputs, ev, payload.strategy, preset, payload.reads_confirmed)
         reference = quast.reference_for(db, sample, payload.quast_reference_file_id) if payload.quast else None
+        if payload.strategy == "medaka":
+            catalogue, error = polishing.medaka_catalogue()
+            if catalogue is None:
+                raise HTTPException(status.HTTP_409_CONFLICT, f"Medaka is not available: {error}")
+            medaka_model = polishing.choose_medaka_model(catalogue, ev, payload.medaka.model,
+                                                         payload.medaka.accept_model_mismatch)
     except (flye.InputError, quast.InputError) as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
     if payload.quast and detect("quast", refresh=True).status is not ToolStatus.available:
@@ -338,15 +351,17 @@ def start_polishing(assembly_id: str, payload: PolishingRequest, db: Session = D
                                                       "with it; polish without the QUAST comparison or install QUAST")
     res = effective_resources(db)
     threads = payload.threads or res.threads
-    racon = pilon = None
+    racon = pilon = medaka = None
     if payload.strategy in ("racon", "hybrid"):
         racon = RaconParams(**payload.racon.model_dump(), threads=threads)
+    if payload.strategy == "medaka" and medaka_model is not None:
+        medaka = MedakaParams(model=medaka_model["model"], threads=threads, batch_size=payload.medaka.batch_size)
     if payload.strategy in ("pilon", "hybrid"):
         values = payload.pilon.model_dump()
         heap = values.pop("heap_gb")
         pilon = PilonParams(**values, heap_gb=heap or polishing.resources(res)["default_heap_gb"], threads=threads)
     try:
-        for params in (racon, pilon):
+        for params in (racon, pilon, medaka):
             if params is not None:
                 params.validate()
     except ValueError as exc:
@@ -363,5 +378,9 @@ def start_polishing(assembly_id: str, payload: PolishingRequest, db: Session = D
         "quast": payload.quast,
         "quast_reference_file_id": reference.id if reference else None,
     }
+    if medaka_model is not None:
+        provenance["medaka_model_source"] = medaka_model["source"]
+        provenance["draft_is_flye"] = draft.assembler == "Flye" and draft.parent_assembly_id is None
     roles = {r: getattr(inputs, r) for r in short_hybrid.ROLES}
-    return _tool_call(create_polishing_job, db, sample, draft, payload.strategy, roles, racon, pilon, provenance)
+    return _tool_call(create_polishing_job, db, sample, draft, payload.strategy, roles, racon, pilon, provenance,
+                      (medaka, medaka_model) if medaka is not None else None)

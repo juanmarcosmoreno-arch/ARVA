@@ -41,6 +41,7 @@ from app.services.jobs import (
     FASTQC_JOB,
     FILTLONG_JOB,
     FLYE_JOB,
+    MEDAKA_JOB,
     NANOPLOT_JOB,
     PILON_JOB,
     POD5_JOB,
@@ -552,7 +553,8 @@ def _processing_steps(db: Session, sample: Sample, latest: dict) -> list[dict[st
             AnalysisJob.sample_id == sample.id,
             AnalysisJob.status == JobStatus.completed,
             AnalysisJob.job_type.in_([FASTP_JOB, FILTLONG_JOB, SEQKIT_JOB, FASTQC_JOB, NANOPLOT_JOB, FLYE_JOB,
-                                      SPADES_JOB, UNICYCLER_JOB, QUAST_JOB, RACON_JOB, PILON_JOB]),
+                                      SPADES_JOB, UNICYCLER_JOB, QUAST_JOB, RACON_JOB, MEDAKA_JOB,
+                                      PILON_JOB]),
         )
         .order_by(AnalysisJob.finished_at)
     ).all()
@@ -617,7 +619,7 @@ def _processing_steps(db: Session, sample: Sample, latest: dict) -> list[dict[st
             step["highlights"] = _short_hybrid_highlights(db, j, summary)
         elif j.job_type == QUAST_JOB and summary:
             step["highlights"] = _quast_highlights(summary)
-        elif j.job_type in (RACON_JOB, PILON_JOB) and summary:
+        elif j.job_type in (RACON_JOB, MEDAKA_JOB, PILON_JOB) and summary:
             step["highlights"] = _polishing_highlights(summary)
         elif j.job_type == FASTQC_JOB and summary:
             flags = {}
@@ -691,6 +693,12 @@ def _polishing_highlights(summary: dict[str, Any]) -> list[str]:
     out = [f"{summary['polisher']} {summary.get('polisher_version')} polished {draft.get('assembler')} "
            f"{draft.get('assembler_version')} assembly {str(draft.get('assembly_id', ''))[:8]} in "
            f"{summary.get('rounds_run')} round(s)"]
+    if medaka := summary.get("medaka"):
+        model = medaka.get("model") or {}
+        out.append(f"Medaka model {model.get('model')} (shipped in the package, sha256 {str(model.get('sha256'))[:12]}…; "
+                   + ("medaka's mapping for the reads' basecall model "
+                      f"{(model.get('suggestion') or {}).get('basecall_model')}" if model.get("source") == "basecall_model"
+                      else "chosen by the user") + f"), -t {medaka.get('threads')}, -b {medaka.get('batch_size')}")
     for r in summary.get("rounds", []):
         source = {"dnadiff": "dnadiff", "pilon_changes": "Pilon's .changes"}.get(r.get("changes_source"))
         out.append(f"Round {r['round']} changes (direct evidence, {source}): {_changes_line(r['changes'])}"

@@ -58,6 +58,7 @@ export function PolishingCard({ job, assemblies }: { job: AnalysisJobDetail; ass
           </div>
         )}
         <Followups summary={s} />
+        {s.medaka && <MedakaUsed summary={s} />}
 
         <Panel tone="direct" title={t("polishing.evidence.direct")} hint={t("polishing.evidence.directHint")}>
           <DirectEvidence summary={s} />
@@ -127,7 +128,31 @@ function observation(t: ReturnType<typeof useT>, o: PolishingObservation): strin
   if (o.code === "contigs_unaligned") return t("polishing.obs.contigs_unaligned", { count: String(p.count) });
   if (o.code === "edit_distance_increased") return t("polishing.obs.edit_distance_increased", { before: fmtNum(Number(p.before), 4), after: fmtNum(Number(p.after), 4) });
   if (o.code === "no_changes") return t("polishing.obs.no_changes");
+  if (o.code === "medaka_contig_unpolished") return t("polishing.obs.medaka_contig_unpolished", { contig: String(p.contig) });
+  if (o.code === "medaka_regions_unpolished") return t("polishing.obs.medaka_regions_unpolished", { bases: fmtInt(Number(p.bases)), contigs: String(p.contigs) });
+  if (o.code === "medaka_model_mismatch") return t("polishing.obs.medaka_model_mismatch", { model: String(p.model), expected: String(p.expected), basecall: String(p.basecall) });
+  if (o.code === "medaka_draft_not_flye") return t("polishing.obs.medaka_draft_not_flye", { assembler: String(p.assembler) });
   return o.message;
+}
+
+/** The Medaka model a run used and why, and how much of the draft it left unpolished. */
+function MedakaUsed({ summary: s }: { summary: PolishingSummary }) {
+  const t = useT();
+  const m = s.medaka!;
+  const regions = Object.values(m.unpolished.contigs).reduce((n, c) => n + c.regions.length, 0);
+  return (
+    <ul className="space-y-0.5 text-xs text-muted-foreground" aria-label={t("polishing.medaka.title")}>
+      <li>
+        {t(m.model.source === "basecall_model" ? "polishing.medaka.usedFromReads" : "polishing.medaka.usedByUser", {
+          model: m.model.model,
+          basecall: m.model.suggestion?.basecall_model ?? "",
+          threads: m.threads,
+          batch: m.batch_size,
+        })}
+      </li>
+      <li>{m.unpolished.bases > 0 ? t("polishing.medaka.unpolished", { bases: fmtInt(m.unpolished.bases), regions }) : t("polishing.medaka.allPolished")}</li>
+    </ul>
+  );
 }
 
 function Followups({ summary: s }: { summary: PolishingSummary }) {

@@ -16,6 +16,7 @@ import {
   chosenGenomeSize,
   defaultFlyeSelection,
   flyeCandidates,
+  flyeMemory,
   flyeProblems,
   flyeRequestParams,
   selectedTwice,
@@ -219,8 +220,46 @@ export function FlyePanel({
         </label>
       )}
 
+      <MemoryNote form={form} plan={p} setForm={setForm} />
+
       <RunSummary form={form} plan={p} files={files} ids={ids} advanced={advanced} />
     </div>
+  );
+}
+
+/** ARVA's memory estimate for the run as set now and, when it may not fit, Flye's documented way to use less
+ * (--asm-coverage with a genome size), applied only when the user asks. */
+function MemoryNote({ form, plan, setForm }: { form: FlyeForm; plan: FlyePlan | undefined; setForm: (f: (old: FlyeForm) => FlyeForm) => void }) {
+  const t = useT();
+  const m = flyeMemory(form, plan);
+  if (!m) return null;
+  const gb = (v: number | null) => (v === null ? "?" : fmtNum(v, 1));
+  if (m.verdict === "unknown") return <p className="text-xs text-muted-foreground">{t("flye.memory.unknown")}</p>;
+  const s = m.suggestion;
+  const apply = () =>
+    setForm((f) => ({
+      ...f,
+      asmCoverage: String(s?.asmCoverage ?? ""),
+      genomeChoice: f.genomeChoice === "none" && plan?.genome_size.expected.status === "given" ? "expected" : f.genomeChoice,
+    }));
+  return (
+    <section aria-label={t("flye.memory.title")} className={cn("space-y-1 rounded-lg border p-2.5 text-xs", m.verdict === "may_not_fit" ? "border-warning/40 bg-warning/5" : "bg-muted/30")}>
+      {m.verdict === "fits" ? (
+        <p>{t("flye.memory.fits", { gb: gb(m.estimateGb), available: m.availableGb })}</p>
+      ) : (
+        <p className="flex gap-1.5 text-amber-700 dark:text-warning">
+          <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden /> {t("flye.memory.mayNotFit", { gb: gb(m.estimateGb), available: m.availableGb })}
+        </p>
+      )}
+      {s && s.genomeBp !== null && (
+        <div className="flex flex-wrap items-center gap-2">
+          <span>{t("flye.memory.suggest", { cov: s.asmCoverage, bp: fmtInt(s.genomeBp), gb: gb(s.estimateGb) })}</span>
+          <Button size="sm" variant="outline" onClick={apply} disabled={!supported(plan, "--asm-coverage")}>{t("flye.memory.apply", { cov: s.asmCoverage })}</Button>
+        </div>
+      )}
+      {s && s.genomeBp === null && <p>{t("flye.memory.suggestNeedsSize", { cov: s.asmCoverage })}</p>}
+      <p className="text-muted-foreground">{t("flye.memory.basis")}</p>
+    </section>
   );
 }
 

@@ -1,6 +1,10 @@
 """Filtlong — quality filtering of long reads (Nanopore, PacBio).
 
-Options verified against `filtlong --help` and the v0.2.1 README.
+Options verified against `filtlong --help` and the v0.2.1 README, and again against the --help of Filtlong 0.3.1
+(Bioconda package filtlong-0.3.1, ARVA's lock docker/conda-locks/filtlong/). 0.3.0 renamed --illumina_1/--illumina_2
+to --short_1/--short_2 (ARVA passes neither); 0.3.1 added short options (-l, -L, -q) and unit suffixes (k, kb, m,
+mb, g, gb) for --min_length, --max_length, --target_bases and --split (release notes on GitHub). ARVA keeps passing
+the long options with plain integers, which both versions read the same way.
 Important: --min_mean_q and --min_window_q are percent identities (0-100)
 derived from Phred scores, NOT Phred values (README, "Read scoring").
 Filtlong writes the kept reads to stdout; ARVA gzip-streams them to a file.
@@ -108,8 +112,11 @@ class FiltlongAdapter(ToolAdapter):
         input_formats=("fastq", "fastq.gz"),
         output_formats=("fastq.gz",),
         min_version="0.2.0",
-        tested_versions=("0.2.1",),
-        install={"conda": "bioconda::filtlong", "apt": "filtlong"},
+        tested_versions=("0.2.1", "0.3.1"),
+        install={"conda_lock": "python3 scripts/conda_locks.py install filtlong ~/.arva-tools/conda/filtlong  # then "
+                               "ARVA_TOOL_FILTLONG=~/.arva-tools/conda/filtlong/bin/filtlong",
+                 "apt": "filtlong"},
+        conda_platforms=("linux-64", "linux-aarch64"),
     )
     version_pattern = re.compile(r"filtlong\s+v?(\d+\.\d+(?:\.\d+)?)", re.IGNORECASE)
 

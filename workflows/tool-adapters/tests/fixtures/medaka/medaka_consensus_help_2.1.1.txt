@@ -1,0 +1,29 @@
+
+medaka 2.1.1
+------------
+
+Assembly polishing via neural networks. Medaka is optimized
+to work with the Flye assembler.
+
+medaka_consensus [-h] -i <fastx> -d <fasta>
+
+    -h  show this help text.
+    -i  fastx input basecalls (required).
+    -d  fasta input assembly (required).
+    -o  output folder (default: medaka).
+    -g  don't fill gaps in consensus with draft sequence.
+    -r  use gap-filling character instead of draft sequence (default: None)
+    -m  medaka model, (default: r1041_e82_400bps_sup_v5.2.0).
+        Choices: r103_fast_g507 r103_hac_g507 r103_sup_g507 r1041_e82_260bps_fast_g632 r1041_e82_260bps_hac_g632 r1041_e82_260bps_hac_v4.0.0 r1041_e82_260bps_hac_v4.1.0 r1041_e82_260bps_joint_apk_ulk_v5.0.0 r1041_e82_260bps_sup_g632 r1041_e82_260bps_sup_v4.0.0 r1041_e82_260bps_sup_v4.1.0 r1041_e82_400bps_bacterial_methylation r1041_e82_400bps_fast_g615 r1041_e82_400bps_fast_g632 r1041_e82_400bps_hac_g615 r1041_e82_400bps_hac_g632 r1041_e82_400bps_hac_v4.0.0 r1041_e82_400bps_hac_v4.1.0 r1041_e82_400bps_hac_v4.2.0 r1041_e82_400bps_hac_v4.3.0 r1041_e82_400bps_hac_v5.0.0 r1041_e82_400bps_hac_v5.0.0_rl_lstm384_dwells r1041_e82_400bps_hac_v5.0.0_rl_lstm384_no_dwells r1041_e82_400bps_hac_v5.2.0 r1041_e82_400bps_hac_v5.2.0_rl_lstm384_dwells r1041_e82_400bps_hac_v5.2.0_rl_lstm384_no_dwells r1041_e82_400bps_sup_g615 r1041_e82_400bps_sup_v4.0.0 r1041_e82_400bps_sup_v4.1.0 r1041_e82_400bps_sup_v4.2.0 r1041_e82_400bps_sup_v4.3.0 r1041_e82_400bps_sup_v5.0.0 r1041_e82_400bps_sup_v5.0.0_rl_lstm384_dwells r1041_e82_400bps_sup_v5.0.0_rl_lstm384_no_dwells r1041_e82_400bps_sup_v5.2.0 r1041_e82_400bps_sup_v5.2.0_rl_lstm384_dwells r1041_e82_400bps_sup_v5.2.0_rl_lstm384_no_dwells r104_e81_fast_g5015 r104_e81_hac_g5015 r104_e81_sup_g5015 r104_e81_sup_g610 r941_e81_fast_g514 r941_e81_hac_g514 r941_e81_sup_g514 r941_min_fast_g507 r941_min_hac_g507 r941_min_sup_g507 r941_prom_fast_g507 r941_prom_hac_g507 r941_prom_sup_g507 r941_sup_plant_g610
+        Alternatively a .tar.gz/.hdf file from 'medaka train'.
+        If not provided, and automatic choice will be attempted based on
+        the contents of the input file.
+    -f  Force overwrite of outputs (default will reuse existing outputs).
+    -x  Force recreation of alignment index.
+    -t  number of threads with which to create features (default: 1).
+    -b  batchsize, controls memory use (default: 100).
+    -q  Output consensus with per-base quality scores (fastq).
+    -B  Regions to polish.
+    -M  Minimum mapQ (default: None).
+    --bacteria automatically select best model for bacteria
+               and plasmid sequencing. 

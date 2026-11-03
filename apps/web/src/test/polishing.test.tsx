@@ -12,6 +12,7 @@ import {
   changeSeries,
   indirectRows,
   lineage,
+  medakaModel,
   polishedFrom,
   polishingProblems,
   polishingRequest,
@@ -95,11 +96,18 @@ const r2 = { ...ont, id: "r2", original_filename: "ill_R2.fastq.gz", read_mate: 
 const tool = (id: string) => ({ status: "available" as const, version: id === "racon" ? "1.5.0" : "1", version_validated: true, message: "", reason: null, path: `/usr/bin/${id}` });
 const plan: PolishingPlan = {
   draft: { assembly_id: "draft-0001", kind: "assembly", assembler: "Flye", assembler_version: "2.9.3", mode: "long", read_type: "nano-hq", parent_assembly_id: null, contig_count: 2, total_length: 107_998, n50: 99_999, circular_contigs: 2, created_at: "2026-10-28T13:00:00Z" },
-  tools: { racon: tool("racon"), minimap2: tool("minimap2"), pilon: tool("pilon"), java: tool("java"), bwa: tool("bwa"), samtools: tool("samtools"), dnadiff: tool("dnadiff") },
-  strategies_available: ["racon", "pilon", "hybrid"], files: [], strategy: "racon", suggested_strategy: "racon",
+  tools: { racon: tool("racon"), medaka: tool("medaka"), minimap2: tool("minimap2"), pilon: tool("pilon"), java: tool("java"), bwa: tool("bwa"), samtools: tool("samtools"), dnadiff: tool("dnadiff") },
+  strategies_available: ["racon", "medaka", "pilon", "hybrid"], files: [], strategy: "racon", suggested_strategy: "racon",
   preset_suggestion: { heuristic: true, value: "map-ont", basis: "nanopore reads", flye_read_type: "nano-hq", platform: "nanopore" },
   problem: null, sample_technology: "nanopore", confirmation_required: false, max_threads: 4, default_threads: 4, max_memory_gb: 32, default_heap_gb: 16,
+  strategies_for_reads: ["racon", "medaka"],
+  medaka: {
+    available: true, error: null, version: "2.1.1", models: ["r1041_e82_400bps_hac_v5.2.0", "r1041_e82_400bps_sup_v5.2.0"], bundled: [],
+    default_model: "r1041_e82_400bps_sup_v5.2.0", default_batch_size: 100, problem: null, draft_is_flye: true,
+    suggestion: { status: "mapped", basecall_model: "dna_r10.4.1_e8.2_400bps_sup@v5.2.0", basecall_models: ["dna_r10.4.1_e8.2_400bps_sup@v5.2.0"], model: "r1041_e82_400bps_sup_v5.2.0", source: "medaka.options.basecaller_models" },
+  },
 };
+const noBasecall: PolishingPlan = { ...plan, medaka: { ...plan.medaka!, suggestion: { ...plan.medaka!.suggestion!, status: "no_basecall_model", basecall_model: null, basecall_models: [], model: null } } };
 
 function renderWith(ui: ReactElement) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -140,6 +148,28 @@ describe("polishing helpers", () => {
     expect(request.racon).toEqual({ read_type: "map-ont", rounds: 1, match: 3, mismatch: -5, gap: -4, window_length: 500, quality_threshold: 10, error_threshold: 0.3 });
     expect(request.pilon).toEqual({ rounds: 2, fix: ["snps", "indels"], mindepth: 0.1, minmq: 0, minqual: 0, heap_gb: null, stop_when_unchanged: true });
     expect(request.reads_confirmed).toBe(true);
+  });
+
+  it("takes Medaka's model from medaka's mapping or the user, never a guess, and confirms a mismatch", () => {
+    const medaka = { ...POLISHING_FORM_DEFAULTS, strategy: "medaka" as const };
+    const long = { ...NO_ROLES, long: "ont" };
+    expect(polishingProblems(medaka, long, plan, false)).toEqual([]);
+    expect(medakaModel(medaka, plan)).toBe("r1041_e82_400bps_sup_v5.2.0");
+    expect(polishingProblems(medaka, long, noBasecall, false)).toEqual(["polishing.problem.medakaModel"]);
+    expect(medakaModel(medaka, noBasecall)).toBeNull();
+    const hac = { ...medaka, medakaModel: "r1041_e82_400bps_hac_v5.2.0" };
+    expect(polishingProblems(hac, long, plan, false)).toEqual(["polishing.problem.medakaMismatch"]);
+    expect(polishingProblems({ ...hac, medakaAcceptMismatch: true }, long, plan, false)).toEqual([]);
+    expect(polishingProblems(hac, long, noBasecall, false)).toEqual([]);
+    expect(polishingProblems({ ...medaka, medakaBatch: "0" }, NO_ROLES, plan, false)).toEqual(["polishing.problem.longMedaka", "polishing.problem.medakaBatch"]);
+    const fast = { ...plan, medaka: { ...plan.medaka!, suggestion: { ...plan.medaka!.suggestion!, status: "fast_unsupported" as const, model: null } } };
+    expect(polishingProblems(medaka, long, fast, false)).toEqual(["polishing.problem.medakaFast"]);
+    expect(polishingProblems(medaka, long, { ...plan, problem: "racon only", medaka: { ...plan.medaka!, problem: "pacbio" } }, false)).toEqual(["polishing.problem.medakaReads"]);
+    const request = polishingRequest({ ...hac, medakaAcceptMismatch: true, medakaBatch: "50" }, { r1: "r1", r2: "", unpaired: "", long: "ont" }, false);
+    expect(request.strategy).toBe("medaka");
+    expect(request.inputs).toEqual({ r1_file_id: null, r2_file_id: null, unpaired_file_id: null, long_file_id: "ont" });
+    expect(request.medaka).toEqual({ model: "r1041_e82_400bps_hac_v5.2.0", batch_size: 50, accept_model_mismatch: true });
+    expect(polishingRequest({ ...medaka, medakaAcceptMismatch: true }, long, false).medaka).toEqual({ model: null, batch_size: 100, accept_model_mismatch: false });
   });
 
   it("charts the changes per round, compares the reads' agreement and follows the lineage", () => {
@@ -200,7 +230,7 @@ describe("Polishing dialog", () => {
     expect(await screen.findByRole("radio", { name: /Hybrid: Racon, then Pilon/ })).toBeChecked();
     fireEvent.click(screen.getByRole("radio", { name: /Long reads: Racon/ }));
     expect(screen.getByRole("radio", { name: /Long reads: Racon/ })).toBeChecked();
-    expect(screen.getByText(/Medaka .* is not integrated yet/)).toBeInTheDocument();
+    expect(screen.getByText(/For Oxford Nanopore reads there is also Medaka/)).toBeInTheDocument();
     expect(screen.queryByText(/What Pilon may fix/)).not.toBeInTheDocument();
     await waitFor(() => expect(preview.mock.calls.at(-1)![1].inputs.r1_file_id).toBeNull());
     expect(preview.mock.calls.at(-1)![1].inputs.long_file_id).toBe("ont");
@@ -219,5 +249,35 @@ describe("Polishing dialog", () => {
     fireEvent.click(screen.getByRole("radio", { name: /Short reads: Pilon/ }));
     expect(await screen.findByText(/What Pilon may fix/)).toBeInTheDocument();
     expect(screen.getByLabelText(/R1/)).toBeInTheDocument();
+  });
+
+  it("offers Medaka with the model medaka maps the reads' basecall model to, in Spanish too", async () => {
+    vi.spyOn(api, "polishingPreview").mockResolvedValue(plan);
+    const polish = vi.spyOn(api, "polish").mockResolvedValue(job({ status: "pending", job_type: "medaka_polish" }));
+    renderWith(<PolishingDialog open onOpenChange={() => undefined} sampleId="s" technology="nanopore" assemblies={[draft]} files={[ont]} jobs={[]} draftId="draft-0001" />);
+    fireEvent.click(await screen.findByRole("radio", { name: /Oxford Nanopore reads: Medaka/ }));
+    expect(await screen.findByText(/medaka's own mapping gives r1041_e82_400bps_sup_v5\.2\.0/)).toBeInTheDocument();
+    expect(screen.queryByText(/Long-read type \(minimap2 preset\)/)).not.toBeInTheDocument();
+    const model = screen.getByRole("combobox", { name: "Model (-m)" });
+    expect(within(model).getByRole("option", { name: "Medaka's model for these reads: r1041_e82_400bps_sup_v5.2.0" })).toBeInTheDocument();
+    fireEvent.change(model, { target: { value: "r1041_e82_400bps_hac_v5.2.0" } });
+    expect(await screen.findByText(/Use r1041_e82_400bps_hac_v5\.2\.0 although medaka's mapping gives r1041_e82_400bps_sup_v5\.2\.0/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Polish" })).toBeDisabled();
+    fireEvent.change(model, { target: { value: "" } });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Polish" })).toBeEnabled());
+    expect(screen.getByText(/Medaka: model r1041_e82_400bps_sup_v5\.2\.0, batch size 100, one run/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Polish" }));
+    await waitFor(() => expect(polish).toHaveBeenCalled());
+    expect(polish.mock.calls[0][1].strategy).toBe("medaka");
+    expect(polish.mock.calls[0][1].medaka).toEqual({ model: null, batch_size: 100, accept_model_mismatch: false });
+  });
+
+  it("explains in Spanish when no basecall model is known", async () => {
+    useSettings.setState({ language: "es" });
+    vi.spyOn(api, "polishingPreview").mockResolvedValue(noBasecall);
+    renderWith(<PolishingDialog open onOpenChange={() => undefined} sampleId="s" technology="nanopore" assemblies={[draft]} files={[ont]} jobs={[]} draftId="draft-0001" />);
+    fireEvent.click(await screen.findByRole("radio", { name: /Lecturas de Oxford Nanopore: Medaka/ }));
+    expect(await screen.findByText(/ARVA no encontró el modelo de basecalling en las cabeceras/)).toBeInTheDocument();
+    expect(screen.getByText("Elige el modelo de Medaka: ARVA no tiene un modelo propio de medaka para estas lecturas.")).toBeInTheDocument();
   });
 });
