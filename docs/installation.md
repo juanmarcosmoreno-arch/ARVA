@@ -326,9 +326,14 @@ disk disappears between the check and the start, Docker refuses to start instead
 the internal disk. The override contains no path, only `${ARVA_HOST_…}` variables that the launcher sets after its
 checks; without them `docker compose` refuses to use it. The host paths and filesystems are also passed to the
 containers as `ARVA_HOST_DATA_DIR`, `ARVA_HOST_DATA_FS`, `ARVA_HOST_DATABASES_DIR`, …,
-`ARVA_HOST_EXTERNAL_DB_<n>` (validated again by the API and only displayed), with the size and free space of each
+`ARVA_HOST_EXTERNAL_DB_<n>` (validated again by the API and only displayed). The size and free space of each
 folder's disk as `df -Pk` measured them (`ARVA_HOST_<NAME>_TOTAL_BYTES`, `ARVA_HOST_<NAME>_AVAIL_BYTES`, `<NAME>` being
-`DATA`, `DATABASES`, `IMPORT` or `EXTERNAL_DB_<n>`) and when (`ARVA_HOST_SPACE_MEASURED_AT`, UTC). Without a chosen
+`DATA`, `DATABASES`, `IMPORT` or `EXTERNAL_DB_<n>`) and when (`ARVA_HOST_SPACE_MEASURED_AT`, UTC) are **not**
+environment variables: they change at every start, and Docker Compose recreates a container whose environment
+changed, which would stop a running job each time `ARVA.command` is opened again. The launcher writes them as
+`KEY=VALUE` lines to `~/.config/arva/host/space` (replaced by a rename), and the override mounts that folder
+read-only at `/run/arva-host` in the API and the worker, which read the file at every use (variables of the same
+names, if set, take precedence). With only Docker volumes there is no override and no such file. Without a chosen
 import folder, `ARVA_HOST_IMPORT_DIR` names the `import/` folder next to `docker-compose.yml` that the base file
 mounts at `/import` (it is a bind mount, not a Docker volume). A plain `docker compose up` uses the Docker volumes
 and ignores the saved folders.
@@ -358,19 +363,35 @@ What ARVA does about it:
 - **The launcher** reads Docker Desktop's File sharing list from its settings file (never editing it). When a
   chosen folder is under `/Volumes/<Disk>` and the list is absent (the defaults) or covers it only through
   `/Volumes`, it explains why and how, in English or Spanish; the first-run wizard waits for Enter and reads the list
-  again. With both `/Volumes` and the disk listed it says that this has not been confirmed. Without a readable
-  settings file it says nothing at a normal start.
+  again. Every folder is checked, also the `import/` folder next to `docker-compose.yml` and the launcher's own
+  `~/.config/arva/host` (both are mounted too, so removing a share they need gives "mounts denied"). With both
+  `/Volumes` (or `/`) and the disk listed it says that this has not been confirmed and that the share above the disk
+  should be removed (the wizard waits for that too); when the share above the disk is `/`, it names `/`; a disk not
+  listed at all gets the steps to add it (nothing to remove). The list's key in the settings file
+  (`FilesharingDirectories`, matched without regard to case) has not been seen in a real file, so when the file has
+  no list the launcher says that either the defaults apply or the list is kept under a name it does not know, and
+  that what ARVA sees once it runs (Settings → Storage) decides. Paths are read as JSON strings (commas kept, `\"`,
+  `\\`, `\/` and `\u0026`/`\u003c`/`\u003e` decoded; whether Docker Desktop writes those escapes is not known).
+  Without a readable settings file it says nothing at a normal start.
 - **The API** (`app/services/locations.py`) flags a location `space_misreported` when its mount comes from a share
   above its disk (`/run/host_mark/Volumes` or `/run/host_mark` for a `/Volumes/<Disk>/…` folder, read from
-  `/proc/self/mounts`) or when the disk size it reads differs from the launcher's by more than 2 % (at least 1 GiB).
-  Then Settings → Storage and the first-run checklist show the warning with the fix (the checklist shows it before
-  any low-space warning, which would be about the wrong disk), the launcher's summary prints it, and **every
-  free-space check** (browser uploads and their 507 answer, server imports, the free space a job needs before it
-  starts, database downloads and extractions) uses **the launcher's free-space figure from the start** instead of
-  the other disk's. That figure does not count what ARVA has written since the start, so it can only grow stale
-  during a session; the messages say where the figure comes from, and the warning stays until the disk is shared as
-  itself and ARVA is started again. Without a launcher figure (a plain `docker compose up`), the container's figure
-  is kept and labelled as another disk's. Natively, on Linux, and whenever mount and size agree, nothing changes.
+  `/proc/self/mounts`) or when the mount comes from Docker Desktop's file sharing (`/run/host_mark/…`) and the disk
+  size it reads differs from the launcher's by more than 2 % (at least 1 GiB). Then Settings → Storage shows the
+  warning with the fix, the first-run checklist shows it for the folders ARVA writes to (after a low-space warning,
+  which is then judged on the figure below), the launcher's summary prints it, and **every free-space check**
+  (browser uploads and their 507 answer, server imports, the free space a job needs before it starts, database
+  downloads and extractions) and the low-space warning use **the launcher's free-space figure minus what ARVA has
+  written since** to its writable folders on that disk. "Written since" is the growth of those folders' trees (file
+  sizes or allocated blocks, whichever is larger) since their first reading after the measurement; the first
+  reading is kept in the metadata (app setting `space_baseline`), so it survives container restarts, for example
+  when Docker Desktop restarts the containers after the Mac restarts. Rule, and its limits: what **other programs**
+  write to that disk is not counted; what ARVA deletes counts, but never as more free space than the launcher
+  measured; a tree with more than 500 000 entries is not measured, and then the launcher's figure is used as it is
+  and the messages say so; trees are re-read at most once a minute. The messages say where the figure comes from;
+  the warning stays until the disk is shared as itself and ARVA is started again (which also measures again).
+  Without a launcher figure (a plain `docker compose up`), the container's figure is kept and labelled as another
+  disk's. Natively, on Linux (no `/run/host_mark` mount: a size that changes there, as on ZFS, is not a
+  misreport), and whenever mount and size agree, nothing changes.
 
 ### Filesystem: use APFS (or Mac OS Extended)
 
@@ -661,8 +682,12 @@ Pilon is a Java program. Debian's `/usr/bin/pilon` runs it with a fixed 16 GB he
 with ~200x of Illumina coverage will require at least 8GB, though 16GB is recommended" and, as a rule of thumb, 1 GB
 per megabase of genome. The performance profile's memory per job can be far less (the Light profile on a Mac whose
 Docker Desktop VM has 3.8 GB gives tools 1 GB), so the default heap is the memory per job **raised towards 8 GB**,
-never above the memory ARVA may give a tool nor 16 GB: there, 3 GB. When even that is below 8 GB the polishing
-dialog says so (give Docker Desktop more memory). A heap typed in the dialog or a workflow node is used as given;
+never above the memory ARVA may give a tool **less 1 GB** nor 16 GB: there, 2 GB. The 1 GB is kept because Java uses
+memory beyond `-Xmx` (metaspace, garbage-collector structures, thread stacks) and the database, Redis, the API and
+the worker share the same Docker VM, whose whole memory counts as usable (the containers have no memory limit); a
+heap of all of it could get Java or the database killed by the kernel instead of a clear OutOfMemoryError (inferred,
+not measured). When the default is below 8 GB the polishing dialog says so (give ARVA, with Docker Desktop its VM,
+more memory). A heap typed in the dialog or a workflow node is used as given;
 a batch reserves the Pilon heap it gives. For another installation set `ARVA_TOOL_PILON` to the path of `pilon.jar`. Debian's build
 prints no version number (`Pilon version [COMMIT] [DATE]`), so ARVA reads the version from dpkg and says so on the
 Tools page. `JAVA_TOOL_OPTIONS`, `_JAVA_OPTIONS` and `JDK_JAVA_OPTIONS` are removed from every tool's environment,
@@ -1096,9 +1121,10 @@ is on another disk. Server folder import copies directly and needs only the file
 (role, folder on the computer as the launcher gave it, folder inside ARVA, read-only or not, free and total space,
 filesystem warnings, the data folder's marker) and the metadata backups; Settings → Storage shows them. A location
 whose free space Docker reports from another disk carries `space_misreported`, `space_source` (`host_at_start` or
-`container_misreported`), `misreport` (reason, Docker's share, the disk to share, what the container shows) and the
-launcher's `host_free_bytes`, `host_total_bytes` and `host_measured_at`; the free-space checks then use the
-launcher's figure ([Docker Desktop file sharing and free space](#docker-desktop-file-sharing-and-free-space)).
+`container_misreported`), `misreport` (reason, Docker's share, the disk to share, what the container shows, and
+`written_since_bytes`: what ARVA has written to that disk since the measurement) and the launcher's
+`host_free_bytes`, `host_total_bytes` and `host_measured_at`; `free_bytes` and the free-space checks then use the
+launcher's figure less `written_since_bytes` ([Docker Desktop file sharing and free space](#docker-desktop-file-sharing-and-free-space)).
 
 ## Reference databases (Database Manager)
 

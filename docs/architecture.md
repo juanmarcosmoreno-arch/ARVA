@@ -259,13 +259,16 @@ chooses and remembers host folders (`~/.config/arva/arva.conf`, read line by lin
 host paths reach the API as `ARVA_HOST_*` strings for display only. Neither the settings nor the storage layer
 create a missing data or database folder whose parent is missing (a disconnected disk).
 
-The launcher also passes each folder's disk size and free space as measured on the host
-(`ARVA_HOST_<NAME>_TOTAL_BYTES` / `_AVAIL_BYTES`, `ARVA_HOST_SPACE_MEASURED_AT`). With Docker Desktop sharing an
-external disk only through `/Volumes`, the container reads the startup disk's space (seen on a real Mac):
-`locations.space_of` flags such a location `space_misreported` (mount source in `/proc/self/mounts` a share above
-the disk, or a size that differs from the launcher's), and `locations.free_space`, which every free-space check
-uses (`capacity.storage_capacity`, `tasks.common._ensure_space`, `databases.free_bytes`), then counts the
-launcher's figure from the start.
+The launcher also measures each folder's disk size and free space on the host (`ARVA_HOST_<NAME>_TOTAL_BYTES` /
+`_AVAIL_BYTES`, `ARVA_HOST_SPACE_MEASURED_AT`) and writes them to `~/.config/arva/host/space`, mounted read-only at
+`/run/arva-host` (not environment variables: they change at every start, and a changed environment makes Compose
+recreate the containers). With Docker Desktop sharing an external disk only through `/Volumes`, the container reads
+the startup disk's space (seen on a real Mac): `locations.space_of` flags such a location `space_misreported` (mount
+source in `/proc/self/mounts` a share above the disk, or a `/run/host_mark` mount whose size differs from the
+launcher's), and `locations.free_space`, which every free-space check uses (`capacity.storage_capacity`,
+`tasks.common._ensure_space`, `databases.free_bytes`), then counts the launcher's figure minus the growth of ARVA's
+writable folders on that disk since their first reading (`locations.written_since`; the first reading is kept in
+app_settings "space_baseline").
 
 ```
 <data folder>/.arva-storage            {"id": …}: ties the folder to the metadata (app_settings "storage")

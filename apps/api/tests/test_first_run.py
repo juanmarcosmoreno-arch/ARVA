@@ -231,8 +231,13 @@ REAL_KEYS = ('{"AutoStart": false, "Cpus": 4, "DataFolder": "/x", "DisplayedOnbo
 
 
 def sharing(m: FirstRun, *folders: str) -> str:
+    """A settings file with a File sharing list; "/Volumes" stands for the test's volumes folder and "/Users" also
+    covers the test's home (ARVA's settings folder) and this checkout (its import/ folder), as /Users does on a Mac."""
     vroot = str(m.tmp / "Volumes")
-    listed = ", ".join(f'"{f.replace("/Volumes", vroot, 1)}"' for f in folders)
+    entries = []
+    for f in folders:
+        entries += [f, str(m.home), str(ROOT)] if f == "/Users" else [f.replace("/Volumes", vroot, 1)]
+    listed = ", ".join(json.dumps(f) for f in entries)
     return '{"UseVirtualizationFrameworkRosetta": true, "FilesharingDirectories": [' + listed + "]}"
 
 
@@ -246,9 +251,12 @@ def test_a_normal_start_explains_how_to_share_the_disk_itself(tmp_path, shell):
     proc = m.ask(shell, [], "--data-dir", str(data), lang="en_US.UTF-8")
     assert proc.returncode == 0, proc.stdout + proc.stderr
     err = " ".join(proc.stderr.split())
-    assert "lists no File sharing folders, so its default list applies" in err
+    # The settings file of a real Mac had no such list: Docker Desktop's defaults, or a key name ARVA does not know,
+    # so the text says so instead of stating it as fact.
+    assert "has no File sharing list that ARVA can read" in err and "default list" in err
     assert f"{m.disk} reaches ARVA only through {vroot}" in err
     assert "reads the free space of the Mac's startup disk" in err
+    assert "under a name ARVA does not know" in err and "decides (Settings → Storage)" in err
     assert f"Cmd+Shift+G → type {m.disk} → Open; then select {vroot} in the list and remove it" in err
     assert any("up" in c for c in m.calls)  # only explained: ARVA still starts
     # Only /Volumes in the list.
@@ -265,10 +273,12 @@ def test_a_normal_start_explains_how_to_share_the_disk_itself(tmp_path, shell):
     m.settings(sharing(m, "/Users", "/Volumes", "/Volumes/JM"))
     err = " ".join(m.ask(shell, [], lang="en_US.UTF-8").stderr.split())
     assert f"shares {m.disk} and also {vroot}" in err and "has not been confirmed" in err
-    # Not covered at all: Docker would refuse the mount.
+    assert f"select {vroot} → remove it" in err
+    # Not covered at all: Docker would refuse the mount. /Volumes is not listed, so there is nothing to remove.
     m.settings(sharing(m, "/Users"))
     err = " ".join(m.ask(shell, [], lang="en_US.UTF-8").stderr.split())
     assert f"Docker Desktop does not share {data}" in err and '"mounts denied"' in err
+    assert f"type {m.disk} → Open → Apply" in err and "remove it" not in err
     # No settings file: the launcher cannot tell, and says nothing (ARVA checks once it runs).
     (m.home / "Library" / "Group Containers" / "group.com.docker" / "settings-store.json").unlink()
     assert "File sharing" not in m.ask(shell, [], lang="en_US.UTF-8").stderr
@@ -292,7 +302,7 @@ def test_the_first_run_waits_for_the_disk_to_be_shared_and_checks_again(tmp_path
     proc = m.ask(shell, ["1", "", "", "", "", "", "", ""], "--setup", lang="en_US.UTF-8")
     assert proc.returncode == 0, proc.stdout + proc.stderr
     out = " ".join(proc.stdout.split())
-    assert "lists no File sharing folders" in out and "Press Enter when done." in out
+    assert "has no File sharing list that ARVA can read" in out and "Press Enter when done." in out
     assert f"Docker Desktop now shares {m.disk}." in out
     assert any("up" in c for c in m.calls)
 
@@ -304,7 +314,47 @@ def test_the_first_run_goes_on_when_the_list_still_does_not_show_the_disk(tmp_pa
     proc = m.ask(shell, ["1", "", "", "", "", "", "", ""], "--setup", lang="es_AR.UTF-8")
     assert proc.returncode == 0, proc.stdout + proc.stderr
     out = " ".join(proc.stdout.split())
-    assert f"todavía no muestran {m.disk} compartido como disco" in out and "ARVA se inicia igual" in out
+    assert f"todavía muestra el problema de arriba para {m.disk}" in out and "ARVA se inicia igual" in out
+
+
+@pytest.mark.parametrize("shell", SHELLS)
+def test_every_folder_on_a_disk_is_checked_and_the_advice_fits_the_list(tmp_path, shell):
+    m = FirstRun(tmp_path)
+    data, dbs = m.folder("ARVA", "data"), m.folder("ARVA", "databases")
+    vroot = tmp_path / "Volumes"
+    # Only the data folder is listed: the database folder on the same disk is not covered ("mounts denied").
+    m.settings(sharing(m, "/Users", "/Volumes/JM/ARVA/data"))
+    err = " ".join(m.ask(shell, [], "--data-dir", str(data), "--databases-dir", str(dbs), lang="en_US.UTF-8")
+                   .stderr.split())
+    assert f"Docker Desktop does not share {dbs}" in err and f"type {m.disk} → Open → Apply" in err
+    # The import/ folder next to docker-compose.yml is mounted too (no import folder chosen), so it must be shared.
+    m.settings(json.dumps({"FilesharingDirectories": [str(m.home), str(m.disk)]}))
+    err = " ".join(m.ask(shell, [], lang="en_US.UTF-8").stderr.split())
+    assert f"Docker Desktop does not share {(ROOT / 'import').resolve()}:" in err
+    # The root share counts as the share above the disk: the steps say to remove /, not /Volumes.
+    m.settings('{"FilesharingDirectories": ["/"]}')
+    err = " ".join(m.ask(shell, [], lang="en_US.UTF-8").stderr.split())
+    assert "only through /. " in err and "select / in the list and remove it" in err
+    assert f"select {vroot} in the list" not in err
+    # Go's JSON encoder writes & as \u0026, and a comma may be part of a path.
+    odd = m.folder("ARVA", "R&D, 2")
+    escaped = json.dumps(str(odd)).replace("&", "\\u0026")
+    assert "\\u0026" in escaped
+    m.settings(sharing(m, "/Users", "/Volumes/JM/ARVA/data", "/Volumes/JM/ARVA/databases")
+               .replace("]}", f", {escaped}]}}"))
+    err = m.ask(shell, [], "--databases-dir", str(odd), lang="en_US.UTF-8").stderr
+    assert "File sharing" not in err, err
+
+
+@pytest.mark.parametrize("shell", SHELLS)
+def test_the_first_run_waits_when_volumes_is_listed_beside_the_disk(tmp_path, shell):
+    m = FirstRun(tmp_path)
+    m.settings(sharing(m, "/Users", "/Volumes", "/Volumes/JM"))
+    proc = m.ask(shell, ["1", "", "", "", "", "", "", ""], "--setup", lang="en_US.UTF-8")
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    out = " ".join(proc.stdout.split())
+    assert f"shares {m.disk} and also" in out and "Press Enter when done." in out
+    assert "Docker Desktop shares the chosen folders." not in out
 
 
 @pytest.mark.parametrize("shell", SHELLS)

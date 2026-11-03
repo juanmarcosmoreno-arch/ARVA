@@ -23,7 +23,8 @@ the launcher's by more than SIZE_TOLERANCE. Then:
   launcher's free space minus what ARVA has written since to its writable folders on that disk (the growth of those
   folders' trees since the first reading after the measurement, kept in the metadata as app setting "space_baseline"
   so that it survives container restarts, e.g. after the Mac restarts). What other programs write to the disk is not
-  counted, nor what ARVA frees (conservative); when a tree cannot be measured (more than TREE_MAX_ENTRIES entries)
+  counted, and what ARVA deletes counts only as long as each folder stays above its first reading (never more free
+  space than the launcher measured); when a tree cannot be measured (more than TREE_MAX_ENTRIES entries)
   the launcher's figure is used as it is and said so. The warning stays until the disk is shared as itself (Docker
   Desktop → Settings → File sharing → /Volumes/<Disk>, /Volumes removed) and ARVA is started again, which also
   measures again; without a launcher figure the container's figure is kept, flagged as wrong.
