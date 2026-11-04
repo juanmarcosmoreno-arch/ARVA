@@ -11,7 +11,8 @@ class AssemblyMode(str, enum.Enum):
     long = "long"
     short = "short"
     hybrid = "hybrid"
-    # A finished genome FASTA registered by the user (e.g. an NCBI RefSeq genome), not assembled by ARVA.
+    # A genome FASTA registered by the user, not assembled by ARVA: a finished genome (e.g. an NCBI RefSeq genome) or,
+    # when `declared_assembler` is set, a draft the user declares was assembled outside ARVA from this sample's reads.
     imported = "imported"
 
 
@@ -65,10 +66,20 @@ class Assembly(Base):
     contigs_path: Mapped[str] = mapped_column(String(1024), nullable=False)
     graph_path: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     info_path: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    # Registered genomes only: the assembler and version the user states for a draft they assembled outside ARVA from
+    # this sample's reads (their declaration, which ARVA cannot check). Null for ARVA's own assemblies and for finished
+    # genomes registered as such. Only such declared drafts may be polished.
+    declared_assembler: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    declared_assembler_version: Mapped[str | None] = mapped_column(String(100), nullable=True)
     stats: Mapped[dict] = mapped_column(JSON, nullable=False)
     contigs: Mapped[list] = mapped_column(JSON, nullable=False)
     warnings: Mapped[list] = mapped_column(JSON, nullable=False)
     created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+    @property
+    def declared_draft(self) -> bool:
+        """A registered genome the user declared to be a draft assembled outside ARVA from this sample's reads."""
+        return self.mode is AssemblyMode.imported and self.declared_assembler is not None
 
     @property
     def coverage_kind(self) -> str | None:

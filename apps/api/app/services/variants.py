@@ -122,6 +122,8 @@ def reference_options(db: Session, sample: Sample) -> dict[str, Any]:
             "assembly_id": a.id, "label": _assembly_label(db, a), "sample_id": a.sample_id,
             "sample_code": s.sample_code if s else None, "same_project": bool(s and s.project_id == sample.project_id),
             "own_sample": a.sample_id == sample.id, "kind": a.kind.value, "assembler": a.assembler,
+            "assembler_version": a.assembler_version, "mode": a.mode.value, "declared_assembler": a.declared_assembler,
+            "declared_assembler_version": a.declared_assembler_version,
             "contigs": a.stats.get("contig_count"), "total_length": a.stats.get("total_length"),
             "annotation": {"id": an.id, "tool": an.tool, "tool_version": an.tool_version} if an else None,
         })

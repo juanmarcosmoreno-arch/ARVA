@@ -18,6 +18,7 @@ from app.models import (
     AnalysisJob,
     Annotation,
     Assembly,
+    AssemblyMode,
     JobStatus,
     MlstResult,
     RawFile,
@@ -226,6 +227,27 @@ def _lineage(f: RawFile, by_id: dict[str, RawFile]) -> list[str]:
     return names
 
 
+def assembly_provenance(a: Assembly, by_id: dict[str, Assembly]) -> str | None:
+    """Where a registered genome (or an assembly polished from one) comes from, as the user stated it; None for an
+    assembly of ARVA's own lineage."""
+    root, seen = a, {a.id}
+    while root.parent_assembly_id and root.parent_assembly_id in by_id and root.parent_assembly_id not in seen:
+        root = by_id[root.parent_assembly_id]
+        seen.add(root.id)
+    if root.mode is not AssemblyMode.imported:
+        return None
+    if root.declared_draft:
+        text = (f"draft assembled outside ARVA with {root.declared_assembler} {root.declared_assembler_version} from "
+                f"this sample's reads, as declared by the user (ARVA cannot check this); registered from a genome FASTA "
+                f"(source as stated by the user: {root.assembler_version})")
+    else:
+        text = (f"genome FASTA registered by the user (source as stated by the user: {root.assembler_version}); ARVA "
+                "did not assemble it and records no reads or assembler for it")
+    if root is a:
+        return text[0].upper() + text[1:]
+    return f"Polished from assembly {root.id[:8]}, a {text}"
+
+
 def _assemblies(db: Session, sample: Sample, by_id: dict[str, RawFile]) -> list[dict[str, Any]]:
     """Each assembly with its read inputs by lineage, the exact command, statistics, heuristic warnings and the
     metrics of every completed QUAST evaluation that included it."""
@@ -234,6 +256,7 @@ def _assemblies(db: Session, sample: Sample, by_id: dict[str, RawFile]) -> list[
     ).all()
     if not assemblies:
         return []
+    assemblies_by_id = {a.id: a for a in assemblies}
     evaluations = db.scalars(
         select(AnalysisJob)
         .where(AnalysisJob.sample_id == sample.id, AnalysisJob.job_type == QUAST_JOB,
@@ -278,6 +301,9 @@ def _assemblies(db: Session, sample: Sample, by_id: dict[str, RawFile]) -> list[
             "assembler_version": a.assembler_version,
             "mode": a.mode.value,
             "read_type": a.read_type,
+            "declared_assembler": a.declared_assembler,
+            "declared_assembler_version": a.declared_assembler_version,
+            "provenance": assembly_provenance(a, assemblies_by_id),
             "coverage_kind": a.coverage_kind,
             "created_at": a.created_at.isoformat(),
             "inputs": inputs,
@@ -690,9 +716,14 @@ def _changes_line(changes: dict[str, Any]) -> str:
 
 def _polishing_highlights(summary: dict[str, Any]) -> list[str]:
     draft = summary.get("draft") or {}
-    out = [f"{summary['polisher']} {summary.get('polisher_version')} polished {draft.get('assembler')} "
-           f"{draft.get('assembler_version')} assembly {str(draft.get('assembly_id', ''))[:8]} in "
-           f"{summary.get('rounds_run')} round(s)"]
+    if draft.get("declared_assembler"):
+        what = (f"the draft assembled outside ARVA with {draft['declared_assembler']} "
+                f"{draft.get('declared_assembler_version')} (as declared by the user; registered genome "
+                f"{draft.get('assembler_version')})")
+    else:
+        what = f"{draft.get('assembler')} {draft.get('assembler_version')} assembly"
+    out = [f"{summary['polisher']} {summary.get('polisher_version')} polished {what} "
+           f"{str(draft.get('assembly_id', ''))[:8]} in {summary.get('rounds_run')} round(s)"]
     if medaka := summary.get("medaka"):
         model = medaka.get("model") or {}
         out.append(f"Medaka model {model.get('model')} (shipped in the package, sha256 {str(model.get('sha256'))[:12]}…; "
@@ -1445,6 +1476,8 @@ def _assembly_html(data: dict[str, Any]) -> str:
     sections = []
     for a in data.get("assemblies", []):
         st, job = a["statistics"], a["job"] or {}
+        registered = a["mode"] == "imported"
+        registered_root = registered and a["kind"] != "polished"
         inputs = "".join(
             f"<li>{escape(' ← '.join(i['lineage']) or i['file_id'])}"
             f"{' (filtered copy)' if i['origin'] == 'derived' else ''} · SHA-256 <code>{escape(i['sha256'] or '')}</code>"
@@ -1464,7 +1497,9 @@ def _assembly_html(data: dict[str, Any]) -> str:
             ("N per 100 kb", f"{st['n_per_100kb']:.2f}"),
             ("Circular contigs", f"{st['circularity']['circular_contigs']} of "
                                  f"{st['circularity']['contigs_with_circularity']} (as reported by {a['assembler']})"
-             if st["circularity"]["contigs_with_circularity"] else f"not reported by {a['assembler']}"),
+             if st["circularity"]["contigs_with_circularity"] else
+             "not known (registered genome FASTA: ARVA records no circularity for it)" if registered else
+             f"not reported by {a['assembler']}"),
             (f"Median contig {label}", "—" if cov is None else
              f"{_coverage(cov, kind)} (length-weighted; {a['assembler']}'s per-contig {label})"),
             ("Expected genome size", f"{g['bp']:,} bp ({(g.get('basis') or g.get('source') or '').replace('_', ' ')})"
@@ -1487,12 +1522,23 @@ def _assembly_html(data: dict[str, Any]) -> str:
                            "Contig length distribution", "Contig length (bp, bin start)", "Contigs")
         lineage = (f" · polished from assembly <code>{escape(a['parent_assembly_id'] or 'deleted')}</code>"
                    if a["kind"] == "polished" else "")
+        if registered_root and a.get("declared_assembler"):
+            title = (f"Draft assembled outside ARVA ({escape(a['declared_assembler'])} "
+                     f"{escape(a.get('declared_assembler_version') or '')}) · {escape(a['assembler_version'])}")
+        elif registered_root:
+            title = f"Imported genome · {escape(a['assembler_version'])}"
+        else:
+            title = f"{escape(a['assembler'])} {escape(a['assembler_version'])} · {escape(a['read_type'])}"
+        what = "registered genome FASTA" if registered_root else (
+            "polished assembly" if registered else f"{escape(a['mode'])}-read assembly")
         sections.append(
-            f"<h3>{escape(a['assembler'])} {escape(a['assembler_version'])} · {escape(a['read_type'])}</h3>"
-            f"<p class='muted'>Assembly <code>{escape(a['id'])}</code> · {escape(a['mode'])}-read assembly{lineage} · "
+            f"<h3>{title}</h3>"
+            f"<p class='muted'>Assembly <code>{escape(a['id'])}</code> · {what}{lineage} · "
             f"created {escape(a['created_at'])}</p>"
-            f"<h4>Input reads (file ← the file it was derived from)</h4><ul>{inputs}</ul>"
-            f"<h4>Statistics</h4><table>{table}</table>"
+            + (f"<p><strong>Provenance:</strong> {escape(a['provenance'])}.</p>" if a.get("provenance") else "")
+            + (f"<h4>Genome FASTA</h4><ul>{inputs}</ul>" if registered_root else
+               f"<h4>Input reads (file ← the file it was derived from)</h4><ul>{inputs}</ul>")
+            + f"<h4>Statistics</h4><table>{table}</table>"
             + (f"<div class='warn'><strong>Heuristic warnings</strong><ul>{warnings}</ul></div>" if warnings
                else "<p class='muted'>No heuristic warning.</p>")
             + (f"<p class='muted'>Checks not evaluated:</p><ul class='muted'>{skipped}</ul>" if skipped else "")

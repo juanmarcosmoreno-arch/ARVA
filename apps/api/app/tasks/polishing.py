@@ -42,7 +42,7 @@ from arva_tools.pilon import PilonAdapter, PilonParams, java_executable, java_ve
 from arva_tools.racon import RaconAdapter, RaconParams
 from arva_tools.registry import detect
 
-from app.models import Assembly, FileFormat, RawFile
+from app.models import Assembly, AssemblyMode, FileFormat, RawFile
 from app.services.assemblies import register_assembly
 from app.services.short_hybrid import ROLES, library_layout
 from app.tasks.common import JobContext, JobFailure, now, run_job
@@ -402,8 +402,10 @@ def _finish(ctx: JobContext, polisher: str, draft: Assembly, work: Path, results
     polished = register_assembly(ctx, assembler=polisher, mode=draft.mode, read_type=read_type,
                                  contigs=polished_path, annotations=annotations, parent=draft)
     ctx.db.flush()
-    ctx.log(f"Per-contig coverage of the polished assembly: mean depth of the polishing reads mapped to it (samtools "
-            f"coverage); circularity as {draft.assembler} reported it for the draft contig")
+    ctx.log("Per-contig coverage of the polished assembly: mean depth of the polishing reads mapped to it (samtools "
+            "coverage); " + ("circularity not known (the draft is a registered genome FASTA, for which ARVA records "
+                             "none)" if draft.mode is AssemblyMode.imported else
+                             f"circularity as {draft.assembler} reported it for the draft contig"))
     followups = _queue_followups(ctx, polished, draft)
     direct_source = "dnadiff" if overall is not None else ("pilon_changes" if polisher == "Pilon" else None)
     ctx.job.result_summary = {
@@ -594,7 +596,11 @@ def _medaka_body(ctx: JobContext) -> None:
     ctx.log(f"Medaka: medaka_consensus with -m {params.model}, -t {params.threads} (alignment, inference and "
             f"stitching; medaka's README: inference may use threads + 4 and scales poorly beyond 2), -b "
             f"{params.batch_size} (batch size, controls memory use); gap filling from the draft (medaka's default)")
-    if not (draft.assembler == "Flye" and draft.parent_assembly_id is None):
+    if draft.declared_draft:
+        ctx.log(f"Note: Medaka's models were trained on unpolished Flye drafts; this draft was assembled outside ARVA "
+                f"with {draft.declared_assembler} {draft.declared_assembler_version}, as declared by the user (ARVA "
+                "cannot check that it is an unpolished Flye draft)")
+    elif not (draft.assembler == "Flye" and draft.parent_assembly_id is None):
         ctx.log(f"Note: Medaka's models were trained on unpolished Flye drafts; this draft is a {draft.assembler} "
                 f"{draft.kind.value} assembly")
     steps = _Steps(ctx, "Medaka", ["medaka_consensus", "alignment_stats", "comparison"])
@@ -683,7 +689,13 @@ def _medaka_body(ctx: JobContext) -> None:
                       "message": f"Medaka ran with {params.model}, not {record['suggestion']['model']}, the model "
                                  f"medaka's mapping gives for the reads' basecall model "
                                  f"{record['suggestion']['basecall_model']} (the user's choice)"})
-    if not (draft.assembler == "Flye" and draft.parent_assembly_id is None):
+    if draft.declared_draft:
+        notes.append({"code": "medaka_draft_declared",
+                      "params": {"assembler": draft.declared_assembler, "version": draft.declared_assembler_version},
+                      "message": "Medaka's models were trained to correct unpolished Flye drafts; this draft was "
+                                 f"assembled outside ARVA with {draft.declared_assembler} "
+                                 f"{draft.declared_assembler_version}, as declared by the user (not checked by ARVA)"})
+    elif not (draft.assembler == "Flye" and draft.parent_assembly_id is None):
         notes.append({"code": "medaka_draft_not_flye", "params": {"assembler": draft.assembler,
                                                                   "kind": draft.kind.value},
                       "message": "Medaka's models were trained to correct unpolished Flye drafts; this draft is a "

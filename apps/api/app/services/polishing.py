@@ -29,7 +29,7 @@ from arva_tools.pilon import java_executable, java_version
 from arva_tools.registry import detect
 from sqlalchemy.orm import Session
 
-from app.models import Assembly, AssemblyMode, Sample, SequencingTechnology
+from app.models import Assembly, AssemblyKind, AssemblyMode, Sample, SequencingTechnology
 from app.services import short_hybrid
 from app.services.flye import CONFIDENT, InputError, read_type_suggestion
 from app.services.performance import Resources, effective_resources
@@ -78,9 +78,11 @@ def draft_for(db: Session, sample: Sample, assembly_id: str) -> Assembly:
         raise InputError(f"Assembly {assembly_id} does not belong to this sample")
     if not get_storage().resolve(a.contigs_path).is_file():
         raise InputError(f"The contigs file of assembly {assembly_id} is missing on disk")
-    if a.mode is AssemblyMode.imported:
+    # A registered genome is polished only when the user declared it a draft assembled outside ARVA from this
+    # sample's reads (or it is a polished version of such a draft); a finished genome registered as such is not.
+    if a.mode is AssemblyMode.imported and a.kind is AssemblyKind.assembly and not a.declared_draft:
         raise InputError("This is an imported genome, not an assembly of this sample's reads; ARVA polishes only its own "
-                         "assemblies")
+                         "assemblies and drafts registered as assembled from this sample's reads")
     return a
 
 
@@ -275,6 +277,7 @@ def draft_summary(a: Assembly) -> dict[str, Any]:
     s = a.stats
     return {"assembly_id": a.id, "kind": a.kind, "assembler": a.assembler, "assembler_version": a.assembler_version,
             "mode": a.mode, "read_type": a.read_type, "parent_assembly_id": a.parent_assembly_id,
+            "declared_assembler": a.declared_assembler, "declared_assembler_version": a.declared_assembler_version,
             "contig_count": s["contig_count"], "total_length": s["total_length"], "n50": s["n50"],
             "circular_contigs": s["circularity"]["circular_contigs"], "created_at": a.created_at}
 
