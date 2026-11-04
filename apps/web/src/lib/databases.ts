@@ -50,6 +50,20 @@ export function validDate(text: string): boolean {
   return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === text;
 }
 
+/** A date typed as separate day, month (1–12) and four-digit year, as YYYY-MM-DD; null when it is incomplete or not
+ * a real day (31 April). Separate fields, so "27/05" can never be read with day and month swapped. */
+export function isoFromParts(day: string, month: string, year: string): string | null {
+  if (!/^\d{1,2}$/.test(day.trim()) || !/^\d{1,2}$/.test(month.trim()) || !/^\d{4}$/.test(year.trim())) return null;
+  const iso = `${year.trim()}-${month.trim().padStart(2, "0")}-${day.trim().padStart(2, "0")}`;
+  return validDate(iso) ? iso : null;
+}
+
+/** The day, month and year of a YYYY-MM-DD date, as the fields show them ("" for each when it is not one). */
+export function partsFromIso(iso: string | null | undefined): { day: string; month: string; year: string } {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso ?? "");
+  return m && validDate(iso ?? "") ? { year: m[1], month: String(Number(m[2])), day: String(Number(m[3])) } : { day: "", month: "", year: "" };
+}
+
 /** A folder name inside a database folder (as the API accepts): relative, letters, digits, . _ -, no "..". */
 export function validFolder(text: string): boolean {
   const parts = text.trim().replace(/^\/+|\/+$/g, "").split("/");

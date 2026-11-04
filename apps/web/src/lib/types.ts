@@ -1844,6 +1844,9 @@ export interface CollectionSummary {
   missing: number;
   bytes: number;
   species: number;
+  /** Distinct subspecies ("Genus species subsp. x" in the organism names), and distinct names counting each apart. */
+  subspecies?: number;
+  names?: number;
   unclassified: number;
   by_species: { species: string; genomes: number }[];
   type_material: { label: string; text: string | null; genomes: number }[];

@@ -66,6 +66,17 @@ export function fmtDate(iso: string | null | undefined) {
   return new Date(iso).toLocaleString(locale(), { dateStyle: "medium", timeStyle: "short" });
 }
 
+/** A calendar day (YYYY-MM-DD) in words in the interface language: "27 de mayo de 2026", "May 27, 2026". Read in UTC,
+ * so the day never shifts with the computer's time zone. */
+export function fmtDayInWords(iso: string) {
+  return new Date(`${iso}T00:00:00Z`).toLocaleDateString(locale(), { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" });
+}
+
+/** The name of a month (1–12) in the interface language: "mayo", "May". */
+export function monthName(month: number) {
+  return new Date(Date.UTC(2000, month - 1, 1)).toLocaleDateString(locale(), { month: "long", timeZone: "UTC" });
+}
+
 export function fmtDuration(seconds: number | null | undefined) {
   if (seconds == null) return "—";
   if (seconds < 60) return `${fmtNum(seconds, 1)} s`;

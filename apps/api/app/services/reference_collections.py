@@ -25,7 +25,7 @@ import re
 import stat
 import zipfile
 from collections import Counter
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import asdict, dataclass
 from datetime import date
 from pathlib import Path, PurePosixPath
@@ -86,6 +86,31 @@ def species_of(organism: str | None) -> str | None:
             or words[1] in ("sp.", "spp.", "bacterium", "cf.", "aff."):
         return None
     return f"{words[0]} {words[1]}"
+
+
+def subspecies_of(organism: str | None) -> str | None:
+    """The subspecies an organism name gives ("Staphylococcus aureus subsp. aureus NCTC 8325" → "Staphylococcus aureus
+    subsp. aureus"), or None. NCBI writes the rank as "subsp." in the organism names of bacteria (organismName of the
+    assembly data report, the [organism=...] of a submission header); other ranks (serovar, pathovar, strain) are not
+    counted as names."""
+    words = (organism or "").split()
+    if species_of(organism) is None or len(words) < 4 or words[2] != "subsp." or not _EPITHET.fullmatch(words[3]):
+        return None
+    return f"{words[0]} {words[1]} subsp. {words[3]}"
+
+
+def name_counts(organisms: Iterable[str | None]) -> dict[str, int]:
+    """Distinct subspecies, and distinct names counting each subspecies apart (a genome named only to the species
+    counts as its species): "68 species, 82 names with the subspecies". Genomes without a binomial are left out."""
+    subspecies, names = set(), set()
+    for organism in organisms:
+        sub = subspecies_of(organism)
+        if sub:
+            subspecies.add(sub)
+        name = sub or species_of(organism)
+        if name:
+            names.add(name)
+    return {"subspecies": len(subspecies), "names": len(names)}
 
 
 def _meta(obj: dict) -> dict:
@@ -248,6 +273,7 @@ def summary(genomes: list[Genome]) -> dict:
         "genomes": len(genomes), "present": len(present), "missing": len(genomes) - len(present),
         "bytes": sum(g.size or 0 for g in present),
         "species": len([s for s in by_species if s != "unclassified"]),
+        **name_counts(g.organism for g in genomes),
         "unclassified": by_species.get("unclassified", 0),
         "by_species": [{"species": s, "genomes": n} for s, n in
                        sorted(by_species.items(), key=lambda x: (-x[1], x[0]))[:SPECIES_SHOWN]],
