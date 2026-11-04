@@ -162,6 +162,25 @@ def test_polishing_preview_explains_strategy_tools_and_problems(client, setup):
     assert none["strategy"] is None and none["problem"].startswith("Choose the reads to polish with")
 
 
+def test_polishing_preview_says_why_medakas_version_check_failed(client, setup, tmp_path, monkeypatch):
+    """Registro de prueba, item 31: a Medaka whose version check fails twice is shown with its reason and the values
+    the interface needs to say it in the user's language (exit status and the tail of its error output)."""
+    _, ids, draft = setup
+    exe = tmp_path / "medaka"
+    exe.write_text(f"#!{sys.executable}\nimport sys\nsys.stderr.write('ImportError: libtorch_cpu.so\\n')\nsys.exit(1)\n")
+    exe.chmod(0o755)
+    monkeypatch.setenv("ARVA_TOOL_MEDAKA", str(exe))
+    try:
+        plan = client.post(f"{API}/assemblies/{draft['id']}/polishing/preview",
+                           json={"inputs": {"long_file_id": ids["long"]}}).json()
+        medaka = plan["tools"]["medaka"]
+        assert medaka["status"] == "failed" and medaka["reason"] == "version_exit"
+        assert medaka["reason_params"] == {"status": "1", "output": "ImportError: libtorch_cpu.so"}
+    finally:
+        monkeypatch.delenv("ARVA_TOOL_MEDAKA")
+        detect("medaka", refresh=True)
+
+
 def test_lineage_migration_up_and_down_on_a_scratch_database(monkeypatch):
     from alembic import command
     from alembic.config import Config

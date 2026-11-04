@@ -177,7 +177,7 @@ def spades_status(res: Resources) -> dict[str, Any]:
     d = detect("spades")
     available = d.status is ToolStatus.available
     return {"status": d.status.value, "version": d.version, "version_validated": d.version_validated,
-            "message": d.message, "reason": d.reason,
+            "message": d.message, "reason": d.reason, "reason_params": d.reason_params,
             "options": _options(SpadesAdapter.help_options, d.path if available else None, SPADES_OPTIONS),
             **_resources(res)}
 
@@ -188,7 +188,7 @@ def unicycler_status(res: Resources) -> dict[str, Any]:
     paths = helper_paths()
     spades = detect("spades")
     return {"status": d.status.value, "version": d.version, "version_validated": d.version_validated,
-            "message": d.message, "reason": d.reason,
+            "message": d.message, "reason": d.reason, "reason_params": d.reason_params,
             "options": _options(UnicyclerAdapter.help_options, d.path if available else None, UNICYCLER_OPTIONS),
             "modes": modes_available(paths) if available else [],
             "helpers": {name: {"path": path, "version": spades.version if name == "spades" and path else None}

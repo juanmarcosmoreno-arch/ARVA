@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from typing import Any
 
 from arva_core import workflow as core
@@ -326,24 +326,27 @@ def flye_memory_guard(db: Session, sample: Sample, file_ids: list[str], params: 
     configured and the reason is recorded.
 
     memory_gb: what the batch reserves for this job (its memory per job, which decides how many jobs run at once);
-    the estimate is compared with that, capped by the memory ARVA can use, not with the whole container's memory,
-    because other jobs of the batch may run beside this one."""
+    the part of the estimate that depends on the reads is compared with that, capped by the memory the container
+    has, because other jobs of the batch may run beside this one. Flye's fixed k-mer counter floor
+    (arva_tools.flye.KMER_COUNTER_FLOOR) is compared with the container's memory only: Flye allocates it whatever
+    the batch reserves. When the container is below the floor --asm-coverage cannot help: nothing is added and the
+    reason is recorded."""
     from arva_tools.flye import SUGGESTED_ASM_COVERAGE, FlyeParams
 
     from app.services import flye
     from app.services.performance import effective_resources
 
     res = effective_resources(db)
-    if memory_gb:
-        res = replace(res, max_memory_gb=min(res.max_memory_gb, memory_gb))
     files = [db.get(RawFile, i) for i in file_ids]
     ev = flye.evidence(db, [f for f in files if f is not None])
     current = FlyeParams(**{k: v for k, v in params.items() if k != "threads"})
-    est = flye.memory(db, sample, ev, current, res)
+    est = flye.memory(db, sample, ev, current, res, memory_gb or None)
     out = {"guard": guard, "estimate": {k: v for k, v in est.items() if k not in ("reference", "reference_bases")},
            "applied": None, "not_applied": None}
     if guard == "auto" and est["verdict"] == "unknown":
-        out["not_applied"] = "no_read_statistics"
+        out["not_applied"] = "no_read_statistics" if not est["read_bases"] else "memory_unknown"
+    if guard == "auto" and est["verdict"] == "below_floor":
+        out["not_applied"] = "below_kmer_floor"
     if guard != "auto" or est["verdict"] != "may_not_fit":
         return out
     size = params.get("genome_size_bp") or est["expected_genome_size_bp"]
@@ -360,7 +363,8 @@ def flye_memory_guard(db: Session, sample: Sample, file_ids: list[str], params: 
         if params.get("genome_size_bp") is None:
             applied.update(genome_size_bp=size, genome_size_basis="expected_genome_size", assumed_depth_x=None)
         after = flye.memory(db, sample, ev, FlyeParams(**{**{k: v for k, v in params.items() if k != "threads"},
-                                                          **applied, "genome_size_bp": size}), res)
+                                                          **applied, "genome_size_bp": size}), res,
+                            memory_gb or None)
         out["applied"] = applied
         out["estimate_after"] = {k: v for k, v in after.items() if k not in ("reference", "reference_bases")}
     return out

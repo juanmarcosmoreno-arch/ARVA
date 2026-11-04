@@ -80,7 +80,8 @@ def check() -> None:
             errorlog.record("api", "warning", "startup_tools_unusable",
                             params={"tools": ", ".join(t.info.id for t in unusable)},
                             details={"tools": [{"id": t.info.id, "status": t.status.value, "version": t.version,
-                                                "reason": t.reason} for t in unusable]})
+                                                "reason": t.reason, "reason_params": t.reason_params,
+                                                "message": t.message} for t in unusable]})
         errorlog.info("startup_checks", "Start-up checks done", migrations=m,
                       tools={t.info.id: t.status.value for t in tools}, databases_unavailable=len(missing))
     except Exception as exc:

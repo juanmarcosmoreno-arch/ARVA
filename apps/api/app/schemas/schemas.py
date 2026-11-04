@@ -999,8 +999,15 @@ class DockerCpusRead(BaseModel):
     status: Literal["ok", "increase"]
 
 
-class DockerMemoryRead(BaseModel):
-    current_bytes: int | None
+class DockerMemorySeenRead(BaseModel):
+    current_bytes: int | None = Field(description="What the container measures (in a container), else docker info's")
+    source: Literal["container", "docker_info"] | None
+    docker_info_bytes: int | None = Field(description="docker info's MemTotal when scripts/start.sh ran")
+    measured_bytes: int | None = Field(description="The container's own measurement (cgroup limit or MemTotal)")
+    docker_info_agrees: bool | None = Field(description="Whether both are known and within 5 % of each other")
+
+
+class DockerMemoryRead(DockerMemorySeenRead):
     recommended_gb: int
     most_gb: int = Field(description="The most that still leaves macOS a quarter of the Mac's memory")
     status: Literal["ok", "increase", "decrease", "unknown"]
@@ -1038,6 +1045,7 @@ class PerformanceRead(BaseModel):
     effective: PerformanceEffectiveRead
     profiles: list[PerformanceProfileRow]
     docker: DockerAdviceRead
+    docker_memory: DockerMemorySeenRead
     image: ImagePlatformRead
 
 
@@ -1469,9 +1477,10 @@ class FlyePlanRead(BaseModel):
     files: list[FlyeFileEvidence]
     read_type_suggestion: FlyeReadTypeSuggestion
     genome_size: FlyeGenomeSizeOptions
-    memory: dict[str, Any] = Field(description="ARVA's estimate of whether the reads fit the memory ARVA can use "
-                                   "(Flye's documented E. coli figure scaled by read bases) and, when they may not, "
-                                   "Flye's documented way to use less (--asm-coverage with --genome-size)")
+    memory: dict[str, Any] = Field(description="ARVA's estimate of whether the reads fit the memory the container "
+                                   "has (the larger of Flye's fixed k-mer counter floor and Flye's documented E. coli "
+                                   "figure scaled by read bases) and, when they may not, Flye's documented way to use "
+                                   "less (--asm-coverage with --genome-size), never offered below the floor")
     sample_technology: SequencingTechnology
     long_reads_confirmation_required: bool
 

@@ -750,9 +750,19 @@ export interface PerformanceOverview {
   docker: {
     status: "ok" | "adjust" | "partial" | "host_unknown" | "not_container";
     cpus?: { current: number; recommended: number; status: "ok" | "increase" } | null;
-    memory?: { current_bytes: number | null; recommended_gb: number; most_gb: number; status: "ok" | "increase" | "decrease" | "unknown" } | null;
+    memory?: ({ recommended_gb: number; most_gb: number; status: "ok" | "increase" | "decrease" | "unknown" } & Partial<DockerMemorySeen>) | null;
   };
+  /** Docker Desktop's memory: what the container measures (preferred) and what docker info reported at start. */
+  docker_memory?: DockerMemorySeen;
   image: ImagePlatform;
+}
+
+export interface DockerMemorySeen {
+  current_bytes: number | null;
+  source: "container" | "docker_info" | null;
+  docker_info_bytes: number | null;
+  measured_bytes: number | null;
+  docker_info_agrees: boolean | null;
 }
 
 export type ImagePlatformName = "linux/amd64" | "linux/arm64";
@@ -1181,10 +1191,19 @@ export interface FlyePlan {
 export interface FlyeMemory {
   reference: { source: string; url: string; genome: string; data: string; genome_size_bp: number; coverage_x: number; ram_gb: number };
   reference_bases: number;
-  available_gb: number;
+  /** The memory the container has (or a batch's share of it); null when it could not be read. */
+  available_gb: number | null;
+  container_memory_gb?: number | null;
+  in_container?: boolean;
   read_bases: number | null;
+  /** Flye's fixed k-mer counter (about 8.6 GB whatever the reads; arva_tools.flye.KMER_COUNTER_FLOOR). */
+  floor_gb?: number;
+  /** Below the floor plus this margin the container is "tight": ARVA's other services share its memory
+   * (arva_tools.flye.FLOOR_HEADROOM_GB). */
+  floor_headroom_gb?: number;
+  scaled_gb?: number | null;
   estimate_gb: number | null;
-  verdict: "fits" | "may_not_fit" | "unknown";
+  verdict: "fits" | "tight" | "may_not_fit" | "below_floor" | "unknown";
   expected_genome_size_bp: number | null;
 }
 

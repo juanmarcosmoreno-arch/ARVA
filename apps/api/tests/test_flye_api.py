@@ -66,6 +66,8 @@ for stage in stages:
     if mode == "oom" and stage == "assembly":
         sys.stderr.write("[2026-10-28 13:47:09] ERROR: Looks like the system ran out of memory\n")
         sys.exit(1)
+    if mode == "killed" and stage == "assembly":
+        os.kill(os.getpid(), 9)  # the kernel's out-of-memory killer stops Flye itself
     if mode == "crash" and stage == "repeat":
         sys.stderr.write("Traceback (most recent call last):\n  boom\n")
         sys.exit(2)
@@ -317,6 +319,7 @@ def test_log_of_a_running_job_and_its_bounds(client, storage_root):
 @pytest.mark.parametrize("mode, message", [
     ("short", "Flye found no read longer than the minimum overlap (No reads above minimum length threshold (1000))"),
     ("oom", "Flye ran out of memory during the assembly stage"),
+    ("killed", "Flye ran out of memory during the assembly stage"),
     ("crash", "flye exited with status 2"),
     ("no_outputs", "Flye exited without an error but did not write assembly.fasta, assembly_graph.gfa, "
                    "assembly_info.txt, flye.log"),
@@ -333,9 +336,32 @@ def test_failures_are_explained_and_leave_nothing(client, fake_flye, storage_roo
     assert detail["progress"]["finished"] is True
     log = client.get(f"{API}/jobs/{detail['id']}/log")
     assert log.headers["x-arva-log-source"] == "job" and "ERROR:" in log.text
+    # Flye's known reasons carry a code and parameters, so the interface shows them in its own language.
+    codes = {"short": ("flye_no_long_reads", {"stage": "configure"}),
+             "oom": ("flye_out_of_memory", {"stage": "assembly", "need_gb": 9}),
+             # Killed by the operating system (status -9): Flye's own coded reason is kept, not the generic one.
+             "killed": ("flye_out_of_memory", {"stage": "assembly", "need_gb": 9})}
+    if mode in codes:
+        code, params = codes[mode]
+        assert detail["error_detail"]["code"] == code
+        assert params.items() <= detail["error_detail"]["params"].items(), detail["error_detail"]
     if mode == "short":
         assert detail["progress"]["stage"] == "configure"
         assert "Flye output (last lines):" in detail["log_text"] and "Pipeline aborted" in detail["log_text"]
+
+
+def test_flye_2_9_6_offers_every_optional_option(client, fake_flye, monkeypatch):
+    """The installed Flye 2.9.6's real --help (fixture identical to `flye --help` of the Bioconda 2.9.6 build) lists
+    --asm-coverage and --genome-size, so the dialog enables those fields (registro de prueba, item 27)."""
+    from app.services.flye import OPTIONAL_OPTIONS
+
+    fake_flye()
+    monkeypatch.setenv("FAKE_FLYE_HELP", str(FIXTURES / "help_2.9.6.txt"))
+    sample = new_sample(client)
+    f = upload(client, sample["id"], ONT)
+    plan = client.post(f"{API}/samples/{sample['id']}/assembly/flye/preview", json={"raw_file_ids": [f["id"]]}).json()
+    assert plan["tool"]["options"] == list(OPTIONAL_OPTIONS)
+    assert "--asm-coverage" in plan["tool"]["options"] and "--genome-size" in plan["tool"]["options"]
 
 
 def test_preview_suggests_and_estimates_without_deciding(client, fake_flye):
@@ -467,8 +493,12 @@ def test_memory_estimate_in_the_preview_the_job_and_the_workflow_guard(client, f
     workflow guard adds --asm-coverage only when the estimate may not fit, and never over the user's own value."""
     import arva_tools.flye as adapter
 
+    from app.services import flye as flye_service
     from app.services import workflow_nodes as nodes
 
+    # A container with room for Flye's fixed k-mer table, whatever the machine running the tests has.
+    container = {"gb": 16.0}
+    monkeypatch.setattr(flye_service, "container_memory_gb", lambda res: container["gb"])
     fake_flye()
     sample = new_sample(client)
     f = upload(client, sample["id"], ONT)
@@ -478,8 +508,10 @@ def test_memory_estimate_in_the_preview_the_job_and_the_workflow_guard(client, f
     client.post(f"{API}/samples/{sample['id']}/analyses/sequence-stats",
                 json={"raw_file_ids": [f["id"]], "expected_genome_size_bp": 300_000})
     m = client.post(url, json={"raw_file_ids": [f["id"]]}).json()["memory"]
-    assert m["verdict"] == "fits" and m["read_bases"] == 1_513_780 and m["estimate_gb"] == 0.01
-    assert m["available_gb"] >= 1 and m["expected_genome_size_bp"] == 300_000 and m["suggestion"] is None
+    # Flye's fixed k-mer table (about 8.6 GB) is the estimate for these few reads; the container has 16 GB.
+    assert m["verdict"] == "fits" and m["read_bases"] == 1_513_780 and m["scaled_gb"] == 0.01
+    assert m["estimate_gb"] == m["floor_gb"] == 8.6 and m["available_gb"] == m["container_memory_gb"] == 16.0
+    assert m["expected_genome_size_bp"] == 300_000 and m["suggestion"] is None
 
     r = start(client, sample, [f])
     params = job(client, r.json()["id"])["parameters"]
@@ -515,12 +547,64 @@ def test_memory_estimate_in_the_preview_the_job_and_the_workflow_guard(client, f
                                                            "genome_size_basis": "entered"}, "auto")
         assert sized["applied"] == {"asm_coverage": 40} and sized["estimate_after"]["bases_used"] == 1_200_000
 
-        # In a batch the estimate is compared with the memory the batch reserves per job (other jobs may run beside
-        # it), capped by what ARVA can use: about 2 GB fits a whole computer's memory but not 1 GB per job.
+        # In a batch the reads' part of the estimate is compared with the memory the batch reserves per job (other
+        # jobs may run beside it), capped by what the container has: about 2 GB fits the container but not 1 GB per
+        # job. The fixed k-mer floor is compared with the container alone, so a share below 8.6 GB is no "below the
+        # floor".
         monkeypatch.setitem(adapter.MEMORY_REFERENCE, "ram_gb", 304.0)
         per_job = nodes.flye_memory_guard(db, s, [f["id"]], dict(base), "off", memory_gb=1)
-        assert per_job["estimate"]["available_gb"] == 1 and per_job["estimate"]["verdict"] == "may_not_fit"
-        from app.services.performance import effective_resources
+        assert per_job["estimate"]["available_gb"] == 1 and per_job["estimate"]["container_gb"] == 16.0
+        assert per_job["estimate"]["verdict"] == "may_not_fit"
+        monkeypatch.setitem(adapter.MEMORY_REFERENCE, "ram_gb", 2.0)
+        small = nodes.flye_memory_guard(db, s, [f["id"]], dict(base), "auto", memory_gb=1)
+        assert small["estimate"]["verdict"] == "fits" and small["not_applied"] is None and small["applied"] is None
 
+        # Docker Desktop with 12 GB (11.7 GB in the container), balanced profile: 8 GB per job. Reads that scale to
+        # about 21.7 GB do not fit; --asm-coverage 40 brings them to about 1.7 GB, within the share, and the floor
+        # (8.6 GB) fits the container, so the guard adds it instead of calling the job below the floor.
+        container["gb"] = 11.7
+        monkeypatch.setitem(adapter.MEMORY_REFERENCE, "ram_gb", 3297.0)
+        sized_small = {**base, "genome_size_bp": 3_000, "genome_size_basis": "entered"}
+        big = nodes.flye_memory_guard(db, s, [f["id"]], dict(sized_small), "auto", memory_gb=8)
+        assert big["estimate"]["verdict"] == "may_not_fit" and big["estimate"]["estimate_gb"] == 21.7
+        assert big["applied"] == {"asm_coverage": 40} and big["not_applied"] is None
+        assert big["estimate_after"]["verdict"] == "fits" and big["estimate_after"]["estimate_gb"] == 8.6
+
+        # Below Flye's fixed k-mer floor in the container itself --asm-coverage cannot help: the guard adds nothing
+        # and says why.
+        container["gb"] = 5.9
+        floor = nodes.flye_memory_guard(db, s, [f["id"]], dict(sized_small), "auto", memory_gb=4)
+        assert floor["estimate"]["verdict"] == "below_floor"
+        assert floor["applied"] is None and floor["not_applied"] == "below_kmer_floor"
+
+        # A batch share larger than the container is capped by what the container has.
+        container["gb"] = 16.0
         whole = nodes.flye_memory_guard(db, s, [f["id"]], dict(base), "off", memory_gb=10_000)
-        assert whole["estimate"]["available_gb"] == effective_resources(db).max_memory_gb
+        assert whole["estimate"]["available_gb"] == 16.0
+
+
+def test_memory_estimate_compares_with_the_container_memory_not_a_profile_share(client, fake_flye):
+    """The user's Mac: 5.9 GB in the Docker container. Flye takes no memory limit, so the verdict compares the
+    estimate (never below Flye's fixed k-mer floor) with what the container has, and says Flye cannot run there."""
+    from dataclasses import replace
+
+    from app.services import flye
+    from app.services.performance import effective_resources
+
+    fake_flye()
+    sample = new_sample(client)
+    f = upload(client, sample["id"], ONT)
+    with SessionLocal() as db:
+        from app.models import RawFile, Sample
+
+        s = db.get(Sample, sample["id"])
+        ev = flye.evidence(db, [db.get(RawFile, f["id"])])
+        res = effective_resources(db)
+        mac = replace(res, usable_memory_gb=5.9, max_memory_gb=5, memory_gb=2, memory_known=True)
+        m = flye.memory(db, s, ev, None, mac)
+        assert m["available_gb"] == m["container_memory_gb"] == 5.9 and m["verdict"] == "below_floor"
+        assert m["suggestion"] is None and m["floor"]["kmer_size"] == 17
+        roomy = flye.memory(db, s, ev, None, replace(res, usable_memory_gb=15.6, max_memory_gb=4))
+        assert roomy["available_gb"] == 15.6 and roomy["verdict"] == "unknown"  # no read statistics yet
+        unread = flye.memory(db, s, ev, None, replace(res, memory_known=False))
+        assert unread["available_gb"] is None and unread["verdict"] == "unknown"

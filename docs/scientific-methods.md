@@ -680,6 +680,20 @@ against `flye --help`, the Flye 2.9.3 manual and README, and the source of the i
   `--pacbio-hifi`; without statistics CCS read names give `--pacbio-hifi` and subread names
   `--pacbio-raw`. Qualities are the basecaller's estimates; the suggestion and its basis are stored
   with the job (`arva_read_type_suggestion`), next to the read type the user chose.
+- **`--nano-hq` or `--nano-raw` for reads under 3 % error.** ARVA follows Flye's manual: Nanopore reads under
+  3 % error get `--nano-hq` (Flye 2.9.6 `--help`: "ONT R10 reads, aka Q20 (<3% error)"; docs/USAGE.md: "For
+  R10 data, use --nano-hq. Expected error rate is <3%"; `--nano-raw` is for "ONT reads with odler [sic] chemistries,
+  pre R9 Guppy5 (10-20% error)"). Some published pipelines run `--nano-raw` on the same reads. What the choice changes, from
+  Flye 2.9.6's own files: flye/main.py sets the read type and flye/config/py_cfg.py (`bin_cfg`) picks
+  `asm_nano_hq.cfg` for `--nano-hq` and `asm_raw_reads.cfg` for `--nano-raw`. Compared with the raw-read file,
+  the nano-hq file uses minimizers (`use_minimizers = 1`, `minimizer_window = 10`), base-level read alignment
+  (`reads_base_alignment = 1`) and homopolymer-compressed scoring (`hpc_scoring_on = 1`), and accepts much
+  less divergence between overlapping reads (`assemble_ovlp_divergence` 0.03 instead of 0.10,
+  `repeat_graph_ovlp_divergence` 0.03 instead of 0.08, `read_align_ovlp_divergence` 0.10 instead of 0.25).
+  Both use `kmer_size = 17`, so the memory floor below is the same. Flye's manual does not compare the two
+  modes on the same reads, and ARVA does not claim that one gives a better assembly of reads with < 3 % error;
+  the choice is the user's. To compare, run both on the same reads (one job each) and compare the assemblies
+  with QUAST or the comparison view.
 - **Genome size.** Optional in Flye 2.9; when given, Flye logs the coverage it implies and warns below
   5× or above 1,000×, passes it to its disjointig assembler, and uses it with `--asm-coverage` to keep
   only the longest reads for that stage. ARVA offers three sources and records which one was used
@@ -687,24 +701,45 @@ against `flye --help`, the Flye 2.9.3 manual and README, and the source of the i
   warnings"), an estimate `round(total read bases ÷ assumed depth)` (half up; needs ARVA statistics
   for every selected file, and the server recomputes it), or a value typed by the user. ARVA never
   assumes a size. The same size is used for the assembly's genome-size warning, with its basis shown.
-- **Memory estimate before a run (ARVA's, from Flye's documentation).** Flye documents no formula for its memory.
-  Its manual (docs/USAGE.md of Flye 2.9.6, "Flye benchmarks") gives one bacterial figure: *E. coli*, PacBio 50×,
+- **Memory estimate before a run (ARVA's, from Flye's documentation and its source).** Flye documents no
+  formula for its memory. **A fixed floor comes first.** At its first stage Flye 2.9.6 counts k-mers in a flat
+  array with 4 bits for every possible k-mer, which it allocates and fills with zeros before reading any read:
+  4^k ÷ 2 bytes, "in case of k=17, takes 8Gb" (src/sequence/vertex_index.cpp, `KmerCounter::count`;
+  `VertexIndex::countKmers` always passes `useFlatCounter = true`). k is `kmer_size = 17` in every
+  `asm_*.cfg` Flye 2.9.6 ships for the read types (flye/config/bin_cfg: `asm_raw_reads.cfg`,
+  `asm_corrected_reads.cfg`, `asm_hifi.cfg`, `asm_nano_hq.cfg`; only `asm_subasm.cfg` uses 31), and no
+  command-line option changes it, so every run needs 8 GiB for that array whatever the reads, and
+  `--asm-coverage` does not lower it. Measured for ARVA: Flye 2.9.6 `--nano-raw` on 413 Mb of simulated
+  reads with `--genome-size 2800000 --asm-coverage 40` (112 Mb used) peaked at 8787 MB of resident memory
+  during "Counting k-mers", and Flye logged "Peak RAM usage: 8 Gb"; on a Mac whose Docker container had
+  5.9 GB, Flye was killed for lack of memory with and without `--asm-coverage`. ARVA therefore uses a
+  floor of **8.6 GB** (the 8 GiB array plus the overhead measured beside it; `KMER_COUNTER_FLOOR` in
+  `arva_tools.flye`). Above the floor, Flye's manual (docs/USAGE.md of Flye 2.9.6, "Flye benchmarks") gives one bacterial figure: *E. coli*, PacBio 50×,
   4.6 Mb, **2 GB** of RAM; the same page ("Reducing RAM consumption") says the disjointig stage is usually the
   memory bottleneck, that `--asm-coverage` limits that stage to the longest reads up to the given coverage
   ("Typically, 40x longest reads is enough"), that all reads are still used in the later stages, and the
-  benchmarks of the large human genomes were run "with `--asm-coverage 50`". ARVA's estimate scales the documented
-  figure in proportion to the bases that stage reads: `2 GB × bases ÷ 230 Mb`, where *bases* is every read base
+  benchmarks of the large human genomes were run "with `--asm-coverage 50`". ARVA's estimate is
+  `max(8.6 GB, 2 GB × bases ÷ 230 Mb)`, where *bases* is every read base
   (ARVA read statistics) or, with `--asm-coverage` and a genome size, `min(read bases, asm-coverage × genome
-  size)`. It is compared with the memory ARVA can use (the performance profile's maximum, i.e. the memory of the
-  container). The verdict ("fits", "may not fit", or no estimate without read statistics) is shown in the
-  dialog, with Flye's documented way to use less memory when it may not fit (`--asm-coverage 40`, the coverage
+  size)`. Flye takes no memory limit, so the estimate is compared with the memory the container (or computer)
+  actually has, as measured (cgroup limit or `MemTotal`; never a profile's share, and no verdict when it cannot be
+  read). The verdict is shown in the dialog: "below the floor" when the container has less than the floor
+  (the dialog then says that Flye needs about 9 GB inside Docker and cannot run on this computer as configured,
+  that `--asm-coverage` does not lower that floor, and offers no `--asm-coverage`), "tight" when the run fits but
+  the container has less than the floor plus **1 GB** (`FLOOR_HEADROOM_GB`: ARVA's database, queue, API and worker
+  use the same memory, about 1 GB at rest, and the measured peak, 8787 MB, is already above the floor; the dialog
+  warns that Flye may still be stopped while counting k-mers), "fits", "may not fit", or no
+  estimate without read statistics; when it may not fit only because of the reads, the dialog offers Flye's
+  documented way to use less memory (`--asm-coverage 40`, the coverage
   Flye's manual calls typically enough; it requires `--genome-size` and cannot be combined with `--meta`, and it
   is not offered when 40× of the genome size is not below the read bases, since it would then use every read),
   applied only when the user clicks it; the API
   records the estimate with the job (`memory_estimate`) and never changes the request. Example: the 413 Mb of
-  filtered reads (≈148× of 2.8 Mb) that ran out of memory in a 3.8 GB Docker Desktop give ≈3.6 GB, above the
-  3 GB ARVA can use there; with `--asm-coverage 40` and 2.8 Mb (112 Mb), ≈0.97 GB. This is a rough guide, not a measurement:
-  repeats, read error and the later stages also use memory, and Flye's figure is for PacBio reads.
+  filtered reads (≈148× of 2.8 Mb) scale to ≈3.6 GB, and with `--asm-coverage 40` and 2.8 Mb (112 Mb) to
+  ≈0.97 GB, but both are below the floor, so the estimate is 8.6 GB either way; in the 5.9 GB container of that
+  Mac the verdict is "below the floor" (before the floor ARVA said "fits", and Flye was killed both ways). The
+  scaled part is a rough guide, not a measurement: repeats, read error and the later stages also use memory, and
+  Flye's figure is for PacBio reads. The floor was confirmed in the source and measured for Flye 2.9.6 only.
 - **Monitoring.** The worker reads Flye's stderr every 5 s while it runs. Each `>>>STAGE: <name>` line
   (configure, assembly, consensus, repeat, contigger, polishing — only with iterations > 0 — and
   finalize, confirmed on real runs) is written to the job log and to `AnalysisJob.progress` (stage,
@@ -724,8 +759,13 @@ against `flye --help`, the Flye 2.9.3 manual and README, and the source of the i
 - **Failures.** Flye's own error lines become the job's reason: "No reads above minimum length
   threshold" (reads too short or minimum overlap too high), "No disjointigs/contigs were assembled"
   (too few reads or too little coverage, or a read type that does not match the data), out of memory
-  ("Looks like the system ran out of memory", or the process killed by signal 9). Flye's last log
-  lines go into the job log; partial outputs are removed.
+  ("Looks like the system ran out of memory", or the process killed by signal 9; the reason names the
+  floor above). Each known reason has a code (`flye_out_of_memory`, `flye_no_long_reads`,
+  `flye_nothing_assembled`, `flye_samtools_not_run`, `flye_error`) with the stage and Flye's own error line
+  as parameters (`error_detail`), so the interface shows it in its language. The failed run's card shows the
+  memory the container had and the run's read type, genome size and `--asm-coverage`, and a "Retry with…"
+  button opens "New assembly" with that run's files and settings (and, after a lack of memory, the memory
+  explanation). Flye's last log lines go into the job log; partial outputs are removed.
 - **`flye-samtools`.** Flye calls a helper named `flye-samtools` (`utils/sam_parser.py`), which
   upstream installs next to `flye` but Debian's package 2.9.3+dfsg2-1 (also in Ubuntu 24.04) does not
   ship. Without it the consensus is empty and Flye stops in the repeat stage ("parse error … empty
@@ -2203,8 +2243,12 @@ fragmented assembly can separate a gene from its element, and an element not sea
   With `auto`, before the Flye job is queued ARVA computes the memory estimate above for the sample's reads (the
   Filtlong step waits for the ARVA statistics of its output, which the estimate reads; if that statistics job's
   task is lost, the Filtlong step still completes and the estimate has no read statistics). In a run the estimate
-  is compared with the memory the run reserves per job (`memory_per_job_gb`, which with the memory budget sets how
-  many jobs run at once), capped by the memory ARVA can use, because other jobs may run beside Flye. When it may
+  is checked in two parts. The part that depends on the reads is compared with the memory the run reserves per job
+  (`memory_per_job_gb`, which with the memory budget sets how many jobs run at once), capped by the memory the
+  container has, because other jobs may run beside Flye. Flye's fixed k-mer floor (8.6 GB) is compared with the
+  container's memory only: Flye allocates it whatever share the run reserves, so a memory per job below 8.6 GB in a
+  larger container is not "below the floor". Only when the container itself has less than the floor does the guard
+  add nothing, since `--asm-coverage` does not lower it, and record `below_kmer_floor`. When it may
   not fit, the guard adds `--asm-coverage 40` and, when the node sets no genome size, the sample's expected genome
   size (basis `expected_genome_size`). It never changes a value the node sets itself: it does not apply when the
   node sets `asm_coverage` or `meta`, and it cannot apply without a genome size or read statistics, or when the

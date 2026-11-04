@@ -296,7 +296,10 @@ def run_job(
                 log("ERROR: unexpected failure\n" + traceback.format_exc())
             if ctx.killed_tool and not isinstance(exc, JobCancelled):
                 job.error_message, note = _with_memory_advice(job, ctx.killed_tool)
-                job.error_detail = {"code": "out_of_memory", "params": {"tool": ctx.killed_tool}}
+                # An adapter's own memory reason (flye_out_of_memory, with the stage and Flye's fixed need) says more
+                # than the generic one and keeps its code; any other reason becomes out_of_memory.
+                if not str((job.error_detail or {}).get("code", "")).endswith("_out_of_memory"):
+                    job.error_detail = {"code": "out_of_memory", "params": {"tool": ctx.killed_tool}}
                 log(note)
             if storage_ok and not _storage_usable():
                 from app.services.locations import to_host

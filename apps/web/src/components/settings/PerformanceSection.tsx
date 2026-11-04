@@ -90,6 +90,11 @@ function Detected({ p }: { p: PerformanceOverview }) {
   const memorySource = t(
     c.memory_source?.startsWith("cgroup") ? "perf.source.memoryLimit" : c.memory_source === "macos" ? "perf.source.macos" : "perf.source.memoryTotal",
   );
+  // Docker Desktop's memory: what the container measures now, not the figure docker info gave when ARVA started.
+  const dm = p.docker_memory;
+  const dockerMemory = dm?.current_bytes ?? (h.docker_memory_bytes.value as number | null);
+  const dockerSource =
+    dm?.source === "container" ? (dm.docker_info_agrees ? t("perf.source.dockerAgrees") : t("perf.source.dockerMeasured")) : factSource(t, h.docker_cpus);
   return (
     <section aria-labelledby="perf-detected">
       <h3 id="perf-detected" className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{t("perf.detected")}</h3>
@@ -100,7 +105,7 @@ function Detected({ p }: { p: PerformanceOverview }) {
         <Row label={t("perf.fact.memory")} value={memoryText(h.memory_bytes.value as number | null)} source={factSource(t, h.memory_bytes)} />
         <Row label={t("perf.fact.os")} value={h.os_version.value ? `${h.os_version.value}${h.arch.value ? ` (${h.arch.value})` : ""}` : "?"} source={factSource(t, h.os_version)} />
         {h.docker_cpus.value !== null && (
-          <Row label={t("perf.fact.docker")} value={t("perf.dockerValue", { cpus: h.docker_cpus.value, memory: memoryText(h.docker_memory_bytes.value as number | null) })} source={factSource(t, h.docker_cpus)} />
+          <Row label={t("perf.fact.docker")} value={t("perf.dockerValue", { cpus: h.docker_cpus.value, memory: memoryText(dockerMemory) })} source={dockerSource} />
         )}
         <Row
           label={t("perf.fact.usable")}
@@ -108,6 +113,11 @@ function Detected({ p }: { p: PerformanceOverview }) {
           source={`${cpuSource}; ${memorySource}${c.in_container ? ` · ${t("perf.inContainer", { marker: c.container_marker ?? "?" })}` : ""}`}
         />
       </dl>
+      {dm?.docker_info_agrees === false && (
+        <p className="mt-2 rounded-lg bg-warning/10 p-2.5 text-xs">
+          {t("perf.docker.memoryDiffers", { reported: memoryText(dm.docker_info_bytes), measured: memoryText(dm.measured_bytes) })}
+        </p>
+      )}
       {!known && <p className="mt-2 rounded-lg bg-muted p-2.5 text-xs text-muted-foreground">{t("perf.hostUnknown")}</p>}
     </section>
   );

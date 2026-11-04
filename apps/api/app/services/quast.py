@@ -97,7 +97,7 @@ def tool_status(res: Resources) -> dict[str, Any]:
     d = detect("quast", refresh=True)
     a = aligner(d.path) if d.status is ToolStatus.available and d.path else None
     return {"status": d.status.value, "version": d.version, "version_validated": d.version_validated,
-            "message": d.message, "reason": d.reason, "aligner": a, "max_threads": res.max_threads,
+            "message": d.message, "reason": d.reason, "reason_params": d.reason_params, "aligner": a, "max_threads": res.max_threads,
             "default_threads": res.threads,
             "default_min_contig": DEFAULT_MIN_CONTIG}
 

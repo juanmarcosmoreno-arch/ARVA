@@ -7,9 +7,13 @@ import {
   chosenGenomeSize,
   defaultFlyeSelection,
   flyeCandidates,
+  flyeFormFromJob,
   flyeMemory,
   flyeProblems,
   flyeRequestParams,
+  initialFlyeChoices,
+  memoryFailure,
+  rememberFlyeChoices,
   selectedTwice,
   stageStates,
   type FlyeForm,
@@ -43,9 +47,20 @@ describe("Flye inputs", () => {
     file("contigs", { file_format: "fasta" }),
   ];
 
-  it("offers valid long-read FASTQ files only and preselects the imported ones", () => {
+  it("offers valid long-read FASTQ files only and preselects the most recent filtered copy of each run", () => {
     expect(flyeCandidates(files).map((f) => f.id)).toEqual(["ont", "ont_filtered", "ont_filtered_again"]);
-    expect(defaultFlyeSelection(files)).toEqual(["ont"]);
+    // Same time: the deepest in the lineage.
+    expect(defaultFlyeSelection(files)).toEqual(["ont_filtered_again"]);
+    // The most recent filtered file wins; a second run without a filtered copy keeps its original.
+    const timed = [
+      file("ont", { uploaded_at: "2026-10-01T10:00:00Z" }),
+      file("a", { origin: "derived", parent_file_id: "ont", uploaded_at: "2026-10-03T10:00:00Z" }),
+      file("b", { origin: "derived", parent_file_id: "ont", uploaded_at: "2026-10-02T10:00:00Z" }),
+      file("run2", { uploaded_at: "2026-10-01T11:00:00Z" }),
+    ];
+    expect(defaultFlyeSelection(timed)).toEqual(["a", "run2"]);
+    // Without filtered files, the imported ones.
+    expect(defaultFlyeSelection([file("ont"), file("run2")])).toEqual(["ont", "run2"]);
   });
 
   it("flags a filtered file selected together with any file it was filtered from", () => {
@@ -115,13 +130,72 @@ describe("Flye texts", () => {
 
 const progressStages = ["configure", "assembly", "consensus", "repeat", "contigger", "polishing", "finalize"];
 
+describe("Flye choices kept and retried", () => {
+  const files = [file("ont"), file("ont_filtered", { origin: "derived", parent_file_id: "ont" })];
+
+  it("keeps what the user chose for the sample while its files stay the same", () => {
+    expect(initialFlyeChoices("s1", files)).toMatchObject({ selected: ["ont_filtered"], form: FLYE_FORM_DEFAULTS, confirmed: false });
+    const chosen = { ...FLYE_FORM_DEFAULTS, readType: "nano-raw" as const, asmCoverage: "40" };
+    rememberFlyeChoices("s1", { selected: ["ont"], candidates: ["ont", "ont_filtered"], form: chosen, confirmed: true });
+    expect(initialFlyeChoices("s1", files)).toMatchObject({ selected: ["ont"], form: chosen, confirmed: true });
+    // Another sample starts from ARVA's preselection.
+    expect(initialFlyeChoices("s2", files).form.readType).toBe("");
+    // A new filtered file brings the preselection back for the files; the options are kept.
+    const more = [...files, file("ont_filtered_2", { origin: "derived", parent_file_id: "ont", uploaded_at: "2026-11-01T00:00:00Z" })];
+    expect(initialFlyeChoices("s1", more)).toMatchObject({ selected: ["ont_filtered_2"], form: chosen });
+  });
+
+  it("fills the form from a failed run's recorded settings to retry it", () => {
+    const parameters = { read_type: "nano-raw", genome_size_bp: 2_800_000, genome_size_basis: "entered", assumed_depth_x: null, iterations: 1, min_overlap: null, asm_coverage: 40, read_error: null, meta: false, keep_haplotypes: false, no_alt_contigs: false, scaffold: false, threads: 4, long_reads_confirmed: false };
+    const form = flyeFormFromJob(parameters);
+    expect(form).toMatchObject({ readType: "nano-raw", genomeChoice: "entered", enteredMbp: "2.8", asmCoverage: "40", iterations: "1", threads: "4", meta: false });
+    expect(flyeRequestParams(form, undefined)).toMatchObject({ read_type: "nano-raw", genome_size_bp: 2_800_000, genome_size_basis: "entered", asm_coverage: 40 });
+    expect(flyeFormFromJob({ ...parameters, genome_size_basis: "expected_genome_size" }).genomeChoice).toBe("expected");
+    expect(flyeFormFromJob({ ...parameters, genome_size_basis: "reads_over_depth", assumed_depth_x: 50 })).toMatchObject({ genomeChoice: "depth", depthX: "50" });
+    expect(flyeFormFromJob({ ...parameters, genome_size_bp: null, genome_size_basis: null, asm_coverage: null })).toMatchObject({ genomeChoice: "none", asmCoverage: "" });
+    // The retried run's own files, never a remembered choice.
+    rememberFlyeChoices("s1", { selected: ["ont_filtered"], candidates: ["ont", "ont_filtered"], form: FLYE_FORM_DEFAULTS, confirmed: false });
+    expect(initialFlyeChoices("s1", files, { parameters, input_raw_file_ids: ["ont", "gone"] })).toMatchObject({ selected: ["ont"], form: { readType: "nano-raw", asmCoverage: "40" } });
+    expect(memoryFailure({ error_detail: { code: "flye_out_of_memory", params: {} } })).toBe(true);
+    expect(memoryFailure({ error_detail: { code: "out_of_memory", params: { tool: "Flye" } } })).toBe(true);
+    expect(memoryFailure({ error_detail: { code: "flye_no_long_reads", params: {} } })).toBe(false);
+  });
+});
+
 describe("Flye memory estimate", () => {
   const memory: FlyeMemory = { reference: { source: "Flye docs", url: "", genome: "E. coli", data: "PB 50x", genome_size_bp: 4_600_000, coverage_x: 50, ram_gb: 2 }, reference_bases: 230_000_000, available_gb: 3, read_bases: 413_000_000, estimate_gb: 3.59, verdict: "may_not_fit", expected_genome_size_bp: 2_800_000 };
   const withMemory = (m: Partial<FlyeMemory> = {}): FlyePlan => ({ ...plan({ expected: { bp: 2_800_000, status: "given", source: "read_statistics" } }), memory: { ...memory, ...m } });
 
   it("matches the server's figures and suggests Flye's documented --asm-coverage with the expected size", () => {
     const m = flyeMemory(FLYE_FORM_DEFAULTS, withMemory());
-    expect(m).toEqual({ verdict: "may_not_fit", estimateGb: 3.59, availableGb: 3, suggestion: { asmCoverage: 40, genomeBp: 2_800_000, estimateGb: 0.97 } });
+    expect(m).toEqual({ verdict: "may_not_fit", estimateGb: 3.59, availableGb: 3, floorGb: 0, suggestion: { asmCoverage: 40, genomeBp: 2_800_000, estimateGb: 0.97 } });
+  });
+
+  it("never estimates below Flye's fixed k-mer table, and offers no --asm-coverage when the container is below it", () => {
+    // The user's Mac: 413 Mb of reads, 5.9 GB in the Docker container; Flye 2.9.6 needs 8 GiB for its k-mer table.
+    const mac = withMemory({ floor_gb: 8.6, available_gb: 5.9 });
+    expect(flyeMemory(FLYE_FORM_DEFAULTS, mac)).toEqual({ verdict: "below_floor", estimateGb: 8.6, availableGb: 5.9, floorGb: 8.6, suggestion: null });
+    const asm: FlyeForm = { ...FLYE_FORM_DEFAULTS, genomeChoice: "expected", asmCoverage: "40" };
+    expect(flyeMemory(asm, mac)).toMatchObject({ verdict: "below_floor", estimateGb: 8.6, suggestion: null });
+    // Known before any read statistics: the floor does not depend on the reads.
+    expect(flyeMemory(FLYE_FORM_DEFAULTS, withMemory({ floor_gb: 8.6, available_gb: 5.9, read_bases: null }))?.verdict).toBe("below_floor");
+    // Enough memory: the floor is the estimate for small reads; large reads may still not fit, and then
+    // --asm-coverage is offered with an estimate that does not go below the floor.
+    expect(flyeMemory(FLYE_FORM_DEFAULTS, withMemory({ floor_gb: 8.6, available_gb: 15.7 }))).toMatchObject({ verdict: "fits", estimateGb: 8.6 });
+    const big = flyeMemory(FLYE_FORM_DEFAULTS, withMemory({ floor_gb: 8.6, available_gb: 15.7, read_bases: 2_300_000_000 }));
+    expect(big).toMatchObject({ verdict: "may_not_fit", estimateGb: 20, suggestion: { asmCoverage: 40, estimateGb: 8.6 } });
+    // The container's memory could not be read: no verdict.
+    expect(flyeMemory(FLYE_FORM_DEFAULTS, withMemory({ floor_gb: 8.6, available_gb: null }))?.verdict).toBe("unknown");
+  });
+
+  it("says tight when the container has less than the floor plus the server's headroom", () => {
+    const near = withMemory({ floor_gb: 8.6, floor_headroom_gb: 1, available_gb: 8.7, container_memory_gb: 8.7 });
+    expect(flyeMemory(FLYE_FORM_DEFAULTS, near)).toMatchObject({ verdict: "tight", estimateGb: 8.6, suggestion: null });
+    const roomy = withMemory({ floor_gb: 8.6, floor_headroom_gb: 1, available_gb: 9.6, container_memory_gb: 9.6 });
+    expect(flyeMemory(FLYE_FORM_DEFAULTS, roomy)?.verdict).toBe("fits");
+    // The floor is decided by the container: a smaller share is compared with the reads' part only.
+    const share = withMemory({ floor_gb: 8.6, floor_headroom_gb: 1, available_gb: 8, container_memory_gb: 11.7 });
+    expect(flyeMemory(FLYE_FORM_DEFAULTS, share)?.verdict).toBe("fits");
   });
 
   it("suggests no --asm-coverage when 40x of the genome size is more than the reads hold", () => {

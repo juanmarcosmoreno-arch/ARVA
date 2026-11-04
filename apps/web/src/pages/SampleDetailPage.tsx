@@ -107,6 +107,7 @@ export function SampleDetailPage() {
   const latestFailed = qcJobs[0]?.status === "failed";
   const [filterOpen, setFilterOpen] = useState(false);
   const [assemblyOpen, setAssemblyOpen] = useState(false);
+  const [assemblyRetry, setAssemblyRetry] = useState<AnalysisJobDetail | null>(null);
   const [quastOpen, setQuastOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [polishDraft, setPolishDraft] = useState<string | null | undefined>(undefined);
@@ -289,7 +290,14 @@ export function SampleDetailPage() {
           sampleId={s.id}
           jobs={allJobs}
           files={files.data ?? []}
-          onNew={() => setAssemblyOpen(true)}
+          onNew={() => {
+            setAssemblyRetry(null);
+            setAssemblyOpen(true);
+          }}
+          onRetry={(job) => {
+            setAssemblyRetry(job);
+            setAssemblyOpen(true);
+          }}
           onEvaluate={() => setQuastOpen(true)}
           onPolish={(draftId) => setPolishDraft(draftId ?? null)}
           onImport={() => setImportOpen(true)}
@@ -324,6 +332,7 @@ export function SampleDetailPage() {
         jobs={allJobs}
         technology={s.sequencing_technology}
         onStarted={() => setTab("assembly")}
+        retry={assemblyRetry}
       />
       {polishOpen && assemblies.data && (
         <PolishingDialog

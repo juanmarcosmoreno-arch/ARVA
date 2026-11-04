@@ -179,6 +179,35 @@ def test_failure_reasons_from_real_logs():
     assert FlyeAdapter.failure_reason("Traceback ...", 1) is None
 
 
+def test_failures_carry_a_code_and_parameters_for_the_interface():
+    """Known reasons are coded (job.error.<code> in the interface) with the stage and Flye's own error line, so the
+    Spanish interface does not show them in English (registro de prueba, item 28)."""
+    oom = ">>>STAGE: assembly\nERROR: Looks like the system ran out of memory\n"
+    message, code, params = FlyeAdapter.failure(oom, 1)
+    assert code == "flye_out_of_memory" and params == {"stage": "assembly", "need_gb": 9}
+    assert "about 9 GB whatever the reads" in message
+    assert FlyeAdapter.failure("", -9)[1:] == ("flye_out_of_memory", {"stage": "", "need_gb": 9})
+    short = FlyeAdapter.failure((FIXTURES / "short_reads.stderr.log").read_text(), 1)
+    assert short[1] == "flye_no_long_reads" and short[2]["detail"] == "No reads above minimum length threshold (1000)"
+    none = FlyeAdapter.failure((FIXTURES / "no_contigs.stderr.log").read_text(), 1)
+    assert none[1:] == ("flye_nothing_assembled", {"stage": "contigger", "detail": none[2]["detail"]})
+    assert none[2]["detail"].startswith("No contigs were assembled")
+    assert FlyeAdapter.failure((FIXTURES / "no_flye_samtools.stderr.log").read_text(), 1)[1:] == (
+        "flye_samtools_not_run", {"stage": "repeat"})
+    assert FlyeAdapter.failure("ERROR: Can't open x\n", 1)[1:] == ("flye_error", {"stage": "", "detail": "Can't open x"})
+    assert FlyeAdapter.failure("Traceback ...", 1) is None
+
+
+def test_help_of_flye_2_9_6_lists_every_option_arva_offers(tmp_path):
+    """help_2.9.6.txt is the real `flye --help` of the Flye 2.9.6 ARVA ships; every optional option the dialog
+    offers (app.services.flye.OPTIONAL_OPTIONS) is in it, --asm-coverage and --genome-size included."""
+    help_296 = (FIXTURES / "help_2.9.6.txt").read_text()
+    fake = exe(tmp_path, "flye", f"import sys; sys.stdout.write({help_296!r})")
+    options = FlyeAdapter.help_options(str(fake))
+    assert {"--genome-size", "--min-overlap", "--asm-coverage", "--read-error", "--meta", "--keep-haplotypes",
+            "--no-alt-contigs", "--scaffold"} <= options
+
+
 def fake_flye(dirpath: Path) -> Path:
     return exe(dirpath, "flye", "import sys; print('2.9.3-b1797') if '--version' in sys.argv else None")
 
@@ -319,21 +348,81 @@ def test_memory_estimate_scales_flyes_documented_e_coli_figure():
     from arva_tools.flye import MEMORY_REFERENCE_BASES, SUGGESTED_ASM_COVERAGE, memory_estimate
 
     assert MEMORY_REFERENCE_BASES == 230_000_000 and SUGGESTED_ASM_COVERAGE == 40
-    # The documented case itself: 2 GB for 50x of 4.6 Mb.
-    assert memory_estimate(230_000_000, 2)["estimate_gb"] == 2.0
-    # The user's Mac: 413 Mb of filtered reads (147.6x of 2.8 Mb), 3 GB usable in a 3.8 GB Docker VM.
-    est = memory_estimate(413_000_000, 3, genome_size_bp=2_800_000)
-    assert est["verdict"] == "may_not_fit" and est["estimate_gb"] == 3.59
-    assert est["suggestion"] == {"asm_coverage": 40, "needs_genome_size": False, "genome_size_bp": 2_800_000,
-                                 "estimate_gb": 0.97, "coverage_x": 147.5}
-    # 40x of 12 Mb (480 Mb) is more than the 413 Mb of reads: --asm-coverage would not reduce them, so no suggestion.
-    big = memory_estimate(413_000_000, 3, genome_size_bp=12_000_000)
+    # The documented case itself: 2 GB for 50x of 4.6 Mb (the scaled part; the fixed k-mer floor is larger).
+    assert memory_estimate(230_000_000, 16)["scaled_gb"] == 2.0
+    # Reads that would need more than the floor: 2.3 Gb (20 GB scaled) in 16 GB, genome 5 Mb (460x).
+    est = memory_estimate(2_300_000_000, 16, genome_size_bp=5_000_000)
+    assert est["verdict"] == "may_not_fit" and est["estimate_gb"] == 20.0
+    # --asm-coverage 40 cuts the reads to 200 Mb (1.74 GB scaled), but never below the k-mer floor.
+    assert est["suggestion"] == {"asm_coverage": 40, "needs_genome_size": False, "genome_size_bp": 5_000_000,
+                                 "estimate_gb": 8.6, "coverage_x": 460.0}
+    # 40x of 60 Mb (2.4 Gb) is more than the 2.3 Gb of reads: --asm-coverage would not reduce them, so no suggestion.
+    big = memory_estimate(2_300_000_000, 16, genome_size_bp=60_000_000)
     assert big["verdict"] == "may_not_fit" and big["suggestion"] is None
-    with_asm = memory_estimate(413_000_000, 3, asm_coverage=50, genome_size_bp=2_800_000)
-    assert with_asm["verdict"] == "fits" and with_asm["bases_used"] == 140_000_000 and with_asm["suggestion"] is None
+    with_asm = memory_estimate(2_300_000_000, 16, asm_coverage=50, genome_size_bp=5_000_000)
+    assert with_asm["verdict"] == "fits" and with_asm["bases_used"] == 250_000_000 and with_asm["suggestion"] is None
+    assert with_asm["estimate_gb"] == 8.6 and with_asm["scaled_gb"] == 2.17
     # No genome size: the suggestion says one is needed; --meta cannot take --asm-coverage, so none is suggested.
-    assert memory_estimate(413_000_000, 3)["suggestion"]["needs_genome_size"] is True
-    assert memory_estimate(413_000_000, 3, meta=True)["suggestion"] is None
-    assert memory_estimate(None, 3)["verdict"] == "unknown"
+    assert memory_estimate(2_300_000_000, 16)["suggestion"]["needs_genome_size"] is True
+    assert memory_estimate(2_300_000_000, 16, meta=True)["suggestion"] is None
+    assert memory_estimate(None, 16)["verdict"] == "unknown"
+    assert memory_estimate(413_000_000, None)["verdict"] == "unknown"
     # asm_coverage above the reads' coverage reads every base.
-    assert memory_estimate(100_000_000, 8, asm_coverage=500, genome_size_bp=2_800_000)["bases_used"] == 100_000_000
+    assert memory_estimate(100_000_000, 16, asm_coverage=500, genome_size_bp=2_800_000)["bases_used"] == 100_000_000
+
+
+def test_memory_estimate_has_flyes_fixed_kmer_counter_floor():
+    """Flye 2.9.6 allocates a flat k-mer counter of 4^17 / 2 bytes = 8 GiB whatever the reads (vertex_index.cpp), so
+    the estimate is never below about 8.6 GB, and a container with less memory cannot run Flye at all: --asm-coverage
+    does not help, so it is not suggested."""
+    from arva_tools.flye import KMER_COUNTER_FLOOR, memory_estimate
+
+    assert KMER_COUNTER_FLOOR["gb"] == 8.6 and KMER_COUNTER_FLOOR["kmer_size"] == 17
+    assert 4 ** KMER_COUNTER_FLOOR["kmer_size"] // 2 == KMER_COUNTER_FLOOR["counter_gib"] * 1024 ** 3
+    # The user's Mac: 413 Mb of filtered reads (147.5x of 2.8 Mb) and 5.9 GB in the Docker container. ARVA used to
+    # say 3.59 GB (0.97 GB with --asm-coverage 40) "fits"; Flye was killed both ways.
+    mac = memory_estimate(413_000_000, 5.9, genome_size_bp=2_800_000)
+    assert mac["verdict"] == "below_floor" and mac["estimate_gb"] == 8.6 and mac["scaled_gb"] == 3.59
+    assert mac["suggestion"] is None
+    with_asm = memory_estimate(413_000_000, 5.9, asm_coverage=40, genome_size_bp=2_800_000)
+    assert with_asm["verdict"] == "below_floor" and with_asm["scaled_gb"] == 0.97 and with_asm["estimate_gb"] == 8.6
+    # The floor does not depend on the reads: known before any statistics exist.
+    assert memory_estimate(None, 5.9)["verdict"] == "below_floor"
+    # Enough memory for the floor: small reads fit.
+    assert memory_estimate(413_000_000, 15.7, genome_size_bp=2_800_000)["verdict"] == "fits"
+
+
+def test_memory_estimate_is_tight_within_a_gigabyte_of_the_floor():
+    """The container's memory is shared with ARVA's database, queue, API and worker, and the measured peak (8787 MB)
+    is above the floor: a container with less than the floor plus FLOOR_HEADROOM_GB is "tight", not "fits"."""
+    from arva_tools.flye import FLOOR_HEADROOM_GB, memory_estimate
+
+    assert FLOOR_HEADROOM_GB == 1.0
+    tight = memory_estimate(413_000_000, 8.7)
+    assert tight["verdict"] == "tight" and tight["suggestion"] is None and tight["floor_headroom_gb"] == 1.0
+    assert memory_estimate(413_000_000, 8.6)["verdict"] == "tight"
+    assert memory_estimate(413_000_000, 9.6)["verdict"] == "fits"
+    # Reads that need more than the container are "may not fit" whatever the headroom.
+    assert memory_estimate(1_100_000_000, 9.0)["verdict"] == "may_not_fit"
+
+
+def test_memory_estimate_compares_a_batch_share_with_the_reads_part_only():
+    """A batch reserves memory per job (other jobs may run beside it). Flye allocates its fixed k-mer table whatever
+    that share is, so the floor is decided by the container's memory, and the share is compared with the part of the
+    estimate that depends on the reads."""
+    from arva_tools.flye import memory_estimate
+
+    # 11.7 GB container, 8 GB per job: few reads fit (the 8.6 GB floor is within the container).
+    small = memory_estimate(413_000_000, 8, genome_size_bp=2_800_000, container_gb=11.7)
+    assert small["verdict"] == "fits" and small["available_gb"] == 8 and small["container_gb"] == 11.7
+    # 2.5 Gb of reads of a 5 Mb genome (about 21.7 GB) do not fit; --asm-coverage 40 (200 Mb, about 1.74 GB) would.
+    big = memory_estimate(2_500_000_000, 8, genome_size_bp=5_000_000, container_gb=11.7)
+    assert big["verdict"] == "may_not_fit" and big["suggestion"]["estimate_gb"] == 8.6
+    after = memory_estimate(2_500_000_000, 8, asm_coverage=40, genome_size_bp=5_000_000, container_gb=11.7)
+    assert after["verdict"] == "fits" and after["scaled_gb"] == 1.74
+    # Reads whose scaled part fits the container but not the share.
+    assert memory_estimate(1_000_000_000, 4, container_gb=11.7)["verdict"] == "may_not_fit"
+    # Below the floor only when the container itself is.
+    assert memory_estimate(413_000_000, 4, container_gb=5.9)["verdict"] == "below_floor"
+    # A share larger than the container is capped by it.
+    assert memory_estimate(413_000_000, 64, container_gb=11.7)["available_gb"] == 11.7

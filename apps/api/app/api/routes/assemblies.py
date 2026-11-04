@@ -178,7 +178,8 @@ def start_flye(sample_id: str, payload: FlyeRequest, db: Session = Depends(get_d
         "sequencing_technology": sample.sequencing_technology.value,
         "arva_read_type_suggestion": {k: suggestion[k] for k in ("value", "basis", "platform", "platform_source",
                                                                  "mean_error_rate")},
-        # ARVA's estimate before queueing (Flye's documented figure, scaled); recorded, never passed to Flye.
+        # ARVA's estimate before queueing (Flye's fixed k-mer floor and its documented figure, scaled); recorded,
+        # never passed to Flye.
         "memory_estimate": {k: v for k, v in flye.memory(db, sample, ev, params).items()
                             if k not in ("reference", "reference_bases")},
     }

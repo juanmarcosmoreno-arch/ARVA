@@ -131,7 +131,25 @@ def _platform() -> dict:
 def _performance(db: Session) -> dict:
     o = performance.overview(db)
     return {"effective": o["effective"], "choice": o["choice"], "automatic": o["automatic"], "docker": o["docker"],
-            "image": o["image"]}
+            "docker_memory": o["docker_memory"], "image": o["image"]}
+
+
+def _docker_memory_line(m: dict) -> str:
+    """What the report says about Docker Desktop's memory: the container's measurement first, and the figure
+    `docker info` gave scripts/start.sh only as agreeing with it, or as differing from it."""
+    gb = lambda b: f"{b / performance.GIB:.1f} GB"  # noqa: E731
+    measured, reported = m.get("measured_bytes"), m.get("docker_info_bytes")
+    if measured and reported:
+        if m.get("docker_info_agrees"):
+            return f"{gb(measured)} measured in the container; docker info reported the same at start ({gb(reported)})"
+        return (f"{gb(measured)} measured in the container; docker info reported {gb(reported)} when ARVA started, "
+                "which differs (Docker Desktop's memory was probably changed after ARVA started); ARVA uses the "
+                "measurement")
+    if measured:
+        return f"{gb(measured)} measured in the container (docker info not available)"
+    if reported:
+        return f"{gb(reported)} reported by docker info when ARVA started (not in a container)"
+    return "unknown"
 
 
 def _storage(db: Session) -> dict:
@@ -169,7 +187,8 @@ def _tools() -> list[dict]:
     from arva_tools.registry import detect_all
 
     return [{"id": t.info.id, "status": t.status.value, "version": t.version, "validated": t.version_validated,
-             "reason": t.reason, "path": t.path} for t in detect_all()]
+             "reason": t.reason, "reason_params": t.reason_params, "message": t.message, "path": t.path}
+            for t in detect_all()]
 
 
 def _databases(db: Session) -> list[dict]:
@@ -372,6 +391,8 @@ def markdown(r: dict) -> str:
     out += ["", "## Performance profile", ""]
     if isinstance(perf, dict) and "effective" in perf:
         out += [*_pairs(perf["effective"]), "", "Docker Desktop:", "", *_pairs(perf["docker"]), ""]
+        if perf.get("docker_memory"):
+            out += [f"Docker memory: {_docker_memory_line(perf['docker_memory'])}", ""]
         if perf.get("image"):
             out += ["Image architecture:", "", *_pairs(perf["image"]), ""]
     else:
@@ -389,7 +410,7 @@ def markdown(r: dict) -> str:
         out += [*_pairs(st), ""]
     out += ["## Services", "", *_pairs(r["services"]), "", "## Migrations", "", *_pairs(r["migrations"]), ""]
     out += ["## Tools", ""]
-    out += _table(r["tools"], ["id", "status", "version", "validated", "reason", "path"]) \
+    out += _table(r["tools"], ["id", "status", "version", "validated", "reason", "message", "path"]) \
         if isinstance(r["tools"], list) else _pairs(r["tools"])
     out += ["", "## Databases", ""]
     out += _table(r["databases"], ["kind", "key", "version", "status", "origin", "verification", "default",

@@ -235,10 +235,18 @@ def test_start_up_problems_are_logged(logdir, monkeypatch):
 
     bakta = DetectedTool(registry.get_adapter("bakta").info, ToolStatus.incompatible, "/usr/bin/bakta", "1.0",
                          message="Version 1.0 is older than 1.9", reason="too_old")
-    monkeypatch.setattr(registry, "detect_all", lambda refresh=False: [bakta])
+    # A check that failed twice keeps why: the exit status and the tail of its error output.
+    medaka = DetectedTool(registry.get_adapter("medaka").info, ToolStatus.failed, "/usr/bin/medaka", None,
+                          message="'medaka --version' exited with status 1, also when tried again: ImportError: libtorch",
+                          reason="version_exit", reason_params={"status": "1", "output": "ImportError: libtorch"})
+    monkeypatch.setattr(registry, "detect_all", lambda refresh=False: [bakta, medaka])
     startup.check()
     e = next(x for x in entries(logdir) if x["code"] == "startup_tools_unusable")
-    assert e["params"] == {"tools": "bakta"} and e["severity"] == "warning"
+    assert e["params"] == {"tools": "bakta, medaka"} and e["severity"] == "warning"
+    logged = {t["id"]: t for t in e["details"]["tools"]}
+    assert logged["medaka"]["reason"] == "version_exit"
+    assert logged["medaka"]["reason_params"] == {"status": "1", "output": "ImportError: libtorch"}
+    assert "ImportError: libtorch" in logged["medaka"]["message"]
     assert not [x for x in entries(logdir) if x["code"] == "startup_migrations_pending"]
     assert any(x["event"] == "startup_checks" for x in entries(logdir, errorlog.APP))
 

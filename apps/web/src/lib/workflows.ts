@@ -212,15 +212,15 @@ export type Counts = Record<ItemStatus, number>;
 
 export interface FlyeGuardNote {
   guard: "off" | "auto";
-  estimate: { verdict: "fits" | "may_not_fit" | "unknown"; estimate_gb: number | null; available_gb: number };
+  estimate: { verdict: "fits" | "tight" | "may_not_fit" | "below_floor" | "unknown"; estimate_gb: number | null; available_gb: number | null };
   applied: { asm_coverage: number; genome_size_bp?: number } | null;
-  not_applied: "asm_coverage_set" | "meta" | "no_genome_size" | "no_read_statistics" | "reads_below_asm_coverage" | null;
+  not_applied: "asm_coverage_set" | "meta" | "no_genome_size" | "no_read_statistics" | "reads_below_asm_coverage" | "below_kmer_floor" | "memory_unknown" | null;
 }
 
 /** The memory guard's decision for a Flye item, as one translated line (null when there is nothing to say). */
 export function flyeGuardText(t: Translate, note: FlyeGuardNote | undefined): string | null {
   if (!note || note.guard !== "auto") return null;
-  if (note.applied) return t("wf.flyeGuard.applied", { cov: note.applied.asm_coverage, gb: note.estimate.estimate_gb ?? "?", available: note.estimate.available_gb });
+  if (note.applied) return t("wf.flyeGuard.applied", { cov: note.applied.asm_coverage, gb: note.estimate.estimate_gb ?? "?", available: note.estimate.available_gb ?? "?" });
   if (note.not_applied && note.estimate.verdict !== "fits") return t(`wf.flyeGuard.${note.not_applied}`);
   return null;
 }

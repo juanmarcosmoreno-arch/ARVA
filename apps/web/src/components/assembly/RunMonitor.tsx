@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { CheckCircle2, Circle, Loader2, Pause, Play, XCircle } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Circle, Loader2, Pause, Play, RotateCcw, XCircle } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { CopyErrorDetails } from "@/components/diagnostics/CopyErrorDetails";
 import { CancelJobButton, CancellingNote, FlyeRecovery } from "@/components/domain/JobControls";
@@ -12,9 +12,9 @@ import { ANNOTATION_JOBS, BAKTA_JOB } from "@/lib/annotation";
 import { elapsedSeconds } from "@/lib/assembly";
 import { MLST_JOB } from "@/lib/mlst";
 import { SPECIES_JOB } from "@/lib/species";
-import { FLYE_JOB, stageStates } from "@/lib/flye";
+import { FLYE_JOB, memoryFailure, stageStates } from "@/lib/flye";
 import { POLISHING_JOBS, RACON_JOB } from "@/lib/polishing";
-import { fmtDate, fmtDuration } from "@/lib/format";
+import { fmtDate, fmtDuration, fmtInt, fmtNum } from "@/lib/format";
 import { QUAST_JOB } from "@/lib/quast";
 import type { AnalysisJob, AnalysisJobDetail } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -207,17 +207,65 @@ export function RunningCard({ job, names }: { job: AnalysisJobDetail; names: Map
   );
 }
 
-/** A failed or cancelled run: why it stopped, where, and (Flye) whether it can be resumed. */
-export function FailedCard({ job, resumedBy }: { job: AnalysisJobDetail; resumedBy?: AnalysisJob }) {
+/** The memory a Flye run had and its main options (read type, genome size, --asm-coverage), from what the job
+ * recorded, so a failure can be read against them. */
+function FlyeRunFacts({ job }: { job: AnalysisJobDetail }) {
+  const t = useT();
+  const p = (job.parameters ?? {}) as { read_type?: string; genome_size_bp?: number | null; asm_coverage?: number | null };
+  const r = job.resources;
+  const parts = [
+    ...(r?.usable_memory_gb != null ? [t(r.in_container ? "assembly.failedRun.memoryContainer" : "assembly.failedRun.memoryHost", { gb: fmtNum(r.usable_memory_gb, 1) })] : []),
+    ...(p.read_type ? [t("assembly.failedRun.readType", { value: p.read_type })] : []),
+    p.genome_size_bp ? t("assembly.failedRun.genome", { bp: fmtInt(p.genome_size_bp) }) : t("assembly.failedRun.genomeNone"),
+    p.asm_coverage ? t("assembly.failedRun.asm", { value: p.asm_coverage }) : t("assembly.failedRun.asmNone"),
+  ];
+  return (
+    <p className="text-xs">
+      <span className="font-medium">{t("assembly.failedRun.title")}:</span> <span className="text-muted-foreground">{parts.join(" · ")}</span>
+    </p>
+  );
+}
+
+/** For a Flye run that ran out of memory in a container smaller than Flye's fixed k-mer table: why no option helps. */
+function FlyeMemoryFloorNote({ job }: { job: AnalysisJobDetail }) {
+  const t = useT();
+  const estimate = job.parameters?.memory_estimate as { floor_gb?: number } | undefined;
+  const floor = estimate?.floor_gb;
+  const had = job.resources?.usable_memory_gb;
+  if (!memoryFailure(job) || floor == null || had == null || had >= floor) return null;
+  return (
+    <p className="flex gap-1.5 text-xs text-danger">
+      <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden />
+      {t(job.resources?.in_container === false ? "flye.memory.belowFloorHost" : "flye.memory.belowFloor", { need: Math.ceil(floor), available: fmtNum(had, 1) })}
+    </p>
+  );
+}
+
+/** A failed or cancelled run: why it stopped, where, and (Flye) whether it can be resumed or retried with other
+ * settings. */
+export function FailedCard({ job, resumedBy, onRetry }: { job: AnalysisJobDetail; resumedBy?: AnalysisJob; onRetry?: () => void }) {
   const t = useT();
   const k = texts(job);
   const stage = job.progress?.stage;
   const cancelled = job.status === "cancelled";
+  const flye = job.job_type === FLYE_JOB;
   return (
     <Card className={cancelled ? "border-warning/40" : "border-danger/30"}>
-      <CardHeader title={t(cancelled ? k.cancelled : k.failed, { tool: `${job.tool_name} ${job.tool_version}` })} description={fmtDate(job.finished_at ?? job.created_at)} />
+      <CardHeader
+        title={t(cancelled ? k.cancelled : k.failed, { tool: `${job.tool_name} ${job.tool_version}` })}
+        description={fmtDate(job.finished_at ?? job.created_at)}
+        action={
+          flye && onRetry ? (
+            <Button size="sm" variant="outline" onClick={onRetry} title={t("assembly.retryHint")}>
+              <RotateCcw className="h-3.5 w-3.5" /> {t("assembly.retry")}
+            </Button>
+          ) : undefined
+        }
+      />
       <CardBody className="space-y-2 pt-3">
         {!cancelled && <ErrorNote error={jobError(t, job)} />}
+        {flye && !cancelled && <FlyeMemoryFloorNote job={job} />}
+        {flye && <FlyeRunFacts job={job} />}
         {!cancelled && <CopyErrorDetails jobId={job.id} />}
         {stage && <p className="text-xs text-muted-foreground">{t(cancelled ? "assembly.cancelledAt" : k.failedAt, { stage: stageName(t, stage) })}</p>}
         <StageList job={job} />
