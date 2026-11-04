@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, ChevronRight, CornerDownRight, Info, Lightbulb } from "lucide-react";
-import { useEffect, useState, type ReactNode } from "react";
+import { AlertTriangle, ChevronRight, CornerDownRight, Info, Lightbulb, RotateCcw } from "lucide-react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Explain } from "@/components/guide/Explain";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -14,18 +14,20 @@ import {
   READ_TYPES,
   advancedFlags,
   chosenGenomeSize,
-  defaultFlyeSelection,
   flyeCandidates,
   flyeMemory,
   flyeProblems,
   flyeRequestParams,
+  initialFlyeChoices,
+  memoryFailure,
+  rememberFlyeChoices,
   selectedTwice,
   type FlyeForm,
   type GenomeChoice,
 } from "@/lib/flye";
 import { lineageOrder } from "@/lib/filters";
-import { fmtBases, fmtBp, fmtInt, fmtNum, technologyLabel } from "@/lib/format";
-import { toolMessage } from "@/lib/messages";
+import { fmtBases, fmtBp, fmtDate, fmtInt, fmtNum, technologyLabel } from "@/lib/format";
+import { jobError, toolMessage } from "@/lib/messages";
 import type { AnalysisJobDetail, FlyePlan, FlyeReadType, RawFile } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -48,6 +50,7 @@ export function FlyePanel({
   files,
   jobs = [],
   report,
+  retry = null,
 }: {
   open: boolean;
   sampleId: string;
@@ -55,6 +58,8 @@ export function FlyePanel({
   /** The sample's jobs, to name the tool that filtered a derived file. */
   jobs?: AnalysisJobDetail[];
   report: ReportPanel;
+  /** A failed Flye run to retry: its files and settings fill the form. */
+  retry?: AnalysisJobDetail | null;
 }) {
   const t = useT();
   const candidates = flyeCandidates(files);
@@ -62,13 +67,25 @@ export function FlyePanel({
   const [form, setForm] = useState<FlyeForm>(FLYE_FORM_DEFAULTS);
   const [confirmed, setConfirmed] = useState(false);
   const [depth, setDepth] = useState<number | null>(null);
+  const hydrated = useRef(false);
   useEffect(() => {
     if (!open) return;
-    setSelected(new Set(defaultFlyeSelection(files)));
-    setForm(FLYE_FORM_DEFAULTS);
-    setConfirmed(false);
+    const init = initialFlyeChoices(sampleId, files, retry);
+    hydrated.current = false;
+    setSelected(new Set(init.selected));
+    setForm(init.form);
+    setConfirmed(init.confirmed);
     // Only when the dialog opens: the user's choices are never replaced while it is open.
   }, [open]);
+  useEffect(() => {
+    if (!open) return;
+    // The first run after opening still sees the previous state: remember from the next one on.
+    if (!hydrated.current) {
+      hydrated.current = true;
+      return;
+    }
+    rememberFlyeChoices(sampleId, { selected: [...selected], candidates: candidates.map((f) => f.id), form, confirmed });
+  }, [open, selected, form, confirmed]);
   useEffect(() => {
     const d = form.genomeChoice === "depth" && Number(form.depthX) > 0 ? Number(form.depthX) : null;
     const timer = setTimeout(() => setDepth(d), 350);
@@ -107,6 +124,7 @@ export function FlyePanel({
 
   return (
     <div className="space-y-5 text-sm">
+      {retry && <RetryNote job={retry} form={form} plan={p} setForm={setForm} />}
       {p && <ToolLine plan={p} />}
 
       <Section title={t("flye.filesLabel")} hint={t("flye.filesHint")}>
@@ -181,13 +199,13 @@ export function FlyePanel({
 
       <Advanced title={t("assembly.advanced.title")} tool="Flye" changed={advanced.length}>
         <div className="grid gap-3 sm:grid-cols-3">
-          <Field label={t("flye.minOverlap")} hint={t("flye.minOverlapHint")}>
-            <Input type="number" min={1000} max={10000} placeholder={t("flye.auto")} value={form.minOverlap} onChange={(e) => set("minOverlap", e.target.value)} />
+          <Field label={t("flye.minOverlap")} hint={notOffered(p, "--min-overlap") ? t("flye.notInThisVersionField", { version: p?.tool.version ?? "?" }) : t("flye.minOverlapHint")}>
+            <Input type="number" min={1000} max={10000} placeholder={t("flye.auto")} value={form.minOverlap} onChange={(e) => set("minOverlap", e.target.value)} disabled={notOffered(p, "--min-overlap")} />
           </Field>
-          <Field label={t("flye.asmCoverage")} hint={t("flye.asmCoverageHint")}>
+          <Field label={t("flye.asmCoverage")} hint={notOffered(p, "--asm-coverage") ? t("flye.notInThisVersionField", { version: p?.tool.version ?? "?" }) : t("flye.asmCoverageHint")}>
             <Input type="number" min={1} value={form.asmCoverage} onChange={(e) => set("asmCoverage", e.target.value)} disabled={!supported(p, "--asm-coverage")} />
           </Field>
-          <Field label={t("flye.readError")} hint={t("flye.readErrorHint")}>
+          <Field label={t("flye.readError")} hint={notOffered(p, "--read-error") ? t("flye.notInThisVersionField", { version: p?.tool.version ?? "?" }) : t("flye.readErrorHint")}>
             <Input
               inputMode="decimal"
               placeholder="0.03"
@@ -230,7 +248,7 @@ export function FlyePanel({
         </label>
       )}
 
-      <MemoryNote form={form} plan={p} setForm={setForm} />
+      {!(retry && memoryFailure(retry)) && <MemoryNote form={form} plan={p} setForm={setForm} />}
 
       <RunSummary form={form} plan={p} files={files} ids={ids} advanced={advanced} />
     </div>
@@ -244,7 +262,19 @@ function MemoryNote({ form, plan, setForm }: { form: FlyeForm; plan: FlyePlan | 
   const m = flyeMemory(form, plan);
   if (!m) return null;
   const gb = (v: number | null) => (v === null ? "?" : fmtNum(v, 1));
-  if (m.verdict === "unknown") return <p className="text-xs text-muted-foreground">{t("flye.memory.unknown")}</p>;
+  const need = Math.ceil(m.floorGb);
+  if (m.verdict === "below_floor") {
+    return (
+      <section aria-label={t("flye.memory.title")} role="alert" className="space-y-1 rounded-lg border border-danger/40 bg-danger/5 p-2.5 text-xs">
+        <p className="flex gap-1.5 text-danger">
+          <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden />
+          {t(plan?.memory?.in_container === false ? "flye.memory.belowFloorHost" : "flye.memory.belowFloor", { need, available: gb(m.availableGb) })}
+        </p>
+        <p className="text-muted-foreground">{t("flye.memory.basis")}</p>
+      </section>
+    );
+  }
+  if (m.verdict === "unknown") return <p className="text-xs text-muted-foreground">{t(m.availableGb === null ? "flye.memory.memoryUnknown" : "flye.memory.unknown", { need })}</p>;
   const s = m.suggestion;
   const apply = () =>
     setForm((f) => ({
@@ -255,10 +285,10 @@ function MemoryNote({ form, plan, setForm }: { form: FlyeForm; plan: FlyePlan | 
   return (
     <section aria-label={t("flye.memory.title")} className={cn("space-y-1 rounded-lg border p-2.5 text-xs", m.verdict === "may_not_fit" ? "border-warning/40 bg-warning/5" : "bg-muted/30")}>
       {m.verdict === "fits" ? (
-        <p>{t("flye.memory.fits", { gb: gb(m.estimateGb), available: m.availableGb })}</p>
+        <p>{t("flye.memory.fits", { gb: gb(m.estimateGb), available: gb(m.availableGb) })}</p>
       ) : (
         <p className="flex gap-1.5 text-amber-700 dark:text-warning">
-          <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden /> {t("flye.memory.mayNotFit", { gb: gb(m.estimateGb), available: m.availableGb })}
+          <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden /> {t("flye.memory.mayNotFit", { gb: gb(m.estimateGb), available: gb(m.availableGb) })}
         </p>
       )}
       {s && s.genomeBp !== null && (
@@ -302,6 +332,23 @@ export function Advanced({ title, tool, changed, children }: { title: string; to
 }
 
 const supported = (p: FlyePlan | undefined, flag: string) => !!p?.tool.options.includes(flag);
+/** Known not to be offered: the installed Flye's --help (read for the preview) does not list it. */
+const notOffered = (p: FlyePlan | undefined, flag: string) => !!p && p.tool.status === "available" && !p.tool.options.includes(flag);
+
+/** "Retrying the run of <date>": its settings are in the form; a run that ran out of memory shows why here. */
+function RetryNote({ job, form, plan, setForm }: { job: AnalysisJobDetail; form: FlyeForm; plan: FlyePlan | undefined; setForm: (f: (old: FlyeForm) => FlyeForm) => void }) {
+  const t = useT();
+  const memory = memoryFailure(job);
+  return (
+    <section aria-label={t("flye.retry.title")} className="space-y-2 rounded-lg border border-arva-royal/30 bg-arva-royal/5 p-3 text-xs">
+      <p className="flex items-start gap-1.5 font-medium">
+        <RotateCcw className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden /> {t("flye.retry.note", { date: fmtDate(job.finished_at ?? job.created_at), id: job.id.slice(0, 8) })}
+      </p>
+      {job.status === "failed" && <p className="text-muted-foreground">{jobError(t, job)}</p>}
+      {memory && <MemoryNote form={form} plan={plan} setForm={setForm} />}
+    </section>
+  );
+}
 
 /** "What this run will do", from the current form: nothing here is decided by ARVA. */
 function RunSummary({ form, plan, files, ids, advanced }: { form: FlyeForm; plan: FlyePlan | undefined; files: RawFile[]; ids: string[]; advanced: string[] }) {
@@ -321,6 +368,7 @@ function RunSummary({ form, plan, files, ids, advanced }: { form: FlyeForm; plan
     genome.bp !== null
       ? t("assembly.summary.genome", { bp: String(genome.bp), basis: basisKey in dictionaries.en ? t(basisKey as TranslationKey) : "" })
       : t("assembly.summary.genomeNone"),
+    form.asmCoverage.trim() ? t("assembly.summary.asmCoverage", { value: form.asmCoverage.trim() }) : t("assembly.summary.asmCoverageNone"),
     Number.isInteger(iterations) && iterations > 0 ? t("assembly.summary.polishing", { count: iterations }) : t("assembly.summary.polishingNone"),
     t("assembly.summary.threads", { threads }),
     advanced.length ? t("assembly.summary.advanced", { options: advanced.join(" ") }) : t("assembly.summary.advancedNone"),

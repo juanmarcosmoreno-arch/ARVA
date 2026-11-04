@@ -27,8 +27,31 @@ export const LIMITS = { iterations: [0, 10], minOverlap: [1000, 10000], genomeMi
 export const flyeCandidates = (files: RawFile[]) =>
   files.filter((f) => (f.file_format === "fastq" || f.file_format === "fastq_gz") && f.is_valid && !f.read_mate);
 
-/** Preselected files: the imported long-read files, so no run is selected twice (as original and filtered copy). */
-export const defaultFlyeSelection = (files: RawFile[]) => flyeCandidates(files).filter((f) => f.origin === "imported").map((f) => f.id);
+/** Preselected files: for each imported long-read file, its most recent filtered copy (a derived file, by when it was
+ * written, then the deepest in its lineage) when there is one, else the file itself; so no run is selected twice (as
+ * original and filtered copy). */
+export function defaultFlyeSelection(files: RawFile[]): string[] {
+  const candidates = flyeCandidates(files);
+  const byId = new Map(files.map((f) => [f.id, f]));
+  const lineage = (f: RawFile) => {
+    const chain = [f];
+    for (let p = f.parent_file_id ? byId.get(f.parent_file_id) : undefined; p && !chain.includes(p); p = p.parent_file_id ? byId.get(p.parent_file_id) : undefined) chain.push(p);
+    return chain;
+  };
+  const better = (a: RawFile, b: RawFile) => {
+    if ((a.origin === "derived") !== (b.origin === "derived")) return a.origin === "derived";
+    const [ta, tb] = [a.uploaded_at ?? "", b.uploaded_at ?? ""];
+    return ta !== tb ? ta > tb : lineage(a).length > lineage(b).length;
+  };
+  const best = new Map<string, RawFile>();
+  for (const f of candidates) {
+    const root = lineage(f).at(-1)!.id;
+    const current = best.get(root);
+    if (!current || better(f, current)) best.set(root, f);
+  }
+  const chosen = new Set([...best.values()].map((f) => f.id));
+  return candidates.filter((f) => chosen.has(f.id)).map((f) => f.id);
+}
 
 /** Selected derived files whose parent (or an earlier ancestor) is selected too: their reads would be used twice. */
 export function selectedTwice(files: RawFile[], selected: Set<string>): RawFile[] {
@@ -136,32 +159,106 @@ export const SUGGESTED_ASM_COVERAGE = 40;
 export interface FlyeMemoryView {
   verdict: FlyeMemory["verdict"];
   estimateGb: number | null;
-  availableGb: number;
-  /** What Flye documents to use less memory, when the run may not fit, does not use it already and it would help. */
+  availableGb: number | null;
+  /** Flye's fixed k-mer counter floor: no run uses less, whatever the reads or --asm-coverage. */
+  floorGb: number;
+  /** What Flye documents to use less memory, when the run may not fit, does not use it already and it would help;
+   * never when the container is below the floor, which --asm-coverage does not lower. */
   suggestion: { asmCoverage: number; genomeBp: number | null; estimateGb: number | null } | null;
 }
 
-const scaled = (m: FlyeMemory, bases: number) => Math.round((m.reference.ram_gb * bases / m.reference_bases) * 100) / 100;
+const round2 = (v: number) => Math.round(v * 100) / 100;
+const scaled = (m: FlyeMemory, bases: number) => round2((m.reference.ram_gb * bases) / m.reference_bases);
 
-/** The server's estimate (arva_tools.flye.memory_estimate) for what the form would send now. */
+/** The server's estimate (arva_tools.flye.memory_estimate) for what the form would send now: the larger of Flye's
+ * fixed k-mer counter floor and its documented figure scaled to the bases the first stage reads. */
 export function flyeMemory(form: FlyeForm, plan: FlyePlan | undefined): FlyeMemoryView | null {
   const m = plan?.memory;
   if (!m) return null;
-  const view: FlyeMemoryView = { verdict: "unknown", estimateGb: null, availableGb: m.available_gb, suggestion: null };
+  const floor = m.floor_gb ?? 0;
+  const available = m.available_gb;
+  const below = available !== null && floor > available;
+  const view: FlyeMemoryView = { verdict: below ? "below_floor" : "unknown", estimateGb: null, availableGb: available, floorGb: floor, suggestion: null };
   if (!m.read_bases) return view;
   const genome = chosenGenomeSize(form, plan).bp;
   const asm = num(form.asmCoverage);
   const used = asm && genome ? Math.min(m.read_bases, asm * genome) : m.read_bases;
-  view.estimateGb = scaled(m, used);
-  view.verdict = view.estimateGb <= m.available_gb ? "fits" : "may_not_fit";
+  view.estimateGb = round2(Math.max(scaled(m, used), floor));
+  if (below || available === null) return view;
+  view.verdict = view.estimateGb <= available ? "fits" : "may_not_fit";
   if (view.verdict === "may_not_fit" && !asm && !form.meta) {
     const size = genome ?? m.expected_genome_size_bp;
     // With a known size, only when it would use fewer bases than the reads hold (as the server decides).
     if (!size || SUGGESTED_ASM_COVERAGE * size < m.read_bases) {
-      view.suggestion = { asmCoverage: SUGGESTED_ASM_COVERAGE, genomeBp: size, estimateGb: size ? scaled(m, SUGGESTED_ASM_COVERAGE * size) : null };
+      view.suggestion = { asmCoverage: SUGGESTED_ASM_COVERAGE, genomeBp: size, estimateGb: size ? round2(Math.max(scaled(m, SUGGESTED_ASM_COVERAGE * size), floor)) : null };
     }
   }
   return view;
+}
+
+/** The form a finished (or failed) Flye job's recorded parameters give, to run it again with the same settings. */
+export function flyeFormFromJob(parameters: Record<string, unknown> | null | undefined): FlyeForm {
+  const p = (parameters ?? {}) as Partial<FlyeParams>;
+  const text = (v: unknown) => (v === null || v === undefined ? "" : String(v));
+  const known = READ_TYPES.some((r) => r.value === p.read_type);
+  const basis = p.genome_size_basis;
+  const genomeChoice: GenomeChoice =
+    p.genome_size_bp == null ? "none" : basis === "expected_genome_size" ? "expected" : basis === "reads_over_depth" ? "depth" : "entered";
+  return {
+    ...FLYE_FORM_DEFAULTS,
+    readType: known ? (p.read_type as FlyeReadType) : "",
+    genomeChoice,
+    depthX: genomeChoice === "depth" ? text(p.assumed_depth_x) : "",
+    enteredMbp: genomeChoice === "entered" && p.genome_size_bp ? String(p.genome_size_bp / 1e6) : "",
+    iterations: text(p.iterations ?? FLYE_FORM_DEFAULTS.iterations),
+    minOverlap: text(p.min_overlap),
+    asmCoverage: text(p.asm_coverage),
+    readError: text(p.read_error),
+    meta: !!p.meta,
+    keepHaplotypes: !!p.keep_haplotypes,
+    noAltContigs: !!p.no_alt_contigs,
+    scaffold: !!p.scaffold,
+    threads: text(p.threads),
+  };
+}
+
+/** Whether a failed job stopped for lack of memory (Flye's own report, or the operating system's SIGKILL). */
+export const memoryFailure = (job: Pick<AnalysisJobDetail, "error_detail"> | null | undefined) =>
+  job?.error_detail?.code === "flye_out_of_memory" || job?.error_detail?.code === "out_of_memory";
+
+/** What the user chose in the Flye panel, kept per sample for this browser session so that closing and reopening
+ * "New assembly" does not lose it. The files chosen are kept only while the sample's long-read files stay the same:
+ * a new filtered file brings back the preselection. */
+export interface FlyeChoices {
+  selected: string[];
+  candidates: string[];
+  form: FlyeForm;
+  confirmed: boolean;
+}
+
+const remembered = new Map<string, FlyeChoices>();
+
+export const rememberFlyeChoices = (sampleId: string, choices: FlyeChoices) => remembered.set(sampleId, choices);
+
+/** Forget every remembered choice (tests). */
+export const forgetFlyeChoices = () => remembered.clear();
+
+/** The panel's state when "New assembly" opens: a failed run's settings to retry it, else what the user chose last
+ * time for this sample, else ARVA's preselection and Flye's defaults. */
+export function initialFlyeChoices(sampleId: string, files: RawFile[], retry?: Pick<AnalysisJobDetail, "parameters" | "input_raw_file_ids"> | null): FlyeChoices {
+  const candidates = flyeCandidates(files).map((f) => f.id);
+  if (retry) {
+    const selected = (retry.input_raw_file_ids ?? []).filter((id) => candidates.includes(id));
+    return { selected, candidates, form: flyeFormFromJob(retry.parameters), confirmed: !!retry.parameters?.long_reads_confirmed };
+  }
+  const last = remembered.get(sampleId);
+  const sameFiles = last && last.candidates.length === candidates.length && last.candidates.every((id) => candidates.includes(id));
+  return {
+    selected: sameFiles ? last.selected : defaultFlyeSelection(files),
+    candidates,
+    form: last?.form ?? FLYE_FORM_DEFAULTS,
+    confirmed: last?.confirmed ?? false,
+  };
 }
 
 export function flyeRequestParams(form: FlyeForm, plan: FlyePlan | undefined): FlyeParams {

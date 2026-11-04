@@ -61,7 +61,9 @@ function memoryAdvice(t: T, job: Pick<AnalysisJob, "resources">) {
 export function jobError(t: T, job: Pick<AnalysisJob, "error_message" | "error_detail" | "resources">): string {
   const d = job.error_detail;
   if (d?.code === "out_of_memory") return `${t("job.error.out_of_memory", d.params)} ${memoryAdvice(t, job)}`;
-  return d ? messageText(t, "job.error", { code: d.code, params: d.params, text: job.error_message ?? "" }) : (job.error_message ?? "");
+  // Flye's reasons name the stage it stopped in, when its log says (arva_tools.flye.FlyeAdapter.failure).
+  const params = d?.code.startsWith("flye_") ? { ...d.params, where: d.params.stage ? t("job.error.flye_where", { stage: d.params.stage }) : "" } : d?.params;
+  return d ? messageText(t, "job.error", { code: d.code, params: params ?? {}, text: job.error_message ?? "" }) : (job.error_message ?? "");
 }
 
 /** The import check of a file (structure of its first records) in the interface language. */

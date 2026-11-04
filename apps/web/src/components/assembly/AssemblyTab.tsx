@@ -26,6 +26,7 @@ export function AssemblyTab({
   onEvaluate,
   onPolish,
   onImport,
+  onRetry,
 }: {
   sampleId: string;
   jobs: AnalysisJobDetail[];
@@ -34,6 +35,8 @@ export function AssemblyTab({
   onEvaluate: () => void;
   onPolish: (draftId?: string) => void;
   onImport?: () => void;
+  /** Open "New assembly" with a failed Flye run's files and settings. */
+  onRetry?: (job: AnalysisJobDetail) => void;
 }) {
   const t = useT();
   const assemblers = [useTool("flye"), useTool("spades"), useTool("unicycler")];
@@ -145,7 +148,7 @@ export function AssemblyTab({
       ))}
 
       {failed.map((j) => (
-        <FailedCard key={j.id} job={j} resumedBy={resumedBy(j)} />
+        <FailedCard key={j.id} job={j} resumedBy={resumedBy(j)} onRetry={onRetry && (() => onRetry(j))} />
       ))}
 
       {!active.length && !list.length && !failed.length && (

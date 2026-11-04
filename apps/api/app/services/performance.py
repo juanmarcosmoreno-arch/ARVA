@@ -145,6 +145,8 @@ class Resources:
     exceeds: list[str] = field(default_factory=list)
     admin_threads: int | None = None
     admin_memory_gb: int | None = None
+    # False when the container's memory could not be read and usable_memory_gb is FALLBACK_MEMORY_GB.
+    memory_known: bool = True
 
     def cap_threads(self, threads: int | None) -> int:
         return max(1, min(threads or self.threads, self.max_threads))
@@ -199,7 +201,7 @@ def compute(det: Detection, choice: dict[str, Any], admin_threads: int | None = 
         memory_gb=max(1, min(memory, max_memory)), max_memory_gb=max_memory, nice=NICE[profile],
         usable_cpus=c.usable_cpus, usable_memory_gb=usable_gb, in_container=c.in_container, host=host_summary(host),
         core_basis=basis, cores=cores, requested_threads=threads, requested_memory_gb=memory, exceeds=exceeds,
-        admin_threads=admin_threads, admin_memory_gb=admin_memory_gb,
+        admin_threads=admin_threads, admin_memory_gb=admin_memory_gb, memory_known=c.memory_gb is not None,
     )
 
 

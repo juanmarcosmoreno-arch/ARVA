@@ -370,9 +370,15 @@ modelos que trae el paquete de Medaka 2.1.1 (sup y hac v5.2.0): no hay nada que 
 dentro de la imagen (aproximadamente 1,6 GB más) y usa la CPU; con 3,8 GB para Docker Desktop, si se queda sin
 memoria, bajar el tamaño de lote (-b) en el diálogo.
 
-Con 3,8 GB para Docker Desktop, Flye puede quedarse sin memoria con coberturas altas (en la prueba, 413 Mb de
-lecturas filtradas, unas 148× de 2,8 Mb). El diálogo de Flye estima, con la cifra que documenta Flye (2 GB para
-*E. coli* a 50×), si la ejecución cabe en la memoria que ARVA puede usar y, si no, ofrece el botón
+**Flye necesita unos 9 GB de memoria dentro de Docker, sean cuales sean las lecturas.** Flye 2.9.6 reserva al
+empezar una tabla fija de k-mers de 8 GiB (`src/sequence/vertex_index.cpp`, k = 17 en todas sus configuraciones);
+medido con 413 Mb de lecturas simuladas, el pico fue de 8,8 GB, y en la Mac de prueba, con 5,9 GB en el contenedor,
+Flye se quedó sin memoria con y sin `--asm-coverage`. `--asm-coverage` no baja ese piso. En una Mac de 8 GB, Docker
+Desktop no puede darle tanta memoria: el diálogo de Flye lo dice ("Flye no puede ejecutarse en esta computadora con
+la configuración actual") y no ofrece `--asm-coverage`. En ese caso se puede ensamblar con Flye fuera de ARVA y
+agregar el genoma con "Registrar un FASTA de genoma…". Con memoria suficiente para ese piso, el diálogo estima
+además, con la cifra que documenta Flye (2 GB para *E. coli* a 50×), si las lecturas caben en la memoria que tiene
+el contenedor y, si no, ofrece el botón
 **Usar --asm-coverage 40** (Flye documenta `--asm-coverage` para usar menos memoria y su manual dice que 40× de las
 lecturas más largas suele bastar; necesita un tamaño de genoma). En los
 flujos "Genoma bacteriano, análisis completo" y "Ensamblaje Nanopore", la **protección de memoria de Flye** hace lo mismo sola

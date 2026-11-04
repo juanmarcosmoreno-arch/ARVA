@@ -1181,10 +1181,16 @@ export interface FlyePlan {
 export interface FlyeMemory {
   reference: { source: string; url: string; genome: string; data: string; genome_size_bp: number; coverage_x: number; ram_gb: number };
   reference_bases: number;
-  available_gb: number;
+  /** The memory the container has (or a batch's share of it); null when it could not be read. */
+  available_gb: number | null;
+  container_memory_gb?: number | null;
+  in_container?: boolean;
   read_bases: number | null;
+  /** Flye's fixed k-mer counter (about 8.6 GB whatever the reads; arva_tools.flye.KMER_COUNTER_FLOOR). */
+  floor_gb?: number;
+  scaled_gb?: number | null;
   estimate_gb: number | null;
-  verdict: "fits" | "may_not_fit" | "unknown";
+  verdict: "fits" | "may_not_fit" | "below_floor" | "unknown";
   expected_genome_size_bp: number | null;
 }
 

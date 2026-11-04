@@ -253,7 +253,9 @@ describe("New assembly dialog", () => {
 
     fireEvent.change(screen.getByRole("combobox", { name: "Read type" }), { target: { value: "nano-hq" } });
     const summary = await screen.findByRole("region", { name: "What this run will do" });
-    expect(within(summary).getByText("Reads: 1 file, 9.00 Mbp in total — ont.fastq.gz.")).toBeInTheDocument();
+    // The filtered file is preselected, not the original it came from.
+    expect(within(summary).getByText("Reads: 1 file, 6.00 Mbp in total — ont.filtlong.fastq.gz (filtered).")).toBeInTheDocument();
+    expect(within(summary).getByText("First-stage coverage: every read (no --asm-coverage).")).toBeInTheDocument();
     expect(within(summary).getByText("Read type: --nano-hq (Flye's error model for these reads).")).toBeInTheDocument();
     expect(within(summary).getByText("Threads: 4. With more than one thread, runs on the same reads can differ.")).toBeInTheDocument();
     expect(within(summary).getByText("Advanced options: none (Flye's defaults).")).toBeInTheDocument();
@@ -271,7 +273,7 @@ describe("New assembly dialog", () => {
     fireEvent.click(screen.getByRole("checkbox", { name: /I have reviewed/ }));
     fireEvent.click(start);
     await vi.waitFor(() => expect(run).toHaveBeenCalled());
-    expect(run.mock.calls[0][1]).toMatchObject({ raw_file_ids: ["f1"], params: { read_type: "nano-hq", meta: true, iterations: 1 }, long_reads_confirmed: false });
+    expect(run.mock.calls[0][1]).toMatchObject({ raw_file_ids: ["f2"], params: { read_type: "nano-hq", meta: true, iterations: 1 }, long_reads_confirmed: false });
   });
 
   it("says when the files do not show which reads they hold", async () => {

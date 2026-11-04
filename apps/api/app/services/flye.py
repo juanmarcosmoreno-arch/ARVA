@@ -212,17 +212,31 @@ def read_bases(ev: list[dict[str, Any]]) -> int | None:
     return sum(e["total_bases"] for e in ev)
 
 
+def container_memory_gb(res: Resources) -> float | None:
+    """The memory the container (or computer) running Flye has, as measured (cgroup limit or MemTotal), in GB to one
+    decimal; None when it could not be read. Flye takes no memory limit, so this, not a profile's share, is what it
+    can use."""
+    return round(res.usable_memory_gb, 1) if res.memory_known else None
+
+
 def memory(db: Session, sample: Sample, ev: list[dict[str, Any]], params: FlyeParams | None = None,
-           res: Resources | None = None) -> dict[str, Any]:
-    """ARVA's estimate of whether this Flye run fits the memory ARVA can use (arva_tools.flye.memory_estimate):
-    for the given parameters, or, for a preview, for the reads alone with the sample's expected genome size (when
-    known) for the suggestion."""
+           res: Resources | None = None, available_gb: float | None = None) -> dict[str, Any]:
+    """ARVA's estimate of whether this Flye run fits the memory the container has (arva_tools.flye.memory_estimate,
+    with Flye's fixed k-mer counter floor): for the given parameters, or, for a preview, for the reads alone with the
+    sample's expected genome size (when known) for the suggestion. available_gb: a smaller share to compare with
+    (a batch's memory per job); never more than the container has."""
     res = res or effective_resources(db)
     if params is not None:
         size, asm, meta = params.genome_size_bp, params.asm_coverage, params.meta
     else:
         size, asm, meta = expected_genome_size(db, sample.id, None)["bp"], None, False
-    out = memory_estimate(read_bases(ev), res.max_memory_gb, asm, size, meta)
+    container = container_memory_gb(res)
+    available = container
+    if available_gb is not None:
+        available = available_gb if container is None else min(container, available_gb)
+    out = memory_estimate(read_bases(ev), available, asm, size, meta)
+    out["container_memory_gb"] = container
+    out["in_container"] = res.in_container
     out["expected_genome_size_bp"] = expected_genome_size(db, sample.id, None)["bp"]
     return out
 

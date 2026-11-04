@@ -43,6 +43,7 @@ export function AssemblyDialog({
   jobs = [],
   technology = "unknown",
   onStarted,
+  retry = null,
 }: {
   open: boolean;
   onOpenChange: (o: boolean) => void;
@@ -51,6 +52,8 @@ export function AssemblyDialog({
   jobs?: AnalysisJobDetail[];
   technology?: SequencingTechnology;
   onStarted?: () => void;
+  /** A failed Flye run to retry: Flye is chosen and its files and settings fill the form. */
+  retry?: AnalysisJobDetail | null;
 }) {
   const t = useT();
   const queryClient = useQueryClient();
@@ -63,7 +66,7 @@ export function AssemblyDialog({
   useEffect(() => {
     if (!open) return;
     setSeveral(false);
-    setChosen([defaultAssembler(data)]);
+    setChosen([retry ? "flye" : defaultAssembler(data)]);
     setReviewed(false);
     setStarted(0);
     // Only when the dialog opens: the user's choices are never replaced while it is open.
@@ -111,7 +114,7 @@ export function AssemblyDialog({
                 {i + 1}. {t(NAME[a])}
               </h3>
             )}
-            {a === "flye" && <FlyePanel open={open} sampleId={sampleId} files={files} jobs={jobs} report={report} />}
+            {a === "flye" && <FlyePanel open={open} sampleId={sampleId} files={files} jobs={jobs} report={report} retry={retry} />}
             {a === "spades" && <SpadesPanel open={open} sampleId={sampleId} files={files} jobs={jobs} report={report} />}
             {a === "unicycler" && <UnicyclerPanel open={open} sampleId={sampleId} files={files} jobs={jobs} report={report} />}
           </section>

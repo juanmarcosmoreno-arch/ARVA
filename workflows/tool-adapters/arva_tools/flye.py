@@ -363,29 +363,44 @@ class FlyeAdapter(ToolAdapter):
             "Looks like the system ran out of memory" in log_text
 
     @staticmethod
-    def failure_reason(log_text: str, returncode: int | None) -> str | None:
-        """A plain-language reason for a failed run, from Flye's own error lines; None when none is recognised."""
+    def failure(log_text: str, returncode: int | None) -> tuple[str, str, dict[str, Any]] | None:
+        """A failed run's reason from Flye's own error lines: (plain-language English message, code, params) so the
+        interface can show it in its own language (job.error.<code>); None when none is recognised. params carry
+        the stage Flye was in ("stage", empty when unknown) and Flye's own error line ("detail") where it has one."""
         errors = [m.group(1).strip() for m in _ERROR.finditer(log_text)]
         errors = [e for e in errors if e != "Pipeline aborted" and not e.startswith("Command '")]
         stages = _STAGE.findall(log_text)
-        where = f" during the {stages[-1]} stage" if stages else ""
+        stage = stages[-1] if stages else ""
+        where = f" during the {stage} stage" if stage else ""
         if f"{SAMTOOLS_HELPER}: not found" in log_text:
             return (f"Flye could not run {SAMTOOLS_HELPER}{where}, so its consensus was empty. Install samtools "
-                    "(ARVA links flye-samtools to it when the Flye installation lacks it)")
+                    "(ARVA links flye-samtools to it when the Flye installation lacks it)",
+                    "flye_samtools_not_run", {"stage": stage})
         if "Looks like the system ran out of memory" in log_text or returncode in (-9, 137):
-            return (f"Flye ran out of memory{where} (the operating system stopped it). Free memory, or for large "
-                    "genomes use --asm-coverage with a genome size to assemble the first stage from the longest "
-                    "reads only")
+            # KMER_COUNTER_FLOOR: Flye 2.9.6 needs about 9 GB whatever the reads; --asm-coverage only reduces what
+            # the first stage needs above that.
+            return (f"Flye ran out of memory{where} (the operating system stopped it). Flye needs at least about "
+                    f"{math.ceil(KMER_COUNTER_FLOOR['gb'])} GB whatever the reads (its fixed k-mer table); above "
+                    "that, for large read sets, --asm-coverage with a genome size builds the first stage from the "
+                    "longest reads only", "flye_out_of_memory",
+                    {"stage": stage, "need_gb": math.ceil(KMER_COUNTER_FLOOR["gb"])})
         for e in errors:
             if e.startswith("No reads above minimum length threshold"):
                 return (f"Flye found no read longer than the minimum overlap ({e}). The reads may be too short for "
-                        "Flye, or the minimum overlap too high")
+                        "Flye, or the minimum overlap too high", "flye_no_long_reads", {"stage": stage, "detail": e})
             if e.startswith(("No disjointigs were assembled", "No contigs were assembled")):
                 return (f"Flye could not assemble the reads{where}: {e}. There may be too few reads or too little "
-                        "coverage, or the read type may not match the data")
+                        "coverage, or the read type may not match the data", "flye_nothing_assembled",
+                        {"stage": stage, "detail": e})
         if errors:
-            return f"Flye failed{where}: {errors[-1]}"
+            return f"Flye failed{where}: {errors[-1]}", "flye_error", {"stage": stage, "detail": errors[-1]}
         return None
+
+    @staticmethod
+    def failure_reason(log_text: str, returncode: int | None) -> str | None:
+        """A plain-language reason for a failed run, from Flye's own error lines; None when none is recognised."""
+        found = FlyeAdapter.failure(log_text, returncode)
+        return found[0] if found else None
 
 
 def read_checkpoint(out_dir: Path, stages: tuple[str, ...]) -> dict[str, Any] | None:
@@ -519,35 +534,65 @@ MEMORY_REFERENCE_BASES = MEMORY_REFERENCE["genome_size_bp"] * MEMORY_REFERENCE["
 SUGGESTED_ASM_COVERAGE = 40
 
 
-def memory_estimate(read_bases: int | None, available_gb: float, asm_coverage: int | None = None,
-                    genome_size_bp: int | None = None, meta: bool = False) -> dict[str, Any]:
-    """Whether a Flye run may fit the memory ARVA can use, by ARVA's estimate: Flye's documented 2 GB for 230 Mb of
-    reads (E. coli, 50x of 4.6 Mb), scaled in proportion to the bases the disjointig stage reads (every read base,
-    or asm_coverage * genome size when that is smaller). It is a rough guide, not a measurement: Flye's memory also
-    depends on the genome's repeats and the reads' error rate, and later stages read every base.
+# A fixed floor that does not depend on the reads. Flye 2.9.6 counts the solid k-mers of the disjointig stage in a flat
+# array with 4 bits per possible k-mer, which it allocates and fills with zeros before reading anything: 4^k / 2 bytes,
+# "in case of k=17, takes 8Gb" (src/sequence/vertex_index.cpp, KmerCounter::count; VertexIndex::countKmers always
+# passes useFlatCounter = true). k is kmer_size = 17 in every asm_*.cfg Flye 2.9.6 ships for the read types
+# (flye/config/bin_cfg/asm_raw_reads.cfg, asm_corrected_reads.cfg, asm_hifi.cfg, asm_nano_hq.cfg; only asm_subasm.cfg
+# uses 31), and Flye has no command-line option to change it, so --asm-coverage does not lower this floor. Measured
+# for ARVA with Flye 2.9.6 --nano-raw on 413 Mb of simulated reads, --genome-size 2800000 --asm-coverage 40 (112 Mb
+# used): peak resident memory 8787 MB during "Counting k-mers", and Flye logged "Peak RAM usage: 8 Gb". On a Mac in
+# Docker Desktop with 5.9 GB in the container Flye was killed for lack of memory with and without --asm-coverage.
+# The floor is the 8 GiB array plus the overhead measured beside it, in the unit ARVA reports memory in (GiB).
+KMER_COUNTER_FLOOR = {
+    "gb": 8.6, "kmer_size": 17, "counter_gib": 8, "flye_version": "2.9.6", "peak_measured_mb": 8787,
+    "source": "Flye 2.9.6 src/sequence/vertex_index.cpp (KmerCounter::count) and flye/config/bin_cfg/asm_*.cfg",
+    "url": "https://github.com/mikolmogorov/Flye/blob/2.9.6/src/sequence/vertex_index.cpp",
+}
 
-    verdict: "fits", "may_not_fit" or "unknown" (no read bases known). suggestion: what Flye documents to reduce
-    memory (--asm-coverage with --genome-size), when the run may not fit, does not use it already, and it would
-    reduce the bases (with a known genome size, only when SUGGESTED_ASM_COVERAGE x genome size < the read bases)."""
+
+def memory_estimate(read_bases: int | None, available_gb: float | None, asm_coverage: int | None = None,
+                    genome_size_bp: int | None = None, meta: bool = False) -> dict[str, Any]:
+    """Whether a Flye run may fit the memory the container has, by ARVA's estimate: the larger of Flye's fixed k-mer
+    counter (KMER_COUNTER_FLOOR, about 8.6 GB whatever the reads) and Flye's documented 2 GB for 230 Mb of reads
+    (E. coli, 50x of 4.6 Mb) scaled in proportion to the bases the disjointig stage reads (every read base, or
+    asm_coverage * genome size when that is smaller). The scaled part is a rough guide, not a measurement: Flye's
+    memory also depends on the genome's repeats and the reads' error rate, and later stages read every base.
+
+    available_gb: the memory the container (or computer) has; None when it could not be read.
+    verdict: "below_floor" when the container has less memory than the fixed floor (Flye cannot run here, whatever
+    the reads or options), else "fits", "may_not_fit" or "unknown" (no read bases or no memory known).
+    suggestion: what Flye documents to reduce memory (--asm-coverage with --genome-size), when the run may not fit
+    only because of the reads (never below the floor, which --asm-coverage does not lower), does not use it already,
+    and it would reduce the bases (with a known genome size, only when SUGGESTED_ASM_COVERAGE x genome size < the
+    read bases)."""
+    floor = KMER_COUNTER_FLOOR["gb"]
     out: dict[str, Any] = {"reference": MEMORY_REFERENCE, "reference_bases": MEMORY_REFERENCE_BASES,
                            "available_gb": available_gb, "read_bases": read_bases,
                            "asm_coverage": asm_coverage, "genome_size_bp": genome_size_bp, "bases_used": None,
+                           "floor": KMER_COUNTER_FLOOR, "floor_gb": floor, "scaled_gb": None,
                            "estimate_gb": None, "verdict": "unknown", "suggestion": None}
+    below = available_gb is not None and floor > available_gb
+    if below:
+        out["verdict"] = "below_floor"
     if not read_bases:
         return out
     used = read_bases
     if asm_coverage and genome_size_bp:
         used = min(read_bases, asm_coverage * genome_size_bp)
-    estimate = MEMORY_REFERENCE["ram_gb"] * used / MEMORY_REFERENCE_BASES
-    out.update(bases_used=used, estimate_gb=round(estimate, 2),
-               verdict="fits" if estimate <= available_gb else "may_not_fit")
+    scaled = MEMORY_REFERENCE["ram_gb"] * used / MEMORY_REFERENCE_BASES
+    estimate = max(scaled, floor)
+    out.update(bases_used=used, scaled_gb=round(scaled, 2), estimate_gb=round(estimate, 2))
+    if below or available_gb is None:
+        return out
+    out["verdict"] = "fits" if estimate <= available_gb else "may_not_fit"
     if out["verdict"] == "may_not_fit" and not asm_coverage and not meta:
         reduced = None
         if genome_size_bp:
             capped = SUGGESTED_ASM_COVERAGE * genome_size_bp
             if capped >= read_bases:
                 return out  # the reads are already below that coverage: --asm-coverage would not use fewer
-            reduced = round(MEMORY_REFERENCE["ram_gb"] * capped / MEMORY_REFERENCE_BASES, 2)
+            reduced = round(max(MEMORY_REFERENCE["ram_gb"] * capped / MEMORY_REFERENCE_BASES, floor), 2)
         out["suggestion"] = {"asm_coverage": SUGGESTED_ASM_COVERAGE, "needs_genome_size": genome_size_bp is None,
                              "genome_size_bp": genome_size_bp, "estimate_gb": reduced,
                              "coverage_x": round(read_bases / genome_size_bp, 1) if genome_size_bp else None}

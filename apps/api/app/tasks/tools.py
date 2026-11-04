@@ -797,11 +797,12 @@ def _flye_body(ctx: JobContext) -> None:
         stopped.update(returncode=exc.returncode, log=text)
         if isinstance(exc, ToolTimeoutError):
             raise
-        reason = FlyeAdapter.failure_reason(text, exc.returncode)
-        if reason is None:
+        found = FlyeAdapter.failure(text, exc.returncode)
+        if found is None:
             raise
         ctx.log("Flye output (last lines):\n" + exc.stderr_tail.strip())
-        raise JobFailure(reason) from None
+        reason, code, failure_params = found
+        raise JobFailure(reason, code, **failure_params) from None
     finally:
         shutil.rmtree(links, ignore_errors=True)
     monitor(finished=True)

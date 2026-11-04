@@ -1469,9 +1469,10 @@ class FlyePlanRead(BaseModel):
     files: list[FlyeFileEvidence]
     read_type_suggestion: FlyeReadTypeSuggestion
     genome_size: FlyeGenomeSizeOptions
-    memory: dict[str, Any] = Field(description="ARVA's estimate of whether the reads fit the memory ARVA can use "
-                                   "(Flye's documented E. coli figure scaled by read bases) and, when they may not, "
-                                   "Flye's documented way to use less (--asm-coverage with --genome-size)")
+    memory: dict[str, Any] = Field(description="ARVA's estimate of whether the reads fit the memory the container "
+                                   "has (the larger of Flye's fixed k-mer counter floor and Flye's documented E. coli "
+                                   "figure scaled by read bases) and, when they may not, Flye's documented way to use "
+                                   "less (--asm-coverage with --genome-size), never offered below the floor")
     sample_technology: SequencingTechnology
     long_reads_confirmation_required: bool
 
