@@ -6,10 +6,20 @@
 set -euo pipefail
 
 df -h / /mnt 2>/dev/null || df -h /
+# The build needs about 45 GB on amd64 (the 18 GB image loaded into Docker plus the builder's layers, measured on the
+# runs of 2026-11-03); some runners have a 72 GB root disk with about 46 GB free after the first list, which was not
+# enough, so the second list (tool caches and SDKs the image build and smoke test never use: the workflow uses no
+# setup-* action, and the smoke test runs the system python3) and the swap file go too.
 for dir in /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL \
   /usr/local/share/boost /usr/share/swift /usr/local/julia* /opt/az /usr/local/share/powershell \
-  /usr/local/share/chromium /opt/microsoft /opt/google; do
+  /usr/local/share/chromium /opt/microsoft /opt/google \
+  /opt/hostedtoolcache /usr/lib/jvm /usr/local/lib/node_modules /usr/share/miniconda /usr/local/share/vcpkg \
+  /opt/pipx /usr/lib/google-cloud-sdk /usr/local/aws-cli /usr/local/aws-sam-cli /opt/mssql-tools /usr/lib/firefox \
+  /usr/local/share/gradle* /usr/share/kotlinc /usr/local/go /opt/actionarchivecache; do
   if [ -e "$dir" ]; then sudo rm -rf "$dir"; fi
+done
+for swap in /swapfile /mnt/swapfile; do
+  if [ -f "$swap" ]; then sudo swapoff "$swap" 2>/dev/null || true; sudo rm -f "$swap"; fi
 done
 docker system prune -af > /dev/null || true
 
