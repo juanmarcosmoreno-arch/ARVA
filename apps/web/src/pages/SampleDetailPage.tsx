@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, ChevronDown, Copy, CornerDownRight, Download, ExternalLink, FileText, Filter, Loader2, Play } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { refreshSampleResults } from "@/lib/refresh";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import {
   CumulativeYieldChart,
@@ -126,13 +127,8 @@ export function SampleDetailPage() {
   const queryClient = useQueryClient();
   const finishedCount = allJobs.filter((j) => j.status === "completed" || j.status === "failed" || j.status === "cancelled").length;
   useEffect(() => {
-    // Jobs can create derived files and cross-check data; refresh them whenever a job finishes.
-    queryClient.invalidateQueries({ queryKey: ["files", sampleId] });
-    queryClient.invalidateQueries({ queryKey: ["crosscheck"] });
-    queryClient.invalidateQueries({ queryKey: ["assemblies", sampleId] });
-    queryClient.invalidateQueries({ queryKey: ["annotations", sampleId] });
-    queryClient.invalidateQueries({ queryKey: ["mlst", sampleId] });
-    queryClient.invalidateQueries({ queryKey: ["species", sampleId] });
+    // Jobs create derived files, assemblies and results of every kind; refresh them all whenever a job finishes.
+    refreshSampleResults(queryClient, sampleId);
   }, [finishedCount, sampleId, queryClient]);
 
   const stages: Stage[] = [
