@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, Dna, Download, Info, Loader2, Play, Plus } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
@@ -19,8 +19,11 @@ import { toolMessage } from "@/lib/messages";
 import type { AnalysisJobDetail, Assembly } from "@/lib/types";
 import {
   type ApplicabilityInfo,
+  defaultSteps,
   genesText,
+  noCassette,
   settingsProblems,
+  stepList,
   STAPH_MODULE,
   type StaphSummary,
   sourceText,
@@ -167,7 +170,11 @@ export function StaphSummaryCard({ summary }: { summary: StaphSummary }) {
               {sccmec && (
                 <Part
                   label={t("typing.part.ccrMec")}
-                  value={`${(sccmec.ccr_complexes ?? []).join(", ") || "-"} · ${(sccmec.mec_classes ?? []).join(", ") || "-"} · mecA ${sccmec.mecA ? "+" : "-"}`}
+                  value={
+                    noCassette(sccmec)
+                      ? t("typing.noCassette")
+                      : `${(sccmec.ccr_complexes ?? []).join(", ") || t("typing.noneFound")} · ${(sccmec.mec_classes ?? []).join(", ") || t("typing.noneFound")} · mecA ${sccmec.mecA ? "+" : "-"}`
+                  }
                   source={sourceText(t, summary.sccmec?.source)}
                 />
               )}
@@ -194,7 +201,10 @@ function ResultCard({ result }: { result: TypingResult }) {
   const d = result.details as Record<string, unknown>;
   const align = d.operon_alignment as { covered_fraction: number | null } | null | undefined;
   const lines: string[] = [];
-  if (result.method === "sccmec") {
+  if (result.method === "sccmec" && d.type == null && noCassette(d)) {
+    const targets = ((d.targets as string[]) ?? []).join(", ");
+    lines.push(targets ? t("typing.noCassetteTargets", { targets }) : t("typing.noCassette"));
+  } else if (result.method === "sccmec") {
     lines.push(t("typing.detail.sccmec", { type: String(d.type ?? "-"), subtype: String(d.subtype ?? "-"), coverage: d.coverage == null ? "-" : String(d.coverage), targets: ((d.targets as string[]) ?? []).join(", ") || "-" }));
   } else if (result.method === "spa") {
     lines.push(t("typing.detail.spa", { repeats: String(d.repeats ?? "-"), contigs: fmtInt(((d.rows as unknown[]) ?? []).length) }));
@@ -302,59 +312,89 @@ export function TypingSection({ sampleId, jobs, onStart }: { sampleId: string; j
   );
 }
 
-/** Shows what one S. aureus typing step will do here — the tool, the Ridom files (spa) or the data the tool bundles,
- * the settings with the tool's defaults, and whether the species evidence supports the module — and runs it after an
- * explicit confirmation (and, when the evidence does not support it, an explicit override). */
+/** Shows what the chosen S. aureus typing steps will do here — per step the tool, the Ridom files (spa) or the data the
+ * tool bundles, the settings with the tool's defaults — and whether the species evidence supports the module, and
+ * runs each checked step as its own job (the API runs one step per request) after an explicit confirmation (and,
+ * when the evidence does not support the module, an explicit override). The steps not yet run on the assembly whose
+ * tool and data are ready start checked; the run button names the steps it will run. */
 export function StaphTypingDialog({ open, onOpenChange, sampleId, assemblies }: { open: boolean; onOpenChange: (o: boolean) => void; sampleId: string; assemblies: Assembly[] }) {
   const t = useT();
   const queryClient = useQueryClient();
   const options = assemblyOptions(assemblies);
   const last = options[options.length - 1]?.assembly.id ?? "";
   const [assemblyId, setAssemblyId] = useState(last);
-  const [method, setMethod] = useState<TypingMethod>("sccmec");
+  const [steps, setSteps] = useState<TypingMethod[]>([]);
+  // False until the user ticks or unticks a step: until then the defaults follow the assembly and the data.
+  const [touched, setTouched] = useState(false);
   const [databaseId, setDatabaseId] = useState("");
   const [settings, setSettings] = useState<Record<string, string>>({});
   const [override, setOverride] = useState(false);
   const [confirmed, setConfirmed] = useState(false);
+  const [started, setStarted] = useState<TypingMethod[]>([]);
+  const view = useQuery({ queryKey: ["typing", sampleId], queryFn: () => api.typingSample(sampleId), enabled: open });
+  const module = view.data?.modules.find((m) => m.key === STAPH_MODULE);
+  const results = view.data?.results ?? [];
   useEffect(() => {
     if (open) {
       setAssemblyId(last);
-      setMethod("sccmec");
+      setTouched(false);
       setDatabaseId("");
       setSettings({});
       setOverride(false);
       setConfirmed(false);
+      setStarted([]);
     }
     // Only when the dialog opens: the user's choices are never replaced while it is open.
   }, [open]);
-  const plan = useQuery({
-    queryKey: ["typingPlan", assemblyId, method, databaseId],
-    queryFn: () => api.typingPreview(assemblyId, STAPH_MODULE, method, databaseId || null),
-    enabled: open && Boolean(assemblyId),
-    retry: false,
+  useEffect(() => {
+    if (open && !touched) setSteps(defaultSteps(assemblyId, results, module?.requirements ?? []));
+  }, [open, touched, assemblyId, view.data]);
+  const plans = useQueries({
+    queries: steps.map((m) => ({
+      queryKey: ["typingPlan", assemblyId, m, m === "spa" ? databaseId : ""],
+      queryFn: () => api.typingPreview(assemblyId, STAPH_MODULE, m, m === "spa" ? databaseId || null : null),
+      enabled: open && Boolean(assemblyId),
+      retry: false,
+    })),
   });
-  const p = plan.data;
-  const problems = settingsProblems(method, settings);
-  const needsOverride = Boolean(p?.applicability.override_required);
+  const planOf = (m: TypingMethod) => plans[steps.indexOf(m)]?.data;
+  const fetching = plans.some((q) => q.isFetching);
+  const problems: TranslationKey[] = steps.length ? (steps.includes("sccmec") ? settingsProblems("sccmec", settings) : []) : ["typing.problem.noStep"];
+  const needsOverride = plans.some((q) => q.data?.applicability.override_required);
   const run = useMutation({
-    mutationFn: () => api.runTyping(assemblyId, STAPH_MODULE, typingBody(method, settings, databaseId, override)),
-    onSuccess: () => {
+    mutationFn: async () => {
+      setStarted([]);
+      // One job per step, in the order shown; a step that cannot start stops the rest and says which ones started.
+      for (const m of steps) {
+        await api.runTyping(assemblyId, STAPH_MODULE, typingBody(m, m === "sccmec" ? settings : {}, m === "spa" ? databaseId : "", override));
+        setStarted((s) => [...s, m]);
+      }
+    },
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ["jobs", sampleId] });
       queryClient.invalidateQueries({ queryKey: ["typing", sampleId] });
-      onOpenChange(false);
     },
+    onSuccess: () => onOpenChange(false),
   });
   const change = (fn: () => void) => {
     fn();
     setConfirmed(false);
   };
-  const blocked = !p || p.tool.status !== "available" || p.problems.length > 0 || problems.length > 0 || (needsOverride && !override) || !confirmed;
+  const toggle = (m: TypingMethod, on: boolean) =>
+    change(() => {
+      setTouched(true);
+      setSteps((s) => TYPING_METHODS.filter((x) => (x === m ? on : s.includes(x))));
+    });
+  const ranOn = (m: TypingMethod) => results.find((r) => r.assembly_id === assemblyId && r.method === m);
+  const blocked =
+    problems.length > 0 || steps.some((m) => { const p = planOf(m); return !p || p.tool.status !== "available" || p.problems.length > 0; }) || (needsOverride && !override) || !confirmed;
+  const firstPlan = plans[0]?.data;
   return (
     <Dialog open={open} onOpenChange={onOpenChange} title={t("typing.title")} description={t("typing.description")} className="max-w-3xl">
       <div className="space-y-5 text-sm">
         <section className="space-y-2">
           <h4 className="text-sm font-semibold">{t("mlst.assembly")}</h4>
-          <Select value={assemblyId} onChange={(e) => change(() => setAssemblyId(e.target.value))} aria-label={t("mlst.assembly")}>
+          <Select value={assemblyId} onChange={(e) => change(() => { setAssemblyId(e.target.value); setTouched(false); })} aria-label={t("mlst.assembly")}>
             {options.map(({ assembly: a, depth }) => (
               <option key={a.id} value={a.id}>
                 {"  ".repeat(depth)}
@@ -363,60 +403,83 @@ export function StaphTypingDialog({ open, onOpenChange, sampleId, assemblies }: 
               </option>
             ))}
           </Select>
-          {p && p.assembly.synthetic_evidence.length > 0 && <SyntheticNote evidence={p.assembly.synthetic_evidence} />}
-          {p && <ApplicabilityNote info={p.applicability} />}
+          {firstPlan && firstPlan.assembly.synthetic_evidence.length > 0 && <SyntheticNote evidence={firstPlan.assembly.synthetic_evidence} />}
+          {firstPlan && <ApplicabilityNote info={firstPlan.applicability} />}
         </section>
         <section className="space-y-2">
           <h4 className="text-sm font-semibold">{t("typing.stepLabel")}</h4>
+          <p className="text-xs text-muted-foreground">{t("typing.stepsHint")}</p>
           <div className="space-y-1.5 text-xs">
-            {TYPING_METHODS.map((m) => (
-              <label key={m} className="flex items-start gap-2">
-                <input type="radio" className={CHECK} checked={method === m} onChange={() => change(() => { setMethod(m); setDatabaseId(""); setSettings({}); })} />
-                <span>
-                  <span className="font-medium">{t(`typing.method.${m}` as TranslationKey)}</span>
-                  <span className="block text-muted-foreground">{t(`typing.methodHint.${m}` as TranslationKey)}</span>
-                </span>
-              </label>
-            ))}
+            {TYPING_METHODS.map((m) => {
+              const req = module?.requirements.find((r) => r.key === m);
+              const done = ranOn(m);
+              return (
+                <label key={m} className="flex items-start gap-2">
+                  <input type="checkbox" className={CHECK} checked={steps.includes(m)} onChange={(e) => toggle(m, e.target.checked)} />
+                  <span>
+                    <span className="font-medium">{t(`typing.method.${m}` as TranslationKey)}</span>
+                    {req && !req.ready && <span className="text-amber-700 dark:text-warning"> · {t("typing.missing")}</span>}
+                    {done && <span className="text-muted-foreground"> · {t("typing.alreadyRun", { date: fmtDate(done.created_at) })}</span>}
+                    <span className="block text-muted-foreground">{t(`typing.methodHint.${m}` as TranslationKey)}</span>
+                  </span>
+                </label>
+              );
+            })}
           </div>
         </section>
-        {plan.isFetching && <p className="text-xs text-muted-foreground">{t("mlst.checking")}</p>}
-        <ErrorNote error={plan.error} />
-        {p && p.tool.status === "available" && (
-          <p className="text-xs text-muted-foreground">
-            {t("mobile.toolLine", { tool: p.tool.name, version: p.tool.version ?? "?", licence: p.tool.license })}{" "}
-            <a href={p.tool.citation_url} target="_blank" rel="noreferrer noopener" className="text-arva-royal hover:underline dark:text-arva-cyan">
-              {t("annotation.cite")}
-            </a>
-          </p>
-        )}
-        {p?.bundled && <p className="text-xs text-muted-foreground">{t("typing.bundled", { name: p.bundled.name, checksum: p.bundled.checksum.slice(0, 19) })}</p>}
-        {method === "spa" && p && p.databases.length > 0 && (
-          <section className="space-y-1">
-            <h4 className="text-sm font-semibold">{t("typing.ridomFiles")}</h4>
-            <Select value={databaseId || p.database?.id || ""} onChange={(e) => change(() => setDatabaseId(e.target.value))} aria-label={t("typing.ridomFiles")}>
-              {p.databases.map((d) => (
-                <option key={d.id} value={d.id} disabled={!d.available}>
-                  {d.name} {d.version ?? ""}
-                </option>
-              ))}
-            </Select>
-            <p className="text-xs text-muted-foreground">{t("typing.ridomTermsText")}</p>
-          </section>
-        )}
-        {p && method === "sccmec" && (
-          <section className="grid gap-3 sm:grid-cols-2">
-            {Object.entries(p.defaults).map(([key, def]) => (
-              <Field key={key} label={`--${key.replace(/_/g, "-")}`} hint={p.tool_defaults[key.replace(/_/g, "-")] ? t("mobile.toolDefault", { value: p.tool_defaults[key.replace(/_/g, "-")] }) : undefined}>
-                <Input type="number" min={1} max={100} value={settings[key] ?? def} onChange={(e) => change(() => setSettings((s) => ({ ...s, [key]: e.target.value })))} />
-              </Field>
-            ))}
-          </section>
-        )}
-        <p className="flex gap-1.5 rounded-lg border border-warning/40 bg-warning/5 p-3 text-xs">
-          <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-warning" aria-hidden />
-          <span>{t(`typing.note.${method}` as TranslationKey)}</span>
-        </p>
+        {fetching && <p className="text-xs text-muted-foreground">{t("mlst.checking")}</p>}
+        {steps.map((m, i) => {
+          const q = plans[i];
+          const p = q?.data;
+          return (
+            <section key={m} className="space-y-2 rounded-lg border p-3" aria-label={t(`typing.method.${m}` as TranslationKey)}>
+              <h4 className="text-sm font-semibold">{t(`typing.method.${m}` as TranslationKey)}</h4>
+              <ErrorNote error={q?.error} />
+              {p && p.tool.status === "available" && (
+                <p className="text-xs text-muted-foreground">
+                  {t("mobile.toolLine", { tool: p.tool.name, version: p.tool.version ?? "?", licence: p.tool.license })}{" "}
+                  <a href={p.tool.citation_url} target="_blank" rel="noreferrer noopener" className="text-arva-royal hover:underline dark:text-arva-cyan">
+                    {t("annotation.cite")}
+                  </a>
+                </p>
+              )}
+              {p?.bundled && <p className="text-xs text-muted-foreground">{t("typing.bundled", { name: p.bundled.name, checksum: p.bundled.checksum.slice(0, 19) })}</p>}
+              {m === "spa" && p && p.databases.length > 0 && (
+                <div className="space-y-1">
+                  <h5 className="text-xs font-semibold">{t("typing.ridomFiles")}</h5>
+                  <Select value={databaseId || p.database?.id || ""} onChange={(e) => change(() => setDatabaseId(e.target.value))} aria-label={t("typing.ridomFiles")}>
+                    {p.databases.map((d) => (
+                      <option key={d.id} value={d.id} disabled={!d.available}>
+                        {d.name} {d.version ?? ""}
+                      </option>
+                    ))}
+                  </Select>
+                  <p className="text-xs text-muted-foreground">{t("typing.ridomTermsText")}</p>
+                </div>
+              )}
+              {p && m === "sccmec" && (
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {Object.entries(p.defaults).map(([key, def]) => (
+                    <Field key={key} label={`--${key.replace(/_/g, "-")}`} hint={p.tool_defaults[key.replace(/_/g, "-")] ? t("mobile.toolDefault", { value: p.tool_defaults[key.replace(/_/g, "-")] }) : undefined}>
+                      <Input type="number" min={1} max={100} value={settings[key] ?? def} onChange={(e) => change(() => setSettings((s) => ({ ...s, [key]: e.target.value })))} />
+                    </Field>
+                  ))}
+                </div>
+              )}
+              <p className="flex gap-1.5 rounded-lg border border-warning/40 bg-warning/5 p-3 text-xs">
+                <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-warning" aria-hidden />
+                <span>{t(`typing.note.${m}` as TranslationKey)}</span>
+              </p>
+              {(p?.problems.length ?? 0) > 0 && (
+                <ul className="list-disc space-y-0.5 pl-5 text-xs text-amber-700 dark:text-warning">
+                  {p?.problems.map((x) => (
+                    <li key={x.code}>{t(`typing.planProblem.${x.code}` as TranslationKey, { tool: "?", status: "?", detail: "", ...x.params })}</li>
+                  ))}
+                </ul>
+              )}
+            </section>
+          );
+        })}
         {needsOverride && (
           <label className="flex items-start gap-2 text-xs text-amber-700 dark:text-warning">
             <input type="checkbox" className={CHECK} checked={override} onChange={(e) => setOverride(e.target.checked)} />
@@ -427,24 +490,22 @@ export function StaphTypingDialog({ open, onOpenChange, sampleId, assemblies }: 
           <input type="checkbox" className={CHECK} checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} />
           <span>{t("typing.confirm")}</span>
         </label>
-        {(problems.length > 0 || (p?.problems.length ?? 0) > 0) && (
+        {problems.length > 0 && (
           <ul className="list-disc space-y-0.5 pl-5 text-xs text-amber-700 dark:text-warning">
             {problems.map((k) => (
               <li key={k}>{t(k)}</li>
             ))}
-            {p?.problems.map((x) => (
-              <li key={x.code}>{t(`typing.planProblem.${x.code}` as TranslationKey, { tool: "?", status: "?", detail: "", ...x.params })}</li>
-            ))}
           </ul>
         )}
         <ErrorNote error={run.error} />
+        {run.isError && started.length > 0 && <p className="text-xs text-muted-foreground">{t("typing.partialStart", { steps: stepList(t, started) })}</p>}
         <div className="flex justify-end gap-2">
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             {t("common.cancel")}
           </Button>
-          <Button onClick={() => run.mutate()} disabled={blocked || plan.isFetching || run.isPending}>
+          <Button onClick={() => run.mutate()} disabled={blocked || fetching || run.isPending}>
             {run.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
-            {run.isPending ? t("mlst.starting") : t("typing.run")}
+            {run.isPending ? t("mlst.starting") : steps.length ? t("typing.runSteps", { steps: stepList(t, steps) }) : t("typing.run")}
           </Button>
         </div>
       </div>
