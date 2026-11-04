@@ -286,10 +286,46 @@ def test_docker_advice_for_a_mac():
     assert (pro["memory"]["recommended_gb"], pro["memory"]["status"]) == (19, "increase")
     greedy = advice(M1_PRO, container(10, 30))
     assert greedy["memory"]["status"] == "decrease" and greedy["memory"]["most_gb"] == 24
-    # Docker Desktop's own figures, when the launcher passed them, take precedence over the container's view.
+    # Docker Desktop's CPUs from the launcher take precedence over the container's view; its memory does not: what
+    # the container measures is what the tools get (see the next test).
     with_docker = facts(**{k: v.value for k, v in vars(M1_PRO).items() if v.known}, docker_cpus=8,
                         docker_memory_bytes=20 * GIB)
-    assert advice(with_docker, container(2, 4))["status"] == "ok"
+    assert advice(with_docker, container(2, 20))["status"] == "ok"
+    assert advice(with_docker, container(2, 20))["memory"]["docker_info_agrees"] is True
+
+
+def test_docker_memory_prefers_what_the_container_measures():
+    """The user's Mac: docker info said 3.8 GB when ARVA started; then the Docker Desktop "Memory limit" slider was
+    moved to 6.1 GiB and the container measured 5.9 GB. The measurement is shown and used; the start-up figure is
+    kept only to say that it differs."""
+    air8 = facts(platform="macos", model_name="MacBook Air", performance_cores=4, efficiency_cores=4, logical_cpus=8,
+                 memory_bytes=8 * GIB, docker_cpus=8, docker_memory_bytes=int(3.8 * GIB))
+    det = h.Detection(air8, container(8, 5.9))
+    seen = perf.docker_memory(det)
+    assert seen == {"current_bytes": int(5.9 * GIB), "source": "container", "docker_info_bytes": int(3.8 * GIB),
+                    "measured_bytes": int(5.9 * GIB), "docker_info_agrees": False}
+    a = perf.docker_advice(det, perf.compute(det, {"profile": "auto"}))
+    assert a["memory"]["current_bytes"] == int(5.9 * GIB) and a["memory"]["docker_info_agrees"] is False
+    # Agreeing figures (the VM's MemTotal both times).
+    same = perf.docker_memory(h.Detection(air8, container(8, 3.8)))
+    assert same["docker_info_agrees"] is True and same["source"] == "container"
+    # Outside a container only the launcher's figure is known; without either, nothing.
+    native = perf.docker_memory(h.Detection(air8, container(8, 5.9, in_container=False)))
+    assert native["source"] == "docker_info" and native["docker_info_agrees"] is None
+    assert perf.docker_memory(h.Detection(h.HostFacts(), container(8, 5.9)))["docker_info_bytes"] is None
+
+
+def test_diagnostics_line_says_when_docker_info_differs():
+    from app.services.diagnostics import _docker_memory_line
+
+    differs = _docker_memory_line({"measured_bytes": int(5.9 * GIB), "docker_info_bytes": int(3.8 * GIB),
+                                   "docker_info_agrees": False})
+    assert differs.startswith("5.9 GB measured in the container; docker info reported 3.8 GB when ARVA started, "
+                              "which differs")
+    agrees = _docker_memory_line({"measured_bytes": int(5.9 * GIB), "docker_info_bytes": int(5.9 * GIB),
+                                  "docker_info_agrees": True})
+    assert agrees == "5.9 GB measured in the container; docker info reported the same at start (5.9 GB)"
+    assert _docker_memory_line({"measured_bytes": None, "docker_info_bytes": None}) == "unknown"
 
 
 def test_docker_advice_without_host_facts_or_container():

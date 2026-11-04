@@ -750,9 +750,19 @@ export interface PerformanceOverview {
   docker: {
     status: "ok" | "adjust" | "partial" | "host_unknown" | "not_container";
     cpus?: { current: number; recommended: number; status: "ok" | "increase" } | null;
-    memory?: { current_bytes: number | null; recommended_gb: number; most_gb: number; status: "ok" | "increase" | "decrease" | "unknown" } | null;
+    memory?: ({ recommended_gb: number; most_gb: number; status: "ok" | "increase" | "decrease" | "unknown" } & Partial<DockerMemorySeen>) | null;
   };
+  /** Docker Desktop's memory: what the container measures (preferred) and what docker info reported at start. */
+  docker_memory?: DockerMemorySeen;
   image: ImagePlatform;
+}
+
+export interface DockerMemorySeen {
+  current_bytes: number | null;
+  source: "container" | "docker_info" | null;
+  docker_info_bytes: number | null;
+  measured_bytes: number | null;
+  docker_info_agrees: boolean | null;
 }
 
 export type ImagePlatformName = "linux/amd64" | "linux/arm64";

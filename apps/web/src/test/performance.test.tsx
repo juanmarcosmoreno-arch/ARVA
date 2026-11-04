@@ -100,6 +100,26 @@ describe("Performance section", () => {
     expect(screen.getByText(/Use Rosetta for x86_64\/amd64 emulation on Apple Silicon/)).toBeInTheDocument();
   });
 
+  it("shows Docker Desktop's memory as the container measures it, and says when docker info at start differed", async () => {
+    // The user's Mac: docker info said 3.8 GB when ARVA started; the "Memory limit" slider was then moved and the
+    // container measured 5.9 GB.
+    useSettings.setState({ language: "es" });
+    const dm = { current_bytes: 5.9 * GIB, source: "container" as const, docker_info_bytes: 3.8 * GIB, measured_bytes: 5.9 * GIB, docker_info_agrees: false };
+    vi.spyOn(api, "performance").mockResolvedValue({ ...mac, host: { ...mac.host, docker_memory_bytes: launcher(3.8 * GIB) }, docker_memory: dm });
+    renderSection();
+    expect(await screen.findByText("4 CPU, 5,90 GB para su máquina virtual")).toBeInTheDocument();
+    expect(screen.getByText("medido en el contenedor")).toBeInTheDocument();
+    expect(screen.getByText(/Al iniciar ARVA, docker info informó 3,80 GB para la máquina virtual de Docker Desktop; el contenedor tiene ahora 5,90 GB/)).toBeInTheDocument();
+  });
+
+  it("names docker info's figure only when it agrees with the container", async () => {
+    const dm = { current_bytes: 7.7 * GIB, source: "container" as const, docker_info_bytes: 7.7 * GIB, measured_bytes: 7.7 * GIB, docker_info_agrees: true };
+    vi.spyOn(api, "performance").mockResolvedValue({ ...mac, docker_memory: dm });
+    renderSection();
+    expect(await screen.findByText("measured in the container; matches what docker info reported when ARVA started")).toBeInTheDocument();
+    expect(screen.queryByText(/was probably changed after ARVA started/)).toBeNull();
+  });
+
   it("saves a custom profile only within what ARVA can use", async () => {
     vi.spyOn(api, "performance").mockResolvedValue(mac);
     const save = vi.spyOn(api, "setPerformance").mockResolvedValue({ ...mac, choice: { profile: "custom", threads: 2, memory_gb: 3, updated_at: "now" } });

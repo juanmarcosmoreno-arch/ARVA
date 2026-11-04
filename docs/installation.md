@@ -174,7 +174,12 @@ identifiers are never passed on, and nothing leaves the computer. Intel Macs and
 `hw.perflevel*` keys: ARVA then uses the physical cores (Intel) or system_profiler's processor field (Apple
 silicon). Every value is validated and bounded again by the API (`app/services/host.py`); a missing or malformed
 one is shown as unknown. Once ARVA runs, the launcher prints the profile in use and, if Docker Desktop's resources
-do not suit it, what to set. A plain `docker compose up` keeps working: the computer is then unknown and the
+do not suit it, what to set. Docker Desktop's memory is read once, when the launcher runs; if it is changed later
+in Docker Desktop (which restarts the containers with the same launcher values), that figure is stale. ARVA
+therefore shows and uses the memory the container measures (cgroup limit, else `MemTotal`), names `docker info`'s
+figure only when it agrees with the measurement (within 5 %), and says so in Settings → Performance and in the
+diagnostics report when they differ (seen on a Mac: 3.8 GB from `docker info` at start, 5.9 GB in the container
+after the "Memory limit" slider was moved). ARVA does not read the memory from Docker Desktop's settings file. A plain `docker compose up` keeps working: the computer is then unknown and the
 profile follows the CPUs and memory the containers can use.
 
 **Not yet validated on a real Mac.** The launcher and the macOS readers were written from Apple's documentation

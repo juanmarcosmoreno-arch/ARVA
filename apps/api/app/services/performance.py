@@ -47,6 +47,25 @@ DOCKER_MEMORY_SHARE = {"light": 0.5, "balanced": 0.6, "maximum": 0.75}
 DOCKER_MEMORY_MOST = 0.75
 # The VM's kernel reports a little less memory than Docker Desktop's setting; within this share it counts as set.
 DOCKER_MEMORY_TOLERANCE = 0.9
+# The memory `docker info` reported when scripts/start.sh ran (the VM's MemTotal) and what the container measures now
+# (the same kernel's MemTotal, or a cgroup limit) agree within this share; more apart, Docker Desktop's memory was
+# changed after ARVA started (seen on a Mac: 3.8 GB reported at start, 5.9 GB in the container after moving the
+# "Memory limit" slider), and the measurement is what ARVA's tools get.
+DOCKER_MEMORY_AGREEMENT = 0.95
+
+
+def docker_memory(det: Detection) -> dict[str, Any]:
+    """The memory of Docker Desktop's virtual machine as ARVA knows it: what the container measures now (preferred,
+    it is what the tools get) and what `docker info` reported when scripts/start.sh ran, with whether they agree.
+    current_bytes: the measurement in a container, else the launcher's figure; source: "container" or "docker_info"."""
+    host, c = det.host, det.container
+    measured = c.memory_bytes if c.in_container else None
+    reported = host.docker_memory_bytes.value
+    agrees = None
+    if measured and reported:
+        agrees = min(measured, reported) / max(measured, reported) >= DOCKER_MEMORY_AGREEMENT
+    return {"current_bytes": measured or reported, "source": "container" if measured else "docker_info" if reported
+            else None, "docker_info_bytes": reported, "measured_bytes": measured, "docker_info_agrees": agrees}
 
 MAC_PROFILE = {"macbook_air": "light", "macbook": "light", "macbook_pro": "balanced", "mac_mini": "balanced",
                "imac": "balanced", "mac_studio": "maximum", "mac_pro": "maximum"}
@@ -208,7 +227,9 @@ def compute(det: Detection, choice: dict[str, Any], admin_threads: int | None = 
 def docker_advice(det: Detection, res: Resources) -> dict[str, Any]:
     """What Docker Desktop should give its virtual machine for the profile in use on this Mac: "increase" when it
     gives fewer CPUs or less memory, "decrease" when its memory leaves macOS less than a quarter. Unknown without
-    the launcher's facts. More CPUs than recommended are fine: ARVA's thread count is the limit for its tools."""
+    the launcher's facts. More CPUs than recommended are fine: ARVA's thread count is the limit for its tools.
+    Memory is what the container measures (docker_memory), not the figure the launcher read at start, which goes
+    stale when Docker Desktop's memory is changed while ARVA runs."""
     host, c = det.host, det.container
     if not c.in_container:
         return {"status": "not_container"}
@@ -230,14 +251,15 @@ def docker_advice(det: Detection, res: Resources) -> dict[str, Any]:
         mac_gb = host.memory_bytes.value / GIB
         share = DOCKER_MEMORY_SHARE["balanced" if res.profile == "custom" else res.profile]
         recommended_gb = max(1, math.floor(mac_gb * share))
-        current = host.docker_memory_bytes.value or c.memory_bytes
+        seen = docker_memory(det)
+        current = seen["current_bytes"]
         status = "unknown"
         if current is not None:
             current_gb = current / GIB
             status = ("increase" if current_gb < recommended_gb * DOCKER_MEMORY_TOLERANCE else
                       "decrease" if current_gb > mac_gb * DOCKER_MEMORY_MOST else "ok")
-        memory = {"current_bytes": current, "recommended_gb": recommended_gb,
-                  "most_gb": math.floor(mac_gb * DOCKER_MEMORY_MOST), "status": status}
+        memory = {**seen, "recommended_gb": recommended_gb, "most_gb": math.floor(mac_gb * DOCKER_MEMORY_MOST),
+                  "status": status}
     statuses = {x["status"] for x in (cpus, memory) if x}
     overall = ("adjust" if statuses & {"increase", "decrease"} else "ok" if statuses == {"ok"} else "partial")
     return {"status": overall, "cpus": cpus, "memory": memory}
@@ -296,6 +318,7 @@ def overview(db: Session) -> dict[str, Any]:
         "profiles": [{"profile": p, "threads": r.threads, "memory_gb": r.memory_gb, "nice": r.nice}
                      for p, r in profiles.items()],
         "docker": docker_advice(det, res),
+        "docker_memory": docker_memory(det),
         "image": image_platform.describe(det.host, os.environ),
     }
 
