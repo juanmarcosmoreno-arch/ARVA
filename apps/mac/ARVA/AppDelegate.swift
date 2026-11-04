@@ -350,7 +350,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         note(L("ARVA answers again.\n", "ARVA vuelve a responder.\n"))
         mainWeb?.window.subtitle = sleepGuard.isActive ? SleepGuard.statusText : ""
         closeNotRespondingAlert()
-        mainWeb?.reload()
+        // Not after a short gap with ARVA's page still shown (ARVA was only busy): a reload would discard what the
+        // person was doing in it.
+        if let web = mainWeb, ServerWatch.shouldReload(showsARVAPage: web.showsARVAPage, downFor: serverWatch.lastOutage) {
+            web.reload()
+        }
     }
 
     private func showSleepStatus(_ active: Bool) {

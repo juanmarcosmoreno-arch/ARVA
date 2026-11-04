@@ -378,6 +378,24 @@ enum SelfTest {
         check("server: answers again", server.update(answered: true) == .cameBack && !server.isDown)
         check("server: a lone failure after that is not reported", server.update(answered: false) == nil
               && server.update(answered: true) == nil)
+        // When it answers again: how long it was down, from the first failed check, decides whether to reload a page
+        // that is still ARVA's (a reload discards an open dialog or a form being filled).
+        var timed = ServerWatch()
+        let t0 = Date(timeIntervalSince1970: 1_000_000)
+        _ = timed.update(answered: false, now: t0)
+        _ = timed.update(answered: false, now: t0.addingTimeInterval(15))
+        check("server: outage measured from the first failed check",
+              timed.update(answered: true, now: t0.addingTimeInterval(30)) == .cameBack && timed.lastOutage == 30)
+        check("server: busy (30 s) with ARVA's page shown: no reload",
+              !ServerWatch.shouldReload(showsARVAPage: true, downFor: timed.lastOutage))
+        check("server: the not-answering page is always reloaded",
+              ServerWatch.shouldReload(showsARVAPage: false, downFor: timed.lastOutage))
+        _ = timed.update(answered: false, now: t0.addingTimeInterval(100))
+        _ = timed.update(answered: false, now: t0.addingTimeInterval(115))
+        _ = timed.update(answered: false, now: t0.addingTimeInterval(130))
+        check("server: stopped (\(Int(ServerWatch.reloadAfterDown)) s or more): reload",
+              timed.update(answered: true, now: t0.addingTimeInterval(190)) == .cameBack
+              && ServerWatch.shouldReload(showsARVAPage: true, downFor: timed.lastOutage))
 
         // ARVA → Choose Import Folder…: the launcher's rules and the app's.
         let folders: Set<String> = ["/Volumes/JM/runs", "/Users/x", "/Users/x/Seq", "/Users/x/locked"]

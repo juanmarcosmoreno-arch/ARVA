@@ -114,10 +114,15 @@ enum ArvaServer {
 /// `failuresToReport` failed checks in a row (one can be a slow answer, or the Mac waking up), and as back at the first
 /// answer after that. Closing Docker Desktop stops ARVA this way. When it opens again, ARVA's containers may come back
 /// by themselves (docker-compose.yml gives them `restart: unless-stopped`; not yet seen on a real Mac): the page is then
-/// reloaded at the first answer. Otherwise the person's Try Again starts ARVA as opening the app does.
+/// reloaded at the first answer when `shouldReload` says so. Otherwise the person's Try Again starts ARVA as opening
+/// the app does.
 struct ServerWatch {
     static let interval: TimeInterval = 15
     static let failuresToReport = 2
+    /// How long ARVA must have stopped answering for the page to be reloaded when it answers again, although the page
+    /// shown is still ARVA's own: long enough to mean it was stopped (Docker Desktop closed), not only busy. Two /health
+    /// checks that time out while ARVA works hard take about one or two intervals.
+    static let reloadAfterDown: TimeInterval = 60
 
     enum Change: Equatable {
         case wentDown
@@ -126,17 +131,33 @@ struct ServerWatch {
 
     private(set) var failures = 0
     private(set) var isDown = false
+    /// When the failed checks in a row began (nil while ARVA answers).
+    private(set) var failingSince: Date?
+    /// At `.cameBack`: how long ARVA did not answer, from the first failed check of that series.
+    private(set) var lastOutage: TimeInterval = 0
 
-    mutating func update(answered: Bool) -> Change? {
+    mutating func update(answered: Bool, now: Date = Date()) -> Change? {
         if answered {
+            let since = failingSince
             failures = 0
+            failingSince = nil
             guard isDown else { return nil }
             isDown = false
+            lastOutage = max(0, now.timeIntervalSince(since ?? now))
             return .cameBack
         }
+        if failures == 0 { failingSince = now }
         failures += 1
         guard !isDown, failures >= ServerWatch.failuresToReport else { return nil }
         isDown = true
         return .wentDown
+    }
+
+    /// Whether to reload the page when ARVA answers again. Reloading discards what the person was doing in the page (an
+    /// open dialog, a form being filled, an upload), so only when the window does not show ARVA's own page (the
+    /// "ARVA is not answering" page after a load that failed, or nothing), or when ARVA was down for at least
+    /// `reloadAfterDown` (it was stopped, so the page's requests failed meanwhile and its data may be out of date).
+    static func shouldReload(showsARVAPage: Bool, downFor: TimeInterval) -> Bool {
+        !showsARVAPage || downFor >= reloadAfterDown
     }
 }
