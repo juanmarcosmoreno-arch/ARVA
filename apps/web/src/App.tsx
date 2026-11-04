@@ -4,7 +4,7 @@ import { ErrorBoundary, RouteErrorScreen } from "@/components/diagnostics/ErrorS
 import { AppShell } from "@/components/layout/AppShell";
 import { SplashScreen } from "@/components/layout/SplashScreen";
 import { Toaster } from "@/components/layout/Toaster";
-import { ApiError } from "@/lib/api";
+import { apiAnswered, toastServerError } from "@/lib/apiToasts";
 import { ComparativePage } from "@/pages/ComparativePage";
 import { DashboardPage } from "@/pages/DashboardPage";
 import { DiscoverPage } from "@/pages/DiscoverPage";
@@ -21,17 +21,11 @@ import { SangerPage } from "@/pages/SangerPage";
 import { SettingsPage } from "@/pages/SettingsPage";
 import { ToolsPage } from "@/pages/ToolsPage";
 import { ComparePage, RunPage, WorkflowEditorPage, WorkflowsPage } from "@/pages/WorkflowsPage";
-import { useToasts } from "@/store/toasts";
-
-/** An unexpected server error (one the API kept in its error log) is also shown as a toast with its error id. */
-function toastServerError(error: unknown) {
-  if (error instanceof ApiError && error.errorId) useToasts.getState().push({ message: error.message, errorId: error.errorId });
-}
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { staleTime: 5_000, retry: 1, refetchOnWindowFocus: false } },
-  queryCache: new QueryCache({ onError: toastServerError }),
-  mutationCache: new MutationCache({ onError: toastServerError }),
+  queryCache: new QueryCache({ onError: toastServerError, onSuccess: apiAnswered }),
+  mutationCache: new MutationCache({ onError: toastServerError, onSuccess: apiAnswered }),
 });
 
 export const routes = [

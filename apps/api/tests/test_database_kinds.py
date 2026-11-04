@@ -377,6 +377,47 @@ def test_an_ncbi_datasets_package_shows_its_taxonomic_coverage(client, external)
     assert {g["accession"] for g in inv} == {g[0] for g in fx.GENOMES} and inv[0]["path"].startswith(str(external))
 
 
+def test_a_collection_counts_subspecies_apart_from_species(client, external):
+    """2 species; with "Staphylococcus constructus subsp. alter" counted apart, 3 names (registro-prueba-mac #13:
+    68 species against 82 in the user's own count)."""
+    pkg = fx.ncbi_package(external / "staphylococcus_refseq_type_genomes")
+    c = detect(client, f"{HOST}/staphylococcus_refseq_type_genomes").json()["candidates"][0]["facts"]["collection"]
+    assert (c["species"], c["subspecies"], c["names"]) == (2, 1, 3)
+    db = register(client, pkg, collection_date="2026-05-27").json()
+    assert (db["collection"]["species"], db["collection"]["subspecies"], db["collection"]["names"]) == (2, 1, 3)
+    # A record registered before subspecies were counted gets them from its inventory's organism names.
+    with SessionLocal() as session:
+        record = session.get(ReferenceDatabase, db["id"])
+        old = {k: v for k, v in record.details["collection"].items() if k not in ("subspecies", "names")}
+        record.details = {**record.details, "collection": old}
+        session.commit()
+    again = client.get(f"{API}/databases/{db['id']}").json()["collection"]
+    assert (again["species"], again["subspecies"], again["names"]) == (2, 1, 3)
+
+
+def test_subspecies_are_read_from_the_organism_name_only_when_written_as_subsp():
+    from app.services import reference_collections as rc
+
+    assert rc.subspecies_of("Staphylococcus aureus subsp. aureus NCTC 8325") == "Staphylococcus aureus subsp. aureus"
+    for name in ("Staphylococcus aureus", "Staphylococcus aureus subsp.", "Staphylococcus sp. subsp. x",
+                 "Salmonella enterica serovar Typhi", "1 length=2800000 depth=1.00x", None):
+        assert rc.subspecies_of(name) is None
+    assert rc.name_counts(["Staphylococcus aureus", "Staphylococcus aureus subsp. aureus",
+                           "Staphylococcus aureus subsp. anaerobius", "Staphylococcus aureus subsp. aureus Mu50",
+                           "Staphylococcus sp.", None]) == {"subspecies": 2, "names": 3}
+
+
+@pytest.mark.parametrize("day", ["27/05", "27/05/2026", "05/27/2026", "2026-5-27", "27-05-2026", "2026/05/27",
+                                 "2026-02-30", "20260527", "May 27, 2026"])
+def test_a_collection_date_that_is_not_iso_is_refused_not_guessed(client, external, day):
+    """Only YYYY-MM-DD is accepted: a typed "27/05" is refused, never read as 7 May (registro-prueba-mac #10)."""
+    pkg = fx.ncbi_package(external / "staphylococcus_refseq_type_genomes")
+    r = register(client, pkg, collection_date=day)
+    assert r.status_code == 400 and r.json()["code"] == "date_needed"
+    with SessionLocal() as session:
+        assert session.query(ReferenceDatabase).filter_by(kind="reference_genomes").count() == 0
+
+
 def test_a_fastani_list_written_with_mac_paths_is_mapped_and_checked(client, external, tmp_path):
     pkg = fx.ncbi_package(external / "staphylococcus_refseq_type_genomes")
     fnas = sorted(pkg.rglob("*_genomic.fna"))

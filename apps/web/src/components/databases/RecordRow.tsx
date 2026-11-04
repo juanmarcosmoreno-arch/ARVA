@@ -11,7 +11,7 @@ import { isBusy } from "@/lib/databases";
 import { fmtBytes, fmtDate, fmtInt } from "@/lib/format";
 import { databaseError } from "@/lib/messages";
 import type { ReferenceDatabase } from "@/lib/types";
-import { compatibilityText, ExtLink, Fact, ProgressBar, RecordBadges } from "./shared";
+import { compatibilityText, coverageText, ExtLink, Fact, ProgressBar, RecordBadges } from "./shared";
 
 export function useRefreshDatabases() {
   const qc = useQueryClient();
@@ -129,7 +129,7 @@ export function RecordRow({ record }: { record: ReferenceDatabase }) {
       {c && (
         <div className="mt-2 rounded-lg bg-muted/40 p-2 text-xs">
           <p className="font-medium">
-            {t("databases.coverage", { genomes: c.genomes, species: c.species })}
+            {coverageText(t, c)}
             {c.unclassified > 0 && <span className="font-normal text-muted-foreground"> · {t("databases.unclassified", { n: c.unclassified })}</span>}
           </p>
           <p className="text-muted-foreground">

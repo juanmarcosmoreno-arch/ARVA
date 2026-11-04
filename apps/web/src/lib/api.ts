@@ -1,6 +1,7 @@
 import { translator } from "@/i18n";
 import { reportApiFailure } from "@/lib/errorReporting";
 import { messageText } from "@/lib/messages";
+import { UNREACHABLE } from "@/lib/unreachable";
 import type { AlignmentRequest, AniRequest, ComparisonCandidate, ComparisonPlan, ComparisonResultRead, ComparisonSet, ComparisonSetBrief, ComparisonSetIn } from "@/lib/comparative";
 import type { GeneLookupRow, GeneQuery, GeneRequest, RegionPlan, RegionRequest } from "@/lib/regions";
 import type { Associations, FamilyDetail, MetadataField, PangenomePlan, PangenomeRequest } from "@/lib/pangenome";
@@ -190,13 +191,21 @@ function withCsrf(init?: RequestInit): RequestInit | undefined {
   return { ...init, headers };
 }
 
-async function send(path: string, init?: RequestInit): Promise<Response> {
+/** fetch, with a failure to get any answer (the browser's own "Load failed" / "Failed to fetch") raised as an ApiError
+ * coded `api_unreachable` that says, in the interface language, that ARVA is not responding. A cancelled request
+ * (AbortError) is passed on as it is. */
+async function fetchApi(url: string, init?: RequestInit): Promise<Response> {
   try {
-    return await fetch(BASE + path, withCsrf(init));
+    return await fetch(url, init);
   } catch (err) {
-    reportApiFailure(init?.method ?? "GET", BASE + path, 0, err instanceof Error ? err.message : String(err));
-    throw err;
+    if ((err as { name?: unknown } | null)?.name === "AbortError") throw err;
+    reportApiFailure(init?.method ?? "GET", url, 0, err instanceof Error ? err.message : String(err));
+    throw new ApiError(0, translator(useSettings.getState().language)("error.unreachable"), undefined, UNREACHABLE);
   }
+}
+
+async function send(path: string, init?: RequestInit): Promise<Response> {
+  return fetchApi(BASE + path, withCsrf(init));
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -554,7 +563,7 @@ export const api = {
   /** Selected features, or those overlapping a region, as a file the browser saves (POST, so the ids do not go into a URL). */
   exportAnnotationFeatures: async (id: string, format: AnnotationExportFormat, selection: number[] | AnnotationRegion) => {
     const body = Array.isArray(selection) ? { format, feature_ids: selection } : { format, region: selection };
-    const res = await fetch(`${BASE}/annotations/${id}/export`, withCsrf(json("POST", body)));
+    const res = await send(`/annotations/${id}/export`, json("POST", body));
     if (!res.ok) throw await apiError(res, "POST");
     const name = /filename="([^"]+)"/.exec(res.headers.get("Content-Disposition") ?? "")?.[1] ?? `annotation_${format}.txt`;
     return { blob: await res.blob(), name };

@@ -5,7 +5,7 @@ import { useT, type TranslationKey } from "@/i18n";
 import { recordBadges } from "@/lib/databases";
 import { fmtBytes, fmtPct } from "@/lib/format";
 import { messageText, serverText } from "@/lib/messages";
-import type { Compatibility, DatabaseKind, DetectionProblem, ReferenceDatabase } from "@/lib/types";
+import type { CollectionSummary, Compatibility, DatabaseKind, DetectionProblem, ReferenceDatabase } from "@/lib/types";
 
 type T = ReturnType<typeof useT>;
 
@@ -73,6 +73,13 @@ export function kindToolText(t: T, kind: DatabaseKind, i: number): string {
 
 export function kindUnconfirmed(t: T, kind: DatabaseKind, i: number): string {
   return serverText(t, `databases.kind.${kind.key}.unconfirmed${i}`, kind.unconfirmed[i]);
+}
+
+/** A collection's genomes and species, with its names counting subspecies apart when it has any: "3 genomes of 2
+ * species (3 names including 1 subspecies)". */
+export function coverageText(t: T, c: CollectionSummary): string {
+  const base = t("databases.coverage", { genomes: c.genomes, species: c.species });
+  return c.subspecies && c.names ? `${base} ${t("databases.coverageNames", { names: c.names, subspecies: c.subspecies })}` : base;
 }
 
 export function compatibilityText(t: T, c: Compatibility | null | undefined): string | null {

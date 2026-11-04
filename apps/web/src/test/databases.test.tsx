@@ -3,7 +3,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DatabasesSection } from "@/components/tools/DatabasesSection";
 import { api } from "@/lib/api";
-import { groupByKind, recordBadges, validDate, validDeclaredVersion, validFolder } from "@/lib/databases";
+import { groupByKind, isoFromParts, partsFromIso, recordBadges, validDate, validDeclaredVersion, validFolder } from "@/lib/databases";
 import type { CatalogueEntry, DatabaseKind, Detection, DownloadPlan, ReferenceDatabase } from "@/lib/types";
 import { useSettings } from "@/store/settings";
 
@@ -100,6 +100,14 @@ describe("database helpers", () => {
     expect(validDeclaredVersion("x<script>")).toBe(false);
     expect(validDate("2026-05-27")).toBe(true);
     expect(validDate("2026-02-30")).toBe(false);
+    // A day typed in separate fields is never read with day and month swapped.
+    expect(isoFromParts("27", "5", "2026")).toBe("2026-05-27");
+    expect(isoFromParts("7", "05", "2026")).toBe("2026-05-07");
+    expect(isoFromParts("31", "4", "2026")).toBeNull();
+    expect(isoFromParts("27", "5", "26")).toBeNull();
+    expect(isoFromParts("27", "", "2026")).toBeNull();
+    expect(partsFromIso("2026-05-07")).toEqual({ day: "7", month: "5", year: "2026" });
+    expect(partsFromIso("27/05")).toEqual({ day: "", month: "", year: "" });
     expect(validFolder("busco/lineages/bacteria_odb12.2")).toBe(true);
     expect(validFolder("../x")).toBe(false);
   });
@@ -221,5 +229,69 @@ describe("Databases section", () => {
     expect(await within(dialog).findByText("Tipos spa (Ridom SpaServer)")).toBeInTheDocument();
     expect(within(dialog).getByText(/spaTyper 0\.3\.3 la lee tal cual/)).toBeInTheDocument();
     expect(within(dialog).queryByText(/aún no ejecuta spaTyper/)).toBeNull();
+  });
+
+  // CONSTRUCTED NCBI Datasets package: 3 genomes, 2 species, one of them also named to a subspecies.
+  const collectionDetection: Detection = {
+    ...skaniDetection, kind: "reference_genomes", kind_name: "Reference genome collection", path: "/databases-external/1/staph_refs",
+    host_path: "/Volumes/JM/BioInf/staph_refs", variant: "ncbi_package", suggested_version: "2026-05-07", suggested_from: "zip_entries",
+    needs_declared_version: false, compatibility: null,
+    facts: {
+      collection: {
+        genomes: 3, present: 3, missing: 0, bytes: 30, species: 2, subspecies: 1, names: 3, unclassified: 0,
+        by_species: [{ species: "Staphylococcus constructus", genomes: 2 }, { species: "Bacillus inventus", genomes: 1 }],
+        type_material: [], reference_genomes: 1, with_metadata: { package: 3 }, accessions: 3, fingerprint: "0123456789abcdef",
+      },
+    },
+  };
+
+  async function openCollection() {
+    vi.spyOn(api, "browseDatabases").mockResolvedValue({
+      root: "/databases-external/1", path: "", parent: null, host_path: "/Volumes/JM/BioInf", container_path: "/databases-external/1", truncated: false,
+      entries: [{ name: "staph_refs", type: "folder", size_bytes: null, link: false, path: "/databases-external/1/staph_refs" }],
+    });
+    vi.spyOn(api, "detectDatabase").mockResolvedValue({ path: collectionDetection.path, host_path: collectionDetection.host_path, candidates: [collectionDetection] });
+    const register = vi.spyOn(api, "registerDatabase").mockResolvedValue(record());
+    renderSection();
+    fireEvent.click(await screen.findByRole("button", { name: /Register existing folder|Registrar carpeta existente/ }));
+    const dialog = await screen.findByRole("dialog");
+    await within(dialog).findByText("staph_refs");
+    fireEvent.click(within(dialog).getAllByRole("button", { name: /^(Detect|Detectar)$/ })[0]);
+    return { dialog, register };
+  }
+
+  it("takes a collection's date as day, month and year and shows the day in words before registering", async () => {
+    const { dialog, register } = await openCollection();
+    expect(await within(dialog).findByText("3 genomes of 2 species (3 names including 1 subspecies)")).toBeInTheDocument();
+    // The suggested day fills the fields and is written out, so 7 May cannot pass for 27 May unseen.
+    expect(within(dialog).getByText("Date to be recorded: May 7, 2026")).toBeInTheDocument();
+    expect(within(dialog).getByText(/Suggested: May 7, 2026, from the date of the zip's entries/)).toBeInTheDocument();
+    fireEvent.change(within(dialog).getByRole("textbox", { name: "Day" }), { target: { value: "27" } });
+    expect(within(dialog).getByText("Date to be recorded: May 27, 2026")).toBeInTheDocument();
+    // An incomplete date is said so and cannot be registered.
+    fireEvent.change(within(dialog).getByRole("textbox", { name: "Year" }), { target: { value: "26" } });
+    expect(within(dialog).getByText(/Not a complete date yet/)).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "Register" })).toBeDisabled();
+    fireEvent.change(within(dialog).getByRole("textbox", { name: "Year" }), { target: { value: "2026" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Register" }));
+    await waitFor(() =>
+      expect(register).toHaveBeenCalledWith({
+        path: "/Volumes/JM/BioInf/staph_refs", kind: "reference_genomes", declared_version: null, collection_date: "2026-05-27", full_checksum: false,
+      }),
+    );
+  });
+
+  it("writes the collection's day in Spanish, day before month", async () => {
+    useSettings.setState({ language: "es" });
+    const { dialog, register } = await openCollection();
+    expect(await within(dialog).findByText("3 genomas de 2 especies (3 nombres, incluida 1 subespecie)")).toBeInTheDocument();
+    fireEvent.change(within(dialog).getByRole("textbox", { name: "Día" }), { target: { value: "27" } });
+    fireEvent.change(within(dialog).getByRole("combobox", { name: "Mes" }), { target: { value: "5" } });
+    expect(within(dialog).getByRole("option", { name: "mayo" })).toBeInTheDocument();
+    expect(within(dialog).getByText("Fecha que se registrará: 27 de mayo de 2026")).toBeInTheDocument();
+    const labels = within(dialog).getAllByText(/^(Día|Mes|Año)$/).map((n) => n.textContent);
+    expect(labels).toEqual(["Día", "Mes", "Año"]);
+    fireEvent.click(within(dialog).getByRole("button", { name: "Registrar" }));
+    await waitFor(() => expect(register).toHaveBeenCalledWith(expect.objectContaining({ collection_date: "2026-05-27" })));
   });
 });

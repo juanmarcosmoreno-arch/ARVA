@@ -1,9 +1,10 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { FirstRunChecklist } from "@/components/platform/FirstRunChecklist";
-import { api } from "@/lib/api";
+import { FirstRunChecklist, SLOW_MS } from "@/components/platform/FirstRunChecklist";
+import { api, ApiError } from "@/lib/api";
+import { UNREACHABLE } from "@/lib/unreachable";
 import { databaseCheck, performanceCheck, projectCheck, storageCheck } from "@/lib/firstRun";
 import type { DashboardSummary, DatabaseLocations, PerformanceOverview, ReferenceDatabase, StorageCapacity, StorageLocation } from "@/lib/types";
 import { useSettings } from "@/store/settings";
@@ -113,6 +114,39 @@ describe("FirstRunChecklist", () => {
     expect(onCreate).toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: /Hide the getting-started checklist/ }));
     expect(useSettings.getState().showChecklist).toBe(false);
+  });
+
+  it("says when the performance profile could not be read, and reads it again on request (not 'Reading…' for ever)", async () => {
+    useSettings.setState({ language: "es" });
+    const perf = vi.spyOn(api, "performance").mockRejectedValueOnce(new ApiError(0, "x", undefined, UNREACHABLE)).mockResolvedValue(performance);
+    renderChecklist();
+    const item = () => screen.getAllByRole("listitem")[1];
+    expect(await screen.findByText("No se pudo leer: ARVA no responde. ¿Docker Desktop está abierto? Los servicios de ARVA funcionan dentro de él.")).toBeInTheDocument();
+    expect(item()).not.toHaveTextContent("Leyendo el perfil de rendimiento…");
+    expect(within(item()).getByText("Requiere atención")).toBeInTheDocument();
+    fireEvent.click(within(item()).getByRole("button", { name: "Reintentar" }));
+    expect(await within(item()).findByText(/Equilibrado: 4 hilos/)).toBeInTheDocument();
+    expect(perf).toHaveBeenCalledTimes(2);
+  });
+
+  it("says when ARVA has not answered after a while and offers to ask again", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      let answer: (p: PerformanceOverview) => void = () => {};
+      const perf = vi.spyOn(api, "performance").mockImplementationOnce(() => new Promise((resolve) => (answer = resolve))).mockResolvedValue(performance);
+      renderChecklist();
+      expect(await screen.findByText("Reading the performance profile…")).toBeInTheDocument();
+      act(() => void vi.advanceTimersByTime(SLOW_MS + 100));
+      const item = screen.getAllByRole("listitem")[1];
+      expect(item).toHaveTextContent("ARVA has not answered yet. If this does not change, try again.");
+      fireEvent.click(within(item).getByRole("button", { name: "Try again" }));
+      await vi.waitFor(() => expect(perf).toHaveBeenCalledTimes(2));
+      expect(await within(item).findByText(/Balanced: 4 threads/)).toBeInTheDocument();
+      expect(perf).toHaveBeenCalledTimes(2);
+      answer(performance);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("speaks Spanish and asks to add the folder when none was added", async () => {

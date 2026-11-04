@@ -1,6 +1,9 @@
+import { RefreshCw } from "lucide-react";
 import type { ReactNode } from "react";
 import { CopyErrorDetails } from "@/components/diagnostics/CopyErrorDetails";
+import { Button } from "@/components/ui/button";
 import { useT } from "@/i18n";
+import { isUnreachable, useRetryQueries } from "@/lib/unreachable";
 import { cn } from "@/lib/utils";
 
 export function Skeleton({ className }: { className?: string }) {
@@ -40,10 +43,23 @@ export function EmptyState({ icon, title, children }: { icon?: ReactNode; title:
   );
 }
 
-/** An error message; an unexpected server error also shows its error log id and a button that copies its details. */
+/** An error message; an unexpected server error also shows its error log id and a button that copies its details. When
+ * the API gave no answer at all, it says that ARVA is not responding (not the browser's "Load failed") with a button
+ * that asks again. */
 export function ErrorNote({ error }: { error: unknown }) {
   const t = useT();
+  const retry = useRetryQueries();
   if (!error) return null;
+  if (isUnreachable(error)) {
+    return (
+      <div role="alert" className="flex flex-wrap items-center gap-2 rounded-lg border border-danger/30 bg-danger/5 px-3 py-2 text-sm text-danger">
+        <span className="min-w-0 flex-1">{t("error.unreachable")}</span>
+        <Button size="sm" variant="outline" onClick={retry}>
+          <RefreshCw className="h-3.5 w-3.5" aria-hidden /> {t("error.retry")}
+        </Button>
+      </div>
+    );
+  }
   // An ApiError of an unexpected server error carries its error log id (read by shape, so tests can mock lib/api).
   const id = (error as { errorId?: unknown }).errorId;
   const errorId = typeof id === "string" ? id : undefined;

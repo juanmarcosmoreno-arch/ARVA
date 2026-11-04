@@ -32,6 +32,7 @@ from app.services import database_catalogue as catalogue
 from app.services import database_kinds as kinds
 from app.services import databases as svc
 from app.services import ncbi_datasets as ncbi
+from app.services import reference_collections as rc
 from app.services.locations import to_host
 
 router = APIRouter(tags=["databases"])
@@ -53,7 +54,7 @@ def _read(db: Session, r: ReferenceDatabase, log: bool = False) -> ReferenceData
         "version_json": details.get("version_json"),
         "version_file": detection.get("version_file"),
         "variant": detection.get("variant"),
-        "collection": details.get("collection"),
+        "collection": _collection(r, details.get("collection")),
         "files": details.get("file_count"),
         "published_md5_checked": details.get("published_md5_checked"),
         "amrfinderplus_db": _bakta_amr(details.get("amrfinderplus_db")),
@@ -67,6 +68,14 @@ def _read(db: Session, r: ReferenceDatabase, log: bool = False) -> ReferenceData
         "log_text": r.log_text if log else None,
         "mlst": mlst.database_summary(r) if r.kind == mlst.KIND else None,
     })
+
+
+def _collection(r: ReferenceDatabase, c: dict | None) -> dict | None:
+    """A collection's coverage; one recorded before subspecies were counted gets them from its inventory (the organism
+    name of each genome, kept at registration)."""
+    if not c or "names" in c or r.kind != "reference_genomes":
+        return c
+    return {**c, **rc.name_counts(g.get("organism") for g in r.inventory or [] if isinstance(g, dict))}
 
 
 def _bakta_amr(info: dict | None) -> dict | None:

@@ -9,11 +9,12 @@ import { ErrorNote, Skeleton } from "@/components/ui/misc";
 import { useT, type TranslationKey } from "@/i18n";
 import { api } from "@/lib/api";
 import { joinHost, validDate, validDeclaredVersion, validFolder } from "@/lib/databases";
-import { fmtBytes, fmtInt } from "@/lib/format";
+import { fmtBytes, fmtDayInWords, fmtInt } from "@/lib/format";
 import { serverText } from "@/lib/messages";
 import type { Detection } from "@/lib/types";
+import { DayFields } from "./DayFields";
 import { useRefreshDatabases } from "./RecordRow";
-import { CompatibilityBadge, compatibilityText, problemText } from "./shared";
+import { CompatibilityBadge, compatibilityText, coverageText, problemText } from "./shared";
 
 type T = ReturnType<typeof useT>;
 
@@ -166,6 +167,11 @@ export function variantName(t: T, variant: string) {
   return VARIANTS.includes(variant) ? t(`databases.variant.${variant}` as TranslationKey) : variant;
 }
 
+/** A suggested day in words ("7 de mayo de 2026"), so that it is not mistaken for another; any other text as it is. */
+function suggestedDay(text: string) {
+  return validDate(text) ? fmtDayInWords(text) : text;
+}
+
 function suggestedFrom(t: T, d: Detection) {
   return d.suggested_from ? t(`databases.suggestedFrom.${d.suggested_from}` as TranslationKey) : "";
 }
@@ -249,7 +255,7 @@ function CandidatePanel({ detection: d, path, onDone }: { detection: Detection; 
       </dl>
       {c && (
         <div className="rounded bg-muted/40 p-2 text-xs">
-          <p className="font-medium">{t("databases.coverage", { genomes: c.genomes, species: c.species })}</p>
+          <p className="font-medium">{coverageText(t, c)}</p>
           <p className="text-muted-foreground">
             {t("databases.typeAndReference", { type: c.type_material.reduce((n, x) => n + (x.label === "TYPE_MATERIAL" ? x.genomes : 0), 0), reference: c.reference_genomes })}
           </p>
@@ -288,13 +294,12 @@ function CandidatePanel({ detection: d, path, onDone }: { detection: Detection; 
               </label>
             )}
             {collection && (
-              <label className="block space-y-1 text-xs">
-                <span className="font-medium">{t("databases.collectionDate")}</span>
-                <Input type="date" value={day} onChange={(e) => setDay(e.target.value)} aria-invalid={!inputsOk} />
-                <span className="block text-muted-foreground">
-                  {d.suggested_version ? t("databases.collectionDateSuggested", { date: d.suggested_version, from: suggestedFrom(t, d) }) : t("databases.collectionDateHint")}
-                </span>
-              </label>
+              <DayFields
+                value={day}
+                onChange={setDay}
+                label={t("databases.collectionDate")}
+                hint={d.suggested_version ? t("databases.collectionDateSuggested", { date: suggestedDay(d.suggested_version), from: suggestedFrom(t, d) }) : t("databases.collectionDateHint")}
+              />
             )}
             <label className="flex items-start gap-2 text-xs">
               <input type="checkbox" className="mt-0.5" checked={fullChecksum} onChange={(e) => setFullChecksum(e.target.checked)} />
@@ -355,11 +360,12 @@ function ExtractPanel({ detection: d, path, onDone }: { detection: Detection; pa
           <Input value={folder} onChange={(e) => setFolder(e.target.value)} placeholder={p?.folder} className="font-mono text-xs" aria-invalid={!folderOk} />
         </label>
       </div>
-      <label className="block space-y-1">
-        <span className="font-medium">{t("databases.collectionDate")}</span>
-        <Input type="date" value={day} onChange={(e) => setDay(e.target.value)} />
-        <span className="block text-muted-foreground">{t("databases.collectionDateSuggested", { date: d.suggested_version ?? "?", from: suggestedFrom(t, d) })}</span>
-      </label>
+      <DayFields
+        value={day}
+        onChange={setDay}
+        label={t("databases.collectionDate")}
+        hint={t("databases.collectionDateSuggested", { date: d.suggested_version ? suggestedDay(d.suggested_version) : "?", from: suggestedFrom(t, d) })}
+      />
       <ErrorNote error={plan.error ?? extract.error} />
       {p && (
         <dl className="grid grid-cols-[180px_1fr] gap-x-3 gap-y-1">
