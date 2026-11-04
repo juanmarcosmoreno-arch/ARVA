@@ -8,6 +8,7 @@ detectors that apply these rules are in database_detect.py.
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 
 
@@ -611,6 +612,13 @@ TESTED_DATA = {"mobsuite": ("MOB-suite", "mobsuite", {"3.1.8": ("3.1.9",)}),
                "genomad": ("geNomad", "genomad", {"1.9": ("1.10", "1.11", "1.12", "1.13")})}
 
 
+def leading_version(declared: str | None) -> str:
+    """The version number a declared version starts with: "3.1.8 (mob_init, own pipeline)" is 3.1.8. A declared
+    version is free text, so the user may add where the files came from after the number."""
+    m = re.match(r"\s*v?(\d+(?:\.\d+)*)(?![\w.])", declared or "")
+    return m.group(1) if m else ""
+
+
 def _tested(kind_key: str, version: str | None, installed: str | None) -> Compatibility:
     from arva_tools.registry import detect
 
@@ -621,7 +629,7 @@ def _tested(kind_key: str, version: str | None, installed: str | None) -> Compat
     if not installed:
         return Compatibility("unknown", "tool_not_installed", {"tool": tool})
     params: dict[str, str | int] = {"tool": tool, "version": installed, "data": version or "?"}
-    accepted = pairs.get(version or "")
+    accepted = pairs.get(leading_version(version))
     if accepted is None:
         return Compatibility("unknown", "data_unpaired", {**params, "needs": ", ".join(pairs)})
     if any(installed == v or installed.startswith(v + ".") for v in accepted):

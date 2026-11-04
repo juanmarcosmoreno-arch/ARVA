@@ -120,7 +120,11 @@ def chosen_database(db: Session, database_id: str | None) -> ReferenceDatabase |
         if record is None or record.kind != amrfinder_db.KIND:
             raise InputError("The chosen database is not an AMRFinderPlus database")
         return record
-    usable = [r for r in database_options(db) if r["compatibility"]["status"] == "compatible" and r["available"]]
+    # A confirmed-compatible database first; else one ARVA can use whose compatibility is only unconfirmed (as
+    # dbs.usable_now allows): the plan shows that status, instead of claiming no database is registered.
+    options = [r for r in database_options(db) if r["available"]]
+    usable = [r for r in options if r["compatibility"]["status"] == "compatible"] or \
+        [r for r in options if r["compatibility"]["status"] != "incompatible"]
     return db.get(ReferenceDatabase, usable[0]["id"]) if usable else None
 
 

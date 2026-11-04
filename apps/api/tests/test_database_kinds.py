@@ -690,3 +690,14 @@ def test_every_database_code_and_server_text_has_both_languages():
         server |= {f"databases.catalogue.{e.key}.note{i}": n for i, n in enumerate(e.notes)}
     assert {k: v for k, v in server.items() if en.get(k) != v} == {}
     assert [k for k in server if not es.get(k)] == []
+
+
+def test_leading_version_of_a_declared_version():
+    from app.services.database_kinds import leading_version
+
+    assert leading_version("3.1.8") == "3.1.8"
+    assert leading_version(" v3.1.8 (mob_init, own pipeline)") == "3.1.8"
+    assert leading_version("1.9, downloaded 2026-05-30") == "1.9"
+    assert leading_version("3.1.8a") == ""
+    assert leading_version("downloaded May 2026") == ""
+    assert leading_version(None) == ""

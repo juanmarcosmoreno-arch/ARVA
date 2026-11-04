@@ -481,3 +481,31 @@ def test_real_tools_find_nothing_on_the_synthetic_genome(client, mobile_real_too
     with SessionLocal() as db:
         assert db.query(VirulenceResult).count() == 0
     assert all(c["replicons"] in (None, []) for c in view["assemblies"][0]["contigs"])
+
+
+def _mob_init_folder(root: Path) -> Path:
+    """A MOB-suite folder as mob_init leaves it: its files and status.txt, no ARVA_DATABASE.json (so its version is
+    declared by the user)."""
+    root.mkdir(parents=True)
+    for name in (*mob.DB_FILES, *mob.PLASMID_INDEX, *mob.REPETITIVE_INDEX, mob.MASH_SKETCH, mob.TAXA, mob.TAXA_EXTRA):
+        (root / name).write_text("x")
+    (root / "status.txt").write_text("Download date: 2026-05-27\n")
+    return root
+
+
+@pytest.mark.parametrize(("declared", "code"), [
+    ("3.1.8 (mob_init, own pipeline)", "data_paired"),  # the number first, then where it came from
+    ("v3.1.8", "data_paired"),
+    ("downloaded May 2026", "data_unpaired"),  # no number: compatibility unconfirmed, still offered
+])
+def test_a_mob_init_folder_with_a_declared_version_is_used(client, mobile_fake_tools, storage_root, tmp_path,
+                                                            declared, code):
+    folder = _mob_init_folder(storage_root / "databases" / f"mob-own-{code}-{len(declared)}" / "db")
+    r = client.post(f"{API}/databases/register", json={"path": str(folder), "declared_version": declared})
+    assert r.status_code == 201, r.text
+    record = r.json()
+    assert (record["kind"], record["version"], record["compatibility"]["code"]) == ("mobsuite", declared, code)
+    sample = new_sample(client, "MOB-DECL")
+    a = assemble(client, sample, constructed_genome(tmp_path / "g.fna"))
+    plan = client.post(f"{API}/assemblies/{a['id']}/mobile-elements/preview", json={"method": "mobsuite"}).json()
+    assert plan["problems"] == [] and plan["database"]["id"] == record["id"]
