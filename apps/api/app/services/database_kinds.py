@@ -587,6 +587,8 @@ def compatibility(kind_key: str, version_json: dict | None = None, installed: st
         if (version_json or {}).get("variant") == "abricate":
             return Compatibility("compatible", "bundled_with_tool", {"tool": "ABRicate"})
         return Compatibility("unknown", "tool_not_integrated", {"tool": BY_KEY[kind_key].tools[-1].tool})
+    if kind_key == "spa_types":
+        return _spa_types(installed)
     if kind_key in TESTED_DATA:
         return _tested(kind_key, version, installed)
     if kind_key != "bakta":
@@ -610,6 +612,20 @@ def compatibility(kind_key: str, version_json: dict | None = None, installed: st
 # 3.1.8 (mob_suite/config.json); geNomad's releases.txt pairs database 1.9 with geNomad 1.10 to 1.13.
 TESTED_DATA = {"mobsuite": ("MOB-suite", "mobsuite", {"3.1.8": ("3.1.9",)}),
                "genomad": ("geNomad", "genomad", {"1.9": ("1.10", "1.11", "1.12", "1.13")})}
+
+
+def _spa_types(installed: str | None) -> Compatibility:
+    """ARVA runs spaTyper (arva_tools/spatyper.py) with the registered Ridom files. They carry no version and
+    spaTyper 0.3.3 reads them as they are, with no version check (spaTyper/utils.py, spaTyper/spa_typing.py of its
+    0.3.3 wheel): compatible with the spaTyper installed here, or unknown when it is not installed."""
+    from arva_tools.registry import detect
+
+    if installed is None:
+        d = detect("spatyper")
+        installed = d.version if d.path else None
+    if not installed:
+        return Compatibility("unknown", "tool_not_installed", {"tool": "spaTyper"})
+    return Compatibility("compatible", "no_requirement", {"tool": f"spaTyper {installed}"})
 
 
 def leading_version(declared: str | None) -> str:

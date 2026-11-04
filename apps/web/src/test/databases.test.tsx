@@ -198,4 +198,28 @@ describe("Databases section", () => {
       }),
     );
   });
+
+  it("names the Ridom spa files' kind in Spanish and says spaTyper reads them", async () => {
+    // What the API now returns for the Ridom files (database_kinds.compatibility: spa_types with spaTyper 0.3.3).
+    const ridom: Detection = {
+      ...skaniDetection, kind: "spa_types", kind_name: "spa types (Ridom SpaServer)", path: "/databases-external/1/ridom", host_path: "/Volumes/JM/BioInf/ridom",
+      suggested_version: null, suggested_from: null, files: [{ path: "sparepeats.fasta", role: "kind", present: true, size: 30_000 }, { path: "spatypes.txt", role: "kind", present: true, size: 830_000 }],
+      compatibility: { status: "compatible", code: "no_requirement", params: { tool: "spaTyper 0.3.3" } },
+    };
+    vi.spyOn(api, "browseDatabases").mockResolvedValue({
+      root: "/databases-external/1", path: "", parent: null, host_path: "/Volumes/JM/BioInf", container_path: "/databases-external/1", truncated: false,
+      entries: [{ name: "ridom", type: "folder", size_bytes: null, link: false, path: "/databases-external/1/ridom" }],
+    });
+    vi.spyOn(api, "detectDatabase").mockResolvedValue({ path: ridom.path, host_path: ridom.host_path, candidates: [ridom] });
+    useSettings.setState({ language: "es" });
+    renderSection();
+    fireEvent.click(await screen.findByRole("button", { name: /Registrar carpeta existente/ }));
+    const dialog = await screen.findByRole("dialog");
+    expect(await within(dialog).findByText("ridom")).toBeInTheDocument();
+    fireEvent.click(within(dialog).getAllByRole("button", { name: "Detectar" })[0]);
+    await waitFor(() => expect(dialog.textContent).toContain("sparepeats.fasta"));
+    expect(await within(dialog).findByText("Tipos spa (Ridom SpaServer)")).toBeInTheDocument();
+    expect(within(dialog).getByText(/spaTyper 0\.3\.3 la lee tal cual/)).toBeInTheDocument();
+    expect(within(dialog).queryByText(/aún no ejecuta spaTyper/)).toBeNull();
+  });
 });
