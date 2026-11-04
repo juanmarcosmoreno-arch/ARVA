@@ -480,3 +480,111 @@ def test_thresholds_use_unrounded_identities():
     tie = compare_suspected([row("Staphylococcus aureus", 100.0), row("Staphylococcus argenteus", 100 * 496 / 500)],
                             "Staphylococcus argenteus", "species")
     assert tie["outcome"] == "no_match" and tie["better_other_count"] == 1
+
+
+# --- Damaged and crafted chromatograms ------------------------------------------------------------------------------
+
+def _with_shared_entries(data: bytes, extra: int, block: int) -> bytes:
+    """3100.ab1 with `extra` added directory entries ('ZZZZ', element type 4, short) that all point at one block of
+    `block` bytes appended to the file: the file grows by `block` bytes, the decoded tags by `extra` times that."""
+    import struct
+
+    head = struct.unpack(">H4sI2H3I", data[4:30])
+    size, count, offset = head[4], head[5], head[7]
+    directory = data[offset:offset + size * count]
+    block_at = len(data)
+    body = data + b"\x00\x01" * (block // 2)
+    entries = b"".join(struct.pack(">4sI2H4I", b"ZZZZ", i + 1, 4, 2, block // 2, block, block_at, 0)
+                       for i in range(extra))
+    new_offset = len(body)
+    out = bytearray(body + directory + entries)
+    out[4:30] = struct.pack(">H4sI2H3I", head[0], head[1], head[2], head[3], size, count + extra,
+                            size * (count + extra), new_offset)
+    return bytes(out)
+
+
+def test_check_abif_refuses_entries_that_share_data():
+    data = (FX / "3100.ab1").read_bytes()
+    sanger.check_abif(data)
+    # One added entry with its own block is a well-formed file (Biopython reads it).
+    one = _with_shared_entries(data, 1, 4096)
+    sanger.check_abif(one)
+    assert read_abi(one).bases == read_abi(data).bases
+    crafted = _with_shared_entries(data, 60, 1 << 20)
+    with pytest.raises(ValueError, match="more data than the file holds"):
+        read_abi(crafted)
+    with pytest.raises(ValueError, match="does not start"):
+        sanger.check_abif(b"ABIF")
+
+
+def test_read_abi_turns_biopython_assertions_into_value_errors():
+    import struct
+
+    data = bytearray((FX / "3100.ab1").read_bytes())
+    head = struct.unpack(">H4sI2H3I", bytes(data[4:30]))
+    size, count, offset = head[4], head[5], head[7]
+    for i in range(count):
+        at = offset + i * size
+        if struct.unpack(">4sI", data[at:at + 8]) == (b"PBAS", 2):
+            (dsize,) = struct.unpack(">I", data[at + 16:at + 20])
+            data[at + 16:at + 20] = struct.pack(">I", dsize + 1)
+    with pytest.raises(ValueError, match="AssertionError"):
+        read_abi(bytes(data))
+
+
+# --- Names a microbiologist writes ----------------------------------------------------------------------------------
+
+@pytest.mark.parametrize("name", ["16S", "16S rRNA", "16s_rRNA", "16S ribosomal RNA", "rrs", "rrsA", "16S rDNA gene"])
+def test_every_name_of_the_16s_gene_is_one_gene(name):
+    assert sanger.gene_key(name) == "16s rrna"
+    assert sanger.gene_key("hla") == "hla" and sanger.gene_key("16S_rRNA_methylase") != "16s rrna"
+
+
+def test_16s_rows_are_the_16s_gene_without_a_gene_field():
+    assert sanger.is_16s(row("Staphylococcus aureus", 100.0))
+    assert sanger.is_16s({"source": {"source": "genomes"}, "gene": None, "product": "16S ribosomal RNA"})
+    assert sanger.is_16s(row("streptomyces16S", 84.0, kind="gene", gene="16S"))
+    assert not sanger.is_16s(row("tuf", 99.0, kind="gene"))
+
+
+def test_suspected_16s_gene_matches_the_16s_hits_not_an_mlst_locus():
+    rows = [row("Staphylococcus borealis", 100.0, bitscore=1105), row("Staphylococcus aureus", 99.83, bitscore=1100),
+            row("bwashoensis.16S", 84.16, kind="gene", bitscore=575, gene="16S")]
+    for written in ("16S rRNA", "16S", "rrs"):
+        c = compare_suspected(rows, written, "gene")
+        assert c["outcome"] == "match" and c["best_suspected"]["species"] == "Staphylococcus borealis", written
+        assert c["best"]["subject"] == "Staphylococcus borealis"
+
+
+def test_best_overall_is_over_every_row_and_unnamed_better_rows_are_listed():
+    rows = [row("seh", 99.0, bitscore=900, kind="gene"),
+            {**row("contig_1", 100.0, bitscore=1000, kind="gene"), "gene": None}]
+    c = compare_suspected(rows, "seh", "gene")
+    assert c["best"]["subject"] == "contig_1" and c["best_suspected"]["gene"] == "seh"
+    # A better hit without a gene name (an unannotated genome) neither supports nor contradicts the suspicion.
+    assert c["outcome"] == "match" and c["better_unnamed_count"] == 1 and c["better_other_count"] == 0
+
+
+@pytest.mark.parametrize("written,outcome", [
+    ("S. aureus", "ambiguous"), ("Staph. aureus", "ambiguous"), ("staphylococcus aureus", "ambiguous"),
+    ("Staphylococcus aureus subsp. aureus", "ambiguous"), ("Staphylococcus aureus strain X", "ambiguous"),
+    ("S.", "match"), ("Staphylococcus", "match"), ("Mammaliicoccus", "no_match"), ("E. coli", "no_match"),
+])
+def test_species_as_microbiologists_write_them(written, outcome):
+    rows = [row("Staphylococcus borealis", 100.0), row("Staphylococcus aureus", 99.83),
+            row("Staphylococcus argenteus", 99.83), row("Mammaliicoccus sciuri", 98.0)]
+    c = compare_suspected(rows, written, "species")
+    assert c["outcome"] == outcome, c
+    if outcome == "ambiguous":
+        assert c["matched_names"] == ["Staphylococcus aureus"]
+    if written == "E. coli":
+        assert codes(c["reasons"]) == ["not_found"]
+
+
+def test_best_summary_counts_the_tie():
+    ranked = sanger.rank_hits([row("Staphylococcus borealis", 100.0, bitscore=1105, subject="gi|1"),
+                               row("Staphylococcus taiwanensis", 100.0, bitscore=1105, subject="gi|2"),
+                               row("Staphylococcus aureus", 99.8, bitscore=1100, subject="gi|3")])
+    b = sanger.best_summary(ranked)
+    assert b["row"]["subject"] == "gi|1" and b["tied"] == 1 and b["tied_names"] == 2
+    assert sanger.best_summary([]) is None

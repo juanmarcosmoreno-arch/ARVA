@@ -72,18 +72,22 @@ def import_reads(sample_id: str, files: list[UploadFile] = File(..., description
     """Store each file in raw/ unchanged and record its reads; a file that cannot be read, or was already imported
     into this sample, is listed under `skipped` with its reason. Directions and pairs are proposed from the names."""
     sample = sample_or_404(db, sample_id)
-    uploads = []
     limit = svc.max_upload_bytes()
+
+    def reader(f: UploadFile):
+        # Read when the service reaches this file, so one file is in memory at a time; one byte over the limit is
+        # enough for the service to refuse it as too large.
+        def read() -> bytes:
+            try:
+                return f.file.read(limit + 1)
+            finally:
+                f.file.close()
+        return read
+
     try:
         if len(files) > svc.MAX_FILES:
             raise svc.InputError("sanger_too_many_files", max=svc.MAX_FILES)
-        for f in files:
-            try:
-                data = f.file.read(limit + 1)
-            finally:
-                f.file.close()
-            uploads.append((f.filename or "read", data))
-        return svc.import_files(db, sample, uploads)
+        return svc.import_files(db, sample, [(f.filename or "read", reader(f)) for f in files])
     except svc.InputError as exc:
         return _error(exc)
 

@@ -6,6 +6,7 @@
  * primary literature or official documentation.
  */
 import type { Language } from "@/store/settings";
+import { SANGER_GUIDE } from "./sanger";
 
 export interface Reference {
   label: string;
@@ -139,7 +140,16 @@ export type GuideId =
   | "discover_stats"
   | "project_report"
   | "accounts_access"
-  | "assist";
+  | "assist"
+  | "sanger_reads"
+  | "sanger_trimming"
+  | "sanger_mixed_peaks"
+  | "sanger_consensus"
+  | "sanger_conflicts"
+  | "sanger_sources"
+  | "sanger_ranking"
+  | "sanger_16s"
+  | "sanger_suspected";
 
 const REF = {
   newcombe1998: { label: "Newcombe (1998) Stat Med 17(8):873–890 — Interval estimation for the difference between independent proportions", url: "https://doi.org/10.1002/(SICI)1097-0258(19980430)17:8<873::AID-SIM779>3.0.CO;2-I" },
@@ -3632,6 +3642,7 @@ export const GUIDE: GuideEntry[] = [
       limitations: "ARVA no puede comprobar qué hace un proveedor con los datos que recibe. Las respuestas pueden ser erróneas.",
     },
   },
+  ...SANGER_GUIDE,
 ];
 
 export const GUIDE_BY_ID = Object.fromEntries(GUIDE.map((g) => [g.id, g])) as Record<GuideId, GuideEntry>;

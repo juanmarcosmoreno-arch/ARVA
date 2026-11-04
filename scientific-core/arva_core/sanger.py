@@ -179,24 +179,66 @@ def _text(value: Any) -> str | None:
     return text or None
 
 
+# ABIF layout (Biopython 1.88 Bio/SeqIO/AbiIO.py, _HEADFMT and _DIRFMT): after the 4-byte "ABIF" marker, a header
+# (version, then a directory entry: name, number, element type, element size, number of entries, data size, data
+# offset), and the directory at that offset, one 28-byte entry per tag; a tag's data of more than 4 bytes lies at its
+# data offset, otherwise inside the entry.
+_ABIF_HEAD = ">H4sI2H3I"
+_ABIF_ENTRY = ">4sI2H4I"
+# ARVA's bounds: real chromatograms have 113 to 134 tags (Biopython's 310 and 3100 files, real 3730xl reads).
+MAX_ABIF_ENTRIES = 4096
+
+
+def check_abif(data: bytes) -> None:
+    """Refuse, before Biopython decodes it, an ABIF file whose directory does not fit the file: entries or data
+    outside the file, or entries whose data add up to more bytes than the file holds (entries sharing one block of
+    data would make the decoded tags many times larger than the file). In real chromatograms the tags' data add up
+    to less than the file size (179,706 of 222,099 bytes in Biopython's 310.ab1)."""
+    head_size = struct.calcsize(_ABIF_HEAD)
+    entry_size = struct.calcsize(_ABIF_ENTRY)
+    if len(data) < 4 + head_size or data[:4] != b"ABIF":
+        raise ValueError("the file does not start with an ABIF header")
+    head = struct.unpack(_ABIF_HEAD, data[4:4 + head_size])
+    elem_size, count, offset = head[4], head[5], head[7]
+    if count > MAX_ABIF_ENTRIES:
+        raise ValueError(f"the directory lists {count} tags, more than {MAX_ABIF_ENTRIES}")
+    if count and (elem_size < entry_size or offset + (count - 1) * elem_size + entry_size > len(data)):
+        raise ValueError("the directory lies outside the file")
+    total = 0
+    for i in range(count):
+        start = offset + i * elem_size
+        entry = struct.unpack(_ABIF_ENTRY, data[start:start + entry_size])
+        size, at = entry[5], entry[6]
+        if size <= 4:
+            continue
+        if at + size > len(data):
+            raise ValueError("a tag's data lies outside the file")
+        total += size
+        if total > len(data):
+            raise ValueError("the tags declare more data than the file holds")
+
+
 def read_abi(source: str | Path | bytes, name: str | None = None) -> SangerRead:
     """An ABIF chromatogram (.ab1) read with Biopython. Raises ValueError for a file that is not ABIF, has no base
-    calls (a fragment-analysis .fsa file) or whose tags do not fit together."""
+    calls (a fragment-analysis .fsa file), whose directory does not fit the file (check_abif) or whose tags do not
+    fit together."""
     from Bio import SeqIO
 
     if isinstance(source, bytes | bytearray):
-        handle: Any = io.BytesIO(bytes(source))
+        data = bytes(source)
         default_name = name or "read"
     else:
         path = Path(source)
-        handle = path.open("rb")
+        data = path.read_bytes()
         default_name = name or (path.name[:-4] if path.name.lower().endswith(".ab1") else path.stem)
+    check_abif(data)
     try:
-        record = SeqIO.read(handle, "abi")
-    except (ValueError, struct.error, UnicodeDecodeError, IndexError, KeyError, EOFError, OverflowError) as exc:
-        raise ValueError(f"not a readable ABIF (.ab1) file: {exc}") from None
-    finally:
-        handle.close()
+        record = SeqIO.read(io.BytesIO(data), "abi")
+    except Exception as exc:
+        # Biopython's parser raises many kinds of error on a damaged file (ValueError, struct.error, IndexError,
+        # and AssertionError from _parse_tag_data when a tag's size does not match its element count); all mean the
+        # file cannot be read.
+        raise ValueError(f"not a readable ABIF (.ab1) file: {type(exc).__name__}: {exc}") from None
     raw = record.annotations.get("abif_raw", {})
     bases = str(record.seq).upper()
     if not bases:
@@ -801,13 +843,65 @@ def interpret_16s(rows: Sequence[dict[str, Any]], thresholds: dict[str, float] |
     return {**out, "level": "genus", "genus": best_genus, "reasons": reasons, "caveats": caveats}
 
 
-def _names(row: dict[str, Any], kind: str, genus_only: bool) -> set[str]:
-    if kind == "species":
-        value = row.get("genus") if genus_only else row.get("species")
-        if genus_only and not value and row.get("species"):
-            value = row["species"].split()[0]
-        return {value.casefold()} if value else set()
-    return {g.casefold() for g in gene_aliases(row.get("gene"))}
+# Names of the 16S rRNA gene (NCBI, Bakta's gene symbol rrs, MLST schemes' 16S loci such as "16S" or "16S_rRNA");
+# compared as one gene, so that "16S", "16S rRNA" and "rrs" all mean the same thing.
+GENE_16S = "16S rRNA"
+_16S_NAMES = re.compile(r"(16s(\s+(rrna|rdna|rna|ribosomal\s+rna))?|rrs[a-h]?)(\s+gene)?")
+_16S_PRODUCT = re.compile(r"\b16S ribosomal RNA\b", re.I)
+
+
+def gene_key(name: str) -> str:
+    """The form a gene name is compared in: case, underscores and spacing ignored, and every name of the 16S rRNA
+    gene read as "16s rrna"."""
+    n = " ".join(name.replace("_", " ").split()).casefold()
+    return GENE_16S.casefold() if _16S_NAMES.fullmatch(n) else n
+
+
+def row_genes(row: dict[str, Any]) -> set[str]:
+    """The gene names a hit stands for, in gene_key form: its gene field with VFDB's aliases ("hly/hla"); a hit of
+    NCBI's 16S database, or of an annotated feature whose product is the 16S ribosomal RNA, is the 16S rRNA gene."""
+    names = {gene_key(g) for g in gene_aliases(row.get("gene"))}
+    source = row.get("source") or {}
+    if source.get("kind") == "ncbi_16s" or source.get("source") == "ncbi_16s" \
+            or _16S_PRODUCT.search(row.get("product") or ""):
+        names.add(gene_key(GENE_16S))
+    return names
+
+
+def is_16s(row: dict[str, Any]) -> bool:
+    """Whether a hit is of the 16S rRNA gene (row_genes)."""
+    return gene_key(GENE_16S) in row_genes(row)
+
+
+def _row_genus(row: dict[str, Any]) -> str | None:
+    return row.get("genus") or (row["species"].split()[0] if row.get("species") else None)
+
+
+def species_matcher(wanted: str) -> tuple[Callable[[dict[str, Any]], bool], bool]:
+    """(predicate on a hit, genus_only) for a species or genus as a microbiologist writes it: "Staphylococcus aureus",
+    "staphylococcus aureus", "S. aureus" or "Staph. aureus" (an abbreviated genus matches every genus it starts
+    with), "Staphylococcus aureus subsp. aureus" or "... strain X" (compared at the species level), or one word for a
+    genus. Case is ignored."""
+    words = wanted.replace("subsp.", " subsp. ").split()
+    genus = words[0].casefold()
+    abbreviated = genus.endswith(".")
+    stem = genus.rstrip(".")
+
+    def genus_ok(g: str | None) -> bool:
+        if not g:
+            return False
+        g = g.casefold()
+        return g.startswith(stem) if abbreviated else g == genus
+
+    if len(words) == 1:
+        return (lambda r: genus_ok(_row_genus(r))), True
+    epithet = words[1].casefold()
+
+    def species_ok(r: dict[str, Any]) -> bool:
+        sp = (r.get("species") or "").split()
+        return len(sp) >= 2 and genus_ok(sp[0]) and sp[1].casefold() == epithet
+
+    return species_ok, False
 
 
 def _gene_coverage(row: dict[str, Any]) -> float:
@@ -827,10 +921,13 @@ def _brief(r: dict[str, Any] | None) -> dict[str, Any] | None:
 def compare_suspected(rows: Sequence[dict[str, Any]], suspected: str, kind: str, *,
                       min_identity: float | None = None, min_coverage: float | None = None,
                       tie_window: float | None = None, max_listed: int = 20) -> dict[str, Any]:
-    """Whether the hits support what the user suspected: a gene (kind "gene", compared with the rows' gene names and
-    their aliases, case-insensitively) or a species (kind "species"; a single word is a genus). outcome: match,
-    ambiguous or no_match, with the best row of that name, the best row overall, and every row with another name
-    that is better (`better_other`) or tied (`tied_other`), up to `max_listed` each with their total counts.
+    """Whether the hits support what the user suspected: a gene (kind "gene", compared with the rows' gene names in
+    gene_key form, with their aliases) or a species (kind "species", as species_matcher reads it; a single word is a
+    genus). `rows` are every hit of every source. outcome: match, ambiguous or no_match, with the best row of that
+    name, the best row overall, every row with another name that is better (`better_other`) or tied
+    (`tied_other`), and every better row that carries no name of that kind (`better_unnamed`: an unannotated genome
+    hit, for example, which can neither support nor contradict the suspicion), up to `max_listed` each with their
+    total counts.
 
     Genes: rows rank by bit score, then identity and query coverage; two rows tie when their identities differ by
     at most `tie_window` (0) and their query coverages are equal. Thresholds GENE_DEFAULTS, where coverage is the
@@ -843,12 +940,20 @@ def compare_suspected(rows: Sequence[dict[str, Any]], suspected: str, kind: str,
     wanted = " ".join(suspected.split())
     if not wanted:
         raise ValueError("nothing suspected")
-    genus_only = kind == "species" and len(wanted.split()) == 1
     if kind == "gene":
+        target = gene_key(wanted)
+        genus_only = False
+
+        def is_mine(r: dict[str, Any]) -> bool:
+            return target in row_genes(r)
+
+        def named(r: dict[str, Any]) -> bool:
+            return bool(row_genes(r))
+
         min_identity = GENE_DEFAULTS["min_identity"] if min_identity is None else min_identity
         min_coverage = GENE_DEFAULTS["min_coverage"] if min_coverage is None else min_coverage
         window = 0.0 if tie_window is None else tie_window
-        ranked = rank_hits(r for r in rows if _names(r, kind, False))
+        pool = rank_hits(rows)
         coverage_of = _gene_coverage
 
         def tied(a: dict[str, Any], b: dict[str, Any]) -> bool:
@@ -858,12 +963,17 @@ def compare_suspected(rows: Sequence[dict[str, Any]], suspected: str, kind: str,
         def above(a: dict[str, Any], b: dict[str, Any]) -> bool:
             return _rank_key(a) < _rank_key(b)
     else:
+        is_mine, genus_only = species_matcher(wanted)
+
+        def named(r: dict[str, Any]) -> bool:
+            return bool(_row_genus(r) if genus_only else r.get("species"))
+
         min_identity = (CLSI_16S["genus_identity"] if genus_only else CLSI_16S["species_identity"]) \
             if min_identity is None else min_identity
         min_coverage = CLSI_16S["min_query_coverage"] if min_coverage is None else min_coverage
         window = (0.0 if genus_only else CLSI_16S["species_separation"]) if tie_window is None else tie_window
-        ranked = sorted((r for r in rows if _names(r, kind, genus_only) and not _below(r["query_coverage"], min_coverage)),
-                        key=lambda r: (-r["identity"], -r["query_coverage"], -r["bitscore"], r["subject"]))
+        pool = sorted((r for r in rows if not _below(r["query_coverage"], min_coverage)),
+                      key=lambda r: (-r["identity"], -r["query_coverage"], -r["bitscore"], r["subject"]))
         coverage_of = _query_coverage
 
         def tied(a: dict[str, Any], b: dict[str, Any]) -> bool:
@@ -872,23 +982,31 @@ def compare_suspected(rows: Sequence[dict[str, Any]], suspected: str, kind: str,
 
         def above(a: dict[str, Any], b: dict[str, Any]) -> bool:
             return a["identity"] > b["identity"] + EPSILON
-    target = wanted.casefold()
+    ranked = [r for r in pool if named(r)]
+    unnamed = [r for r in pool if not named(r)]
     out: dict[str, Any] = {
         "suspected": wanted, "kind": "genus" if genus_only else kind, "source": SOURCES["suspected"],
         "thresholds": {"min_identity": min_identity, "min_coverage": min_coverage, "tie_window": window},
-        "best": _brief(ranked[0]) if ranked else None, "best_suspected": None, "better_other": [],
-        "better_other_count": 0, "tied_other": [], "tied_other_count": 0, "reasons": []}
-    mine = next((r for r in ranked if target in _names(r, kind, genus_only)), None)
+        "best": _brief(pool[0]) if pool else None, "best_suspected": None, "matched_names": [],
+        "better_other": [], "better_other_count": 0, "tied_other": [], "tied_other_count": 0,
+        "better_unnamed": [], "better_unnamed_count": 0, "reasons": []}
+    mine = next((r for r in ranked if is_mine(r)), None)
     if mine is None:
-        excluded = kind == "species" and any(target in _names(r, kind, genus_only) for r in rows)
+        excluded = kind == "species" and any(is_mine(r) for r in rows)
         return {**out, "outcome": "no_match",
                 "reasons": [_code("below_coverage" if excluded else "not_found", min_coverage=min_coverage)]}
-    others = [r for r in ranked if target not in _names(r, kind, genus_only)]
+    if kind == "gene":
+        names = sorted({g for r in ranked if is_mine(r) for g in gene_aliases(r.get("gene"))})
+    else:
+        names = sorted({(_row_genus(r) if genus_only else r.get("species")) or "" for r in ranked if is_mine(r)} - {""})
+    others = [r for r in ranked if not is_mine(r)]
     better = [r for r in others if above(r, mine) and not tied(r, mine)]
     level = [r for r in others if tied(r, mine)]
-    out.update({"best_suspected": _brief(mine), "better_other": [_brief(r) for r in better[:max_listed]],
-                "better_other_count": len(better), "tied_other": [_brief(r) for r in level[:max_listed]],
-                "tied_other_count": len(level)})
+    blank = [r for r in unnamed if above(r, mine) and not tied(r, mine)]
+    out.update({"best_suspected": _brief(mine), "matched_names": names[:max_listed],
+                "better_other": [_brief(r) for r in better[:max_listed]], "better_other_count": len(better),
+                "tied_other": [_brief(r) for r in level[:max_listed]], "tied_other_count": len(level),
+                "better_unnamed": [_brief(r) for r in blank[:max_listed]], "better_unnamed_count": len(blank)})
     if better:
         return {**out, "outcome": "no_match", "reasons": [_code("better_hit_other_name", count=len(better))]}
     if _below(mine["identity"], min_identity) or _below(coverage_of(mine), min_coverage):
@@ -898,3 +1016,14 @@ def compare_suspected(rows: Sequence[dict[str, Any]], suspected: str, kind: str,
     if level:
         return {**out, "outcome": "ambiguous", "reasons": [_code("tied_with_other_names", count=len(level))]}
     return {**out, "outcome": "match"}
+
+
+def best_summary(ranked: Sequence[dict[str, Any]]) -> dict[str, Any] | None:
+    """The best of ranked rows (rank_hits) with how many rows tie with it and how many different names those tied
+    rows carry (species for a named organism, else gene): when several species tie, which one is listed first only
+    follows the sort order of the database ids, so the tie must be shown."""
+    if not ranked:
+        return None
+    tied = [r for r in ranked if r.get("tied_with_best")]
+    names = {(r.get("species") or "").casefold() or "/".join(sorted(row_genes(r))) or r["subject"] for r in tied}
+    return {"row": ranked[0], "tied": max(0, len(tied) - 1), "tied_names": len(names)}

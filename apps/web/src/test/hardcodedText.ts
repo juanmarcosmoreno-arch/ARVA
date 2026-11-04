@@ -51,7 +51,7 @@ export const TECHNICAL_WORDS = new Set([
   "Mbp", "Gbp", "pb", "kpb", "Mpb", "Gpb", "nm", "µm", "contig", "contigs", "English", "Español", "DEMO", "TXT", "EC", "GO", "doi",
   "VFDB", "mlst", "MLST", "PubMLST", "ST", "BLAST", "FastANI", "skani", "Mash", "sylph", "GTDB", "Tk", "ANI",
   "AMRFinderPlus", "AMR", "HMM", "StxTyper", "ABRicate", "MPF", "oriT", "MOB-suite", "PlasmidFinder", "IntegronFinder", "ISEScan", "geNomad",
-  "blastn", "blastp", "tblastn", "SCCmec", "mecA", "mecC", "PVL", "lukS", "lukF", "PV", "tst", "TSST", "spaTyper", "AgrVATE", "agr", "Ridom", "SpaServer",
+  "blastn", "blastp", "tblastn", "Sanger", "SCCmec", "mecA", "mecC", "PVL", "lukS", "lukF", "PV", "tst", "TSST", "spaTyper", "AgrVATE", "agr", "Ridom", "SpaServer",
 ]);
 
 const LETTER = /\p{L}/u;
@@ -138,7 +138,7 @@ export function scanSource(file: string, source: string): Finding[] {
 // The guide's articles are written in English and Spanish side by side (their parity is tested in guide.test.ts);
 // the dictionaries are the translations themselves.
 const SKIPPED = new Set(["test", "i18n"]);
-const SKIPPED_FILES = new Set(["guide/metrics.ts", "vite-env.d.ts"]);
+const SKIPPED_FILES = new Set(["guide/metrics.ts", "guide/sanger.ts", "vite-env.d.ts"]);
 
 function sourceFiles(dir: string, root: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap((e) => {

@@ -17,6 +17,7 @@ import { ProjectDetailPage } from "@/pages/ProjectDetailPage";
 import { ProjectsPage } from "@/pages/ProjectsPage";
 import { SampleDetailPage } from "@/pages/SampleDetailPage";
 import { SamplesPage } from "@/pages/SamplesPage";
+import { SangerPage } from "@/pages/SangerPage";
 import { SettingsPage } from "@/pages/SettingsPage";
 import { ToolsPage } from "@/pages/ToolsPage";
 import { ComparePage, RunPage, WorkflowEditorPage, WorkflowsPage } from "@/pages/WorkflowsPage";
@@ -54,6 +55,7 @@ export const routes = [
       { path: "tools", element: <ToolsPage /> },
       { path: "explorer", element: <ExplorerListPage /> },
       { path: "genomic", element: <GenomicPage /> },
+      { path: "sanger", element: <SangerPage /> },
       { path: "comparative", element: <ComparativePage /> },
       { path: "comparative/:setId", element: <ComparativePage /> },
       { path: "explorer/:annotationId", element: <ExplorerPage /> },

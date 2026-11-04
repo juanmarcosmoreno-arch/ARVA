@@ -87,6 +87,8 @@ def _source(ctx: JobContext, record: ReferenceDatabase | None, **extra: Any) -> 
 
 def _name_16s(h: dict[str, Any]) -> dict[str, Any]:
     p = core.parse_16s_title(h.get("stitle") or "")
+    # Every sequence of the database is a 16S rRNA gene: arva_core.sanger.row_genes reads the source kind as that
+    # gene, so the row keeps its organism as its name.
     return {"species": p["species"], "genus": p["genus"], "strain": p["strain"], "subspecies": p["subspecies"],
             "organism": p["organism"], "accession": core.ncbi_accession(h["sseqid"])}
 
@@ -182,6 +184,9 @@ def _reference_genomes(ctx: JobContext, exe: str, query: Path, results: Path) ->
                      "genome": g.get("accession") or g.get("key"), "type_material": g.get("type_label"),
                      "species_source": "collection"}
             for row in core.hits_from_hsps(hsps, _source(ctx, record), lambda _h, x=names: dict(x)):
+                # The subject is a whole contig or chromosome: its coverage is not the gene's, which is unknown here
+                # (the collection's genomes are not annotated).
+                row["contig_coverage"], row["subject_coverage"] = row["subject_coverage"], None
                 rows.append(row)
             if subject != path:
                 subject.unlink()
@@ -245,6 +250,11 @@ def _genomes(ctx: JobContext, exe: str, query: Path, results: Path) -> tuple[lis
                             "species_source": "species_identification" if species.get("species") else None})
                 if ann is not None:
                     row.update(_feature_names(row, features, to_annotation.get(contig, contig)))
+                # The subject is a contig: the gene's coverage is the share of the annotated feature the hit covers
+                # (none without an annotation), and the contig's is kept apart.
+                top = (row.get("features") or [None])[0]
+                row["contig_coverage"] = row["subject_coverage"]
+                row["subject_coverage"] = top["feature_coverage"] if top else None
                 rows.append(row)
             searched.append({"assembly_id": a.id, "sample_code": g.get("sample_code"), "hsps": len(hsps),
                              "annotation": g.get("annotation"), "own_sample": g.get("own_sample")})

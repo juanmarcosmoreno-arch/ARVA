@@ -28,6 +28,7 @@ cambiar `JM` por su nombre.
 8. [Registrar la base de datos completa de Bakta y la colección de FastANI](#8-registrar-la-base-de-datos-completa-de-bakta-y-la-colección-de-fastani)
 9. [Base de datos de AMRFinderPlus](#9-base-de-datos-de-amrfinderplus)
 10. [Un primer proyecto de prueba](#10-un-primer-proyecto-de-prueba)
+    - [Lecturas Sanger de un gen (16S, toxinas, cualquier gen)](#lecturas-sanger-de-un-gen-16s-toxinas-cualquier-gen)
 11. [Qué hacer cuando algo falla](#11-qué-hacer-cuando-algo-falla)
 12. [Copias de seguridad](#12-copias-de-seguridad)
 13. [Actualizar ARVA](#13-actualizar-arva)
@@ -381,6 +382,28 @@ opciones se elige la estrategia de pulido de la ejecución (por ejemplo Medaka).
 
 Una nota sobre Prokka: Prokka nombra al gen *mecA* como `pbp` (su producto es la PBP2a); ARVA no cambia lo que
 escribe la herramienta, pero lo aclara donde corresponde. Bakta y AMRFinderPlus lo llaman *mecA*.
+
+### Lecturas Sanger de un gen (16S, toxinas, cualquier gen)
+
+Para identificar un gen secuenciado por Sanger (por ejemplo los `.ab1` que devuelve Macrogen):
+
+1. En **Herramientas y bases**, en "ARN ribosómico 16S de NCBI (cepas tipo)", **Descargar la compilación actual**
+   (unos 73 MB; ARVA muestra antes la fecha, el tamaño y el MD5 y pide confirmar). Hace falta solo para nombrar
+   lecturas de 16S; VFDB, los alelos MLST y AMRFinderPlus ya están.
+2. Abrir la muestra de la cepa (si no existe, crearla) y su pestaña **Sanger**. Arrastrar los dos `.ab1`, la lectura
+   directa y la reversa, por ejemplo `…cepa12_784-F.ab1` y `…cepa12_1401-R.ab1`: ARVA propone la dirección, el cebador y
+   el par por el nombre, y se pueden cambiar.
+3. Revisar cada **Cromatograma**: la región conservada por el recorte (de una lectura de más de 1.500 bases llamadas suelen quedar unas 550 a 600 útiles) y las
+   bases que conviene revisar.
+4. En **Identificar**, **Previsualizar el consenso**, revisar los conflictos si los hay, escribir si se quiere lo que
+   se sospecha (gen o especie) y **Guardar la identificación**.
+5. **Buscar en las fuentes locales**, revisar el resumen y confirmar. Al terminar se ven las coincidencias ordenadas
+   con identidad, cobertura y la versión de cada base, la lectura del 16S con sus criterios y si coincide lo que se
+   sospechaba. El informe se descarga en español o en inglés.
+
+Todo se hace en el Mac: ARVA no envía las secuencias a NCBI. El BLAST en línea de NCBI es un paso manual y opcional,
+con su aviso. Con el fragmento 784F–1401R del 16S, *Staphylococcus* suele quedar en género: ARVA lo dice y sugiere
+genes de mayor resolución (*rpoB*, *sodA*, *tuf*, *gap*).
 
 ## 11. Qué hacer cuando algo falla
 

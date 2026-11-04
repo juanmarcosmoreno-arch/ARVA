@@ -14,6 +14,7 @@ import { CopyErrorDetails } from "@/components/diagnostics/CopyErrorDetails";
 import { AnnotationDialog } from "@/components/annotation/AnnotationDialog";
 import { AnnotationTab } from "@/components/annotation/AnnotationTab";
 import { GenomicTab } from "@/components/genomic/GenomicTab";
+import { SangerTab } from "@/components/sanger/SangerTab";
 import { AmrDialog } from "@/components/genomic/AmrDialog";
 import { MobileDialog } from "@/components/genomic/MobileDialog";
 import { VariantDialog } from "@/components/genomic/VariantDialog";
@@ -58,6 +59,7 @@ import { ANNOTATION_JOBS } from "@/lib/annotation";
 import { MLST_JOB } from "@/lib/mlst";
 import { SPECIES_JOB } from "@/lib/species";
 import { ASSEMBLY_JOBS } from "@/lib/flye";
+import { SANGER_JOB } from "@/lib/sanger";
 import { POLISHING_JOBS } from "@/lib/polishing";
 import { QUAST_JOB, jobRelativePath } from "@/lib/quast";
 import { NANOPLOT_JOB } from "@/lib/nanoplot";
@@ -66,7 +68,7 @@ import { FILTER_JOBS, IMPORT_JOBS, RAW_SIGNAL_JOBS, hasReads, inProcessTool, job
 import type { AnalysisJobDetail, HeaderSummary, RawFile, SequencingTechnology } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-type Tab = "files" | "qc" | "filtering" | "assembly" | "annotation" | "genomic" | "history" | "metadata";
+type Tab = "files" | "qc" | "filtering" | "assembly" | "annotation" | "genomic" | "sanger" | "history" | "metadata";
 
 export function SampleDetailPage() {
   const { sampleId = "" } = useParams();
@@ -89,8 +91,9 @@ export function SampleDetailPage() {
   const qcJobs = allJobs.filter(
     (j) =>
       !FILTER_JOBS.has(j.job_type) && !IMPORT_JOBS.has(j.job_type) && !RAW_SIGNAL_JOBS.has(j.job_type) && !ASSEMBLY_JOBS.has(j.job_type) && !ANNOTATION_JOBS.has(j.job_type) &&
-      j.job_type !== MLST_JOB && j.job_type !== SPECIES_JOB,
+      j.job_type !== MLST_JOB && j.job_type !== SPECIES_JOB && j.job_type !== SANGER_JOB,
   );
+  const sangerJobs = allJobs.filter((j) => j.job_type === SANGER_JOB);
   const annotationJobs = allJobs.filter((j) => ANNOTATION_JOBS.has(j.job_type));
   const genomicJobs = allJobs.filter((j) => j.job_type === MLST_JOB || j.job_type === SPECIES_JOB);
   const filterJobs = allJobs.filter((j) => FILTER_JOBS.has(j.job_type));
@@ -255,6 +258,7 @@ export function SampleDetailPage() {
           { value: "assembly", label: `${t("sample.assembly")}${assemblyJobs.length ? ` (${assemblyJobs.length})` : ""}` },
           { value: "annotation", label: `${t("sample.annotation")}${annotationJobs.length ? ` (${annotationJobs.length})` : ""}` },
           { value: "genomic", label: `${t("sample.genomic")}${genomicJobs.length ? ` (${genomicJobs.length})` : ""}` },
+          { value: "sanger", label: `${t("sample.sanger")}${sangerJobs.length ? ` (${sangerJobs.length})` : ""}` },
           { value: "history", label: `${t("sample.history")}${jobs.data?.length ? ` (${jobs.data.length})` : ""}` },
           { value: "metadata", label: t("sample.metadata") },
         ]}
@@ -297,6 +301,7 @@ export function SampleDetailPage() {
       )}
       {tab === "annotation" && <AnnotationTab sampleId={s.id} jobs={allJobs} onNew={() => setAnnotateOpen(true)} />}
       {tab === "genomic" && <GenomicTab sampleId={s.id} jobs={allJobs} onMlst={() => setMlstOpen(true)} onSpecies={() => setSpeciesOpen(true)} onAmr={() => setAmrOpen(true)} onMobile={() => setMobileOpen(true)} onVirulence={() => setVirulenceOpen(true)} onTyping={() => setTypingOpen(true)} onVariants={() => setVariantsOpen(true)} />}
+      {tab === "sanger" && <SangerTab sampleId={s.id} />}
       {tab === "history" && <HistoryTab jobs={jobs.data ?? []} files={files.data ?? []} openJob={params.get("job")} />}
       {tab === "metadata" && (
         <Card>

@@ -7,6 +7,7 @@ from __future__ import annotations
 import csv
 import io
 import json
+import math
 from datetime import UTC, datetime
 from html import escape
 from typing import Any
@@ -40,6 +41,7 @@ LABELS: dict[str, dict[str, str]] = {
         "separation": "Separation (points of identity)", "reasons": "Reasons", "caveats": "Caveats",
         "within": "Species within the separation of the best", "suspected": "What you suspected",
         "outcome": "Outcome", "better": "Better hits with another name", "tied_other": "Tied hits with another name",
+        "better_unnamed": "Better hits without a name of that kind (they neither support nor contradict it)",
         "amr": "AMRFinderPlus (translated search)", "spa": "spa repeats (spaTyper)", "spa_type": "spa type",
         "repeats": "Repeats", "sequence": "Searched sequence", "methods": "Methods and sources",
         "limitations": "Limitations", "not_searched": "not searched", "no_hits": "no hits",
@@ -68,6 +70,7 @@ LABELS: dict[str, dict[str, str]] = {
         "best": "Mejor resultado", "next": "Especie siguiente", "separation": "Separación (puntos de identidad)",
         "reasons": "Motivos", "caveats": "Advertencias", "within": "Especies dentro de la separación del mejor",
         "suspected": "Lo que sospechabas", "outcome": "Resultado", "better": "Resultados mejores con otro nombre",
+        "better_unnamed": "Resultados mejores sin un nombre de ese tipo (ni apoyan ni contradicen la sospecha)",
         "tied_other": "Resultados empatados con otro nombre", "amr": "AMRFinderPlus (búsqueda traducida)",
         "spa": "Repeticiones spa (spaTyper)", "spa_type": "Tipo spa", "repeats": "Repeticiones",
         "sequence": "Secuencia buscada", "methods": "Métodos y fuentes", "limitations": "Limitaciones",
@@ -99,7 +102,13 @@ CODES: dict[str, dict[str, str]] = {
                                     "(Kosecka-Strojek 2019; Ghebremedhin 2008): to name the species, sequence "
                                     "{genes} or use the genome.",
         "closest_type_strain": "The hits are the closest type strains in the database, not a proof of the species.",
-        "not_found": "No hit has this name in the sources searched.",
+        "not_found": "No hit has this name in the sources searched: check the spelling (for a species, genus and "
+                     "species, e.g. Staphylococcus aureus or S. aureus), or the sources may not hold it.",
+        "own_genome_excluded": "{count} hit(s) on this sample's own genome were left out: that genome is named by "
+                               "ARVA's species identification, so it would only repeat that result.",
+        "criteria_16s_only": "The best hit is not the 16S rRNA gene: the species thresholds are CLSI's 16S "
+                             "criteria, and no published threshold says when another gene names a species.",
+        "searches_pending": "{count} search(es) are still running: the outcome may change.",
         "below_coverage": "Hits with this name cover less than {min_coverage} % of the sequence.",
         "better_hit_other_name": "{count} hit(s) with another name are better.",
         "below_thresholds": "The best hit with this name ({identity} % identity, {coverage} % coverage) is below "
@@ -141,7 +150,14 @@ CODES: dict[str, dict[str, str]] = {
                                     "{genes} o usa el genoma.",
         "closest_type_strain": "Los resultados son las cepas tipo más cercanas de la base de datos, no una prueba "
                                "de la especie.",
-        "not_found": "Ningún resultado tiene este nombre en las fuentes buscadas.",
+        "not_found": "Ningún resultado tiene este nombre en las fuentes buscadas: revisa cómo está escrito (para una "
+                     "especie, género y especie, p. ej. Staphylococcus aureus o S. aureus), o las fuentes pueden no "
+                     "contenerlo.",
+        "own_genome_excluded": "Se dejaron fuera {count} resultado(s) en el genoma de esta misma muestra: ese genoma "
+                               "lo nombra la identificación de especie de ARVA, así que solo repetiría ese resultado.",
+        "criteria_16s_only": "El mejor resultado no es el gen del ARNr 16S: los umbrales de especie son los criterios "
+                             "de CLSI para el 16S, y ningún umbral publicado dice cuándo otro gen nombra una especie.",
+        "searches_pending": "{count} búsqueda(s) siguen en curso: el resultado puede cambiar.",
         "below_coverage": "Los resultados con este nombre cubren menos del {min_coverage} % de la secuencia.",
         "better_hit_other_name": "{count} resultado(s) con otro nombre son mejores.",
         "below_thresholds": "El mejor resultado con este nombre ({identity} % de identidad, {coverage} % de "
@@ -212,12 +228,19 @@ def _fmt_param(v: Any, lang: str) -> Any:
     return v
 
 
+def _cut(v: float, digits: int) -> float:
+    """v cut (not rounded) to `digits` decimals, as the interface shows numbers (lib/sanger.ts cutDecimals): 98.998 %
+    is printed 98.99, never 99.00 next to a 99 % threshold it does not reach."""
+    f = 10 ** digits
+    return math.floor(v * f + 1e-9) / f if v >= 0 else -math.floor(-v * f + 1e-9) / f
+
+
 def _num(v: Any, lang: str, digits: int = 0) -> str:
     if v is None:
         return "–"
     if isinstance(v, bool) or not isinstance(v, int | float):
         return str(v)
-    text = f"{v:,.{digits}f}"
+    text = f"{_cut(v, digits) if isinstance(v, float) else v:,.{digits}f}"
     return text.replace(",", " ").replace(".", ",") if lang == "es" else text
 
 
@@ -228,7 +251,7 @@ def _cell(v: Any) -> str:
 def collect(db: Session, ident: SangerIdentification) -> dict[str, Any]:
     sample = db.get(Sample, ident.sample_id)
     project = db.get(Project, sample.project_id) if sample else None
-    data = svc.results(db, ident)
+    data = svc.results(db, ident, limit=None)
     return {"report": "sanger_identification", "generated_at": datetime.now(UTC).isoformat(timespec="seconds"),
             "arva_version": __version__,
             "sample": {"id": sample.id, "code": sample.sample_code, "organism": sample.organism} if sample else None,
@@ -247,7 +270,13 @@ def _name(r: dict[str, Any]) -> str:
 
 
 def render_csv(data: dict[str, Any]) -> str:
-    """One row per ranked hit (every source searched), with the database and version of its source."""
+    """One row per ranked hit (every row of every source searched, not only those the interface lists), with the
+    database and version of its source. Text cells that a spreadsheet would read as a formula are quoted."""
+    from app.services.batches import _csv_safe
+
+    def num(v: Any) -> Any:
+        return round(v, 4) if isinstance(v, float) else v
+
     out = io.StringIO()
     w = csv.writer(out, lineterminator="\n")
     w.writerow(["identification", "rank", "tied_with_best", "source", "database", "database_version", "subject",
@@ -257,12 +286,13 @@ def render_csv(data: dict[str, Any]) -> str:
     label = data["identification"]["label"]
     for r in data["ranked"]:
         src = r.get("source") or {}
-        w.writerow([label, r.get("rank"), r.get("tied_with_best"), src.get("source"), src.get("name"),
-                    src.get("version"), r.get("subject"), r.get("title"), r.get("gene"), r.get("species"),
-                    r.get("product"), r.get("allele"), r.get("genome"), round(r["identity"], 4), r.get("identical"),
-                    r.get("aligned_length"), round(r["query_coverage"], 4), round(r["subject_coverage"], 4),
-                    r.get("query_start"), r.get("query_end"), r.get("subject_start"), r.get("subject_end"),
-                    r.get("strand"), r.get("kind"), r.get("evalue"), r.get("bitscore"), r.get("copies")])
+        w.writerow([_csv_safe(v) for v in (
+            label, r.get("rank"), r.get("tied_with_best"), src.get("source"), src.get("name"), src.get("version"),
+            r.get("subject"), r.get("title"), r.get("gene"), r.get("species"), r.get("product"), r.get("allele"),
+            r.get("genome"), num(r["identity"]), r.get("identical"), r.get("aligned_length"),
+            num(r["query_coverage"]), num(r.get("subject_coverage")), r.get("query_start"), r.get("query_end"),
+            r.get("subject_start"), r.get("subject_end"), r.get("strand"), r.get("kind"), r.get("evalue"),
+            r.get("bitscore"), r.get("copies"))])
     return out.getvalue()
 
 
@@ -387,6 +417,8 @@ def _suspected_html(data: dict[str, Any], L: dict[str, str], lang: str) -> str:
     s = data.get("suspected")
     if not s:
         return ""
+    if s["outcome"] == "not_searched":
+        return f"<h2>{L['suspected']}: {escape(s['suspected'])}</h2><p class='muted'>{L['not_searched']}</p>"
     best = s.get("best_suspected") or {}
     parts = [f"<h2>{L['suspected']}: {escape(s['suspected'])} ({escape(s['kind'])})</h2>",
              f"<p><b>{L['outcome']}: {escape(L['outcome.' + s['outcome']])}</b></p>"]
@@ -394,7 +426,11 @@ def _suspected_html(data: dict[str, Any], L: dict[str, str], lang: str) -> str:
         parts.append(f"<p>{_cell(_name(best))}: {_num(best.get('identity'), lang, 2)} % · "
                      f"{_num(best.get('query_coverage'), lang, 1)} %</p>")
     parts += [f"<p>{escape(code_text(r, lang))}</p>" for r in s.get("reasons") or []]
-    for title, key in ((L["better"], "better_other"), (L["tied_other"], "tied_other")):
+    if s.get("pending"):
+        parts.append(f"<p class='warn'>{escape(code_text({'code': 'searches_pending', 'params': {'count': s['pending']}}, lang))}</p>")
+    parts += [f"<p class='warn'>{escape(code_text(c, lang))}</p>" for c in s.get("caveats") or []]
+    for title, key in ((L["better"], "better_other"), (L["tied_other"], "tied_other"),
+                       (L["better_unnamed"], "better_unnamed")):
         if s.get(key):
             parts.append(f"<p>{title} ({s[key + '_count']}): " + escape(", ".join(
                 f"{_name(r)} {_num(r['identity'], lang, 2)} %" for r in s[key][:10])) + "</p>")

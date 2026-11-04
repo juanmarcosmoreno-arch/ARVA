@@ -1,3 +1,4 @@
+import { sangerEn, sangerEs } from "./sanger";
 import { useSettings, type Language } from "@/store/settings";
 
 const en = {
@@ -5006,6 +5007,9 @@ const en = {
   "api.error.sanger_unknown_format": "{file} is not a chromatogram (.ab1) or a FASTA or .seq text file.",
   "api.error.sanger_unreadable": "{file} cannot be read: {detail}",
   "api.error.sanger_duplicate": "{file} was already imported into this sample (same content).",
+  "api.error.sanger_no_space": "{file} was not stored: there is not enough free space for it.",
+  "api.error.sanger_read_nothing_kept": "Nothing of the read {read} is kept after trimming: no base scores above the limit (a failed read, or a limit too strict). Look at its chromatogram, lower the limit or set a manual range, or identify {other} on its own.",
+  "api.error.sanger_single_nothing_kept": "Nothing of the read {read} is kept after trimming: no base scores above the limit (a failed read, or a limit too strict). Look at its chromatogram, lower the limit or set a manual range.",
   "api.error.sanger_too_many_records": "{file} holds more than {max} sequences.",
   "api.error.sanger_read_too_long": "{file}: the read {name} has {length} bases, more than {max}.",
   "api.error.sanger_read_missing": "The read does not exist or belongs to another sample.",
@@ -6202,6 +6206,7 @@ const en = {
   "api.error.discover_too_many_features": "{features} features is too many for a co-occurrence network (at most {maximum}); raise the minimum number of carriers or choose fewer sources.",
   "api.error.discover_invalid": "These Discover options are not valid.",
   "api.error.report_pdf_unavailable": "PDF rendering needs WeasyPrint and its Pango libraries, which are not installed; download the HTML report and print it to PDF from the browser.",
+  ...sangerEn,
 } as const;
 
 export type TranslationKey = keyof typeof en;
@@ -11212,6 +11217,9 @@ const es: Record<TranslationKey, string> = {
   "api.error.sanger_unknown_format": "{file} no es un cromatograma (.ab1) ni un archivo de texto FASTA o .seq.",
   "api.error.sanger_unreadable": "{file} no se puede leer: {detail}",
   "api.error.sanger_duplicate": "{file} ya se importó en esta muestra (mismo contenido).",
+  "api.error.sanger_no_space": "{file} no se guardó: no hay espacio libre suficiente.",
+  "api.error.sanger_read_nothing_kept": "No queda nada de la lectura {read} tras el recorte: ninguna base supera el límite (una lectura fallida, o un límite demasiado estricto). Mira su cromatograma, baja el límite o fija un rango manual, o identifica {other} sola.",
+  "api.error.sanger_single_nothing_kept": "No queda nada de la lectura {read} tras el recorte: ninguna base supera el límite (una lectura fallida, o un límite demasiado estricto). Mira su cromatograma, baja el límite o fija un rango manual.",
   "api.error.sanger_too_many_records": "{file} contiene más de {max} secuencias.",
   "api.error.sanger_read_too_long": "{file}: la lectura {name} tiene {length} bases, más de {max}.",
   "api.error.sanger_read_missing": "La lectura no existe o pertenece a otra muestra.",
@@ -12408,6 +12416,7 @@ const es: Record<TranslationKey, string> = {
   "api.error.discover_too_many_features": "{features} rasgos son demasiados para una red de coocurrencia (como máximo {maximum}); sube el mínimo de portadores o elige menos fuentes.",
   "api.error.discover_invalid": "Estas opciones de Discover no son válidas.",
   "api.error.report_pdf_unavailable": "Generar PDF requiere WeasyPrint y sus bibliotecas Pango, que no están instaladas; descarga el informe HTML e imprímelo como PDF desde el navegador.",
+  ...sangerEs,
 };
 
 export const dictionaries = { en, es } as const;

@@ -72,8 +72,12 @@ def sample(client):
 # --- Names and pairs ----------------------------------------------------------------------------------------------
 
 @pytest.mark.parametrize("name,expected", [
-    ("57bbff46-1-27_784-F.ab1", ("forward", "784", "1-27")),
-    ("893888f6-1-27_1401-R.ab1", ("reverse", "1401", "1-27")),
+    # Synthetic names in the forms Macrogen delivers: an 8-hex order prefix on the files, and the order number and
+    # well, with the chromatogram's file name, in the FASTA header of its .txt.
+    ("0a1b2c3d-S9_784-F.ab1", ("forward", "784", "S9")),
+    ("fedcba98-S9_1401-R.ab1", ("reverse", "1401", "S9")),
+    ("H000000-000_A01_S9_784-F.ab1", ("forward", "784", "S9")),
+    ("H000000-001_P24_S9_1401-R", ("reverse", "1401", "S9")),
     ("27_784F.ab1", ("forward", "784F", "27")),
     ("A_1492R.seq", ("reverse", "1492R", "A")),
     ("iso5_icaA-Fwd.fasta", ("forward", None, "iso5_icaA")),
@@ -118,10 +122,128 @@ def test_import_validation_duplicates_pairs_and_manual_override(client, sample, 
     u = client.patch(f"{API}/sanger/reads/{by['3100']['id']}", json={"direction": "forward", "pair_key": "S2"}).json()
     assert (u["direction"], u["direction_source"], u["pair_key"]) == ("forward", "user", "S2")
     overview = client.get(f"{API}/samples/{sample['id']}/sanger").json()
-    assert overview["pairs"][0]["status"] == "ambiguous" and len(overview["reads"]) == 5
+    # Two forward reads of key S2: the one with qualities (the chromatogram) is proposed.
+    assert overview["pairs"][0]["status"] == "proposed" and len(overview["reads"]) == 5
+    assert overview["pairs"][0]["forward_read_id"] == by["3100"]["id"]
+    client.patch(f"{API}/sanger/reads/{by['plain']['id']}", json={"direction": "reverse", "pair_key": "S2"})
+    overview = client.get(f"{API}/samples/{sample['id']}/sanger").json()
+    assert overview["pairs"][0]["status"] == "ambiguous"
     assert client.patch(f"{API}/sanger/reads/{by['3100']['id']}", json={"direction": "sideways"}).status_code == 422
     assert client.delete(f"{API}/sanger/reads/{by['plain']['id']}").status_code == 204
     assert client.get(f"{API}/sanger/reads/{by['plain']['id']}").status_code == 404
+
+
+def _abif_entries(data: bytes) -> tuple[int, int, int]:
+    import struct
+
+    head = struct.unpack(">H4sI2H3I", data[4:30])
+    return head[4], head[5], head[7]
+
+
+def damaged_ab1() -> bytes:
+    """3100.ab1 with the declared data size of its PBAS2 entry (the base calls) one byte too large: the directory
+    still fits the file, and Biopython 1.88's _parse_tag_data stops on an AssertionError."""
+    import struct
+
+    data = bytearray(ab1("3100.ab1"))
+    size, count, offset = _abif_entries(bytes(data))
+    for i in range(count):
+        at = offset + i * size
+        name, number = struct.unpack(">4sI", data[at:at + 8])
+        if (name, number) == (b"PBAS", 2):
+            (dsize,) = struct.unpack(">I", data[at + 16:at + 20])
+            data[at + 16:at + 20] = struct.pack(">I", dsize + 1)
+            return bytes(data)
+    raise AssertionError("no PBAS2 entry")
+
+
+def test_damaged_and_repeated_files_are_skipped_one_by_one(client, sample, storage_root):
+    r = upload(client, sample, ("bad.ab1", damaged_ab1()), ("a.ab1", ab1("3100.ab1")), ("b.ab1", ab1("3100.ab1")),
+               ("ok.seq", b"ACGTACGTACGTACGTACGTACGTACGTACGTAC\n"))
+    assert r.status_code == 201, r.text
+    body = r.json()
+    assert sorted(x["name"] for x in body["imported"]) == ["a", "ok"]
+    codes = {x["file"]: x["code"] for x in body["skipped"]}
+    assert codes == {"bad.ab1": "sanger_unreadable", "b.ab1": "sanger_duplicate"}
+    assert "AssertionError" in next(x["detail"] for x in body["skipped"] if x["file"] == "bad.ab1")
+    # Only the imported files were stored.
+    assert len(list((storage_root / "raw" / sample["project_id"] / sample["id"] / "sanger").iterdir())) == 2
+
+
+def test_upload_larger_than_the_configured_limit_is_refused_not_cut(client, sample, monkeypatch):
+    from app.core.config import get_settings
+
+    monkeypatch.setattr(get_settings(), "max_upload_size_bytes", 100_000)
+    r = upload(client, sample, ("3100.ab1", ab1("3100.ab1"))).json()
+    assert r["imported"] == [] and r["skipped"][0]["code"] == "sanger_file_too_large"
+    assert r["skipped"][0]["params"]["max"] == 100_000
+
+
+def test_macrogen_text_copy_pairs_and_is_marked(client, sample):
+    """A Macrogen-style .txt (FASTA header with order number and well, ending in .ab1) uploaded next to the
+    chromatograms: the text reads pair with each other, the chromatograms are proposed for the pair, and the text
+    reads are marked as copies of a chromatogram."""
+    calls = core.read_abi(FX / "3100.ab1").bases
+    rev, _ = reverse_fasta()
+    files = [("0a1b2c3d-S9_784-F.ab1", ab1("3100.ab1")),
+             ("fedcba98-S9_1401-R.fasta", f">S9_1401-R\n{rev}\n".encode()),
+             ("0a1b2c3d-S9_784-F.txt", f">H000000-000_A01_S9_784-F.ab1\t795\n{calls}\n".encode())]
+    body = upload(client, sample, *files).json()
+    by = {x["original_filename"]: x for x in body["imported"]}
+    txt = by["0a1b2c3d-S9_784-F.txt"]
+    assert txt["name"] == "H000000-000_A01_S9_784-F" and txt["pair_key"] == "S9" and txt["direction"] == "forward"
+    (pair,) = body["pairs"]
+    assert pair["status"] == "proposed" and pair["forward_read_id"] == by["0a1b2c3d-S9_784-F.ab1"]["id"]
+    overview = client.get(f"{API}/samples/{sample['id']}/sanger").json()
+    twins = {r["original_filename"]: r["chromatogram_twin"] for r in overview["reads"]}
+    assert twins == {"0a1b2c3d-S9_784-F.ab1": False, "fedcba98-S9_1401-R.fasta": False,
+                     "0a1b2c3d-S9_784-F.txt": True}
+
+
+def test_a_read_with_nothing_kept_is_named(client, sample):
+    rev, _ = reverse_fasta()
+    reads = upload(client, sample, ("3100.ab1", ab1("3100.ab1")),
+                   ("S2-R.fasta", f">S2-R\n{rev}\n".encode())).json()["imported"]
+    fwd = next(r for r in reads if r["file_format"] == "abi")["id"]
+    rvs = next(r for r in reads if r["file_format"] == "fasta")["id"]
+    # A limit no base passes (an error probability of 1e-9 is Q90): the forward read keeps nothing.
+    base = f"{API}/samples/{sample['id']}/sanger"
+    r = client.post(f"{base}/consensus/preview", json={"forward_read_id": fwd, "reverse_read_id": rvs,
+                                                        "forward_trim": {"limit": 1e-9}})
+    assert r.status_code == 400 and r.json()["code"] == "sanger_read_nothing_kept"
+    assert r.json()["params"] == {"read": "3100", "other": "S2-R"}
+    one = client.post(f"{base}/consensus/preview", json={"forward_read_id": fwd, "forward_trim": {"limit": 1e-9}})
+    assert one.json()["code"] == "sanger_single_nothing_kept"
+
+
+def test_suspicion_waits_for_searches_and_leaves_out_the_own_genome():
+    from types import SimpleNamespace
+
+    def row(species, identity, source, own=False, gene=None):
+        return {"source": {"source": source, "kind": source, "own_sample": own}, "subject": f"{source}-{species}",
+                "species": species, "genus": species.split()[0], "gene": gene, "identity": identity,
+                "query_coverage": 100.0, "subject_coverage": 100.0, "bitscore": 10 * identity, "evalue": 0.0,
+                "aligned_length": 600, "title": None, "product": None}
+
+    ident = SimpleNamespace(suspected={"kind": "species", "value": "S. aureus"})
+    assert svc._suspicion(ident, [], [], 2)["outcome"] == "not_searched"
+    own = row("Staphylococcus capitis", 100.0, "genomes", own=True)
+    sixteen = row("Staphylococcus aureus", 99.9, "ncbi_16s")
+    ranked = core.rank_hits([own, sixteen])
+    out = svc._suspicion(ident, ranked, ["genomes", "ncbi_16s"], 1)
+    # The own genome (named by ARVA's own species identification) does not count against or for the suspicion.
+    assert out["outcome"] == "match" and out["pending"] == 1 and out["matched_names"] == ["Staphylococcus aureus"]
+    assert [c["code"] for c in out["caveats"]] == ["own_genome_excluded"]
+    # Another gene (tuf on another genome in ARVA) on top: CLSI's 16S criteria are said to be 16S criteria.
+    tuf = core.rank_hits([row("Staphylococcus aureus", 99.5, "genomes", gene="tuf")])
+    assert [c["code"] for c in svc._suspicion(ident, tuf, ["genomes"], 0)["caveats"]] == ["criteria_16s_only"]
+
+
+def test_original_file_downloads_are_audited_routes():
+    from app.api.access import DOWNLOADS
+
+    assert DOWNLOADS.search("/sanger/reads/{read_id}/file")
+    assert not DOWNLOADS.search("/sanger/reads/{read_id}/trace")
 
 
 def test_read_detail_trimming_and_chromatogram(client, sample):
@@ -160,22 +282,27 @@ def test_consensus_preview_identification_and_suspicion(client, sample):
     assert p["length"] == 679 and {"code": "conflicts_without_qualities", "params": {}} in p["warnings"]
     # Saving it: the consensus and every column's evidence are kept; the suspicion can change later.
     ident = client.post(f"{API}/samples/{sample['id']}/sanger/identifications",
-                        json={**payload, "label": "strain 27 16S", "suspected": {"kind": "species",
+                        json={**payload, "label": "S12 16S", "suspected": {"kind": "species",
                                                                                   "value": "Staphylococcus"}})
     assert ident.status_code == 201, ident.text
     i = ident.json()["identification"]
     assert i["mode"] == "pair" and i["length"] == 679 and i["unresolved"] == 2 and i["suspected"]["kind"] == "species"
-    assert ident.json()["suspected"]["outcome"] == "no_match"  # nothing searched yet
-    assert ident.json()["suspected"]["reasons"][0]["code"] == "not_found"
-    single = client.post(f"{API}/samples/{sample['id']}/sanger/identifications",
-                         json={"reverse_read_id": rvs}).json()["identification"]
+    # Nothing searched yet: no outcome at all (never a "does not match" before any search).
+    assert ident.json()["suspected"]["outcome"] == "not_searched" and ident.json()["suspected"]["reasons"] == []
+    assert set(ident.json()["not_searched"]) == set(svc.SOURCE_KEYS)
+    single_out = client.post(f"{API}/samples/{sample['id']}/sanger/identifications",
+                             json={"reverse_read_id": rvs}).json()
+    single = single_out["identification"]
     assert single["mode"] == "single" and single["reverse_read_id"] == rvs and single["forward_read_id"] is None
+    # A reverse read alone is searched on the forward strand, as the interface says.
+    assert single["sequence"] == core.reverse_complement(core.SangerRead("r", rev, "fasta")).bases
+    assert single_out["consensus"]["reverse_complemented"] is True
     assert client.delete(f"{API}/sanger/reads/{rvs}").json()["code"] == "sanger_read_in_use"
     upd = client.patch(f"{API}/sanger/identifications/{i['id']}", json={"suspected": {"kind": "gene",
                                                                                          "value": "16S"}}).json()
     assert upd["identification"]["suspected"] == {"kind": "gene", "value": "16S"}
     fasta = client.get(f"{API}/sanger/identifications/{i['id']}/consensus.fasta").text
-    assert fasta.startswith(">strain_27_16S pair length=679") and "".join(fasta.splitlines()[1:]) == \
+    assert fasta.startswith(">S12_16S pair length=679") and "".join(fasta.splitlines()[1:]) == \
         client.get(f"{API}/sanger/identifications/{i['id']}").json()["identification"]["sequence"]
 
 
@@ -265,6 +392,23 @@ def test_16s_search_of_a_public_read_names_the_genus_not_the_species(client, sam
     wrong = client.patch(f"{API}/sanger/identifications/{iid}",
                          json={"suspected": {"kind": "species", "value": "Escherichia coli"}}).json()
     assert wrong["suspected"]["outcome"] == "no_match"
+    # The way a microbiologist writes it: an abbreviated genus or a subspecies is the same species.
+    for written in ("S. epidermidis", "Staph. epidermidis", "staphylococcus epidermidis subsp. x"):
+        alt = client.patch(f"{API}/sanger/identifications/{iid}",
+                           json={"suspected": {"kind": "species", "value": written}}).json()["suspected"]
+        assert alt["outcome"] == "ambiguous" and alt["matched_names"] == ["Staphylococcus epidermidis"], written
+    # The 16S rRNA gene itself, by any of its names: NCBI's 16S hits are that gene.
+    for written in ("16S rRNA", "16S", "rrs", "16s ribosomal RNA"):
+        gene = client.patch(f"{API}/sanger/identifications/{iid}",
+                            json={"suspected": {"kind": "gene", "value": written}}).json()["suspected"]
+        assert gene["outcome"] == "match" and gene["best"]["subject"] == best["subject"], written
+    # The list of identifications says that several species tie with the best and gives the 16S reading.
+    (brief,) = client.get(f"{API}/samples/{sample['id']}/sanger").json()["identifications"]
+    assert brief["best"]["subject"] == best["subject"] and brief["reading_16s"]["level"] == "genus"
+    assert brief["best_tied"] == out["tied_with_best"] - 1
+    assert brief["searched"] == ["ncbi_16s"]
+    # A label a spreadsheet would read as a formula is quoted in the CSV.
+    client.patch(f"{API}/sanger/identifications/{iid}", json={"label": "=HYPERLINK(\"http://x\",\"a\")"})
     # Reports: HTML in both languages, CSV of the ranked hits, JSON with the database provenance.
     base = f"{API}/sanger/identifications/{iid}/report"
     en = client.get(base, params={"format": "html", "lang": "en"}).text
@@ -274,6 +418,9 @@ def test_16s_search_of_a_public_read_names_the_genus_not_the_species(client, sam
     assert "Staphylococcus" in es and "16S_ribosomal_RNA" not in es.split("<h2>")[0]
     rows = list(csv.DictReader(io.StringIO(client.get(base, params={"format": "csv"}).text)))
     assert rows[0]["database_version"] == "2026-10-29" and rows[0]["source"] == "ncbi_16s"
+    assert rows[0]["identification"].startswith("'=HYPERLINK")
+    # Every ranked row is in the CSV, not only the 50 the interface lists.
+    assert len(rows) == out["ranked_count"] > svc.MAX_LISTED
     data = client.get(base, params={"format": "json"}).json()
     assert data["searches"][0]["database_version"] == "2026-10-29" and data["report"] == "sanger_identification"
     # The database is in use while the search runs, and the identification cannot be deleted then; afterwards it can.
@@ -317,6 +464,9 @@ def test_genome_of_the_same_strain_names_the_hit_by_its_annotation(client, sampl
     assert best["identity"] == 100 and best["query_coverage"] == 100 and best["subject"] == feat["contig_in_assembly"]
     assert best["gene"] == feat["gene"] and best["features"][0]["locus_tag"] == feat["locus_tag"]
     assert best["features"][0]["hit_inside"] == 100
+    # The gene's coverage is the annotated feature's, not the contig's (the amplicon is a small part of a contig).
+    assert best["subject_coverage"] == best["features"][0]["feature_coverage"] > 80
+    assert best["contig_coverage"] < best["subject_coverage"]
     assert out["suspected"]["outcome"] in ("match", "ambiguous")
     assert out["suspected"]["best_suspected"]["gene"] == feat["gene"]
 
@@ -463,10 +613,14 @@ def test_amrfinderplus_translated_search_of_a_mecA_fragment(client, sample, stor
     try:
         record = registered_release(client, storage_root, "amr-sanger", index=True)
         mec = next(s for n, s in _fasta_records(AMR_CDS).items() if "mecA" in n or n.startswith("mecA"))
-        iid = _identify(client, sample, "mecA_amplicon", mec[:1500])
+        # A 600-base amplicon of the 2,007-bp gene: under AMRFinderPlus's default 50 % coverage of the reference
+        # protein it would give no row; ARVA's 10 % reports it as a partial hit.
+        iid = _identify(client, sample, "mecA_amplicon", mec[700:1300])
         out = _search(client, iid, "amrfinderplus", database_ids={"amrfinderplus": record["id"]})
         rows = out["by_source"]["amrfinderplus"]["rows"]
         assert [r["element_symbol"] for r in rows] == ["mecA"] and rows[0]["search"] == "translated"
+        assert 25 < rows[0]["coverage"] < 35 and rows[0]["method"].startswith("PARTIAL")
+        assert out["searches"][0]["settings"]["coverage_min"] == svc.AMR_COVERAGE_MIN == 0.1
         assert out["searches"][0]["database_version"] == "2026-08-07.1"
     finally:
         os.environ.pop("ARVA_TOOL_AMRFINDERPLUS", None)
@@ -490,6 +644,8 @@ def test_reference_collection_rows_carry_the_genome_and_species(client, sample, 
     rows = out["by_source"]["reference_genomes"]["rows"]
     assert rows and all(x["genome"] == "GCF_000011265.1" for x in rows)
     assert rows[0]["copies"] >= 5 and rows[0]["query_coverage"] > 99 and 98 < rows[0]["identity"] < 100
+    # An unannotated genome: the gene's coverage is unknown, only the chromosome's is kept.
+    assert rows[0]["subject_coverage"] is None and 0 < rows[0]["contig_coverage"] < 1
     assert out["by_source"]["reference_genomes"]["details"]["genomes_searched"] == 1
 
 
@@ -592,3 +748,14 @@ def test_deleting_the_sample_removes_its_sanger_records_and_keeps_raw_files(clie
     with SessionLocal() as db:
         assert db.get(SangerRead, reads[0]["id"]) is None
     assert stored.is_file()
+
+
+def test_report_cuts_numbers_so_a_value_below_a_threshold_is_not_shown_as_it():
+    from app.services import sanger_report as report
+
+    near = {"code": "below_species_identity", "params": {"identity": 100 * 593 / 599, "minimum": 99.0}}
+    assert report.code_text(near, "en") == ("The best identity, 98.99 %, is below the species threshold of "
+                                            "99.00 %.")
+    assert report.code_text(near, "es").startswith("La mejor identidad, 98,99 %")
+    assert report._num(0.7999, "es", 2) == "0,79" and report._num(98.998, "en", 2) == "98.99"
+    assert report._num(100.0, "en", 2) == "100.00" and report._num(1234, "en") == "1,234"

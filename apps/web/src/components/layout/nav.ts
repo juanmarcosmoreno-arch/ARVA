@@ -1,4 +1,5 @@
 import {
+  Activity,
   BarChart3,
   BookOpen,
   Boxes,
@@ -52,6 +53,7 @@ export const NAV: NavSection[] = [
       { key: "assembly", label: "nav.assembly", icon: Puzzle, to: "/assembly", description: "nav.desc.assembly" },
       { key: "annotation", label: "nav.annotation", icon: Dna, to: "/annotation", description: "nav.desc.annotation" },
       { key: "genomic", label: "nav.genomic", icon: Microscope, to: "/genomic", description: "nav.desc.genomic" },
+      { key: "sanger", label: "nav.sanger", icon: Activity, to: "/sanger", description: "nav.desc.sanger" },
       { key: "explorer", label: "nav.explorer", icon: MapIcon, to: "/explorer",
         description: "nav.desc.explorer" },
       { key: "comparative", label: "nav.comparative", icon: GitCompareArrows, to: "/comparative",

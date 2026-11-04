@@ -2303,9 +2303,23 @@ Exploratory analyses of a project's stored results; every result is labelled "ex
   When that sample has a genome in ARVA, its newest genome is the default "genomes" source.
 - **Pairing** (ARVA's heuristic, shown and changeable): the direction from the end of the read's name (`-F`, `_R`,
   `Fwd`, `Rev`, `Forward`, `Reverse`, or a primer with its letter such as `784F`), then a primer name before it
-  (`_784`), and what is left is the pair key; a leading block of 8 hexadecimal characters and a hyphen, as in the
-  files Macrogen delivered to the user (`57bbff46-1-27_784-F.ab1`), is not part of the key. One forward and one
-  reverse read with the same key of the same sample are proposed as a pair.
+  (`_784`), and what is left is the pair key. Two prefixes Macrogen adds are not part of the key: a leading block of 8
+  hexadecimal characters and a hyphen on its file names (synthetic example `0a1b2c3d-S9_784-F.ab1`), and the order
+  number and well in the FASTA header of its `.txt` (`H000000-000_A01_S9_784-F.ab1`, whose `.ab1` ending is dropped
+  too). One forward and one reverse read with the same key of the same sample are proposed as a pair; when a key has
+  several reads of one direction and only one has qualities (the chromatogram next to its `.txt` copy), that one is
+  proposed, and the text copy is marked as such.
+- **Upload checks**: each file is read, checked and stored one at a time; a damaged `.ab1` (any error of Biopython's
+  parser, including the AssertionError it raises when a tag's size does not match its element count) or a second
+  copy of the same file in one upload is skipped with its reason and the others go on. Before Biopython decodes an
+  `.ab1`, ARVA checks its directory (ABIF layout as in Biopython 1.88's `_HEADFMT`/`_DIRFMT`): at most 4,096 tags,
+  every tag's data inside the file, and the tags' data adding up to no more than the file size (real chromatograms
+  use 81 to 99 % of it), so that a crafted file whose tags share one block cannot make the decoded data many times
+  larger than the file. Chromatograms are limited to 5 MiB, text files to 2 MiB, and a file larger than the upload
+  limit is refused, never cut.
+- **What is searched**: the consensus, or one trimmed read; a reverse read alone is reverse-complemented first, so
+  that the searched and exported sequence is on the forward strand as in a consensus. A read with nothing kept after
+  trimming is named in the error, with the other read to identify alone.
 - **One job per source**, each recording its tool, version, exact commands and (with `record_use`) its database's
   kind, version, version source, checksum and path; the worker checks the sequence's SHA-256, the database record
   and, for genomes, each genome's contigs SHA-256 again before running:
@@ -2319,30 +2333,100 @@ Exploratory analyses of a project's stored results; every result is labelled "ex
   - genomes in ARVA: megablast against the contigs, each hit named by the annotated features of the genome's latest
     annotation it overlaps, with the share of the feature covered; the species is ARVA's own species identification
     of that genome when it gave one;
-  - AMRFinderPlus 4.2.7 nucleotide (translated) search with its curated thresholds, and spaTyper with the user's
+  - AMRFinderPlus 4.2.7 nucleotide (translated) search with its curated identity thresholds and
+    `--coverage_min 0.1` (10 % of the reference protein; ARVA's choice, see below), and spaTyper with the user's
     Ridom files.
   The BLAST settings are ARVA's choices (megablast for near-identical references as in the manual check of the
   design notes, blastn for VFDB) and can be changed per source; they are shown before the run and recorded.
+- **AMRFinderPlus coverage**: `--coverage_min` is the share of the reference protein the hit covers (`amrfinder
+  --help`: "Minimum coverage of the reference protein (0..1)", default 0.5). A Sanger amplicon is usually 300 to
+  1,000 bases, less than half of most resistance genes: with AMRFinderPlus 4.2.7 and database 2026-08-07.1, bases
+  701–1,300 of mecA (2,007 bp) give no row at 0.5 and mecA at 29.79 % coverage, 100 % identity, method
+  `PARTIAL_CONTIG_ENDX`, at 0.1. When AMRFinderPlus reports nothing, the interface states the coverage asked for and
+  the most a read of that length can cover, and that a gene not found is not shown to be absent.
 - **Results**: the BLAST rows of every source are ranked together (bit score, identity, query coverage) and rows
-  tied with the best are marked, never hidden; the 16S reading uses the NCBI 16S rows only; the suspicion is
-  compared with the rows that carry a gene name (gene) or a species or genus (species). AMRFinderPlus and spaTyper
-  results are listed on their own. Changing the suspicion needs no new search.
+  tied with the best are marked, never hidden; the list of identifications says how many rows and names tie with
+  the best, since which of several tied species is listed first only follows the database ids, and gives the 16S
+  reading's level. The 16S reading uses the NCBI 16S rows only, and when NCBI's 16S database was not searched the
+  results say so. For a genome hit the gene's coverage is the share of the annotated feature the hit covers (unknown
+  without an annotation); the contig's coverage is kept apart. AMRFinderPlus and spaTyper results are listed on
+  their own. Changing the suspicion needs no new search.
+- **The suspicion** is compared with every ranked hit: "best hit overall" is the best of all rows, and better rows
+  that carry no name of that kind (an unannotated genome) are listed as neither supporting nor contradicting it.
+  Gene names are compared case-insensitively with VFDB's aliases, and every name of the 16S rRNA gene ("16S",
+  "16S rRNA", "16S ribosomal RNA", "rrs", MLST schemes' 16S loci) is one gene, which NCBI's 16S hits are. A species
+  is read as a microbiologist writes it: an abbreviated genus ("S. aureus", "Staph. aureus") matches every genus it
+  starts with, and a subspecies or strain is compared at the species level; the matched names are shown. Before any
+  search has finished there is no outcome, and while searches run the outcome is marked provisional. For a species,
+  hits on the sample's own genome are left out (that genome is named by ARVA's own species identification, so it
+  would only repeat it), and when the best hit is not the 16S rRNA gene the comparison says that the CLSI
+  thresholds are 16S criteria.
 - **NCBI's 16S database**: NCBI publishes only the current build. ARVA reads its metadata file (date, size,
   sequence count) and MD5 file, downloads the archive after the user confirms the date and size, checks the MD5,
   records the archive's SHA-256 and extracts only the database files (NCBI's taxonomy files only when asked; the
   organism comes from the titles). A folder the user already has is registered instead; `blastdbcmd -info` reads it.
 - **Report**: HTML (English or Spanish), JSON and CSV with the reads, trimming, consensus and conflicts, every search
   with its database and version, the ranked hits, the 16S reading with its criteria and sources, the suspicion, the
-  searched sequence and the limitations.
+  searched sequence and the limitations. Numbers are cut, not rounded, as in the interface (98.998 % is printed
+  98.99, never 99.00 next to a 99 % threshold it does not reach); the CSV and JSON hold every ranked row, not only
+  the 50 the interface lists, and a text cell a spreadsheet would read as a formula is quoted.
 - **Verification**: `apps/api/tests/test_sanger_api.py`: imports and refusals, pairing, the consensus of 3100.ab1
   with a reverse read built from its own calls, real BLAST+ searches (NCBI 16S 2026-10-29 build: genus
   *Staphylococcus*; the annotation fixture genome named by its Prokka feature; VFDB's seh; mlst's arcC_1;
   a one-genome reference collection), AMRFinderPlus on a mecA fragment with the constructed release, the 16S
-  download from a local stand-in of NCBI's folder, and the migration up and down. On the user's own pair (local
-  check, nothing committed) the API gives the numbers of section 6 of the design notes: 784F kept 23–582, 1401R
-  15–587, a 599-base consensus with 534 identical overlapping columns and no conflict, 100 % to *S. taiwanensis* and
-  *S. borealis*, 25 species at or above 99 %, read as genus *Staphylococcus*; "*S. aureus*" as the suspicion is
-  "ambiguous".
+  download from a local stand-in of NCBI's folder, and the migration up and down. A user's own real pair was also
+  checked locally through the API (nothing of it is committed; design notes, section 6).
+
+## Sanger screens (web)
+
+The sample's **Sanger** tab (and the **Sanger (genes)** area, which lists the samples) shows what the API
+computes; the interface decides nothing.
+
+- **Reads**: dropped `.ab1`, FASTA or `.seq` files are uploaded to the sample; each read shows the direction, primer
+  and pair key proposed from its name (editable), the bases called, the region kept by the default trimming (modified
+  Mott, limit 0.05) with its mean quality and share of bases at Q20 or more, and whether it has qualities and a
+  chromatogram. A file the API skips is listed with its reason.
+- **Chromatogram**: the four processed traces (DATA9–DATA12, as the instrument recorded them; A green, C blue, G black,
+  T red, each also with its own line pattern, A solid, C dashed, G dotted and T dash-dot, so that A and T differ
+  without telling red from green), the base calls and a Phred quality bar per base (dashed line at Q20), the trimmed ends shaded, the bases to
+  review (IUPAC calls and mixed peaks at the chosen ratio) and the consensus conflicts highlighted. The API sends each
+  window downsampled by block maximum (no peak is lost); an overview strip shows the quality along the whole trace.
+  Zoom and scroll with buttons, the overview, a "go to base" field or the keyboard (arrows, Shift+arrow or Page
+  Up/Down, + and -, Home and End); a base outside the read is said to be outside it. Trimming (limit or manual range)
+  and the mixed-peak ratio are previewed live, and the dialog says that this preview is not what the identification
+  uses (its own trimming is set where it is built).
+- **Consensus**: the proposed pair (or any forward and reverse read, or one read), each with its trimming, and the
+  alignment and conflict settings (empty fields keep the defaults); the preview shows the overlap, the conflicts with
+  both reads' bases, qualities and positions (each linked to that read's chromatogram) and the sequence in blocks of
+  ten with resolved and unresolved conflicts marked by more than colour (bases of one read only underlined, dotted for
+  the forward and dashed for the reverse, conflicts boxed). The proposed reads are chosen again when a direction or a
+  pair key is corrected in the reads table. The consensus warnings (a single read, reads that look swapped,
+  unresolved conflicts, reads without qualities) and the bases to review stay shown on the saved identification.
+- **What you suspect**: optional, a gene or a species (a single word is a genus); it can be changed later without a
+  new search.
+- **Search**: the plan of every local source (tool and version, database and version and checksum, genomes, BLAST
+  task and e-value, and what blocks a source), started after an explicit confirmation, only the sources that can run.
+- **Results**: the comparison with the suspicion (match, ambiguous or no match, with the best row of that name, the
+  best row overall and every better or tied row with another name; no outcome before any search, a provisional one
+  while searches run); a note, with a link to the databases, when NCBI's 16S database was not searched; the 16S reading with the CLSI MM18 criteria as
+  quoted, every species at or above 99 % and within 0.8 points, and the caveats with their sources; the ranked hits
+  of all sources with identity, query and subject coverage, aligned length, match kind, e-value, bit score and the
+  database with its version; AMRFinderPlus and spaTyper results. Percentages are cut, not rounded, to two decimals,
+  so a value below a threshold is never shown as the threshold. Report in HTML (interface language), JSON or CSV,
+  and the searched sequence as FASTA.
+- **NCBI BLAST online**: never done by ARVA. A collapsed, optional section explains that pasting the sequence into
+  NCBI's web page sends it outside the computer; only after the user ticks that acknowledgement can the sequence be
+  copied and NCBI's BLAST home page opened. When the browser does not allow copying (plain http on a network
+  address, or no permission) the sequence is shown to copy by hand. No ARVA result needs it.
+- **NCBI 16S database**: in Tools & Databases, the 16S kind offers "Download the current build": the dialog shows
+  NCBI's date, size, sequence count and MD5 (from NCBI's metadata and MD5 files only), the files kept, the folder and
+  the space, and downloads after the user confirms the build, the size and NCBI's terms.
+- **Verification**: `apps/web/src/test/sanger.test.tsx` (helpers, chromatogram keyboard and zoom, conflicts, the 16S
+  reading, the suspicion, the ranking, the search confirmation, the opt-in online BLAST, uploads in Spanish and the 16S
+  download) on data built from Biopython's public `3100.ab1` and the real BLAST+ output of its trimmed read against
+  NCBI's 16S database (`apps/web/src/test/fixtures/sanger/build_fixture.py`). The screens were also driven in a
+  headless browser on a user's own real pair (local check, nothing committed): no request to any host other than
+  ARVA's, in English and Spanish.
 
 ## What ARVA does not do yet
 

@@ -8,6 +8,7 @@ import type { LeafMetadata, PhyloData, PhyloRequest, PhyloSourceOption, PhyloSty
 import type { CollectionGenome, ExplorerVariants, ProjectMobilome, ProjectVariants, SampleMobilome, SnpMatrix, VariantOptions, VariantPlan, VariantRecords, VariantRequest, VariantRun } from "@/lib/variants";
 import type { ErrorEntry } from "@/lib/diagnostics";
 import type { BatchRunRequest, BranchPlan, Catalogue, Definition, QueueOverview, RunComparison, RunDetail, RunPlan, RunSummary, SampleBranch, ValidationResult, WorkflowRead } from "@/lib/workflows";
+import type { BuildIn, ConsensusPreview, GenomeBrief, IdentificationIn, IdentificationResults, ImportResult, Ncbi16sPlan, SangerOverview, SangerReadDetail, SangerReadView, SearchIn, SearchPlan, Suspected, TraceView } from "@/lib/sanger";
 import type { TypingMethod, TypingModuleInfo, TypingPlan, TypingProject, TypingRequest, TypingSample } from "@/lib/typing";
 import { useSettings } from "@/store/settings";
 import type {
@@ -613,6 +614,43 @@ export const api = {
   batchTableUrl: (id: string) => `${BASE}/batches/${id}/table.csv`,
   batchReportUrl: (id: string, lang: string) => `${BASE}/batches/${id}/report.html?lang=${lang}`,
   sampleBranches: (sampleId: string) => request<SampleBranch[]>(`/samples/${sampleId}/batches`),
+
+  // Sanger reads of one gene (app.api.routes.sanger). Nothing here leaves this computer.
+  sangerOverview: (sampleId: string) => request<SangerOverview>(`/samples/${sampleId}/sanger`),
+  importSangerReads: (sampleId: string, files: File[]) => {
+    const form = new FormData();
+    files.forEach((f) => form.append("files", f, f.name));
+    return request<ImportResult>(`/samples/${sampleId}/sanger/reads`, { method: "POST", body: form });
+  },
+  sangerRead: (id: string, q: { limit: number; manual_start?: number | null; manual_end?: number | null; mixed_ratio: number }) => {
+    const params = new URLSearchParams({ limit: String(q.limit), mixed_ratio: String(q.mixed_ratio) });
+    if (q.manual_start != null && q.manual_end != null) {
+      params.set("manual_start", String(q.manual_start));
+      params.set("manual_end", String(q.manual_end));
+    }
+    return request<SangerReadDetail>(`/sanger/reads/${id}?${params}`);
+  },
+  sangerTrace: (id: string, scanStart: number, scanEnd: number | null, maxPoints: number) =>
+    request<TraceView>(`/sanger/reads/${id}/trace?${new URLSearchParams({ scan_start: String(scanStart), max_points: String(maxPoints), ...(scanEnd != null ? { scan_end: String(scanEnd) } : {}) })}`),
+  sangerReadFileUrl: (id: string) => `${BASE}/sanger/reads/${id}/file`,
+  updateSangerRead: (id: string, body: { direction?: string | null; pair_key?: string | null; name?: string | null }) =>
+    request<SangerReadView>(`/sanger/reads/${id}`, json("PATCH", body)),
+  deleteSangerRead: (id: string) => request<void>(`/sanger/reads/${id}`, { method: "DELETE" }),
+  sangerConsensus: (sampleId: string, body: BuildIn) => request<ConsensusPreview>(`/samples/${sampleId}/sanger/consensus/preview`, json("POST", body)),
+  createSangerIdentification: (sampleId: string, body: IdentificationIn) =>
+    request<IdentificationResults>(`/samples/${sampleId}/sanger/identifications`, json("POST", body)),
+  sangerIdentification: (id: string) => request<IdentificationResults>(`/sanger/identifications/${id}`),
+  updateSangerIdentification: (id: string, body: { label?: string | null; suspected?: Suspected | null; notes?: string | null }) =>
+    request<IdentificationResults>(`/sanger/identifications/${id}`, json("PATCH", body)),
+  deleteSangerIdentification: (id: string) => request<void>(`/sanger/identifications/${id}`, { method: "DELETE" }),
+  sangerGenomes: (id: string) => request<GenomeBrief[]>(`/sanger/identifications/${id}/genomes`),
+  sangerSearchPlan: (id: string, body: SearchIn) => request<SearchPlan>(`/sanger/identifications/${id}/search/preview`, json("POST", body)),
+  startSangerSearch: (id: string, body: SearchIn) => request<AnalysisJob[]>(`/sanger/identifications/${id}/search`, json("POST", { ...body, confirmed: true })),
+  sangerConsensusFastaUrl: (id: string) => `${BASE}/sanger/identifications/${id}/consensus.fasta`,
+  sangerReportUrl: (id: string, format: "html" | "json" | "csv", lang: string) => `${BASE}/sanger/identifications/${id}/report?format=${format}&lang=${lang}`,
+  ncbi16sPlan: (body: { taxonomy: boolean }) => request<Ncbi16sPlan>("/databases/ncbi-16s/plan", json("POST", body)),
+  ncbi16sDownload: (body: { taxonomy: boolean; confirm_version: string; confirm_bytes: number; accept_terms: boolean }) =>
+    request<ReferenceDatabase>("/databases/ncbi-16s/download", json("POST", body)),
 };
 
 export { request as apiRequest, json as jsonInit };

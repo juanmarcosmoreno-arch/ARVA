@@ -66,7 +66,7 @@ FILTERED = {"/projects", "/samples", "/dashboard", "/jobs", "/annotations", "/co
 GLOBAL_READS = {"/tools", "/tools/libraries", "/metadata/template", "/typing/modules", "/workflows/catalogue",
                 "/workflows", "/gene-queries", "/system/storage", "/system/performance", "/auth/me",
                 "/comparisons/phylogeny/compare", "/batches/compare", "/batches/queue", "/assist/status"}
-DOWNLOADS = re.compile(r"(report|export|download|\.csv|\.json|\.nwk|\.fasta|\.Rtab|/files/|/outputs/)")
+DOWNLOADS = re.compile(r"(report|export|download|\.csv|\.json|\.nwk|\.fasta|\.Rtab|/files/|/outputs/|/file$)")
 
 
 @dataclass(frozen=True)

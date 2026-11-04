@@ -8,10 +8,12 @@ The science is in arva_core.sanger (docs/sanger-design-notes.md). Here:
   in ARVA, the consensus is searched against it as one more source ("genomes"), next to any other genome the user
   chooses, so the Sanger result and the genome's are shown together.
 * Pairing (ARVA's heuristic, always shown and changeable): a read's direction is taken from the end of its name
-  ("-F", "_R", "784F", "Forward"...), then a primer name before it ("_784"), and what is left is the pair key; a
-  leading block of 8 hexadecimal characters and a hyphen, as in the files Macrogen delivered to the user
-  ("57bbff46-1-27_784-F.ab1"), is not part of the key. Reads of one sample with the same key, one forward and one
-  reverse, are proposed as a pair.
+  ("-F", "_R", "784F", "Forward"...), then a primer name before it ("_784"), and what is left is the pair key. Two
+  prefixes Macrogen adds are not part of the key: a leading block of 8 hexadecimal characters and a hyphen on the
+  file names ("0a1b2c3d-S1_27F-F.ab1", a synthetic example), and the order number and well of the FASTA header of
+  its .txt files ("H000000-000_A01_S1_27F-F.ab1"), whose ".ab1" ending is dropped as well. Reads of one sample with
+  the same key, one forward and one reverse, are proposed as a pair; when a key has several reads of one direction
+  and only one of them has qualities (the chromatogram), that one is proposed.
 * Sources, one analysis job each, so that every database is recorded with record_use and the Database Manager sees
   it in use: NCBI 16S (registered or downloaded), ABRicate's bundled VFDB and mlst's bundled PubMLST alleles (blastn),
   AMRFinderPlus (translated nucleotide search), spaTyper with the user's Ridom files, a reference genome collection
@@ -23,6 +25,7 @@ from __future__ import annotations
 import hashlib
 import io
 import re
+from collections.abc import Callable
 from dataclasses import fields
 from pathlib import Path
 from typing import Any
@@ -55,9 +58,12 @@ FORMATS = ("abi", "fasta", "seq")
 ABI_SUFFIXES = (".ab1", ".abi")
 TEXT_SUFFIXES = (".fasta", ".fa", ".fas", ".fna", ".seq", ".txt")
 ABIF_MAGIC = b"ABIF"
-# ARVA's bounds: an .ab1 file is a few hundred kB (the user's are 0.3 MB); a text file of reads stays small.
+# ARVA's bounds: an .ab1 file is a few hundred kB (real 3730xl reads are about 0.3 MB); a text file of reads stays small.
 MAX_FILE_BYTES = 20 * 1024 * 1024
 MAX_TEXT_BYTES = 2 * 1024 * 1024
+# Biopython keeps every tag of an .ab1 decoded in memory (a tuple of Python integers per trace, many times the bytes
+# they come from), so chromatograms are bounded tighter: real 3730xl reads are about 0.3 MB, Biopython's 0.2 MB.
+MAX_ABI_BYTES = 5 * 1024 * 1024
 MAX_FILES = 100
 MAX_RECORDS = 200
 MAX_READ_LENGTH = 20_000
@@ -69,6 +75,7 @@ SUSPECTED_KINDS = ("gene", "species")
 
 # Direction words at the end of a read name, and a primer name before them (ARVA's pairing heuristic).
 _ORDER_PREFIX = re.compile(r"^[0-9a-f]{8}-")
+_MACROGEN_TEXT_PREFIX = re.compile(r"^H\d{6}-\d{3}_[A-P]\d{2}_")
 _DIRECTION_WORD = re.compile(r"[-_. ](F|R|FW|RV|FWD|REV|FORWARD|REVERSE)$", re.I)
 _PRIMER_WITH_LETTER = re.compile(r"[-_. ]([A-Za-z]{0,10}\d+[A-Za-z]{0,3}?)(F|R)$")
 _PRIMER = re.compile(r"[-_. ]([A-Za-z]{0,10}\d+[A-Za-z]{0,3})$")
@@ -82,6 +89,7 @@ MESSAGES = {
     "sanger_unknown_format": "{file} is not a chromatogram (.ab1) or a FASTA or .seq text file.",
     "sanger_unreadable": "{file} cannot be read: {detail}",
     "sanger_duplicate": "{file} was already imported into this sample (same content).",
+    "sanger_no_space": "{file} was not stored: there is not enough free space for it.",
     "sanger_too_many_records": "{file} holds more than {max} sequences.",
     "sanger_read_too_long": "{file}: the read {name} has {length} bases, more than {max}.",
     "sanger_read_missing": "The read does not exist or belongs to another sample.",
@@ -96,6 +104,12 @@ MESSAGES = {
                          "{min_overlap} columns at {min_identity} % are needed). Check that they are the same "
                          "amplicon, or identify each read on its own.",
     "sanger_query_length": "The sequence to search has {length} bases after trimming; it needs {min} to {max}.",
+    "sanger_read_nothing_kept": "Nothing of the read {read} is kept after trimming: no base scores above the limit "
+                                "(a failed read, or a limit too strict). Look at its chromatogram, lower the limit or "
+                                "set a manual range, or identify {other} on its own.",
+    "sanger_single_nothing_kept": "Nothing of the read {read} is kept after trimming: no base scores above the limit "
+                                  "(a failed read, or a limit too strict). Look at its chromatogram, lower the limit "
+                                  "or set a manual range.",
     "sanger_suspected_invalid": "Say whether you suspect a gene or a species, and which.",
     "sanger_identification_busy": "A search of this identification is still queued or running; wait for it or "
                                   "cancel it first.",
@@ -128,7 +142,7 @@ def parse_read_name(filename_or_name: str) -> dict[str, Any]:
         if name.lower().endswith(suffix):
             name = name[: -len(suffix)]
             break
-    base = _ORDER_PREFIX.sub("", name)
+    base = _ORDER_PREFIX.sub("", _MACROGEN_TEXT_PREFIX.sub("", name))
     direction, primer, rest = "unknown", None, base
     if m := _DIRECTION_WORD.search(rest):
         direction, rest = _WORD_DIRECTION[m.group(1).lower()], rest[: m.start()]
@@ -139,6 +153,11 @@ def parse_read_name(filename_or_name: str) -> dict[str, Any]:
         primer, rest = m.group(1) + m.group(2), rest[: m.start()]
     key = rest.strip("-_. ") or None
     return {"direction": direction, "primer": primer, "pair_key": key if direction != "unknown" else None}
+
+
+def _charted(group: list[SangerRead]) -> list[SangerRead]:
+    with_qualities = [r for r in group if r.has_qualities]
+    return with_qualities if len(group) > 1 and len(with_qualities) == 1 else group
 
 
 def proposed_pairs(reads: list[SangerRead]) -> list[dict[str, Any]]:
@@ -152,6 +171,9 @@ def proposed_pairs(reads: list[SangerRead]) -> list[dict[str, Any]]:
     for key, group in sorted(by_key.items()):
         fwd = [r for r in group if r.direction == "forward"]
         rev = [r for r in group if r.direction == "reverse"]
+        # A Macrogen .txt uploaded next to its .ab1 gives a second read of that direction without qualities: of
+        # several reads of one direction, the only one with qualities is proposed.
+        fwd, rev = (_charted(group) for group in (fwd, rev))
         if len(fwd) == 1 and len(rev) == 1:
             out.append({"pair_key": key, "status": "proposed", "forward_read_id": fwd[0].id,
                         "reverse_read_id": rev[0].id})
@@ -179,6 +201,8 @@ def _parse_upload(filename: str, data: bytes) -> list[core.SangerRead]:
     if kind is None:
         raise InputError("sanger_unknown_format", file=filename)
     if kind == "abi":
+        if len(data) > MAX_ABI_BYTES:
+            raise InputError("sanger_file_too_large", file=filename, max=MAX_ABI_BYTES)
         try:
             return [core.read_abi(data, name=parse_name(filename))]
         except ValueError as exc:
@@ -218,37 +242,54 @@ def _summary(read: core.SangerRead) -> dict[str, Any]:
     return out
 
 
-def import_files(db: Session, sample: Sample, uploads: list[tuple[str, bytes]]) -> dict[str, Any]:
-    """Check, store and record every uploaded file; a file that cannot be read or was already imported is reported
-    with its reason and the others go on. Returns the new reads, the skipped files and the proposed pairs."""
+def import_files(db: Session, sample: Sample,
+                 uploads: list[tuple[str, bytes | Callable[[], bytes]]]) -> dict[str, Any]:
+    """Check, store and record every uploaded file; a file that cannot be read, is too large or was already imported
+    (into this sample, or earlier in the same upload) is reported with its reason and the others go on. Each upload
+    is a file name with its bytes, or with a function that reads them, so that the route holds one file in memory
+    at a time. Returns the new reads, the skipped files and the proposed pairs."""
     if len(uploads) > MAX_FILES:
         raise InputError("sanger_too_many_files", max=MAX_FILES)
+    from app.services.capacity import InsufficientStorageError, ensure_space
+
     storage = get_storage()
+    limit = max_upload_bytes()
     imported: list[SangerRead] = []
     skipped: list[dict[str, Any]] = []
-    for filename, data in uploads:
+    seen: set[str] = set()
+    for filename, content in uploads:
         shown = filename.replace("\\", "/").split("/")[-1][:512] or "read"
+        data = content() if callable(content) else content
         try:
             if not data:
                 raise InputError("sanger_file_empty", file=shown)
-            if len(data) > MAX_FILE_BYTES:
-                raise InputError("sanger_file_too_large", file=shown, max=MAX_FILE_BYTES)
+            if len(data) > limit:
+                raise InputError("sanger_file_too_large", file=shown, max=limit)
             reads = _parse_upload(shown, data)
             for r in reads:
                 if len(r) > MAX_READ_LENGTH:
                     raise InputError("sanger_read_too_long", file=shown, name=r.name, length=len(r),
                                      max=MAX_READ_LENGTH)
             digest = hashlib.sha256(data).hexdigest()
-            if db.scalar(select(SangerRead.id).where(SangerRead.sample_id == sample.id, SangerRead.sha256 == digest)):
+            if digest in seen or db.scalar(select(SangerRead.id).where(SangerRead.sample_id == sample.id,
+                                                                       SangerRead.sha256 == digest)):
                 raise InputError("sanger_duplicate", file=shown)
         except InputError as exc:
             skipped.append({"file": shown, "code": exc.code, "params": exc.params, "detail": str(exc)})
             continue
+        try:
+            ensure_space(len(data))
+        except InsufficientStorageError:
+            skipped.append({"file": shown, "code": "sanger_no_space", "params": {"file": shown},
+                            "detail": render(MESSAGES["sanger_no_space"], {"file": shown})})
+            continue
+        seen.add(digest)
         rel = f"raw/{sample.project_id}/{sample.id}/sanger/{new_uuid()}__{sanitize_filename(shown)}"
-        stored = storage.save_stream(io.BytesIO(data), rel, MAX_FILE_BYTES)
+        stored = storage.save_stream(io.BytesIO(data), rel, limit)
         fmt = reads[0].source_format
         for i, r in enumerate(reads):
-            name = parse_name(shown) if fmt == "abi" else r.name
+            # A FASTA header may carry the chromatogram's file name (Macrogen's .txt: "...-F.ab1").
+            name = parse_name(shown) if fmt == "abi" else parse_name(r.name)
             parsed = parse_read_name(name)
             row = SangerRead(
                 sample_id=sample.id, name=name[:255], original_filename=shown, file_format=fmt, record_index=i,
@@ -292,7 +333,12 @@ def sample_overview(db: Session, sample: Sample) -> dict[str, Any]:
                             .order_by(SangerRead.created_at, SangerRead.name)))
     idents = list(db.scalars(select(SangerIdentification).where(SangerIdentification.sample_id == sample.id)
                              .order_by(SangerIdentification.created_at.desc())))
-    return {"sample_id": sample.id, "reads": [read_view(db, r) for r in reads], "pairs": proposed_pairs(reads),
+    # A text read (Macrogen's .txt) of the same pair key and direction as a chromatogram is a copy of its base calls
+    # without qualities: the interface says to use the .ab1.
+    charted = {(r.pair_key, r.direction) for r in reads if r.has_qualities and r.pair_key}
+    views = [{**read_view(db, r), "chromatogram_twin": not r.has_qualities and (r.pair_key, r.direction) in charted}
+             for r in reads]
+    return {"sample_id": sample.id, "reads": views, "pairs": proposed_pairs(reads),
             "identifications": [identification_brief(db, i) for i in idents],
             "genomes": [_assembly_brief(db, a) for a in _sample_assemblies(db, sample.id)]}
 
@@ -411,21 +457,27 @@ def build(db: Session, sample: Sample, forward_id: str | None, reverse_id: str |
                 "mixed_ratio": mixed_ratio}
     if fwd is not None and rev is not None:
         f, r = _trim(load(fwd), forward_trim), _trim(load(rev), reverse_trim)
-        if not len(f) or not len(r):
-            raise InputError("sanger_query_length", length=min(len(f), len(r)), min=QUERY_LENGTH[0],
-                             max=QUERY_LENGTH[1])
+        for empty, other in ((f, rev), (r, fwd)):
+            if not len(empty):
+                raise InputError("sanger_read_nothing_kept", read=(fwd if empty is f else rev).name,
+                                 other=other.name)
         result = core.consensus(f, r, p)
         result["mixed_peaks"] = {"forward": _mixed(f, mixed_ratio), "reverse": _mixed(r, mixed_ratio)}
         mode, sequence = "pair", result["sequence"]
     else:
         one = fwd or rev
         t = _trim(load(one), forward_trim if fwd else reverse_trim)
+        if not len(t):
+            raise InputError("sanger_single_nothing_kept", read=one.name)
+        # A reverse read alone is searched and exported reverse-complemented, on the forward read's strand, as in a
+        # consensus (BLAST searches both strands either way). Mixed peaks keep the read's own positions.
+        searched = core.reverse_complement(t) if rev and not fwd else t
         result = {"status": "single", "role": "forward" if fwd else "reverse", "read": t.summary(),
-                  "sequence": t.bases, "length": len(t), "mixed_peaks": {("forward" if fwd else "reverse"):
-                                                                          _mixed(t, mixed_ratio)},
+                  "reverse_complemented": searched is not t, "sequence": searched.bases, "length": len(t),
+                  "mixed_peaks": {("forward" if fwd else "reverse"): _mixed(t, mixed_ratio)},
                   "warnings": [*t.warnings, {"code": "single_read", "params": {}}], "counts": {}, "conflicts": [],
                   "columns": []}
-        mode, sequence = "single", t.bases
+        mode, sequence = "single", searched.bases
     result["mixed_source"] = core.SOURCES["mixed_peaks"]
     return {"mode": mode, "settings": settings, "result": result, "sequence": sequence,
             "forward_read_id": fwd.id if fwd else None, "reverse_read_id": rev.id if rev else None}
@@ -547,6 +599,13 @@ SOURCE_TOOL = {"ncbi_16s": "blast", "vfdb": "blast", "mlst": "blast", "amrfinder
 # the e-value used for the VFDB fixture there; 500 subjects at most, BLAST's default.
 BLAST_DEFAULTS = {"ncbi_16s": ("megablast", 1e-10), "vfdb": ("blastn", 1e-5), "mlst": ("megablast", 1e-10),
                   "reference_genomes": ("megablast", 1e-10), "genomes": ("megablast", 1e-10)}
+# AMRFinderPlus's --coverage_min is the share of the reference protein the hit covers (amrfinder --help: "Minimum
+# coverage of the reference protein (0..1)", default 0.5). A Sanger amplicon is usually 300 to 1,000 bases, less
+# than half of most resistance genes (mecA is 2,007 bp): checked with AMRFinderPlus 4.2.7 and database 2026-08-07.1,
+# bases 701-1,300 of mecA give no row at 0.5 and mecA at 29.79 % coverage, 100 % identity, method
+# PARTIAL_CONTIG_ENDX, at 0.1. ARVA's choice is 0.1 (a 300-base read inside a 1,000-codon gene would still be
+# missed, and the interface says so); AMRFinderPlus's curated identity thresholds stay (-1).
+AMR_COVERAGE_MIN = 0.1
 MAX_GENOMES = 50
 MAX_COLLECTION_GENOMES = 5000
 
@@ -671,7 +730,7 @@ def _source_plan(db: Session, ident: SangerIdentification, source: str, request:
     elif source == "amrfinderplus":
         organism = request.get("amr_organism") or None
         plan["settings"] = {"mode": "nucleotide", "organism": organism, "plus": True, "ident_min": -1.0,
-                            "coverage_min": 0.5, "translation_table": 11}
+                            "coverage_min": AMR_COVERAGE_MIN, "translation_table": 11}
     elif source == "spa":
         plan["settings"] = {"do_enrich": False}
     return plan
@@ -744,18 +803,34 @@ RANKED_SOURCES = ("ncbi_16s", "vfdb", "mlst", "reference_genomes", "genomes")
 MAX_LISTED = 50
 
 
+def _ranked_rows(latest: dict[str, tuple[AnalysisJob, SangerSearchResult]]) -> list[dict[str, Any]]:
+    return [r for s in RANKED_SOURCES if s in latest for r in latest[s][1].rows]
+
+
+def _reading_brief(interpretation: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not interpretation:
+        return None
+    return {"level": interpretation["level"], "species": interpretation.get("species"),
+            "genus": interpretation.get("genus"),
+            "within_separation": len(interpretation.get("within_separation") or []),
+            "above_species_threshold": len(interpretation.get("above_species_threshold") or [])}
+
+
 def identification_brief(db: Session, ident: SangerIdentification) -> dict[str, Any]:
+    """An identification in the sample's list: its best hit with how many rows and names tie with it (when several
+    species tie, the one listed first only follows the database ids' sort order), and the 16S reading's level."""
     latest = _latest_results(db, ident)
-    best = None
-    rows = [r for s in RANKED_SOURCES if s in latest for r in latest[s][1].rows]
-    if rows:
-        best = _brief_row(core.rank_hits(rows)[0])
+    summary = core.best_summary(core.rank_hits(_ranked_rows(latest)))
+    s16 = latest.get("ncbi_16s")
     jobs = jobs_of(db, ident)
     return {"id": ident.id, "sample_id": ident.sample_id, "label": ident.label, "mode": ident.mode,
             "forward_read_id": ident.forward_read_id, "reverse_read_id": ident.reverse_read_id,
             "length": ident.length, "sha256": ident.sha256, "suspected": ident.suspected,
             "created_at": ident.created_at, "searched": sorted(latest),
-            "running": sum(1 for j in jobs if j.status in ACTIVE), "best": best,
+            "running": sum(1 for j in jobs if j.status in ACTIVE),
+            "best": _brief_row(summary["row"]) if summary else None,
+            "best_tied": summary["tied"] if summary else 0, "best_tied_names": summary["tied_names"] if summary else 0,
+            "reading_16s": _reading_brief(core.interpret_16s(s16[1].rows)) if s16 else None,
             "conflicts": len(ident.consensus.get("conflicts") or []),
             "unresolved": (ident.consensus.get("counts") or {}).get("unresolved", 0)}
 
@@ -763,46 +838,78 @@ def identification_brief(db: Session, ident: SangerIdentification) -> dict[str, 
 def _brief_row(r: dict[str, Any]) -> dict[str, Any]:
     keep = ("rank", "tied_with_best", "source", "subject", "title", "gene", "species", "genus", "strain", "product",
             "allele", "scheme", "accession", "genome", "identity", "identical", "query_coverage", "subject_coverage",
-            "aligned_length", "query_start", "query_end", "query_length", "subject_start", "subject_end",
-            "subject_length", "strand", "kind", "evalue", "bitscore", "copies", "features", "type_material",
-            "species_source")
+            "contig_coverage", "aligned_length", "query_start", "query_end", "query_length", "subject_start",
+            "subject_end", "subject_length", "strand", "kind", "evalue", "bitscore", "copies", "features",
+            "type_material", "species_source")
     return {k: r.get(k) for k in keep if k in r}
 
 
-def results(db: Session, ident: SangerIdentification) -> dict[str, Any]:
+def _own_genome(row: dict[str, Any]) -> bool:
+    src = row.get("source") or {}
+    return src.get("source") == "genomes" and bool(src.get("own_sample"))
+
+
+def _suspicion(ident: SangerIdentification, ranked: list[dict[str, Any]], searched: list[str],
+               running: int) -> dict[str, Any] | None:
+    """The comparison with what the user suspected, over every ranked hit. Before any search has finished there is
+    nothing to compare (outcome not_searched); while some are still running the outcome is provisional (`pending`).
+    For a species, hits on this sample's own genome are left out: the genome is named by ARVA's own species
+    identification, so it would only repeat that result; and the CLSI thresholds are 16S criteria, so when the
+    best hit is not the 16S rRNA gene the comparison says so."""
+    if not ident.suspected:
+        return None
+    kind, value = ident.suspected["kind"], ident.suspected["value"]
+    if not searched:
+        return {"suspected": value, "kind": kind, "outcome": "not_searched", "pending": running, "searched": [],
+                "reasons": [], "caveats": []}
+    caveats: list[dict[str, Any]] = []
+    pool = ranked
+    if kind == "species":
+        own = [r for r in ranked if _own_genome(r)]
+        if own:
+            pool = [r for r in ranked if not _own_genome(r)]
+            caveats.append({"code": "own_genome_excluded", "params": {"count": len(own)}})
+        if pool and not core.is_16s(pool[0]):
+            caveats.append({"code": "criteria_16s_only", "params": {}})
+    out = core.compare_suspected(pool, value, kind)
+    return {**out, "searched": searched, "pending": running, "caveats": caveats}
+
+
+def results(db: Session, ident: SangerIdentification, limit: int | None = MAX_LISTED) -> dict[str, Any]:
     """Everything shown for an identification: the reads, the consensus, each search (job, database provenance,
     rows), the ranking across sources, the 16S reading, the AMRFinderPlus and spa results and the comparison with
-    the suspicion."""
+    the suspicion. `limit` cuts the listed rows of the ranking and of each ranked source for the interface (the
+    counts are always whole); the reports pass None and list every row. `not_searched` names the sources with no
+    finished search and none queued or running (16S, when its database is missing, for example)."""
     latest = _latest_results(db, ident)
     searches = []
-    for j in jobs_of(db, ident):
+    jobs = jobs_of(db, ident)
+    for j in jobs:
         res = db.scalar(select(SangerSearchResult).where(SangerSearchResult.job_id == j.id))
         searches.append({**_job_brief(j), "result_id": res.id if res else None,
                          "rows": len(res.rows) if res else None, "details": res.details if res else None})
-    ranked_rows = [r for s in RANKED_SOURCES if s in latest for r in latest[s][1].rows]
-    ranked = core.rank_hits(ranked_rows)
+    ranked = core.rank_hits(_ranked_rows(latest))
     s16 = latest.get("ncbi_16s")
     interpretation = core.interpret_16s(s16[1].rows) if s16 else None
-    suspected = None
-    if ident.suspected:
-        kind, value = ident.suspected["kind"], ident.suspected["value"]
-        pool = [r for r in ranked_rows if (r.get("gene") if kind == "gene" else r.get("species") or r.get("genus"))]
-        suspected = core.compare_suspected(pool, value, kind)
-        suspected["searched"] = sorted(latest)
+    running = sum(1 for j in jobs if j.status in ACTIVE)
+    active_sources = {(j.parameters or {}).get("source") for j in jobs if j.status in ACTIVE}
+    suspected = _suspicion(ident, ranked, sorted(latest), running)
     reads = {}
     for role, rid in (("forward", ident.forward_read_id), ("reverse", ident.reverse_read_id)):
         r = db.get(SangerRead, rid) if rid else None
         reads[role] = read_view(db, r) if r else None
     by_source = {}
     for s, (j, res) in latest.items():
-        by_source[s] = {"job_id": j.id, "rows": res.rows[:MAX_LISTED] if s in RANKED_SOURCES else res.rows,
-                        "row_count": len(res.rows), "details": res.details}
+        rows = res.rows[:limit] if s in RANKED_SOURCES and limit is not None else res.rows
+        by_source[s] = {"job_id": j.id, "rows": rows, "row_count": len(res.rows), "details": res.details}
+    listed = ranked[:limit] if limit is not None else ranked
     return {"identification": {**identification_brief(db, ident), "settings": ident.settings, "notes": ident.notes,
                                "sequence": ident.sequence},
             "reads": reads, "consensus": ident.consensus, "searches": searches, "by_source": by_source,
-            "ranked": [_brief_row(r) for r in ranked[:MAX_LISTED]], "ranked_count": len(ranked),
+            "ranked": [_brief_row(r) for r in listed], "ranked_count": len(ranked),
             "tied_with_best": sum(1 for r in ranked if r.get("tied_with_best")),
             "interpretation_16s": interpretation, "suspected": suspected,
+            "not_searched": [s for s in SOURCE_KEYS if s not in latest and s not in active_sources],
             "thresholds": {"clsi_16s": core.CLSI_16S, "gene": core.GENE_DEFAULTS},
             "sources": core.SOURCES, "notes": ["local_only", "similarity_not_function"]}
 

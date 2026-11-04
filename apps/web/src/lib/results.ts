@@ -22,6 +22,7 @@ const LABELLED_JOBS = new Set([
   "sequence_stats", "seqkit_stats", "fastqc", "fastp", "filtlong", "server_import", "bakta_annotation", "prokka_annotation",
   "mlst_typing", "species_identification", "mobile_elements", "virulence_screen", "comparative_ani",
   "comparative_alignment", "region_explorer", "gene_investigation", "pangenome", "phylogeny", "variant_calling",
+  "sanger_identification",
 ]);
 
 export const FILTER_JOBS = new Set(["fastp", "filtlong"]);

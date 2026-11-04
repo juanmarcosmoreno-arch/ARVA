@@ -2,8 +2,9 @@
 
 Checked on 2026-11-03 for the module planned in [plan-sanger.md](plan-sanger.md). Every interface fact below comes
 from a tool's real `--help`, its source code at the stated version, an official page or a peer-reviewed paper, each
-cited where it is used. Nothing here is product code. The user's chromatograms were used for local manual checks
-only: no read, base call or consensus of the user is in this repository, only the numbers measured on them.
+cited where it is used. Nothing here is product code. A user's chromatograms were used for local manual checks
+only: no read, file name, base call, measurement or result of the user is in this repository; the numbers given here
+are measured on Biopython's public test files.
 
 ## 1. Reading `.ab1` files: Biopython
 
@@ -19,31 +20,24 @@ dual-licensed (its header).
 
 - The record's sequence is tag `PBAS2` (the base calls), and `letter_annotations["phred_quality"]` is `PCON2` (one
   quality per base, 0 to 255 by the tag table). A comment in the source says PBAS2 is "only available in 3530", but
-  both files of the user (ABI 3730xl at Macrogen) and Biopython's `3730.ab1` have it.
+  real ABI 3730xl files from Macrogen and Biopython's `3730.ab1` have it.
 - `record.id` is `SMPL1` (the sample name); `record.name` is the file name without `.ab1`.
 - Every tag is kept raw in `annotations["abif_raw"]`, keyed by name and number: `DATA9` to `DATA12` (the processed
   trace of the four dye channels, one value per scan), `PLOC2` (the scan position of each called base's peak),
   `FWO_1` (the base of each channel, in order), `PBAS1`/`PLOC1`/`PCON1` (the instrument's edited copies),
   `MODL1`/`HCFG3` (instrument), `PDMF1` (mobility file), `SVER2` (base caller), `RUND1` (run date) and the others the
   ABIF tag table in the file lists.
-- Channel to base: channel *i* of `DATA9+i` is base `FWO_1[i]`. On the two user files and `3100.ab1`
-  (`FWO_1 = GATC`) the channel with the highest signal at `PLOC2` was the called base at 560 of 560 positions
+- Channel to base: channel *i* of `DATA9+i` is base `FWO_1[i]`. On `3100.ab1` (`FWO_1 = GATC`), and on the real 3730xl
+  pair checked locally, the channel with the highest signal at `PLOC2` was the called base at 560 of 560 positions
   checked in each read (bases 21 to 580), which confirms the mapping on real data.
 - An FSA file (no `PBAS1`/`PBAS2`) gives an empty sequence and no qualities.
 - A file whose qualities are all 0 parses without error: Biopython's `310.ab1` (ABI 310) has `PCON2` of zeros. ARVA
   must treat such a read as "no usable qualities" (no quality trimming, no quality-based conflict resolution) and say
   so, like a FASTA input.
 
-**The user's two reads** (local check, not committed):
-
-| | 784F read | 1401R read |
-| --- | --- | --- |
-| Instrument, base caller | ABI 3730xl, KB 1.4.2.5, `KB_3730_POP7_BDTv3.mob` | same |
-| Bases called (`PBAS2`) | 1,541 | 1,065 |
-| Mean Phred, whole read | 23.1 | 32.6 |
-| Trace scans (`DATA9`) | 17,925 | 12,979 |
-
-Macrogen's `.txt` for the 784F read is exactly the `PBAS2` sequence (1,541 bases, compared in full).
+**A real ABI 3730xl pair** (a user's 16S reads from Macrogen, checked locally and not committed): both files have
+`PBAS2`, the base caller KB and the 3730 POP7 mobility file; the forward read has over 1,500 called bases, of which
+only about the first 600 are usable, and Macrogen's `.txt` for it is exactly its `PBAS2` sequence (compared in full).
 
 **Biopython's own trimming (`"abi-trim"`)** (`AbiIO.py`, `_abi_trim`): the modified Mott algorithm, with the
 parameters hard-coded (`cutoff = 0.05`, `segment = 20`); `SeqIO.read(path, "abi-trim")` offers no way to change
@@ -56,21 +50,22 @@ running sum". The current CLC manual describes the start differently: "the regio
 running sum and starting at the last zero value before this highest score"
 (`https://resources.qiagenbioinformatics.com/manuals/clcgenomicsworkbench/current/index.php?manual=Quality_trimming.html`).
 The two differ when the running sum returns to zero after its first positive value: Biopython then keeps a
-low-quality stretch at the start. On the user's 784F read, Biopython's abi-trim keeps bases 9 to 581 (573 bases)
-while the maximum-scoring segment with the same 0.05 limit is bases 23 to 582 (560 bases).
+low-quality stretch at the start; on a real 3730xl read checked locally (section 6) it kept 14 more low-quality
+bases at the start than the maximum-scoring segment with the same 0.05 limit.
 
 **Decision.** Biopython 1.88 (PyPI) reads the files. ARVA does not use `"abi-trim"`: it implements the modified Mott
 algorithm itself as the maximum-scoring segment (the current CLC description), with the error-probability limit shown
 and editable (default 0.05, Biopython's value) and the kept range reported in 1-based coordinates of the original
-read. Measured on the user's reads (1-based, inclusive):
+read. Measured on Biopython's public `3100.ab1` (795 bases; 1-based, inclusive):
 
-| Limit | 784F read kept | 1401R read kept |
-| --- | --- | --- |
-| 0.01 | 26–581 (556 bases) | 21–585 (565 bases) |
-| 0.05 | 23–582 (560 bases; mean Q 56.1, 99.3 % of bases ≥ Q20) | 15–587 (573 bases; mean Q 57.1, 99.1 % ≥ Q20) |
-| 0.10 | 9–584 (576 bases) | 14–589 (576 bases) |
+| Limit | Kept |
+| --- | --- |
+| 0.01 | 32–696 (665 bases; mean Q 53.7, 99.2 % of bases ≥ Q20) |
+| 0.05 | 19–697 (679 bases; mean Q 53.0, 97.8 % ≥ Q20) |
+| 0.10 | 18–725 (708 bases; mean Q 51.5, 95.1 % ≥ Q20) |
 
-This agrees with the plan: the 784F read is useful up to about base 580 of its 1,541.
+Biopython's `"abi-trim"` keeps 678 bases of the same read. This agrees with the plan: the instrument's called
+sequence (Macrogen's `.txt`) runs on well past the useful part of a read, which trimming removes.
 
 **Test data for `.ab1` (redistributable).** Biopython's sdist ships `Tests/Abi/` under the Biopython License
 Agreement, which permits copying and redistribution with the copyright and permission notice. Useful files
@@ -87,7 +82,7 @@ Agreement, which permits copying and redistribution with the copyright and permi
 `3100.ab1` trimmed at 0.05 (bases 19 to 697, 679 bases) and searched against NCBI's 16S database (section 3) matches
 *Staphylococcus epidermidis* NR_036904 at 99.853 % over 679 bases (100 % query coverage), with *S. epidermidis*
 NR_113957, *S. saccharolyticus* and *S. caprae* at 99.705 %: a real, public staphylococcal 16S read that shows the
-same limit as the user's strain. There is no public F/R pair in Biopython's set: consensus tests need a fixture built
+limit of 16S in *Staphylococcus* (section 4). There is no public F/R pair in Biopython's set: consensus tests need a fixture built
 in a documented way (for example the trimmed calls and qualities of `3100.ab1` and their reverse complement with
 substituted bases), or the base calls and qualities as data, without a chromatogram.
 
@@ -117,8 +112,8 @@ Boost 1.85 and HTSlib 1.24 dependencies) and its source read at tag v0.9.1 (comm
 - `tracy decompose -a <species>` annotates variants by querying `rest.ensembl.org` (`indigo.h`): it sends data
   outside the machine and must never be used by ARVA.
 
-On the user's pair, `tracy consensus -t 4` produced a 583-base consensus from an overlap of 514 columns with no
-mismatch; it is contained in the consensus described below (which extends 8 bases further at each end).
+On the real pair checked locally (section 6), `tracy consensus -t 4` gave a consensus contained in the one described
+below, which extended a few bases further at each end.
 
 **Decision.** For a quality-trimmed read pair, a F+R consensus with its conflicts and per-base evidence, the
 simplest documented approach is Biopython alone, without tracy:
@@ -138,8 +133,9 @@ Reasons: one PyPI dependency instead of a 339 MB Bioconda environment; the instr
 used; every step and parameter is visible; the per-position evidence is ARVA's own data rather than a text alignment
 to parse. tracy remains an option for a later cross-check (multi-trace assembly, heterozygous peaks).
 
-Measured on the user's pair (scores match 2, mismatch -3, gap open -5, extend -2): overlap of 534 columns, 534
-identical (100 %), no gap and no conflict; consensus of 599 bases (alignment score 1068).
+On the public fixture pair of the tests (3100.ab1 bases 19–697 and a reverse read built from bases 200–697 with two
+substitutions; scores match 2, mismatch -3, gap open -5, extend -2): an overlap of 498 columns with the 2 substituted
+columns as conflicts and a 679-base consensus.
 
 ## 3. NCBI 16S database (type strains)
 
@@ -282,38 +278,17 @@ a collection is built would let ARVA name these hits too (to be decided in the b
 
 Rows are sorted by bit score, then identity, then query coverage; rows whose identity and coverage equal the best are
 shown as tied, never hidden. Subject coverage is shown but not used for ranking: a 600-base 16S amplicon covers only
-about 38 % of a 1,552-base gene (measured below), which is expected. A suspected gene or species is compared with
+about 38 % of a 1,552-base 16S gene, which is expected. A suspected gene or species is compared with
 the tied best set: "matches" when it is in it and the thresholds are met, "does not match" when a better hit has
 another name, "ambiguous" when several names tie.
 
-## 6. Manual end-to-end check on the user's strain 27 (local only)
+## 6. Manual end-to-end check on a user's real pair (local only)
 
-Reads `1-27_784-F` and `1-27_1401-R`, 16S rRNA, primers 784F/1401R, ABI 3730xl at Macrogen.
-
-1. Trimmed with the modified Mott algorithm, limit 0.05: 784F bases 23–582 (560), 1401R bases 15–587 (573).
-2. Consensus (section 2): 599 bases; overlap 534 columns, 100 % identical, no conflicts.
-3. `blastn -task megablast -evalue 1e-10` against the six local RefSeq genomes (*S. aureus* N315, Mu50, MW2,
-   MSSA476, USA300_FPR3757; *S. epidermidis* ATCC 12228) and the three type-strain genomes of the reference package
-   (*S. aureus* ATCC 12600, *S. argenteus* MSHR1132, *S. epidermidis* ATCC 14990): 49 hits, all 598 bases aligned
-   (99.8 % query coverage), 5 or 6 hits per chromosome, none on plasmids. All 12 hits in MW2 and MSSA476 (the two
-   genomes with an NCBI annotation in the cache) fall on features named "16S ribosomal RNA" (1,552 bases; subject
-   coverage 38.5 %):
-   - 100 % (0 mismatches): two 16S copies of MSSA476 and one of MW2;
-   - 99.83 % (1 mismatch): the other hits in MW2 and MSSA476 (one MSSA476 hit at 99.67 %), all hits in N315, USA300
-     and *S. aureus* ATCC 12600, four of five in Mu50 (the fifth 99.67 %) and four of five in *S. argenteus*
-     MSHR1132 (the fifth 99.00 %);
-   - 99.00–98.83 % (6–7 mismatches): *S. epidermidis* ATCC 12228 and ATCC 14990.
-4. The same consensus against NCBI's 16S database (2026-10-29 build, local copy, 500 best hits): 100 % to
-   *S. taiwanensis* NR_181843 and *S. borealis* NR_181247; 99.83 % to *S. aureus* (NR_118997, NR_113956, NR_115606),
-   *S. argenteus* NR_181984, *S. roterodami*, *S. simiae* and *S. haemolyticus*; 25 species of *Staphylococcus* at
-   ≥ 99.0 %, and 7 hits of *Mammaliicoccus* at 97–98.7 %.
-
-Reading of these numbers with the criteria of section 4: genus *Staphylococcus* (well above 97 % with full query
-coverage); not resolvable to species with this fragment, because several species are at or above 99 % with no 0.8 %
-separation, and *S. aureus* and *S. argenteus* are equally close even among whole genomes. The local genomes place the
-strain closest to *S. aureus* (MW2 and MSSA476 copies identical), which is consistent with, but does not prove,
-*S. aureus*: a higher-resolution gene (rpoB, sodA, tuf or gap) or the genome is needed. This is the result the
-module must be able to state, with these numbers.
+The module was also checked by hand, on this computer only, against a real 16S rRNA pair of a user's isolate
+(primers 784F/1401R, ABI 3730xl): the reads, their file names and their results are the user's data and are kept
+outside this public repository. The trimming, the consensus and the 16S reading behaved as sections 1, 2 and 4
+describe for a 600-base *Staphylococcus* fragment (a genus-level reading, several species within the separation).
+The automated tests use only the public files of section 1.
 
 ## 7. Where the Sanger data live, and the backend (Part 2)
 
@@ -334,9 +309,8 @@ module must be able to state, with these numbers.
 - **Not done in this part**: NCBI's online BLAST (to be an explicit, opt-in action only, never needed); asking NCBI
   Datasets for `GENOME_GFF` when a reference collection is built (its hits are named by species, not by gene); the
   screens.
-- **Manual end-to-end check through the API** on the user's pair (local only): the numbers of section 6 (kept
-  23–582 and 15–587, 599-base consensus, 534 identical overlapping columns, no conflict, 100 % to *S. taiwanensis* and
-  *S. borealis*, 25 species at or above 99 %, genus *Staphylococcus*; *S. aureus* suspected: "ambiguous").
+- **Manual end-to-end check through the API** on a user's real pair (local only, section 6): it gave the same numbers
+  as the manual check.
 
 ## Not confirmed
 
