@@ -253,6 +253,33 @@ def test_a_failed_pull_explains_docker_login_unless_the_images_are_here(tmp_path
     assert proc.returncode == 0 and "copies already on this computer" in proc.stdout
 
 
+@pytest.mark.parametrize("shell", SHELLS)
+def test_the_first_download_of_a_version_says_how_big_it_is_and_that_it_can_take_long(tmp_path, shell):
+    fake = mac(tmp_path, APPLE_SILICON, AIR)
+    # The images of this version are not here yet (`docker image inspect` fails): the measured size, before the pull.
+    proc, _ = run(tmp_path, fake, shell)
+    assert proc.returncode == 0, proc.stderr
+    out = " ".join(proc.stdout.split())
+    assert f"Downloading ARVA {VERSION} for the first time on this computer" in out
+    assert "about 16 GB (linux/amd64; the download itself is compressed, so smaller)" in out
+    assert "can take more than an hour (one test on a Mac took 1.5 h at about 0.8 MB/s)" in out
+    # The native arm64 image is smaller; and the same text in Spanish.
+    (tmp_path / "home").mkdir()
+    proc, _ = run(tmp_path, fake, shell, "Darwin", "es_AR.UTF-8", "--platform", "linux/arm64",
+                  extra={"HOME": str(tmp_path / "home")})
+    assert proc.returncode == 0, proc.stderr
+    out = " ".join(proc.stdout.split())
+    assert f"Se descarga ARVA {VERSION} por primera vez en esta computadora" in out
+    assert "unos 10 GB (linux/arm64; la descarga en sí está comprimida, así que es menor)" in out
+    assert "puede tardar más de una hora" in out
+    # Not when the images are already here, nor when they are built here or are not ARVA's published ones.
+    for extra, args in (({"FAKE_IMAGES_HERE": "1"}, ()), ({}, ("--build",)),
+                        ({"ARVA_API_IMAGE": "registry.example/other-api"}, ())):
+        proc, _ = run(tmp_path, fake, shell, "Darwin", "en_US.UTF-8", *args, extra=extra)
+        assert proc.returncode == 0, proc.stderr
+        assert "for the first time on this computer" not in proc.stdout
+
+
 def test_shellcheck_clean():
     if shutil.which("shellcheck") is None:
         pytest.skip("shellcheck is not installed")

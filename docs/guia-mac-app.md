@@ -100,9 +100,13 @@ Al abrir ARVA.app se ve una ventana pequeña con el logo de ARVA y lo que está 
    guardar los proyectos y las bases de datos (por ejemplo `/Volumes/<disco>/ARVA`). Se contestan escribiendo y
    pulsando Enter; las preguntas explican cada opción. Son las mismas que se describen en
    [guia-mac.md](guia-mac.md), paso 6.
-   La última pregunta es «¿Guardar estas elecciones e iniciar ARVA?»: si se contesta que no, no se guarda nada y
-   ARVA.app ofrece **Responder de nuevo**.
-3. **La descarga.** Después ARVA descarga sus programas (varios GB, puede tardar un rato según la conexión).
+   Antes de la última pregunta aparece un **Resumen** con todas las respuestas (las carpetas de bases de datos
+   existentes y la de importación dicen «ninguna» si se pasaron con Enter): conviene revisarlo. La última pregunta es
+   «¿Guardar estas elecciones e iniciar ARVA?»: si se contesta que no, no se guarda nada y ARVA.app ofrece
+   **Responder de nuevo**.
+3. **La descarga.** Después ARVA descarga sus programas. Antes de empezar avisa cuánto ocupan: unos 16 GB ya
+   descomprimidos (10 GB con la imagen arm64; la descarga en sí es menor porque viene comprimida). Con una conexión
+   lenta puede tardar más de una hora (en una prueba, 1,5 h a unos 0,8 MB/s).
    La ventana de Terminal lo va mostrando, y ARVA.app también, en **Detalles**.
 4. **ARVA se abre solo** en la ventana de ARVA.app cuando está listo (no hace falta el navegador: no se abre).
    La ventana de Terminal ya se puede cerrar.

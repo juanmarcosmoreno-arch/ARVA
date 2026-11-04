@@ -258,12 +258,20 @@ español. En cada una, **Enter** acepta lo que está entre corchetes:
    través de `/Volumes` (o con la lista por omisión), explica por qué conviene compartir el disco mismo y cómo
    (paso 3, carpetas compartidas), espera a que se pulse Enter y vuelve a leer la lista.
 
-Después pregunta **¿Guardar estas elecciones e iniciar ARVA? [S/n]**. Las respuestas quedan en
+Antes de guardar muestra un **Resumen** con todo lo elegido: las carpetas de datos y de bases de datos, las
+carpetas de bases de datos existentes y la carpeta para importar («ninguna» si se pasó la pregunta con Enter) y la
+arquitectura de las imágenes. Si falta algo (por ejemplo, `/Volumes/JM/BioInf`), contestar que no y volver a
+responder. Después pregunta **¿Guardar estas elecciones e iniciar ARVA? [S/n]**. Las respuestas quedan en
 `~/.config/arva/arva.conf`; no se vuelven a preguntar. Para responderlas de nuevo:
 `scripts/start.sh --setup` (en la Terminal, dentro de la carpeta de ARVA).
 
-Luego descarga las imágenes (la primera vez tarda: son varios GB), inicia ARVA, muestra el perfil de rendimiento y
-las ubicaciones, y **abre el navegador en <http://localhost:8080>**. La ventana de Terminal puede cerrarse al final
+Si las preguntas se cortan antes del final (se cerró la ventana, se pulsó Control-C o Control-D), lo dice
+(«Las respuestas terminaron antes de la última pregunta» o «Las preguntas se interrumpieron») y no guarda nada.
+
+Luego descarga las imágenes, inicia ARVA, muestra el perfil de rendimiento y
+las ubicaciones, y **abre el navegador en <http://localhost:8080>**. La primera descarga de cada versión avisa
+antes cuánto ocupa: unos 16 GB ya descomprimidas (amd64; 10 GB arm64), la descarga misma es menor porque viene
+comprimida; con una conexión lenta puede tardar más de una hora (en la prueba en una Mac, 1,5 h a unos 0,8 MB/s). La ventana de Terminal puede cerrarse al final
 (pulsar Enter): ARVA sigue funcionando en Docker Desktop.
 
 ARVA solo escucha en la propia Mac (`127.0.0.1`): no es accesible desde otras computadoras de la red.

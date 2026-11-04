@@ -7,8 +7,11 @@ in the file is not documented. Nothing here ran on a real Mac.
 """
 import json
 import os
+import select
 import shutil
+import signal
 import subprocess
+import time
 from pathlib import Path
 
 import pytest
@@ -82,7 +85,8 @@ def test_spanish_first_run_proposes_the_external_disk_and_adds_existing_database
     m.settings('{\n  "UseVirtualizationFrameworkRosetta": true,\n  "FilesharingDirectories": [\n    "/Users"\n  ]\n}')
     bioinf = m.folder("Bio Inf")
     typed = str(bioinf).replace(" ", "\\ ") + " "
-    proc = m.ask(shell, ["abc", "1", "", typed, "/no/such/folder", "", "", "", ""], "--setup")
+    # disk "abc" then 1, these folders, two database folders, end, no import folder, image 1, File sharing Enter, save.
+    proc = m.ask(shell, ["abc", "1", "", typed, "/no/such/folder", "", "", "", "", ""], "--setup")
     assert proc.returncode == 0, proc.stdout + proc.stderr
     out = proc.stdout
     assert "Discos conectados a esta computadora:" in out
@@ -156,6 +160,105 @@ def test_declining_saves_nothing(tmp_path, shell):
     assert not (m.disk / "ARVA").exists()
 
 
+def summary(out: str) -> str:
+    """The summary block the first run prints before "Save these choices and start ARVA?", spaces collapsed."""
+    start = out.index("── Summary") if "── Summary" in out else out.index("── Resumen")
+    end = out.index("Save these choices") if "Save these choices" in out else out.index("¿Guardar estas elecciones")
+    assert start < end
+    return " ".join(out[start:end].split())
+
+
+@pytest.mark.parametrize("shell", SHELLS)
+def test_the_summary_before_saving_shows_every_answer_and_none_for_skipped_ones(tmp_path, shell):
+    m = FirstRun(tmp_path)
+    m.settings('{"UseVirtualizationFrameworkRosetta": true}')
+    # Inside Docker Desktop, the existing database folder and the import folder skipped with Enter, image 2, save.
+    proc = m.ask(shell, ["0", "", "", "2", ""], "--setup", lang="en_US.UTF-8")
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    text = summary(proc.stdout)
+    assert "Projects, results, reports, logs, backups: inside Docker Desktop (Docker volumes)" in text
+    assert "Databases that ARVA downloads: inside Docker Desktop (Docker volumes)" in text
+    assert "Existing database folders (read-only): none" in text
+    assert "Folder to import from (read-only): none (ARVA's own import folder)" in text
+    assert "Image architecture: arm64 (native, without the tools that have no arm64 build)" in text
+
+
+@pytest.mark.parametrize("shell", SHELLS)
+def test_the_spanish_summary_lists_the_chosen_folders(tmp_path, shell):
+    m = FirstRun(tmp_path)
+    m.settings(sharing(m, "/Users", "/Volumes/JM"))
+    bioinf, runs = m.folder("BioInf"), m.folder("runs")
+    # Disk 1, these folders, one database folder, end, the import folder, image 1, save.
+    proc = m.ask(shell, ["1", "", str(bioinf), "", str(runs), "", ""], "--setup")
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    text = summary(proc.stdout)
+    assert f"Proyectos, resultados, informes, registros, copias: {m.disk / 'ARVA' / 'data'}" in text
+    assert f"Bases de datos que descarga ARVA: {m.disk / 'ARVA' / 'databases'}" in text
+    assert f"Carpetas de bases de datos existentes (solo lectura): - {bioinf}" in text
+    assert "ninguna" not in text
+    assert f"Carpeta para importar (solo lectura): {runs}" in text
+    assert "Arquitectura de las imágenes: amd64 (todas las herramientas, a través de Rosetta)" in text
+    assert f"ARVA_IMPORT_DIR={runs}" in m.config.read_text().splitlines()
+
+
+@pytest.mark.parametrize("shell", SHELLS)
+@pytest.mark.parametrize("answers", [
+    [],                             # at the first question (the disk)
+    ["1"],                          # at "Use these folders?"
+    ["1", ""],                      # at an existing database folder
+    ["1", "", ""],                  # at the import folder
+    ["1", "", "", ""],              # at the image question (seen on a real Mac: the first attempt ended there)
+    ["1", "", "", "", ""],          # at "Press Enter" after the Rosetta setting
+    ["1", "", "", "", "", ""],      # at "Press Enter" after the File sharing steps
+    ["1", "", "", "", "", "", ""],  # at "Save these choices and start ARVA?", whose default is yes
+])
+def test_input_that_ends_early_stops_the_first_run_with_a_message(tmp_path, shell, answers):
+    m = FirstRun(tmp_path)
+    m.settings(REAL_KEYS)
+    proc = m.ask(shell, answers, "--setup", lang="en_US.UTF-8")
+    assert proc.returncode == 1, proc.stdout + proc.stderr
+    err = " ".join(proc.stderr.split())
+    assert "The answers ended before the last question" in err and "Nothing was saved and ARVA did not start" in err
+    assert err.count("The answers ended before the last question") == 1
+    assert "ARVA did not start; nothing was saved." in err
+    assert not m.config.exists() and not any("up" in c for c in m.calls)
+    assert not (m.disk / "ARVA").exists()
+    if len(answers) == 7:
+        assert "── Summary" in proc.stdout and "Save these choices and start ARVA?" in proc.stdout
+
+
+@pytest.mark.parametrize("shell", SHELLS)
+def test_input_that_ends_early_is_explained_in_spanish(tmp_path, shell):
+    m = FirstRun(tmp_path)
+    proc = m.ask(shell, ["1", "", "", ""], "--setup")
+    assert proc.returncode == 1
+    err = " ".join(proc.stderr.split())
+    assert "Las respuestas terminaron antes de la última pregunta" in err and "No se guardó nada" in err
+    assert not m.config.exists()
+
+
+@pytest.mark.parametrize("shell", SHELLS)
+@pytest.mark.parametrize("sig", [signal.SIGTERM, signal.SIGHUP, signal.SIGINT])
+def test_an_interrupted_first_run_says_so(tmp_path, shell, sig):
+    m = FirstRun(tmp_path)
+    env = {"PATH": f"{m.bin}:{m.usr}", "FAKE": str(m.fake), "HOME": str(m.home), "LANG": "en_US.UTF-8",
+           "ARVA_VOLUMES_ROOT": str(tmp_path / "Volumes"), "ARVA_DOCKER_WAIT": "4"}
+    proc = subprocess.Popen([shell, str(START), "--setup"], env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE)
+    out = b""
+    deadline = time.monotonic() + 30
+    while b"Disk for ARVA's data" not in out and time.monotonic() < deadline:
+        ready, _, _ = select.select([proc.stdout], [], [], 1)
+        if ready:
+            out += os.read(proc.stdout.fileno(), 4096)
+    assert b"Disk for ARVA's data" in out
+    proc.send_signal(sig)
+    _, err = proc.communicate(timeout=30)
+    assert proc.returncode == 130, err
+    assert "The questions were interrupted: nothing was saved and ARVA did not start." in err.decode()
+    assert not m.config.exists() and not any(c[0] == "compose" for c in m.calls)
+
+
 @pytest.mark.parametrize("shell", SHELLS)
 def test_amd64_with_rosetta_off_explains_the_setting_and_saves_the_choice(tmp_path, shell):
     m = FirstRun(tmp_path)
@@ -176,7 +279,9 @@ def test_custom_folders_and_an_existing_data_folder(tmp_path, shell):
     (base / "data").mkdir()
     (base / "data" / ".arva-storage").write_text("{}")
     other = tmp_path / "Volumes" / "JM" / "dbs"
-    proc = m.ask(shell, [f"'{base}'", "n", "", str(other), "", "", "", ""], "--setup", lang="en_US.UTF-8")
+    # that folder, not these folders, data [default], databases elsewhere, no database folder, no import folder,
+    # image 1, File sharing Enter, save.
+    proc = m.ask(shell, [f"'{base}'", "n", "", str(other), "", "", "", "", ""], "--setup", lang="en_US.UTF-8")
     assert proc.returncode == 0, proc.stdout + proc.stderr
     assert "is already an ARVA data folder: it is used as it is" in proc.stdout
     lines = m.config.read_text().splitlines()

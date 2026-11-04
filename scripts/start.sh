@@ -462,6 +462,22 @@ un token de acceso personal con el permiso read:packages (docs/guia-mac.md, paso
   arva_compose pull api web
 }
 
+# Before the first download of this version's published images (the API image is not on this computer yet): how big
+# they are and that it can take long. Nothing is asked of the registry for this: `docker image inspect` only looks
+# at this computer's images, and the sizes are the ones measured when the images were published (docs/installation.md,
+# "Size of ARVA's images": unpacked, as `docker image ls` shows them; the download is compressed, so smaller). The
+# time is from a real test on a Mac (docs/registro-prueba-mac.md, row 6: about 1.5 h at about 0.8 MB/s).
+if [ "$build" = 0 ] && [ "$ARVA_API_IMAGE" = ghcr.io/juanmarcosmoreno-arch/arva-api ] &&
+  ! docker image inspect "$ARVA_API_IMAGE:$ARVA_IMAGE_TAG" >/dev/null 2>&1; then
+  case "$image_platform" in linux/arm64) image_size='10 GB' ;; *) image_size='16 GB' ;; esac
+  say "Downloading ARVA $ARVA_IMAGE_TAG for the first time on this computer: once unpacked, its images take about
+$image_size (${image_platform:-linux/amd64}; the download itself is compressed, so smaller). On a slow connection this
+can take more than an hour (one test on a Mac took 1.5 h at about 0.8 MB/s). Docker shows its progress below." \
+      "Se descarga ARVA $ARVA_IMAGE_TAG por primera vez en esta computadora: ya descomprimidas, sus imágenes ocupan
+unos $image_size (${image_platform:-linux/amd64}; la descarga en sí está comprimida, así que es menor). Con una
+conexión lenta puede tardar más de una hora (en una prueba en una Mac tardó 1,5 h a unos 0,8 MB/s). Docker muestra
+el avance a continuación."
+fi
 if [ "$build" = 0 ] && ! pull; then
   if docker image inspect "$ARVA_API_IMAGE:$ARVA_IMAGE_TAG" "$ARVA_WEB_IMAGE:$ARVA_IMAGE_TAG" >/dev/null 2>&1; then
     say "The images could not be updated; ARVA starts with the copies already on this computer."         "No se pudieron actualizar las imágenes; ARVA se inicia con las copias que ya hay en este equipo."
