@@ -3460,6 +3460,7 @@ export interface VirulenceRun {
 export interface VirulenceSourceStatus {
   status: "searched" | "not_searched" | "plus_off";
   job_id: string | null;
+  tool?: string | null;
   tool_version: string | null;
   database_version: string | null;
   hits: number;
@@ -3484,6 +3485,18 @@ export interface VirulenceRow {
   pieces: number | null;
   id: string;
   also_found_by: string[];
+  /** The reference positions the hit covers (VFDB only; AMRFinderPlus gives none). */
+  ref_start?: number | null;
+  ref_end?: number | null;
+  ref_length?: number | null;
+  /** ARVA's notes on the row (apps/api/app/services/virulence.py row_flags): another gene on the same region, or a
+   * hit that covers only part of its reference. */
+  flags?: VirulenceFlag[];
+}
+
+export interface VirulenceFlag {
+  code: "probable_other_gene" | "partial_reference" | "partial_coverage" | string;
+  params: Record<string, string | number>;
 }
 
 export interface VirulenceSample {

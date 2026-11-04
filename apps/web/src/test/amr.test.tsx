@@ -9,9 +9,9 @@ import { AmrCard } from "@/components/genomic/AmrResult";
 import { ProjectAmr } from "@/components/genomic/ProjectAmr";
 import { GUIDE_BY_ID } from "@/guide/metrics";
 import { dictionaries } from "@/i18n";
-import { amrBody, amrFeatures, amrProblems, initialAmrForm, matrixCell, sections, warningText } from "@/lib/amr";
+import { amrBody, amrFeatures, amrProblems, hitNotes, initialAmrForm, matrixCell, sections, warningText } from "@/lib/amr";
 import { api } from "@/lib/api";
-import type { AmrHit, AmrMapHit, AmrPlan, AmrProjectOverview, AmrRun, Annotation, GenomeMap, GenomeTracks } from "@/lib/types";
+import type { AmrHit, AmrMapHit, AmrPlan, AmrProjectOverview, AmrRun, Annotation, AssemblyDetail, GenomeMap, GenomeTracks } from "@/lib/types";
 import { useSettings } from "@/store/settings";
 
 // The hits are AMRFinderPlus 4.2.7's on the fixtures in workflows/tool-adapters/tests/fixtures/amrfinderplus: S. aureus
@@ -94,6 +94,34 @@ describe("AMR result", () => {
     for (const code of ["genotype_not_phenotype", "hits_partial", "hits_contig_end", "hits_internal_stop", "hits_hmm", "point_mutations_not_searched", "point_mutation_genes_not_found", "plus_not_searched", "curated_thresholds_overridden", "synthetic_input"])
       for (const lang of ["en", "es"] as const) expect(dictionaries[lang][`amr.warning.${code}` as keyof typeof dictionaries.en]).toBeTruthy();
     for (const id of ["amr", "amr_methods", "point_mutation", "genotype_phenotype"] as const) expect(GUIDE_BY_ID[id].es.title).toBeTruthy();
+  });
+
+  it("notes a contig-end hit on a circular contig and a 23S point mutation, and nothing it cannot back", async () => {
+    // N315's 23S_A2058G row of the constructed fixture (workflows/tool-adapters/tests/fixtures/amrfinderplus).
+    const rrna = hit({ id: "h6", element_symbol: "23S_A2058G", element_name: "Staphylococcus aureus azithromycin resistant 23S", subtype: "POINT", amr_class: "MACROLIDE", method: "POINTN", method_kind: "point", hierarchy_node: "23S" });
+    const end = hits[1];
+    const contig = (name: string, circular: boolean | null) => ({ rank: 1, name, length: 1000, gc_percent: null, n_count: 0, other_iupac_count: 0, coverage: null, circular, repeat: null });
+    const flye = { mode: "long" as const, contigs: [contig("NC_002745.2_part2", true)] };
+    expect(hitNotes(end, flye)).toEqual([{ code: "contig_end_circular", params: { contig: "NC_002745.2_part2" } }]);
+    expect(hitNotes(end, { mode: "long", contigs: [contig("NC_002745.2_part2", false)] })).toEqual([]);
+    expect(hitNotes(end, { mode: "short", contigs: [contig("NC_002745.2_part2", null)] })).toEqual([]);
+    expect(hitNotes(end, { mode: "imported", contigs: [contig("NC_002745.2_part2", null)] })).toEqual([{ code: "contig_end_registered", params: { contig: "NC_002745.2_part2" } }]);
+    expect(hitNotes(end, null)).toEqual([]);
+    expect(hitNotes(hits[0], flye)).toEqual([]);
+    expect(hitNotes(rrna)).toEqual([{ code: "rrna_copies", params: {} }]);
+    expect(hitNotes(hits[3])).toEqual([]);
+
+    const detail = vi.spyOn(api, "assembly").mockResolvedValue({ ...flye, id: "asm-00001" } as unknown as AssemblyDetail);
+    renderWith(<AmrCard run={run({ hits: [...hits, rrna] })} />);
+    const amr = screen.getByRole("region", { name: "AMR genes" });
+    expect(await within(amr).findByText(/The assembler marked NC_002745.2_part2 circular, so its start and end are neighbours/)).toBeInTheDocument();
+    expect(detail).toHaveBeenCalledWith("asm-00001");
+    const point = screen.getByRole("region", { name: "Point mutations" });
+    expect(within(point).getAllByRole("note")).toHaveLength(1);
+    expect(within(point).getByRole("note")).toHaveTextContent(/several copies of the 23S rRNA gene/);
+    for (const code of ["contig_end_circular", "contig_end_registered", "rrna_copies"])
+      for (const lang of ["en", "es"] as const) expect(dictionaries[lang][`amr.note.${code}` as keyof typeof dictionaries.en]).toBeTruthy();
+    detail.mockRestore();
   });
 
   it("builds the request with AMRFinderPlus's defaults passed explicitly", () => {

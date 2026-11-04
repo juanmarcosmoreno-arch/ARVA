@@ -111,6 +111,14 @@ def test_bakta_compatibility_follows_the_installed_schema():
     assert kinds.compatibility("gtdbtk", version="r226").code == "release_mismatch"
 
 
+def test_ridom_spa_files_are_read_by_the_spatyper_arva_runs():
+    # ARVA runs spaTyper 0.3.3 with the Ridom files, which carry no version: compatible, never "not integrated".
+    ran = kinds.compatibility("spa_types", installed="0.3.3")
+    assert (ran.status, ran.code, ran.params) == ("compatible", "no_requirement", {"tool": "spaTyper 0.3.3"})
+    assert kinds.compatibility("spa_types", installed="").code == "tool_not_installed"
+    assert all(t.integrated for t in kinds.BY_KEY["spa_types"].tools)
+
+
 # --- Recognition and versions, kind by kind (CONSTRUCTED folders) -----------------------------------------------
 
 KINDS_ON_DISK = [

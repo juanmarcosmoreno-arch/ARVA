@@ -10,6 +10,7 @@ import { useT, type TranslationKey } from "@/i18n";
 import { api } from "@/lib/api";
 import { joinHost, validDate, validDeclaredVersion, validFolder } from "@/lib/databases";
 import { fmtBytes, fmtInt } from "@/lib/format";
+import { serverText } from "@/lib/messages";
 import type { Detection } from "@/lib/types";
 import { useRefreshDatabases } from "./RecordRow";
 import { CompatibilityBadge, compatibilityText, problemText } from "./shared";
@@ -197,7 +198,7 @@ function CandidatePanel({ detection: d, path, onDone }: { detection: Detection; 
   return (
     <div className="space-y-3 rounded-lg border p-3">
       <div className="flex flex-wrap items-center gap-2">
-        <span className="font-semibold">{d.kind_name}</span>
+        <span className="font-semibold">{d.kind_name && serverText(t, `databases.kind.${d.kind}.name`, d.kind_name)}</span>
         {d.variant && <Badge>{variantName(t, d.variant)}</Badge>}
         {d.ok ? (
           <Badge tone="success">

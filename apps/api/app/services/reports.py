@@ -1854,12 +1854,14 @@ def _virulence_html(data: dict[str, Any]) -> str:
             f"<td>{escape(r['gene'])}</td><td>{escape(r['vf_name'] or r['description'] or '')}</td>"
             f"<td>{escape(r['kind'] or '')} ({escape(r['method'] or '')})</td><td>{_amr_pct(r['identity'])}</td>"
             f"<td>{_amr_pct(r['coverage'])}</td><td>{escape(r['contig'] or '')}:{r['start'] or ''}-{r['end'] or ''}</td>"
-            f"<td>{escape(', '.join(r['also_found_by']))}</td></tr>" for r in a["rows"])
+            f"<td>{escape(', '.join(r['also_found_by']))}"
+            + "".join(f"<br><strong>{escape(virulence_svc.flag_text(f))}</strong>" for f in r.get("flags") or [])
+            + "</td></tr>" for r in a["rows"])
         status = "; ".join(f"{'VFDB' if k == 'vfdb' else 'AMRFinderPlus'}: {v['status'].replace('_', ' ')}"
                            + (f" ({v['hits']} hits)" if v["status"] == "searched" else "") for k, v in src.items())
         merged.append(f"<p class='muted'>Assembly <code>{escape(a['assembly_id'])}</code> · {escape(status)}</p>"
                       + (f"<table class='grid'><tr><th>Source</th><th>Gene</th><th>Factor or name</th><th>Hit</th>"
-                         f"<th>Identity (%)</th><th>Coverage (%)</th><th>Location</th><th>Also found by</th></tr>"
+                         f"<th>Identity (%)</th><th>Coverage (%)</th><th>Location</th><th>Also found by; notes</th></tr>"
                          f"{rows}</table>" if rows else "<p><strong>None found</strong> by the sources searched.</p>"))
     sections = []
     for run in vir["runs"]:

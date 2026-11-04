@@ -215,6 +215,29 @@ export function typingBody(method: TypingMethod, settings: Record<string, string
   return { method, settings: method === "sccmec" ? numbers : {}, database_id: databaseId || null, override_applicability: override, confirmed: true };
 }
 
+/** The steps the dialog checks when it opens or the assembly changes: those not yet run on that assembly whose tool
+ * and data are ready here (spa stays unchecked without registered Ridom files). Order: SCCmec, spa, agr. */
+export function defaultSteps(assemblyId: string, results: Pick<TypingResult, "assembly_id" | "method">[], requirements: Pick<TypingRequirement, "key" | "ready">[]): TypingMethod[] {
+  const ready = new Set(requirements.filter((r) => r.ready).map((r) => r.key));
+  const done = new Set(results.filter((r) => r.assembly_id === assemblyId).map((r) => r.method));
+  return TYPING_METHODS.filter((m) => ready.has(m) && !done.has(m));
+}
+
+/** "SCCmec", "SCCmec and agr", "SCCmec, spa and agr" in the interface language. */
+export function stepList(t: T, methods: readonly TypingMethod[]): string {
+  const names = methods.map((m) => t(`typing.stepName.${m}` as TranslationKey));
+  if (names.length < 2) return names.join("");
+  return t("typing.listAnd", { first: names.slice(0, -1).join(", "), last: names[names.length - 1] });
+}
+
+/** True when sccmec found nothing of a cassette: no mecA (its target includes mecC), no ccr or mec target, no ccr
+ * complex or mec class. The summary and the result then say so in words instead of a row of dashes. */
+export function noCassette(details: Record<string, unknown> | null | undefined): boolean {
+  if (!details) return false;
+  const list = (k: string) => (Array.isArray(details[k]) ? (details[k] as unknown[]).map(String) : []);
+  return details.mecA === false && list("ccr_complexes").length === 0 && list("mec_classes").length === 0 && !list("targets").some((x) => /^(ccr|mec)/i.test(x));
+}
+
 export function settingsProblems(method: TypingMethod, settings: Record<string, string>): TranslationKey[] {
   if (method !== "sccmec") return [];
   const bad = Object.values(settings).some((v) => v.trim() !== "" && !(Number.isInteger(Number(v)) && Number(v) >= 1 && Number(v) <= 100));

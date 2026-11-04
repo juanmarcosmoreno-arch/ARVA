@@ -9,6 +9,8 @@ import { VirulenceCard } from "@/components/genomic/Virulence";
 import { GUIDE_BY_ID } from "@/guide/metrics";
 import { api } from "@/lib/api";
 import { flagOf, initialMobileForm, isWholeElement, mobileBody, mobileFeatures, mobileProblems, settingKind, warningText } from "@/lib/mobile";
+import { delimitedText, safeCell } from "@/lib/tableExport";
+import { combinedFileName, combinedTable } from "@/lib/virulence";
 import type { Annotation, GenomeMap, MobileContigTable, MobileMapElement, MobilePlan, MobileRow, MobileRun, VirulenceRow, VirulenceRun, VirulenceSample } from "@/lib/types";
 import { useSettings } from "@/store/settings";
 
@@ -157,6 +159,61 @@ describe("virulence factors from both sources", () => {
     expect(cells[0].textContent).toBe("AMRFinderPlus");
     expect(cells[3].textContent).toContain("BLASTX");
     expect(cells[7].textContent).toBe("vfdb");
+  });
+
+  // The Mac test's pitfall (values as the tools reported them): VFDB lukF-PV 82.27 % on contig_1:44819-45787 where
+  // AMRFinderPlus found lukD 94.19 % on contig_1:44813-45793; and VFDB hlb covering only 170-993 of 993.
+  const flagged: VirulenceSample["assemblies"][number] = {
+    assembly_id: "asm-00027-xyz",
+    sources: {
+      vfdb: { status: "searched", job_id: "job-vf", tool: "ABRicate", tool_version: "1.4.0", database_version: "2026-04-03", hits: 2 },
+      amrfinderplus: { status: "searched", job_id: "job-amr", tool: "AMRFinderPlus", tool_version: "4.2.7", database_version: "2026-10-29.1", hits: 1 },
+    },
+    rows: [
+      vfdbRow({ id: "v1", gene: "lukF-PV", contig: "contig_1", start: 44_819, end: 45_787, identity: 82.27, coverage: 100, method: "1-969/969", vf_name: "PVL", description: "(lukF-PV) Panton-Valentine leukocidin", also_found_by: ["amrfinderplus:lukD"], flags: [{ code: "probable_other_gene", params: { gene: "lukD", source: "AMRFinderPlus", identity: 94.19 } }] }),
+      vfdbRow({ id: "a1", source: "amrfinderplus", gene: "lukD", contig: "contig_1", start: 44_813, end: 45_793, identity: 94.19, coverage: 100, kind: "complete", method: "BLASTX", vf_name: null, description: "leukocidin LukD", also_found_by: ["vfdb:lukF-PV"], flags: [] }),
+      vfdbRow({ id: "v2", gene: "hlb", contig: "contig_1", start: 2_049_578, end: 2_050_401, identity: 99.27, coverage: 82.98, kind: "partial", method: "170-993/993", vf_name: "Beta-hemolysin", ref_start: 170, ref_end: 993, ref_length: 993, flags: [{ code: "partial_reference", params: { ref_start: 170, ref_end: 993, ref_length: 993, coverage: 82.98 } }] }),
+    ],
+  };
+
+  it("warns on a VFDB row that is probably another gene and on a truncated hit", () => {
+    renderWith(<VirulenceCard view={flagged} runs={[run]} />);
+    const rows = screen.getAllByRole("row");
+    expect(within(rows[1]).getByText("Probably lukD (AMRFinderPlus, 94.19 % identity); VFDB's best match may be a homologue.")).toBeInTheDocument();
+    expect(within(rows[2]).queryByRole("note")).toBeNull();
+    expect(within(rows[3]).getByText("Truncated or interrupted: only positions 170-993 of the 993-position reference.")).toBeInTheDocument();
+  });
+
+  it("says the same in Spanish", () => {
+    useSettings.setState({ language: "es" });
+    renderWith(<VirulenceCard view={flagged} runs={[run]} />);
+    expect(screen.getByText("Probablemente lukD (AMRFinderPlus, 94,19 % de identidad); la mejor coincidencia de VFDB puede ser un homólogo.")).toBeInTheDocument();
+    expect(screen.getByText("Truncado o interrumpido: solo las posiciones 170-993 de una referencia de 993.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Tabla (TSV)" })).toBeInTheDocument();
+  });
+
+  it("builds the combined table for download, one row per hit with its origin and notes", () => {
+    const t = (k: string, v?: Record<string, unknown>) => `${k}${v ? JSON.stringify(v) : ""}`;
+    const { columns, rows } = combinedTable(t as never, flagged, [run]);
+    expect(columns.slice(0, 7)).toEqual(["assembly_id", "source", "tool", "tool_version", "database_version", "gene", "product"]);
+    const col = (r: (string | number | null | undefined)[], name: string) => r[columns.indexOf(name)];
+    expect(rows).toHaveLength(3);
+    expect([col(rows[0], "tool"), col(rows[0], "tool_version"), col(rows[0], "database_version")]).toEqual(["ABRicate", "1.4.0", "2026-04-03"]);
+    expect([col(rows[1], "tool"), col(rows[1], "tool_version"), col(rows[1], "database_version"), col(rows[1], "method")]).toEqual(["AMRFinderPlus", "4.2.7", "2026-10-29.1", "BLASTX"]);
+    expect([col(rows[0], "identity"), col(rows[0], "coverage"), col(rows[0], "contig"), col(rows[0], "start"), col(rows[0], "end"), col(rows[0], "strand")]).toEqual([82.27, 100, "contig_1", 44_819, 45_787, "+"]);
+    expect(col(rows[0], "flags")).toBe("probable_other_gene");
+    expect(col(rows[0], "also_found_by")).toBe("amrfinderplus:lukD");
+    expect([col(rows[2], "ref_start"), col(rows[2], "ref_end"), col(rows[2], "ref_length"), col(rows[2], "flags")]).toEqual([170, 993, 993, "partial_reference"]);
+    expect(combinedFileName(flagged, "csv")).toBe("ARVA_virulence_asm-0002.csv");
+  });
+
+  it("writes TSV and CSV safely for a spreadsheet", () => {
+    const tsv = delimitedText(["gene", "note"], [["lukD", "a\tb\nc"], ["=cmd", -34.6], ["-", null]], "tsv");
+    expect(tsv).toBe("gene\tnote\nlukD\ta b c\n'=cmd\t-34.6\n-\t\n");
+    const csv = delimitedText(["gene", "note"], [["lukD", 'say "hi", twice'], ["@x", "+"]], "csv");
+    expect(csv).toBe('﻿gene,note\nlukD,"say ""hi"", twice"\n\'@x,+\n');
+    expect(safeCell("+cmd")).toBe("'+cmd");
+    expect(safeCell("'=x")).toBe("''=x");
   });
 });
 

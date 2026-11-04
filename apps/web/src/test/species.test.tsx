@@ -9,7 +9,7 @@ import { SpeciesCard } from "@/components/genomic/SpeciesResult";
 import { GUIDE_BY_ID } from "@/guide/metrics";
 import { dictionaries } from "@/i18n";
 import { api } from "@/lib/api";
-import { checkText, initialSpeciesForm, reasonText, speciesBody, speciesProblems, statusText } from "@/lib/species";
+import { checkText, hitChartLabel, hitLabelWidth, initialSpeciesForm, reasonText, speciesBody, speciesProblems, statusText } from "@/lib/species";
 import type { AnalysisJob, Assembly, NcbiPlan, ReferenceDatabase, SpeciesPlan, SpeciesResult, Tool } from "@/lib/types";
 import { useSettings } from "@/store/settings";
 
@@ -135,6 +135,21 @@ describe("SpeciesCard", () => {
     const option = JSON.parse(screen.getByTestId("chart").dataset.option ?? "{}");
     expect(option.series[0].data).toEqual([99.9171, 88.85, 79.1388]);
     expect(option.series[0].markLine.data).toEqual([{ xAxis: 95 }]);
+  });
+
+  it("keeps long reference names whole in the chart: the grid makes room and only the drawing truncates", () => {
+    // A CONSTRUCTED hit (placeholder accession, not a result) with the long name the Mac test showed cut on the left.
+    const long = { ...saureus, hits: [...saureus.hits, { rank: 4, reference: "GCF_000000000.1", accession: "GCF_000000000.1", organism: "Staphylococcus schweitzeri", species: "Staphylococcus schweitzeri", type_material: true, ani: 90.15, af: 0.8 }] };
+    renderWith(<SpeciesCard result={long} />);
+    const option = JSON.parse(screen.getByTestId("chart").dataset.option ?? "{}");
+    expect(option.yAxis.data[3]).toBe("Staphylococcus schweitzeri · GCF_000000000.1");
+    expect(option.grid.containLabel).toBe(true);
+    expect(option.yAxis.axisLabel.overflow).toBe("truncate");
+    expect(option.yAxis.axisLabel.width).toBeGreaterThanOrEqual(130);
+    expect(hitChartLabel({ species: null, organism: null, reference: "ref.fna", accession: null })).toBe("ref.fna");
+    expect(hitLabelWidth(1280)).toBe(300);
+    expect(hitLabelWidth(800)).toBe(220);
+    expect(hitLabelWidth(390)).toBe(130);
   });
 
   it("explains an ambiguous result instead of naming a species", () => {

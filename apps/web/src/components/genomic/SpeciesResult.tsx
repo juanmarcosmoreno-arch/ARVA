@@ -8,8 +8,8 @@ import { Card, CardBody, CardHeader } from "@/components/ui/card";
 import { type TranslationKey, useT } from "@/i18n";
 import { api } from "@/lib/api";
 import { fmtDate, fmtNum, shellJoin } from "@/lib/format";
-import { afPercent, ANI_METHODS, caveatText, CHART_HITS, CHECK_TONE, checkText, reasonText, STATUS_TONE, statusText, warningText } from "@/lib/species";
-import type { AnalysisJobDetail, SpeciesHit, SpeciesResult } from "@/lib/types";
+import { afPercent, ANI_METHODS, caveatText, CHART_HITS, CHECK_TONE, checkText, hitChartLabel, hitLabelWidth, reasonText, STATUS_TONE, statusText, warningText } from "@/lib/species";
+import type { AnalysisJobDetail, SpeciesResult } from "@/lib/types";
 
 const JAIN = "https://doi.org/10.1038/s41467-018-07641-9";
 const FILES = ["output", "log", "references", "info", "info_header", "inspect", "summary_bacteria", "summary_archaea"] as const;
@@ -154,25 +154,22 @@ export function Interpretation({ result: r }: { result: SpeciesResult }) {
   );
 }
 
-function label(h: SpeciesHit) {
-  const name = h.species ?? h.organism ?? h.reference ?? "?";
-  return `${name.length > 28 ? `${name.slice(0, 27)}…` : name} · ${h.accession ?? h.reference ?? ""}`;
-}
-
 /** ANI and aligned fraction of the best hits, with the species boundary as a line. */
 export function HitsChart({ result: r }: { result: SpeciesResult }) {
   const t = useT();
   const th = useChartTheme();
   const hits = r.hits.filter((h) => typeof h.ani === "number").slice(0, CHART_HITS);
   const boundary = r.interpretation.thresholds.ani_boundary;
-  const labels = hits.map(label);
+  const labels = hits.map(hitChartLabel);
+  // The grid makes room for the labels (containLabel) instead of a fixed margin that cut long names on the left; a
+  // label wider than its room ends in "…", and the axis tooltip shows it whole.
   const option: EChartsOption = {
     ...baseOption(th),
-    grid: { left: 240, right: 40, top: 28, bottom: 40 },
+    grid: { left: 8, right: 40, top: 28, bottom: 40, containLabel: true },
     legend: { top: 0, textStyle: { color: th.muted, fontSize: 11 } },
     tooltip: { ...baseOption(th).tooltip, trigger: "axis", axisPointer: { type: "shadow", shadowStyle: { color: th.grid, opacity: 0.6 } } },
     xAxis: { type: "value", min: 0, max: 100, ...axisStyle(th, t("species.chart.axis"), { nameGap: 26 }) },
-    yAxis: { type: "category", data: labels, inverse: true, axisLabel: { color: th.text, fontSize: 11 }, axisLine: { lineStyle: { color: th.axis } }, axisTick: { show: false } },
+    yAxis: { type: "category", data: labels, inverse: true, axisLabel: { color: th.text, fontSize: 11, width: hitLabelWidth(window.innerWidth), overflow: "truncate" }, axisLine: { lineStyle: { color: th.axis } }, axisTick: { show: false } },
     series: [
       {
         name: t("species.chart.ani"),
