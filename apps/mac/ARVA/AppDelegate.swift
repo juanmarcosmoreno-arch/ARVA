@@ -22,6 +22,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     /// Asks ARVA, while it runs, whether analyses are running or waiting (SleepGuard).
     private var sleepTimer: Timer?
     private let sleepGuard = SleepGuard()
+    /// The analyses running or waiting at the last SleepGuard poll (nil before the first answer).
+    private var lastActiveCount: Int?
+    /// Asks every 30 seconds, while analyses run or were running, which ones ended (macOS notifications).
+    private var jobTimer: Timer?
+    private var jobWatch = JobWatch()
+    private var jobPollInFlight = false
+    private let notifier = AnalysisNotifier()
+    /// Asks every 15 seconds whether ARVA answers, to say so when it stops (Docker Desktop closed).
+    private var healthTimer: Timer?
+    private var serverWatch = ServerWatch()
+    private var notRespondingAlert: NSAlert?
     private var attempt = 0
     /// Docker Desktop was opened by this app (so quitting may offer to close it again).
     private var launchedDocker = false
@@ -33,6 +44,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private var log = ""
 
     // MARK: Application
+
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        notifier.onOpen = { [weak self] path in self?.openFromNotification(path) }
+        notifier.install()
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.mainMenu = MainMenu.build()
@@ -94,27 +110,247 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     // MARK: Keeping the Mac awake while analyses run
 
     /// While ARVA runs: ask every minute whether analyses are running or waiting, and hold or release the sleep
-    /// assertion accordingly (the first question a few seconds after ARVA opens).
+    /// assertion accordingly (the first question a few seconds after ARVA opens). The same watch also asks whether
+    /// ARVA still answers (ServerWatch) and, with notifications on, which analyses ended (JobWatch).
     private func startSleepWatch() {
         stopSleepWatch()
         sleepTimer = commonTimer(withTimeInterval: SleepGuard.pollInterval, repeats: true) { [weak self] _ in
             self?.pollActiveJobs()
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 5) { [weak self] in self?.pollActiveJobs() }
+        healthTimer = commonTimer(withTimeInterval: ServerWatch.interval, repeats: true) { [weak self] _ in
+            self?.checkServer()
+        }
+        jobTimer = commonTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in self?.pollJobs() }
+        // macOS may have been told "no" since the last time (System Settings → Notifications): that is respected.
+        if AnalysisNotifier.isEnabled {
+            notifier.isAllowed { allowed in
+                if !allowed { AnalysisNotifier.isEnabled = false }
+            }
+        }
     }
 
     private func stopSleepWatch() {
         sleepTimer?.invalidate()
         sleepTimer = nil
         sleepGuard.release()
+        healthTimer?.invalidate()
+        healthTimer = nil
+        jobTimer?.invalidate()
+        jobTimer = nil
+        lastActiveCount = nil
+        jobWatch = JobWatch()
+        jobPollInFlight = false
+        serverWatch = ServerWatch()
+        closeNotRespondingAlert()
     }
 
     private func pollActiveJobs() {
         guard phase == .running, sleepTimer != nil else { return }
         countActiveJobs { [weak self] count in
             guard let self, self.phase == .running, self.sleepTimer != nil else { return }
+            if let count { self.lastActiveCount = count }
             self.sleepGuard.update(activeJobs: count)
         }
+    }
+
+    // MARK: Notifications when analyses end
+
+    /// Every 30 seconds while analyses run or are followed (none of this while notifications are off): the running and
+    /// waiting jobs, compared with the last ones; each job that left the list is looked up and, once ended, notified.
+    private func pollJobs() {
+        guard phase == .running, jobTimer != nil, AnalysisNotifier.isEnabled, !jobPollInFlight else { return }
+        guard (lastActiveCount ?? 0) > 0 || jobWatch.isWatching else { return }
+        jobPollInFlight = true
+        let current = attempt
+        fetchActiveJobs { [weak self] jobs in
+            guard let self, current == self.attempt, self.phase == .running else { return }
+            guard let jobs else {
+                self.jobPollInFlight = false
+                return
+            }
+            let ended = self.jobWatch.update(active: jobs)
+            self.resolveEnded(ended, attempt: current) { [weak self] in self?.jobPollInFlight = false }
+        }
+    }
+
+    /// The running jobs and the waiting ones; nil when either list could not be read (then nothing is compared, so a
+    /// failed request never looks like analyses that ended).
+    private func fetchActiveJobs(_ completion: @escaping ([JobSnapshot]?) -> Void) {
+        apiJSON(JobSnapshot.listPath(status: "running"), keys: JobSnapshot.keys) { [weak self] runningJSON in
+            guard let self, let running = JobSnapshot.list(from: runningJSON) else {
+                completion(nil)
+                return
+            }
+            self.apiJSON(JobSnapshot.listPath(status: "pending"), keys: JobSnapshot.keys) { pendingJSON in
+                guard let pending = JobSnapshot.list(from: pendingJSON) else {
+                    completion(nil)
+                    return
+                }
+                completion(running + pending)
+            }
+        }
+    }
+
+    /// Looks up, one after the other, the jobs that left the list, and notifies the ones that ended.
+    private func resolveEnded(_ ended: [JobSnapshot], attempt current: Int, done: @escaping () -> Void) {
+        guard let job = ended.first, current == attempt, phase == .running else {
+            done()
+            return
+        }
+        let rest = Array(ended.dropFirst())
+        apiJSON(JobSnapshot.detailPath(id: job.id), keys: JobSnapshot.keys) { [weak self] object in
+            guard let self else { return }
+            guard current == self.attempt else {
+                done()
+                return
+            }
+            guard let now = JobSnapshot(json: object), now.id == job.id else {
+                self.jobWatch.lookupFailed(job)
+                self.resolveEnded(rest, attempt: current, done: done)
+                return
+            }
+            if now.isActive {
+                self.jobWatch.stillActive(now)
+                self.resolveEnded(rest, attempt: current, done: done)
+                return
+            }
+            self.sampleCode(now.sampleId ?? job.sampleId) { code in
+                if AnalysisNotifier.isEnabled, let notice = JobNotice.make(before: job, after: now, sample: code) {
+                    self.notifier.post(notice)
+                }
+                self.resolveEnded(rest, attempt: current, done: done)
+            }
+        }
+    }
+
+    /// The code of a sample (GET /api/v1/samples/{id}, `sample_code`), for the notification; nil when unknown.
+    private func sampleCode(_ sampleId: String?, _ completion: @escaping (String?) -> Void) {
+        guard let sampleId, JobSnapshot.isPlainID(sampleId) else {
+            completion(nil)
+            return
+        }
+        apiJSON("api/v1/samples/\(sampleId)", keys: ["sample_code"]) { object in
+            completion((object as? [String: Any])?["sample_code"] as? String)
+        }
+    }
+
+    /// A click on a notification: ARVA comes to the front, on the job's sample when the notification names one.
+    private func openFromNotification(_ path: String?) {
+        NSApp.activate(ignoringOtherApps: true)
+        guard phase == .running, let web = mainWeb else {
+            splash?.show()
+            return
+        }
+        if let path, let url = URL(string: path, relativeTo: ArvaServer.base)?.absoluteURL,
+           WebPolicy.classify(url) == .local {
+            web.webView.load(URLRequest(url: url))
+        }
+        web.show()
+    }
+
+    /// Once, the first time ARVA opens in the app: what the notifications are, before macOS asks for permission.
+    private func offerNotificationsOnce() {
+        guard !UserDefaults.standard.bool(forKey: AnalysisNotifier.askedKey) else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
+            guard let self, self.phase == .running, !self.quitPending, let window = self.mainWeb?.window,
+                  window.attachedSheet == nil, !UserDefaults.standard.bool(forKey: AnalysisNotifier.askedKey) else { return }
+            UserDefaults.standard.set(true, forKey: AnalysisNotifier.askedKey)
+            let alert = NSAlert()
+            alert.messageText = L("Notify you when an analysis ends?", "¿Avisarte cuando termine un análisis?")
+            alert.informativeText = L("ARVA can show a macOS notification when an analysis finishes or fails (for example “ARVA: Flye finished — sample”), also while its window is in the background; a click opens the sample. macOS asks for permission next. The notifications are made on this Mac: nothing is sent anywhere. You can turn them on or off at any time in the ARVA menu.",
+                                      "ARVA puede mostrar una notificación de macOS cuando un análisis termina o falla (por ejemplo «ARVA: Flye terminó — muestra»), también mientras su ventana está en segundo plano; un clic abre la muestra. A continuación macOS pide permiso. Las notificaciones se generan en esta Mac: no se envía nada a ningún lado. Puedes activarlas o desactivarlas cuando quieras en el menú ARVA.")
+            alert.addButton(withTitle: L("Turn On", "Activar"))
+            let later = alert.addButton(withTitle: L("Not Now", "Ahora no"))
+            later.keyEquivalent = "\u{1b}"
+            alert.beginSheetModal(for: window) { [weak self] response in
+                if response == .alertFirstButtonReturn {
+                    self?.enableNotifications()
+                } else {
+                    AnalysisNotifier.isEnabled = false
+                }
+            }
+        }
+    }
+
+    /// Asks macOS (its dialog appears only the first time); a "no", now or before, is respected.
+    private func enableNotifications() {
+        notifier.requestPermission { [weak self] granted in
+            guard let self else { return }
+            AnalysisNotifier.isEnabled = granted
+            self.jobWatch = JobWatch()
+            if granted {
+                self.note(L("Notifications are on: ARVA says when an analysis ends.\n",
+                            "Notificaciones activadas: ARVA avisa cuando termina un análisis.\n"))
+                return
+            }
+            let alert = NSAlert()
+            alert.messageText = L("macOS does not let ARVA show notifications", "macOS no deja que ARVA muestre notificaciones")
+            alert.informativeText = L("To allow them: System Settings → Notifications → ARVA → turn on Allow notifications. Then choose ARVA → Notify When Analyses End again.",
+                                      "Para permitirlas: Ajustes del Sistema → Notificaciones → ARVA → activa Permitir notificaciones. Después elige de nuevo ARVA → Avisar cuando terminen los análisis.")
+            alert.runModal()
+        }
+    }
+
+    // MARK: When ARVA stops answering
+
+    private func checkServer() {
+        guard phase == .running, healthTimer != nil else { return }
+        let current = attempt
+        ArvaServer.checkHealth { [weak self] up in
+            guard let self, current == self.attempt, self.phase == .running, self.healthTimer != nil else { return }
+            switch self.serverWatch.update(answered: up) {
+            case .wentDown?: self.showNotResponding()
+            case .cameBack?: self.serverCameBack()
+            case nil: break
+            }
+        }
+    }
+
+    /// ARVA stopped answering (most often: Docker Desktop was closed). Said on the window, as a sheet that does not
+    /// block the app, with a button that opens Docker Desktop when needed and starts ARVA again (the same start as
+    /// opening the app) and one to wait; it closes by itself when ARVA answers again.
+    private func showNotResponding() {
+        let title = L("ARVA is not responding: is Docker Desktop open?", "ARVA no responde: ¿Docker Desktop está abierto?")
+        note(title + "\n")
+        mainWeb?.window.subtitle = L("ARVA is not responding", "ARVA no responde")
+        guard !quitPending, notRespondingAlert == nil, let window = mainWeb?.window, window.attachedSheet == nil else { return }
+        let dockerOpen = DockerDesktop.isAppRunning
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = title
+        alert.informativeText = dockerOpen
+            ? L("Docker Desktop is open, but ARVA does not answer at http://localhost:8080 (it may be restarting). Press Try Again to start ARVA again, or Wait: this message closes by itself as soon as ARVA answers. Your projects and databases are kept.",
+                "Docker Desktop está abierto, pero ARVA no responde en http://localhost:8080 (puede que se esté reiniciando). Pulsa Reintentar para iniciar ARVA de nuevo, o Esperar: este mensaje se cierra solo en cuanto ARVA responda. Tus proyectos y bases de datos se conservan.")
+            : L("ARVA runs inside Docker Desktop, which is not open. Press Open Docker Desktop: ARVA.app opens it and starts ARVA again. Your projects and databases are kept.",
+                "ARVA funciona dentro de Docker Desktop, que no está abierto. Pulsa Abrir Docker Desktop: ARVA.app lo abre e inicia ARVA de nuevo. Tus proyectos y bases de datos se conservan.")
+        alert.addButton(withTitle: dockerOpen ? L("Try Again", "Reintentar") : L("Open Docker Desktop", "Abrir Docker Desktop"))
+        let wait = alert.addButton(withTitle: L("Wait", "Esperar"))
+        wait.keyEquivalent = "\u{1b}"
+        notRespondingAlert = alert
+        let current = attempt
+        alert.beginSheetModal(for: window) { [weak self] response in
+            guard let self else { return }
+            if self.notRespondingAlert === alert { self.notRespondingAlert = nil }
+            guard response == .alertFirstButtonReturn, current == self.attempt, self.phase == .running else { return }
+            // The whole start again: Docker Desktop is opened and waited for when needed, then ARVA is shown (and the
+            // page reloaded) as soon as it answers, started again by the launcher when it does not come back by itself.
+            self.begin()
+        }
+    }
+
+    private func closeNotRespondingAlert() {
+        if let alert = notRespondingAlert, let parent = alert.window.sheetParent {
+            parent.endSheet(alert.window, returnCode: .cancel)
+        }
+        notRespondingAlert = nil
+    }
+
+    private func serverCameBack() {
+        note(L("ARVA answers again.\n", "ARVA vuelve a responder.\n"))
+        mainWeb?.window.subtitle = sleepGuard.isActive ? SleepGuard.statusText : ""
+        closeNotRespondingAlert()
+        mainWeb?.reload()
     }
 
     private func showSleepStatus(_ active: Bool) {
@@ -299,8 +535,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             NSWorkspace.shared.open(command)
         }
         splash?.setStatus(L("Answer the questions in the Terminal window…", "Contesta las preguntas en la ventana de Terminal…"),
-                          hint: L("Then ARVA downloads its programs (several GB the first time) and opens here by itself. This can take a while.",
-                                  "Después ARVA descarga sus programas (varios GB la primera vez) y se abre aquí solo. Puede tardar un rato."))
+                          hint: L("Then ARVA downloads its programs (10 to 16 GB once unpacked, the first time) and opens here by itself. On a slow connection this can take more than an hour.",
+                                  "Después ARVA descarga sus programas (de 10 a 16 GB ya descomprimidos, la primera vez) y se abre aquí solo. Con una conexión lenta puede tardar más de una hora."))
         splash?.setCancel(L("Cancel", "Cancelar"))
         let tail = LogTail(url: runtime.appendingPathComponent(FirstRunCommand.logFile))
         let opened = Date()
@@ -391,15 +627,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
     }
 
-    private func runLauncher(_ current: Int) {
+    /// scripts/start.sh --no-setup in the background, with `extra` options (e.g. --import-dir PATH), as an argument list.
+    private func runLauncher(_ current: Int, extra: [String] = []) {
         phase = .starting
         let runtime = AppPaths.runtimeDir
         splash?.setStatus(L("Starting ARVA…", "Iniciando ARVA…"),
-                          hint: L("When there is a new version, Docker downloads it first: this can take a few minutes.",
-                                  "Cuando hay una versión nueva, Docker la descarga primero: puede tardar unos minutos."))
+                          hint: L("When there is a new version, Docker downloads it first: from a few minutes to more than an hour on a slow connection (Details shows the progress).",
+                                  "Cuando hay una versión nueva, Docker la descarga primero: desde unos minutos hasta más de una hora con una conexión lenta (Detalles muestra el avance)."))
         splash?.setCancel(L("Cancel", "Cancelar"))
-        note("$ sh scripts/start.sh --no-setup\n")
-        let task = ShellTask(executable: "/bin/sh", arguments: ["scripts/start.sh", "--no-setup"], directory: runtime,
+        let arguments = ["scripts/start.sh", "--no-setup"] + extra
+        note("$ sh " + arguments.map { $0.hasPrefix("-") || $0 == "scripts/start.sh" ? $0 : shellQuote($0) }.joined(separator: " ") + "\n")
+        let task = ShellTask(executable: "/bin/sh", arguments: arguments, directory: runtime,
                              environment: ShellEnvironment.make(),
                              logFile: AppPaths.logsDir.appendingPathComponent("start.log"))
         var timedOut = false
@@ -616,10 +854,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             mainWeb = web
             web.loadARVA()
         }
+        web.window.subtitle = ""
         web.show()
         splash?.window.orderOut(nil)
         NSApp.activate(ignoringOtherApps: true)
         startSleepWatch()
+        offerNotificationsOnce()
     }
 
     private func makeWeb(configuration: WKWebViewConfiguration, isMain: Bool) -> WebWindowController {
@@ -720,6 +960,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         web.callAsyncJavaScript(body, arguments: [:], in: nil, in: .defaultClient) { result in
             if case .success(let value) = result, let number = value as? NSNumber, number.intValue >= 0 {
                 finish(number.intValue)
+            } else {
+                direct()
+            }
+        }
+    }
+
+    /// A GET of one of ARVA's API paths ("api/v1/jobs?status=running"), as JSON, like countActiveJobs: asked by the
+    /// page's own session first (in the app's isolated script world, so it also works with accounts on), then
+    /// directly; nil when neither answered. Only the `keys` of the object (or of each object of a list) are kept, so a
+    /// job's log is not passed around. At most about 5 seconds.
+    private func apiJSON(_ path: String, keys: [String], _ completion: @escaping (Any?) -> Void) {
+        var done = false
+        let finish: (Any?) -> Void = { value in
+            guard !done else { return }
+            done = true
+            completion(value)
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 5) { finish(nil) }
+        let direct = { ArvaServer.getJSON(path) { finish($0) } }
+        guard let web = mainWeb?.webView, let url = web.url, WebPolicy.classify(url) == .local else {
+            direct()
+            return
+        }
+        let body = """
+        const r = await fetch('/' + path, {credentials: 'same-origin', cache: 'no-store'});
+        if (!r.ok) return null;
+        const j = await r.json();
+        const pick = (o) => (o && typeof o === 'object' && !Array.isArray(o))
+          ? Object.fromEntries(keys.map((k) => [k, o[k] === undefined ? null : o[k]])) : o;
+        return JSON.stringify(Array.isArray(j) ? j.map(pick) : pick(j));
+        """
+        web.callAsyncJavaScript(body, arguments: ["path": path, "keys": keys], in: nil, in: .defaultClient) { result in
+            if case .success(let value) = result, let text = value as? String,
+               let object = try? JSONSerialization.jsonObject(with: Data(text.utf8)) {
+                finish(object)
             } else {
                 direct()
             }
@@ -833,8 +1108,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 case .unavailable(let path):
                     let alert = NSAlert()
                     alert.messageText = L("The import folder is not available", "La carpeta de importación no está disponible")
-                    alert.informativeText = L("ARVA imports from \(path), which cannot be found now: connect its disk (then open ARVA again so that it uses it), or choose another folder with ARVA → Set Up Again.",
-                                              "ARVA importa desde \(path), que ahora no se encuentra: conecta su disco (y vuelve a abrir ARVA para que la use) o elige otra carpeta con ARVA → Volver a configurar.")
+                    alert.informativeText = L("ARVA imports from \(path), which cannot be found now: connect its disk (then open ARVA again so that it uses it), or choose another folder with ARVA → Choose Import Folder….",
+                                              "ARVA importa desde \(path), que ahora no se encuentra: conecta su disco (y vuelve a abrir ARVA para que la use) o elige otra carpeta con ARVA → Elegir carpeta de importación….")
                     alert.runModal()
                 }
             }
@@ -873,6 +1148,97 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         startWizard(current)
     }
 
+    /// ARVA → Choose Import Folder…: a folder chosen in Finder's panel, checked here (ImportFolderRule), then passed to
+    /// the launcher (scripts/start.sh --no-setup --import-dir FOLDER), which checks it again, saves it in arva.conf as
+    /// ARVA_IMPORT_DIR and starts ARVA's services again with it, as when the app opens. No terminal needed.
+    @objc func arvaChooseImportFolder(_ sender: Any?) {
+        guard phase == .running || phase == .failed else { return }
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.canCreateDirectories = false
+        panel.showsHiddenFiles = false
+        panel.title = L("Choose Import Folder", "Elegir carpeta de importación")
+        panel.message = L("The folder with the sequencing runs ARVA imports from. ARVA only reads it: it never writes, moves or deletes anything in it.",
+                          "La carpeta con las corridas de secuenciación desde la que importa ARVA. ARVA solo la lee: nunca escribe, mueve ni borra nada en ella.")
+        panel.prompt = L("Choose", "Elegir")
+        if let saved = ArvaConfig.load(from: AppPaths.configFile())?.importDir {
+            panel.directoryURL = URL(fileURLWithPath: saved, isDirectory: true)
+        }
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        let path = url.path
+        let fm = FileManager.default
+        let problem = ImportFolderRule.problem(path, home: AppPaths.home.path, isDirectory: { folder in
+            var isDir: ObjCBool = false
+            return fm.fileExists(atPath: folder, isDirectory: &isDir) && isDir.boolValue
+        }, isReadable: { folder in
+            fm.isReadableFile(atPath: folder) && fm.isExecutableFile(atPath: folder)
+        })
+        if let problem {
+            let alert = NSAlert()
+            alert.alertStyle = .warning
+            alert.messageText = L("This folder cannot be the import folder", "Esta carpeta no puede ser la carpeta de importación")
+            alert.informativeText = ImportFolderRule.message(problem, path: path)
+            alert.runModal()
+            return
+        }
+        let wasRunning = phase == .running
+        countActiveJobs { [weak self] count in
+            guard let self, self.phase == .running || self.phase == .failed else { return }
+            let alert = NSAlert()
+            alert.messageText = L("Import from this folder?", "¿Importar desde esta carpeta?")
+            var info = L("ARVA will import sequencing runs from \(path), read-only. ", "ARVA importará las corridas de secuenciación desde \(path), en solo lectura. ")
+            info += wasRunning
+                ? L("To use it, ARVA starts its services again (about a minute) and then this window reloads by itself.",
+                    "Para usarla, ARVA vuelve a iniciar sus servicios (más o menos un minuto) y después esta ventana se vuelve a cargar sola.")
+                : L("ARVA starts with it.", "ARVA se inicia con ella.")
+            if let count, count > 0 {
+                let en = count == 1 ? "1 analysis is running or waiting" : "\(count) analyses are running or waiting"
+                info += "\n\n⚠️ " + L("\(en): starting the services again interrupts them (they can be run again later). To let them finish, choose the folder later.",
+                                     "Hay \(count) análisis en curso o en espera: volver a iniciar los servicios los interrumpe (se pueden volver a ejecutar después). Para que terminen, elige la carpeta más tarde.")
+            }
+            alert.informativeText = info
+            let use = alert.addButton(withTitle: L("Use This Folder", "Usar esta carpeta"))
+            let cancel = alert.addButton(withTitle: L("Cancel", "Cancelar"))
+            cancel.keyEquivalent = "\u{1b}"
+            if let count, count > 0 {
+                // Analyses are running: Return keeps them running.
+                use.keyEquivalent = ""
+                cancel.keyEquivalent = "\r"
+            }
+            guard alert.runModal() == .alertFirstButtonReturn else { return }
+            self.restartWithImportFolder(path)
+        }
+    }
+
+    private func restartWithImportFolder(_ path: String) {
+        attempt += 1
+        let current = attempt
+        stopTimers()
+        log = ""
+        let window = splash ?? makeSplash()
+        window.clearDetails()
+        window.setCancel(nil)
+        window.setStatus(L("Starting ARVA…", "Iniciando ARVA…"))
+        window.show()
+        mainWeb?.window.orderOut(nil)
+        for other in otherWebs { other.window.orderOut(nil) }
+        note(AppInfo.summary + "\n")
+        note(L("New import folder: \(path)\n", "Nueva carpeta de importación: \(path)\n"))
+        runLauncher(current, extra: ["--import-dir", path])
+    }
+
+    /// ARVA → Notify When Analyses End: on (macOS is asked first) or off.
+    @objc func arvaToggleNotifications(_ sender: Any?) {
+        if AnalysisNotifier.isEnabled {
+            AnalysisNotifier.isEnabled = false
+            jobWatch = JobWatch()
+        } else {
+            enableNotifications()
+        }
+    }
+
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         switch menuItem.action {
         case #selector(arvaReload(_:)), #selector(arvaZoomIn(_:)), #selector(arvaZoomOut(_:)), #selector(arvaZoomReset(_:)):
@@ -885,8 +1251,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             return phase == .running
         case #selector(arvaCopyDetails(_:)):
             return !log.isEmpty
-        case #selector(arvaSetupAgain(_:)):
+        case #selector(arvaSetupAgain(_:)), #selector(arvaChooseImportFolder(_:)):
             return phase == .running || phase == .failed
+        case #selector(arvaToggleNotifications(_:)):
+            menuItem.state = AnalysisNotifier.isEnabled ? .on : .off
+            return true
         default:
             return true
         }

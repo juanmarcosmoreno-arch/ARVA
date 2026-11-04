@@ -442,3 +442,53 @@ enum ImportFolder {
         return source.hasPrefix("/") ? source : nil
     }
 }
+
+/// The checks on a folder chosen with ARVA → Choose Import Folder… before it is passed to the launcher
+/// (scripts/start.sh --import-dir, which checks it again with arva_inspect in scripts/lib/arva-locations.sh and is the
+/// one that saves it). The launcher's own rules: an absolute path without control characters, at most 1024
+/// characters, a folder that exists and can be read, not /. And two of the app's: not the home folder itself (ARVA
+/// would see every file in it) and not a hidden folder or one inside a hidden folder (ARVA's import does not browse
+/// hidden files and folders: _clean in apps/api/app/services/import_roots.py).
+enum ImportFolderRule {
+    enum Problem: Equatable {
+        case notAbsolute, controlCharacters, tooLong, missing, notReadable, root, home, hidden
+    }
+
+    static func problem(_ path: String, home: String, isDirectory: (String) -> Bool,
+                        isReadable: (String) -> Bool) -> Problem? {
+        guard path.hasPrefix("/") else { return .notAbsolute }
+        if path.unicodeScalars.contains(where: { $0.value < 0x20 || $0.value == 0x7F }) { return .controlCharacters }
+        if path.utf8.count > 1024 { return .tooLong }
+        let parts = path.split(separator: "/", omittingEmptySubsequences: true)
+        if parts.isEmpty { return .root }
+        if parts.contains(where: { $0.hasPrefix(".") }) { return .hidden }
+        let trimmedHome = home.count > 1 && home.hasSuffix("/") ? String(home.dropLast()) : home
+        if "/" + parts.joined(separator: "/") == trimmedHome { return .home }
+        guard isDirectory(path) else { return .missing }
+        guard isReadable(path) else { return .notReadable }
+        return nil
+    }
+
+    static func message(_ problem: Problem, path: String) -> String {
+        switch problem {
+        case .notAbsolute:
+            return L("The folder must be an absolute path (starting with /): \(path)", "La carpeta debe ser una ruta absoluta (que empiece por /): \(path)")
+        case .controlCharacters:
+            return L("The folder's path contains control characters.", "La ruta de la carpeta contiene caracteres de control.")
+        case .tooLong:
+            return L("The folder's path is longer than 1024 characters.", "La ruta de la carpeta tiene más de 1024 caracteres.")
+        case .missing:
+            return L("The folder \(path) does not exist (is its disk connected?).", "La carpeta \(path) no existe (¿está conectado su disco?).")
+        case .notReadable:
+            return L("ARVA cannot read the folder \(path) (check its permissions).", "ARVA no puede leer la carpeta \(path) (revisa sus permisos).")
+        case .root:
+            return L("The import folder cannot be the root folder /.", "La carpeta de importación no puede ser la carpeta raíz /.")
+        case .home:
+            return L("The import folder cannot be your whole home folder: ARVA would see every file in it. Choose the folder that holds the sequencing runs.",
+                     "La carpeta de importación no puede ser toda tu carpeta personal: ARVA vería todos sus archivos. Elige la carpeta que contiene las corridas de secuenciación.")
+        case .hidden:
+            return L("The import folder cannot be a hidden folder (or be inside one): ARVA does not import from hidden folders.",
+                     "La carpeta de importación no puede ser una carpeta oculta (ni estar dentro de una): ARVA no importa desde carpetas ocultas.")
+        }
+    }
+}

@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import IOKit.pwr_mgt
 import UniformTypeIdentifiers
@@ -35,6 +36,13 @@ enum SelfTest {
         let resources = Bundle.main.resourceURL
         check("icon ARVA.icns", resources.map { fm.fileExists(atPath: $0.appendingPathComponent("ARVA.icns").path) } ?? false)
         check("logo arva-logo.png", resources.map { fm.fileExists(atPath: $0.appendingPathComponent("arva-logo.png").path) } ?? false)
+        // Drawn from the 1254 px logo (docs/brand/arva-logo-1254.png): sharp up to 512@2x.
+        let iconSizes = resources.flatMap { NSImage(contentsOf: $0.appendingPathComponent("ARVA.icns")) }?
+            .representations.map { $0.pixelsWide } ?? []
+        check("icon has its 1024 px size (512@2x)", (iconSizes.max() ?? 0) >= 1024, "\(iconSizes)")
+        let logoWidth = resources.flatMap { NSImage(contentsOf: $0.appendingPathComponent("arva-logo.png")) }?
+            .representations.first?.pixelsWide ?? 0
+        check("logo is the high-resolution one", logoWidth >= 1024, "\(logoWidth)")
         let version = RuntimeSync.version(in: runtime)
         check("ARVA version matches the app's", version != nil && version == AppInfo.version,
               "\(version ?? "none") vs \(AppInfo.version)")
@@ -304,6 +312,116 @@ enum SelfTest {
         } else {
             check("sleep: power management takes the assertion", false, "IOPMAssertionCreateWithName did not succeed")
         }
+
+        // Notifications when analyses end: the jobs read from the API's JSON, which ones ended, what is said.
+        let listJSON = """
+        [{"id": "a1b2c3d4-0000-4000-8000-000000000001", "status": "running", "tool_name": "Flye",
+          "job_type": "flye_assembly", "sample_id": "5a-1", "log_text": "long"},
+         {"id": "../etc", "status": "running"}, {"status": "pending"},
+         {"id": "p-1", "status": "pending", "tool_name": "", "job_type": "multiqc_report", "sample_id": null}]
+        """
+        let parsed = JobSnapshot.list(from: try? JSONSerialization.jsonObject(with: Data(listJSON.utf8)))
+        check("jobs: list read, odd ids left out", parsed?.map { $0.id } == ["a1b2c3d4-0000-4000-8000-000000000001", "p-1"],
+              "\(parsed?.map { $0.id } ?? [])")
+        check("jobs: sample of a sample job, none for a project job", parsed?.first?.sampleId == "5a-1" && parsed?.last?.sampleId == nil)
+        check("jobs: an answer that is not a list", JobSnapshot.list(from: ["detail": "Not authenticated"]) == nil
+              && JobSnapshot.list(from: nil) == nil)
+        check("jobs: list path", JobSnapshot.listPath(status: "running") == "api/v1/jobs?status=running&limit=200")
+        var watch = JobWatch()
+        let flye = JobSnapshot(id: "j1", status: "running", tool: "Flye", sampleId: "s1")
+        let fastp = JobSnapshot(id: "j2", status: "pending", tool: "fastp", sampleId: "s2")
+        check("jobs: nothing ended at the first look", watch.update(active: [flye, fastp]).isEmpty && watch.isWatching)
+        let fastpRunning = JobSnapshot(id: "j2", status: "running", tool: "fastp", sampleId: "s2")
+        check("jobs: still running, nothing ended", watch.update(active: [flye, fastpRunning]).isEmpty)
+        let left = watch.update(active: [flye, JobSnapshot(id: "j9", status: "completed")])
+        check("jobs: the job that left the list is looked up, as last seen", left == [fastpRunning], "\(left)")
+        check("jobs: ended jobs in the list are not followed", watch.active.keys.sorted() == ["j1"])
+        watch.stillActive(fastpRunning)
+        check("jobs: a job still running is followed again", watch.active.keys.sorted() == ["j1", "j2"])
+        var lost = JobWatch()
+        _ = lost.update(active: [flye])
+        var kept: [Bool] = []
+        for _ in 0..<JobWatch.lookupsBeforeDropping {
+            if lost.update(active: []) == [flye] { kept.append(lost.lookupFailed(flye)) }
+        }
+        check("jobs: a job without an answer is dropped after \(JobWatch.lookupsBeforeDropping) lookups",
+              kept == [true, true, false] && !lost.isWatching, "\(kept)")
+        let finished = JobNotice.make(before: flye, after: JobSnapshot(id: "j1", status: "completed", tool: "Flye", sampleId: "s1"),
+                                      sample: "S-27")
+        check("notice: finished, with the sample",
+              finished?.title == (Lang.isSpanish ? "ARVA: Flye terminó — S-27" : "ARVA: Flye finished — S-27")
+                  && finished?.path == "samples/s1", finished?.title ?? "none")
+        let failedNotice = JobNotice.make(before: fastpRunning, after: JobSnapshot(id: "j2", status: "failed", tool: "fastp"), sample: nil)
+        check("notice: failed, sample code unknown",
+              failedNotice?.title == (Lang.isSpanish ? "ARVA: fastp falló" : "ARVA: fastp failed") && failedNotice?.path == "samples/s2",
+              failedNotice?.title ?? "none")
+        check("notice: cancelled while running",
+              JobNotice.make(before: flye, after: JobSnapshot(id: "j1", status: "cancelled"), sample: "S-27")?.title
+                  == (Lang.isSpanish ? "ARVA: Flye se canceló — S-27" : "ARVA: Flye cancelled — S-27"))
+        check("notice: nothing for a job cancelled while waiting",
+              JobNotice.make(before: fastp, after: JobSnapshot(id: "j2", status: "cancelled"), sample: nil) == nil)
+        check("notice: nothing while it runs",
+              JobNotice.make(before: fastp, after: fastpRunning, sample: nil) == nil)
+        let report = JobNotice.make(before: JobSnapshot(id: "j4", status: "running", jobType: "multiqc_report"),
+                                    after: JobSnapshot(id: "j4", status: "completed", jobType: "multiqc_report"), sample: nil)
+        check("notice: a project-level job just opens ARVA", report != nil && report?.path == nil, report?.title ?? "none")
+        check("notice: ARVA's own import named", JobNotice.analysisName(tool: "arva-import", jobType: "server_import")
+              == (Lang.isSpanish ? "Importación" : "Import"))
+
+        // ARVA not answering (Docker Desktop closed): said after two failed checks in a row, once, until it answers.
+        var server = ServerWatch()
+        check("server: answers", server.update(answered: true) == nil && !server.isDown)
+        check("server: one failed check is not enough", server.update(answered: false) == nil && !server.isDown)
+        check("server: not responding after \(ServerWatch.failuresToReport) failed checks",
+              server.update(answered: false) == .wentDown && server.isDown)
+        check("server: said once", server.update(answered: false) == nil)
+        check("server: answers again", server.update(answered: true) == .cameBack && !server.isDown)
+        check("server: a lone failure after that is not reported", server.update(answered: false) == nil
+              && server.update(answered: true) == nil)
+
+        // ARVA → Choose Import Folder…: the launcher's rules and the app's.
+        let folders: Set<String> = ["/Volumes/JM/runs", "/Users/x", "/Users/x/Seq", "/Users/x/locked"]
+        let rule: (String) -> ImportFolderRule.Problem? = { path in
+            ImportFolderRule.problem(path, home: "/Users/x", isDirectory: { folders.contains($0) },
+                                     isReadable: { $0 != "/Users/x/locked" })
+        }
+        let cases: [(String, ImportFolderRule.Problem?)] = [
+            ("/Volumes/JM/runs", nil), ("/Users/x/Seq", nil), ("/Users/x", .home), ("/Users/x/", .home),
+            ("/Users/x/.cache/runs", .hidden), ("/Volumes/JM/../runs", .hidden), ("/", .root), ("runs", .notAbsolute),
+            ("/Volumes/JM/gone", .missing), ("/Users/x/locked", .notReadable), ("/Volumes/JM/r\u{7}", .controlCharacters),
+            ("/" + String(repeating: "a", count: 1100), .tooLong),
+        ]
+        for (path, expected) in cases {
+            let got = rule(path)
+            check("import folder rule: \(path.prefix(40))", got == expected, "\(String(describing: got))")
+            if let got { check("import folder message: \(got)", !ImportFolderRule.message(got, path: path).isEmpty) }
+        }
+
+        // The icon: the visible part of the logo, found in a constructed image (rows counted from the top).
+        var pixels = [UInt8](repeating: 0, count: 6 * 5 * 4)
+        for (x, y) in [(2, 1), (4, 2)] {
+            pixels[(y * 6 + x) * 4] = 200
+            pixels[(y * 6 + x) * 4 + 3] = 255
+        }
+        func makeImage(_ bytes: [UInt8]) -> CGImage? {
+            guard let provider = CGDataProvider(data: Data(bytes) as CFData) else { return nil }
+            return CGImage(width: 6, height: 5, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: 24,
+                           space: CGColorSpaceCreateDeviceRGB(),
+                           bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue),
+                           provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent)
+        }
+        if let image = makeImage(pixels) {
+            let bounds = IconRenderer.visibleBounds(image)
+            check("icon: visible part of the logo", bounds == CGRect(x: 2, y: 1, width: 3, height: 2), String(describing: bounds))
+            let cropped = bounds.flatMap { image.cropping(to: $0) }
+            let inner = cropped.flatMap { IconRenderer.visibleBounds($0) }
+            check("icon: the visible part is what is cut out", cropped?.width == 3 && cropped?.height == 2
+                  && inner == CGRect(x: 0, y: 0, width: 3, height: 2), String(describing: inner))
+        } else {
+            check("icon: test image", false)
+        }
+        check("icon: a fully transparent image has no visible part",
+              makeImage([UInt8](repeating: 0, count: 6 * 5 * 4)).flatMap { IconRenderer.visibleBounds($0) } == nil)
 
         print(failures == 0 ? "self-test passed" : "self-test FAILED: \(failures) check(s)")
         return failures == 0 ? 0 : 1

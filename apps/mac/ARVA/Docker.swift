@@ -77,6 +77,23 @@ enum ArvaServer {
         task.resume()
     }
 
+    /// One of ARVA's API paths ("api/v1/jobs?status=running", relative to `base`), parsed as JSON; nil when it does not
+    /// answer 200 with JSON (ARVA not answering, or accounts are on and this request has no session).
+    static func getJSON(_ path: String, completion: @escaping (Any?) -> Void) {
+        guard let url = URL(string: path, relativeTo: base)?.absoluteURL, WebPolicy.classify(url) == .local else {
+            DispatchQueue.main.async { completion(nil) }
+            return
+        }
+        let task = session.dataTask(with: url) { data, response, _ in
+            var object: Any?
+            if let http = response as? HTTPURLResponse, http.statusCode == 200, let data {
+                object = try? JSONSerialization.jsonObject(with: data)
+            }
+            DispatchQueue.main.async { completion(object) }
+        }
+        task.resume()
+    }
+
     /// The analyses running or waiting to run (GET /api/v1/dashboard, `jobs_running`), or nil when unknown (ARVA not
     /// answering, or accounts are on and this request has no session: the web view's own request is tried first).
     static func activeJobs(completion: @escaping (Int?) -> Void) {
@@ -90,5 +107,36 @@ enum ArvaServer {
             DispatchQueue.main.async { completion(count) }
         }
         task.resume()
+    }
+}
+
+/// Whether ARVA answers while it runs (GET /health, every `interval` seconds): it is reported as not responding after
+/// `failuresToReport` failed checks in a row (one can be a slow answer, or the Mac waking up), and as back at the first
+/// answer after that. Closing Docker Desktop stops ARVA this way. When it opens again, ARVA's containers may come back
+/// by themselves (docker-compose.yml gives them `restart: unless-stopped`; not yet seen on a real Mac): the page is then
+/// reloaded at the first answer. Otherwise the person's Try Again starts ARVA as opening the app does.
+struct ServerWatch {
+    static let interval: TimeInterval = 15
+    static let failuresToReport = 2
+
+    enum Change: Equatable {
+        case wentDown
+        case cameBack
+    }
+
+    private(set) var failures = 0
+    private(set) var isDown = false
+
+    mutating func update(answered: Bool) -> Change? {
+        if answered {
+            failures = 0
+            guard isDown else { return nil }
+            isDown = false
+            return .cameBack
+        }
+        failures += 1
+        guard !isDown, failures >= ServerWatch.failuresToReport else { return nil }
+        isDown = true
+        return .wentDown
     }
 }
