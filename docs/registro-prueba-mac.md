@@ -68,3 +68,40 @@ Estados: **resuelto** · **en curso** · **pendiente** · **idea** (mejora a eva
 | 45 | Cepa 27, spa con spaTyper 0.3.3 y los archivos de Ridom del usuario (registrados como "tipos spa", descargados 2026-05-30): **t189**, repeticiones 07-23-12-21-17-34, en un contig. Coincide con la planilla del usuario. Resumen hasta acá con el genoma propio: 2 contigs, *S. aureus* (ANI 98,8 %), ST188, MSSA, agr I, t189, blaZ en el plásmido, PVL negativa: todo coincide. | coincide |
 | 46 | Al lanzar un análisis de AMR, virulencia, plásmidos, tipificación o variantes, al terminar el resultado no aparecía hasta repetir el análisis o salir y volver a la muestra (la tarjeta de PlasmidFinder quedó dos veces). Causa: al terminar un trabajo, la página de la muestra solo recargaba archivos, ensamblajes, anotaciones, MLST y especie. | resuelto: al terminar cualquier trabajo se recargan todos los resultados de la muestra (`lib/refresh.ts`, prueba `refresh.test.ts`) |
 | 47 | Con la base de MOB-suite del pipeline del usuario registrada (carpeta de `mob_init`, versión declarada "3.1.8 (mob_init, pipeline propio)") y "disponible", el diálogo de plásmidos decía "No hay registrada ninguna base de datos mobsuite". Causa: la compatibilidad se buscaba con la versión declarada completa (solo "3.1.8" exacto) y, sin compatibilidad confirmada, la elección automática descartaba la base. | resuelto: se toma el número con que empieza la versión declarada (`leading_version`), y la elección automática de MOB-suite y AMRFinderPlus usa una base disponible de compatibilidad sin confirmar cuando no hay una confirmada (pruebas en `test_mobile_api.py` y `test_database_kinds.py`) |
+
+## Ronda de arreglos del 2026-11-04
+
+Arreglos de los puntos pendientes, hechos en seis grupos, cada uno revisado por separado. Integrados en la rama con
+los merges `fix/g1` a `fix/g6`. Los textos nuevos de la interfaz están en inglés y en español.
+
+| Puntos | Qué se hizo |
+|---|---|
+| 29 | La estimación de memoria de Flye tiene un piso fijo de ~8,6 GB (tabla de k-mers de 8 GiB, medida) y compara con la memoria que mide el contenedor. Si no alcanza, el diálogo lo dice claramente (veredicto `below_floor`) y no ofrece `--asm-coverage` como solución. Hay un veredicto `tight` para margen justo, y la protección de memoria de los flujos registra `below_kmer_floor`. Documentado en `docs/scientific-methods.md` y `docs/guia-mac.md`. |
+| 30 | La memoria de Docker viene de lo que mide el contenedor. La cifra de `docker info` del arranque solo se usa para avisar si cambió (no se leía de `settings-store.json` como se creía). |
+| 31 | La comprobación de versión de una herramienta se reintenta una vez con más tiempo y registra el motivo (`version_timeout`, `version_exit`, `not_runnable`). |
+| 28 | Los motivos de fallo de Flye llegan con código y se traducen. La tarjeta muestra la memoria del contenedor y las opciones de la corrida. |
+| 25 | Botón "Reintentar con…" en la tarjeta de un Flye fallido o cancelado. Abre el diálogo con los archivos y las opciones de esa corrida. |
+| 27 | Comprobado que `--asm-coverage` se detecta con Flye 2.9.6 (`help_2.9.6.txt` es idéntico al `--help` instalado). Cuando una opción está desactivada se dice por qué, y el resumen incluye tamaño de genoma y asm-coverage. |
+| 12 | "Nuevo ensamblaje" preselecciona el archivo filtrado más reciente y conserva las elecciones al reabrir. |
+| 22 | Documentada la diferencia entre `--nano-hq` y `--nano-raw`. |
+| 33 | Al registrar un FASTA se puede declarar "borrador ensamblado fuera de ARVA a partir de las lecturas de esta muestra", con ensamblador y versión. Esos borradores se pueden pulir (Racon o Medaka con lecturas largas, Pilon con cortas); un genoma importado común sigue sin poder pulirse. Incluye una migración (`b8e4d2a6f1c3_registered_draft`). |
+| 34, 35 | Textos de genomas registrados traducidos ("FASTA del genoma", nombre del ensamblador, comprobaciones); nota propia en vez de la de Flye; etiquetas de ensamblaje y título de los esquemas de PubMLST traducidos en todos los diálogos. |
+| 36 | Nombres completos en el gráfico de especie. |
+| 38 | Descarga TSV y CSV de la tabla combinada de virulencia. |
+| 39, 37 | Aviso en una fila de VFDB que se solapa con otro gen de AMRFinderPlus de mayor identidad (el caso de lukF-PV que es lukD) y en genes truncados (hlb). En AMR, notas para genes partidos en el extremo de un contig y para mutaciones de 23S en una sola copia. |
+| 40 | Frase legible cuando no hay casete SCCmec. |
+| 41, 42 | Tipado de *S. aureus* con casillas: varios pasos a la vez, preseleccionados los que faltan y están listos; el botón dice qué se va a ejecutar. |
+| 44 | Los archivos de Ridom figuran compatibles con spaTyper 0.3.3, y el nombre del tipo está traducido. |
+| 7, 24 | Ícono de ARVA.app, logo y favicon de la web a partir del logo de 1254 px. |
+| 23 | Notificaciones de macOS al terminar, fallar o cancelarse un análisis (se pueden activar o desactivar en el menú). |
+| 8 | En ARVA.app, aviso "ARVA no responde: ¿Docker Desktop está abierto?" con botón para abrirlo. En la web, mensaje claro en lugar de "Load failed". |
+| 4, 5 | El asistente muestra el resumen completo antes de guardar (incluidas las carpetas de bases, o "ninguna") y maneja el fin de entrada explícitamente. |
+| 6 | Aviso del tamaño aproximado de la descarga de la imagen. |
+| 14 | "Elegir carpeta de importación…" en el menú de ARVA.app. |
+| 9 | Idioma inicial según el del navegador o sistema. |
+| 10 | Fechas de colecciones con día, mes y año separados, y la fecha escrita en palabras antes de registrar. La API rechaza fechas ambiguas. |
+| 11 | "Primeros pasos" ya no queda esperando el perfil de rendimiento; muestra un error con reintento. |
+| 13 | Especies y subespecies contadas por separado en las colecciones de referencia. |
+| 32 | Diseño en `docs/plan-flye-nativo.md` (Flye nativo en macOS desde ARVA.app); pendiente de la decisión del usuario. |
+
+Quedan como ideas sin hacer: 21 (control DCS de lambda).
