@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardBody, CardHeader } from "@/components/ui/card";
 import { type TranslationKey, useT } from "@/i18n";
 import { api } from "@/lib/api";
+import { assemblerText } from "@/lib/assembly";
 import { fmtBases, fmtDate, fmtInt, fmtNum, shellJoin } from "@/lib/format";
 import { callTone, categoryKey, COMPLETENESS_TONE, warningText } from "@/lib/mobile";
 import type { AnalysisJobDetail, MobileContigTable, MobileRow, MobileRun } from "@/lib/types";
@@ -21,7 +22,7 @@ export function MobileContigCard({ table }: { table: MobileContigTable }) {
   return (
     <Card>
       <CardHeader
-        title={t("mobile.contigTitle", { assembler: `${table.assembler} ${table.assembler_version}` })}
+        title={t("mobile.contigTitle", { assembler: assemblerText(t, table.assembler, table.assembler_version) })}
         description={t("mobile.contigSubtitle", { assembly: table.assembly_id.slice(0, 8) })}
         action={<Explain id="plasmid" compact />}
       />

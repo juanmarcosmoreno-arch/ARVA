@@ -866,9 +866,20 @@ def _assembly_import_body(ctx: JobContext) -> None:
     src = ctx.path(f.stored_path)
     with (gzip.open(src, "rb") if is_gzip(src) else src.open("rb")) as a, contigs.open("wb") as b:
         shutil.copyfileobj(a, b)
-    ctx.log(f"{f.original_filename} registered as an imported genome; source as stated by the user: "
-            f"{ctx.job.parameters['source']}. ARVA did not assemble it, and records no reads or assembler for it.")
-    register_assembly(ctx, assembler=IMPORTED_ASSEMBLER, mode=AssemblyMode.imported, read_type="none", contigs=contigs)
+    declared = (ctx.job.parameters or {}).get("declared_draft")
+    if declared:
+        ctx.log(f"{f.original_filename} registered as a draft assembled outside ARVA from this sample's reads with "
+                f"{declared['assembler']} {declared['assembler_version']}, as declared by the user (ARVA cannot check "
+                f"this); source as stated by the user: {ctx.job.parameters['source']}. ARVA did not assemble it and "
+                "does not know which read files were used; it can be polished with this sample's reads.")
+    else:
+        ctx.log(f"{f.original_filename} registered as an imported genome; source as stated by the user: "
+                f"{ctx.job.parameters['source']}. ARVA did not assemble it, and records no reads or assembler for it.")
+    assembly = register_assembly(ctx, assembler=IMPORTED_ASSEMBLER, mode=AssemblyMode.imported, read_type="none",
+                                 contigs=contigs)
+    if declared:
+        assembly.declared_assembler = declared["assembler"]
+        assembly.declared_assembler_version = declared["assembler_version"]
 
 
 def run_assembly_import_job(job_id: str) -> str:

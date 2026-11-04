@@ -21,6 +21,7 @@ import { Card, CardBody, CardHeader } from "@/components/ui/card";
 import { EmptyState, ErrorNote, PageHeader, Skeleton } from "@/components/ui/misc";
 import { type TranslationKey, useT } from "@/i18n";
 import { api } from "@/lib/api";
+import { assemblerText } from "@/lib/assembly";
 import type { ComparisonResultRead, ComparisonSet, Warning } from "@/lib/comparative";
 import type { RegionAnchorIn } from "@/lib/regions";
 import { fmtBases, fmtDate } from "@/lib/format";
@@ -219,7 +220,7 @@ function MembersTable({ set }: { set: ComparisonSet }) {
               <td className="px-2 py-1.5"><Link to={`/samples/${m.sample_id}`} className={LINK}>{m.sample_code}</Link></td>
               <td className="px-2 py-1.5">{m.project_name}</td>
               <td className="px-2 py-1.5">
-                {m.assembler} {m.assembler_version} {m.kind === "polished" && <Badge tone="teal">{t("comparative.polished")}</Badge>}
+                {assemblerText(t, m.assembler, m.assembler_version)} {m.kind === "polished" && <Badge tone="teal">{t("comparative.polished")}</Badge>}
                 {!m.contigs_present && <Badge tone="danger">{t("comparative.contigsMissing")}</Badge>}
               </td>
               <td className="px-2 py-1.5 tabular-nums">{m.total_length ? fmtBases(m.total_length) : "—"}</td>

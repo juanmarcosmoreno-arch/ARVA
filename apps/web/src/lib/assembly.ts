@@ -1,3 +1,5 @@
+import type { Translate } from "@/i18n";
+import { fmtBases, fmtDate } from "./format";
 import type { AnalysisJobDetail, Assembly, AssemblyContig, AssemblyCurve, AssemblyGraph, AssemblyGraphNode, RawFile } from "./types";
 
 export type SortDir = "asc" | "desc";
@@ -80,9 +82,65 @@ export function compared(assemblies: Assembly[]): Assembly[] {
   return [...assemblies].sort((a, b) => b.created_at.localeCompare(a.created_at)).slice(0, MAX_COMPARED);
 }
 
-/** A short, unique label for an assembly: assembler, version, read type and the start of its id. */
-export const assemblyLabel = (a: Pick<Assembly, "assembler" | "assembler_version" | "read_type" | "id">) =>
-  `${a.assembler} ${a.assembler_version} · ${a.read_type} · ${a.id.slice(0, 8)}`;
+type Provenance = Pick<Assembly, "assembler" | "assembler_version" | "mode" | "kind"> & Pick<Partial<Assembly>, "declared_assembler" | "declared_assembler_version">;
+
+/** A genome FASTA registered by the user (an imported assembly that is not a polished version of one): ARVA did not
+ * assemble it. Its `assembler` is the API's fixed "Imported genome" and its `assembler_version` the source the user
+ * stated (apps/api/app/services/jobs.py, create_assembly_import_job). */
+export const isRegistered = (a: Pick<Assembly, "mode" | "kind">) => a.mode === "imported" && a.kind !== "polished";
+
+/** Whether ARVA polishes the assembly: its own assemblies, drafts the user declared as assembled outside ARVA from this
+ * sample's reads, and polished versions of either (apps/api/app/services/polishing.py, draft_for). */
+export const canPolish = (a: Pick<Assembly, "mode" | "kind"> & Pick<Partial<Assembly>, "declared_assembler">) =>
+  !isRegistered(a) || Boolean(a.declared_assembler);
+
+/** The assembler's name for display: ARVA's tool, or for a registered genome a translated name (with the assembler the
+ * user declared for a draft assembled outside ARVA). */
+export function assemblerName(t: Translate, a: Provenance): string {
+  if (!isRegistered(a)) return a.assembler;
+  return a.declared_assembler ? t("assembly.imported.declaredName", { assembler: a.declared_assembler }) : t("assembly.imported.name");
+}
+
+/** The assembler and its version, or what a registered genome is (never the API's English "Imported genome"). */
+export function assemblerWithVersion(t: Translate, a: Provenance): string {
+  if (!isRegistered(a)) return `${a.assembler} ${a.assembler_version}`;
+  return a.declared_assembler
+    ? t("assembly.imported.declaredLabel", { assembler: a.declared_assembler, version: a.declared_assembler_version ?? "?" })
+    : t("assembly.imported.name");
+}
+
+/** The assembler name the API gives every registered genome (apps/api/app/services/jobs.py, IMPORTED_ASSEMBLER). */
+export const IMPORTED_ASSEMBLER = "Imported genome";
+
+/** "Assembler version" for rows that carry only those two fields: a registered genome is named in the interface
+ * language, followed by its source (the version the API records for it). */
+export function assemblerText(t: Translate, assembler: string, version: string): string {
+  return assembler === IMPORTED_ASSEMBLER ? `${t("assembly.imported.name")} · ${version}` : `${assembler} ${version}`;
+}
+
+/** What tells assemblies of one assembler apart: the read type (ARVA's), "polished", or a registered genome's source. */
+function assemblyDetail(t: Translate, a: Provenance & Pick<Assembly, "read_type">, polished: boolean): string {
+  if (isRegistered(a)) return a.assembler_version;
+  return polished && a.kind === "polished" ? t("annotation.polished") : a.read_type;
+}
+
+/** A short, unique label for an assembly: assembler and version, read type (or a registered genome's source) and the
+ * start of its id. */
+export const assemblyLabel = (t: Translate, a: Provenance & Pick<Assembly, "read_type" | "id">) =>
+  `${assemblerWithVersion(t, a)} · ${assemblyDetail(t, a, false)} · ${a.id.slice(0, 8)}`;
+
+/** The option text of an assembly in the analysis dialogs (annotation, species, MLST, AMR, virulence, mobile
+ * elements, typing): assembler and version, read type, "polished" or a registered genome's source, contigs, length,
+ * date and the start of its id. */
+export const assemblyOptionLabel = (t: Translate, a: Provenance & Pick<Assembly, "read_type" | "id" | "stats" | "created_at">) =>
+  [
+    assemblerWithVersion(t, a),
+    assemblyDetail(t, a, true),
+    t("assembly.option.contigs", { count: a.stats.contig_count }),
+    fmtBases(a.stats.total_length),
+    fmtDate(a.created_at),
+    a.id.slice(0, 8),
+  ].join(" · ");
 
 /** Segments with a link from the segment to itself (a circular piece of the graph), with the orientations. */
 export function selfLinks(graph: Pick<AssemblyGraph, "edges">): Map<string, string[]> {

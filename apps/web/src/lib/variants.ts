@@ -1,4 +1,6 @@
-import type { TranslationKey } from "@/i18n";
+import type { Translate, TranslationKey } from "@/i18n";
+import { assemblerName } from "./assembly";
+import type { Assembly } from "./types";
 
 export const VARIANT_JOB = "variant_calling";
 export const TECHNOLOGIES = ["illumina", "ont", "pacbio_hifi"] as const;
@@ -52,6 +54,10 @@ export interface ReferenceAssemblyOption {
   own_sample: boolean;
   kind: string;
   assembler: string;
+  assembler_version?: string;
+  mode?: string;
+  declared_assembler?: string | null;
+  declared_assembler_version?: string | null;
   contigs: number | null;
   total_length: number | null;
   annotation: { id: string; tool: string; tool_version: string } | null;
@@ -272,6 +278,15 @@ export interface VariantForm {
   keepAlignment: boolean;
   threads: string;
   confirmed: boolean;
+}
+
+/** A reference assembly's name: its sample and assembler (a registered genome's in the interface language, not the
+ * API's English label), and whether it is polished. */
+export function referenceLabel(t: Translate, a: ReferenceAssemblyOption): string {
+  if (!a.mode) return a.label;
+  const kind = a.kind === "polished" ? "polished" : "assembly";
+  const name = assemblerName(t, { ...a, kind, mode: a.mode as Assembly["mode"], assembler_version: a.assembler_version ?? "" });
+  return `${a.sample_code ?? a.assembly_id.slice(0, 8)} · ${name}${kind === "polished" ? ` (${t("annotation.polished")})` : ""}`;
 }
 
 export function initialVariantForm(options: VariantOptions | undefined, technology: Technology | null): VariantForm {

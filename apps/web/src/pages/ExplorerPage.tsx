@@ -17,6 +17,7 @@ import { Select } from "@/components/ui/form";
 import { EmptyState, ErrorNote, PageHeader } from "@/components/ui/misc";
 import { useT } from "@/i18n";
 import { api } from "@/lib/api";
+import { assemblerText } from "@/lib/assembly";
 import { clampView, contigOptions, regionOf, span, type View, viewOf, viewOfFeature } from "@/lib/explorer";
 import { fmtBases, fmtBp, fmtDate, fmtInt } from "@/lib/format";
 import type { Annotation, AnnotationFeature, AssemblyContig, FeatureLayoutItem, MapFeature } from "@/lib/types";
@@ -66,7 +67,7 @@ export function ExplorerListPage() {
                       {r.database_name && <span className="block text-xs text-muted-foreground">{`${r.database_name} ${r.database_version ?? ""}`}</span>}
                     </td>
                     <td className="px-3 py-2 text-xs">
-                      {r.assembler} {r.assembler_version}
+                      {assemblerText(t, r.assembler, r.assembler_version)}
                       {r.assembly_kind === "polished" ? ` (${t("annotation.polished")})` : ""}
                       <span className="block font-mono text-muted-foreground">{r.assembly_id.slice(0, 8)}</span>
                     </td>

@@ -285,12 +285,18 @@ def create_flye_job(db: Session, sample: Sample, files: list[RawFile], params: F
     return job
 
 
-def create_assembly_import_job(db: Session, sample: Sample, fasta: RawFile, source: str) -> AnalysisJob:
-    """Register a finished genome FASTA of the sample (e.g. an NCBI RefSeq genome) as an assembly ARVA did not build.
-    The source is the user's statement and is recorded as the assembly's version."""
+def create_assembly_import_job(db: Session, sample: Sample, fasta: RawFile, source: str,
+                               draft: dict | None = None) -> AnalysisJob:
+    """Register a genome FASTA of the sample as an assembly ARVA did not build: a finished genome (e.g. an NCBI RefSeq
+    genome) or, with `draft` ({assembler, assembler_version}), a draft the user declares they assembled outside ARVA
+    from this sample's reads. The source is the user's statement and is recorded as the assembly's version; the
+    declaration is recorded as stated."""
+    declared = None if draft is None else {"from_this_sample_reads": True, "assembler": draft["assembler"],
+                                           "assembler_version": draft["assembler_version"]}
     job = AnalysisJob(project_id=sample.project_id, sample_id=sample.id, job_type=IMPORT_ASSEMBLY_JOB,
                       tool_name=IMPORTED_ASSEMBLER, tool_version=source, tool_path=None,
-                      parameters={"source": source, "arva_version": __version__, "fasta_sha256": fasta.checksum_sha256},
+                      parameters={"source": source, "arva_version": __version__, "fasta_sha256": fasta.checksum_sha256,
+                                  "declared_draft": declared},
                       input_raw_file_ids=[fasta.id], status=JobStatus.pending, log_text="")
     db.add(job)
     db.commit()
@@ -503,6 +509,7 @@ def draft_record(a: Assembly) -> dict:
     """What a polishing job records about the assembly it polishes (checked again before the run)."""
     return {"assembly_id": a.id, "kind": a.kind.value, "assembler": a.assembler,
             "assembler_version": a.assembler_version, "job_id": a.job_id, "mode": a.mode.value,
+            "declared_assembler": a.declared_assembler, "declared_assembler_version": a.declared_assembler_version,
             "contigs_sha256": a.stats["files"]["contigs"]["sha256"]}
 
 

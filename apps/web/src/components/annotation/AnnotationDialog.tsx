@@ -21,7 +21,8 @@ import {
   stepState,
 } from "@/lib/annotation";
 import { api } from "@/lib/api";
-import { fmtBases, fmtDate, fmtInt } from "@/lib/format";
+import { assemblyOptionLabel } from "@/lib/assembly";
+import { fmtDate, fmtInt } from "@/lib/format";
 import { toolMessage } from "@/lib/messages";
 import type { AnnotationPlan, Assembly, TranslationTable } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -104,8 +105,7 @@ export function AnnotationDialog({
               <option key={a.id} value={a.id}>
                 {"  ".repeat(depth)}
                 {depth ? "↳ " : ""}
-                {a.assembler} {a.assembler_version} · {a.kind === "polished" ? t("annotation.polished") : a.read_type} · {fmtInt(a.stats.contig_count)} contigs ·{" "}
-                {fmtBases(a.stats.total_length)} · {fmtDate(a.created_at)} · {a.id.slice(0, 8)}
+                {assemblyOptionLabel(t, a)}
               </option>
             ))}
           </Select>

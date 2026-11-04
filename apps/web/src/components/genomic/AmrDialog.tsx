@@ -12,8 +12,9 @@ import { ErrorNote } from "@/components/ui/misc";
 import { type TranslationKey, useT } from "@/i18n";
 import { amrBody, type AmrForm, amrProblems, initialAmrForm } from "@/lib/amr";
 import { assemblyOptions } from "@/lib/annotation";
+import { assemblyOptionLabel } from "@/lib/assembly";
 import { api } from "@/lib/api";
-import { fmtBases, fmtDate, fmtInt } from "@/lib/format";
+import { fmtDate, fmtInt } from "@/lib/format";
 import { toolMessage } from "@/lib/messages";
 import type { AmrPlan, Assembly } from "@/lib/types";
 
@@ -65,8 +66,7 @@ export function AmrDialog({ open, onOpenChange, sampleId, assemblies }: { open: 
               <option key={a.id} value={a.id}>
                 {"  ".repeat(depth)}
                 {depth ? "↳ " : ""}
-                {a.assembler} {a.assembler_version} · {a.kind === "polished" ? t("annotation.polished") : a.read_type} · {fmtInt(a.stats.contig_count)} contigs ·{" "}
-                {fmtBases(a.stats.total_length)} · {fmtDate(a.created_at)} · {a.id.slice(0, 8)}
+                {assemblyOptionLabel(t, a)}
               </option>
             ))}
           </Select>

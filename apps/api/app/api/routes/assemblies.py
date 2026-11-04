@@ -267,16 +267,20 @@ def start_unicycler(sample_id: str, payload: UnicyclerRequest, db: Session = Dep
 @router.post("/samples/{sample_id}/assembly/import", response_model=AnalysisJobRead,
              status_code=status.HTTP_202_ACCEPTED)
 def import_assembly(sample_id: str, payload: AssemblyImportRequest, db: Session = Depends(get_db)):
-    """Register a finished genome FASTA of the sample (for example an NCBI RefSeq genome uploaded by the user) as an
-    imported assembly, so it can be annotated, typed and compared like ARVA's own. ARVA records the source the user
-    states, the file's checksum and that it did not assemble it."""
+    """Register a genome FASTA of the sample as an imported assembly, so it can be annotated, typed and compared like
+    ARVA's own: a finished genome (for example an NCBI RefSeq genome uploaded by the user) or, with `draft`, a draft the
+    user declares they assembled outside ARVA from this sample's reads (with the assembler and version they state),
+    which can then be polished. ARVA records the source and the declaration as stated, the file's checksum and that it
+    did not assemble it."""
     sample = sample_or_404(db, sample_id)
     try:
         fasta = quast.reference_for(db, sample, payload.raw_file_id)
     except quast.InputError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
     assert fasta is not None
-    return create_assembly_import_job(db, sample, fasta, payload.source.strip())
+    draft = None if payload.draft is None else {"assembler": payload.draft.assembler.strip(),
+                                                "assembler_version": payload.draft.assembler_version.strip()}
+    return create_assembly_import_job(db, sample, fasta, payload.source.strip(), draft)
 
 
 @router.post("/samples/{sample_id}/assembly/quast/preview", response_model=QuastPlanRead)

@@ -11,8 +11,9 @@ import { Field, Input, Select } from "@/components/ui/form";
 import { ErrorNote } from "@/components/ui/misc";
 import { type TranslationKey, useT } from "@/i18n";
 import { assemblyOptions } from "@/lib/annotation";
+import { assemblyOptionLabel } from "@/lib/assembly";
 import { api } from "@/lib/api";
-import { fmtBases, fmtDate, fmtInt } from "@/lib/format";
+import { fmtInt } from "@/lib/format";
 import { toolMessage } from "@/lib/messages";
 import { flagOf, initialMobileForm, MOBILE_METHODS, mobileBody, type MobileForm, mobileProblems, settingKind } from "@/lib/mobile";
 import type { Assembly, MobileMethod, MobilePlan } from "@/lib/types";
@@ -71,7 +72,7 @@ export function MobileDialog({ open, onOpenChange, sampleId, assemblies, method:
               <option key={a.id} value={a.id}>
                 {"  ".repeat(depth)}
                 {depth ? "↳ " : ""}
-                {a.assembler} {a.assembler_version} · {fmtInt(a.stats.contig_count)} contigs · {fmtBases(a.stats.total_length)} · {fmtDate(a.created_at)} · {a.id.slice(0, 8)}
+                {assemblyOptionLabel(t, a)}
               </option>
             ))}
           </Select>

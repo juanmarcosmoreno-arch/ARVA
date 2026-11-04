@@ -10,7 +10,7 @@ import { Field, Input, Select } from "@/components/ui/form";
 import { ErrorNote } from "@/components/ui/misc";
 import { useT } from "@/i18n";
 import { api } from "@/lib/api";
-import { assemblyLabel } from "@/lib/assembly";
+import { assemblyLabel, canPolish } from "@/lib/assembly";
 import { fmtBases, fmtInt, technologyLabel } from "@/lib/format";
 import { toolMessage } from "@/lib/messages";
 import {
@@ -54,7 +54,7 @@ export function PolishingDialog({
   onOpenChange,
   sampleId,
   technology,
-  assemblies,
+  assemblies: all,
   files,
   jobs,
   draftId: initialDraft,
@@ -70,6 +70,8 @@ export function PolishingDialog({
 }) {
   const t = useT();
   const queryClient = useQueryClient();
+  // A genome registered as finished is never polished; a draft declared as assembled from this sample's reads is.
+  const assemblies = all.filter(canPolish);
   const [draftId, setDraftId] = useState("");
   const [form, setForm] = useState<PolishingForm>(POLISHING_FORM_DEFAULTS);
   const [roles, setRoles] = useState<Roles>(NO_ROLES);
@@ -119,7 +121,7 @@ export function PolishingDialog({
           <Select value={draftId} onChange={(e) => setDraftId(e.target.value)} aria-label={t("polishing.draft")}>
             {assemblies.map((a) => (
               <option key={a.id} value={a.id}>
-                {assemblyLabel(a)}
+                {assemblyLabel(t, a)}
                 {a.kind === "polished" ? ` (${t("polishing.polishedTag")})` : ""} · {fmtInt(a.stats.contig_count)} contigs · {fmtBases(a.stats.total_length)}
               </option>
             ))}
@@ -439,7 +441,10 @@ function MedakaSection({ form, set, plan }: { form: PolishingForm; set: <K exten
       )}
       {m && !m.draft_is_flye && (
         <p role="note" className="flex gap-1.5 rounded-lg bg-warning/10 p-2.5 text-xs text-amber-800 dark:text-warning">
-          <Info className="h-3.5 w-3.5 shrink-0" aria-hidden /> {t("polishing.medaka.notFlye")}
+          <Info className="h-3.5 w-3.5 shrink-0" aria-hidden />{" "}
+          {plan?.draft.declared_assembler
+            ? t("polishing.medaka.declaredDraft", { assembler: plan.draft.declared_assembler, version: plan.draft.declared_assembler_version ?? "?" })
+            : t("polishing.medaka.notFlye")}
         </p>
       )}
       <p className="text-xs text-muted-foreground">{t("polishing.medaka.models", { models: (m?.models ?? []).join(", ") || "—", version: m?.version ?? "?" })}</p>

@@ -53,7 +53,7 @@ export function AssemblyComparison({ assemblies, files }: { assemblies: Assembly
                 <th className={TH}>{t("assembly.compare.metric")}</th>
                 {shown.map((a) => (
                   <th key={a.id} className={`${TH} font-mono`}>
-                    {assemblyLabel(a)}
+                    {assemblyLabel(t, a)}
                   </th>
                 ))}
               </tr>

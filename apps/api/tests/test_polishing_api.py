@@ -301,6 +301,41 @@ def test_racon_polishes_the_draft_and_reports_direct_and_indirect_evidence(clien
     assert "not of improvement" in html
 
 
+@pytest.mark.skipif(not ready("racon", "minimap2", "samtools", "dnadiff"), reason="needs Racon, minimap2, samtools, MUMmer")
+def test_racon_polishes_a_registered_draft_declared_as_assembled_from_the_samples_reads(client, genome):
+    """A draft assembled outside ARVA and registered as such (the user's declaration) is polished like ARVA's own; its
+    polished version keeps the registered lineage and can be polished again."""
+    sample = new_sample(client, technology="nanopore")
+    long = upload(client, sample["id"], genome / "ont.fastq.gz")
+    fasta = upload(client, sample["id"], genome / "draft.fasta")
+    r = client.post(f"{API}/samples/{sample['id']}/assembly/import",
+                    json={"raw_file_id": fasta, "source": "Own pipeline",
+                          "draft": {"from_this_sample_reads": True, "assembler": "Flye", "assembler_version": "2.9.6"}})
+    assert r.status_code == 202, r.text
+    assert job(client, r.json()["id"])["status"] == "completed"
+    (draft,) = client.get(f"{API}/samples/{sample['id']}/assemblies").json()
+    r = polish(client, draft["id"], "racon", {"long_file_id": long}, racon={"read_type": "map-ont", "rounds": 1},
+               threads=2)
+    assert r.status_code == 202, r.text
+    d = job(client, r.json()["id"])
+    assert d["status"] == "completed", d["log_text"]
+    assert d["parameters"]["draft"]["declared_assembler"] == "Flye"
+    assert "circularity not known (the draft is a registered genome FASTA" in d["log_text"]
+    assert d["result_summary"]["rounds"][0]["changes"]["snp"]["events"] == 7
+    polished = client.get(f"{API}/assemblies/{d['result_summary']['polished_assembly_id']}").json()
+    assert (polished["kind"], polished["parent_assembly_id"], polished["mode"]) == ("polished", draft["id"], "imported")
+    assert polished["input_file_ids"] == [long] and polished["declared_assembler"] is None
+    again = client.post(f"{API}/assemblies/{polished['id']}/polishing/preview", json={"inputs": {"long_file_id": long}})
+    assert again.status_code == 200, again.text
+
+    report = client.get(f"{API}/samples/{sample['id']}/report", params={"format": "json"}).json()
+    entry = next(a for a in report["assemblies"] if a["id"] == polished["id"])
+    assert entry["provenance"].startswith(f"Polished from assembly {draft['id'][:8]}, a draft assembled outside ARVA "
+                                          "with Flye 2.9.6")
+    step = next(st for st in report["processing"] if st["job_id"] == d["id"])
+    assert "polished the draft assembled outside ARVA with Flye 2.9.6 (as declared by the user" in step["highlights"][0]
+
+
 @pytest.mark.skipif(not ready("pilon", "bwa", "samtools", "dnadiff"), reason="needs Pilon, BWA, samtools, MUMmer")
 def test_pilon_corrects_the_draft_lists_changes_and_stops_when_nothing_changes(client, setup, monkeypatch, storage_root):
     monkeypatch.setattr(get_settings(), "tool_memory_gb", 4)

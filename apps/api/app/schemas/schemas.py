@@ -415,10 +415,34 @@ class FlyeParamsIn(BaseModel):
     threads: int | None = Field(default=None, ge=1, le=128, description="Capped at the server's thread limit")
 
 
+SAFE_STATED_TEXT = r"^[A-Za-z0-9][A-Za-z0-9 ._:/()+-]*$"
+
+
+class RegisteredDraftDeclaration(BaseModel):
+    """The user's declaration that a registered genome FASTA is a draft they assembled outside ARVA from this sample's
+    reads; ARVA records it as stated (it cannot check it) and then allows polishing the draft."""
+    from_this_sample_reads: bool = Field(description="Must be true: the user declares the draft was assembled from "
+                                                     "this sample's reads")
+    assembler: str = Field(min_length=1, max_length=100, pattern=SAFE_STATED_TEXT,
+                           description="The assembler the user states, e.g. 'Flye'")
+    assembler_version: str = Field(min_length=1, max_length=100, pattern=SAFE_STATED_TEXT,
+                                   description="Its version as the user states it, e.g. '2.9.6'")
+
+    @field_validator("from_this_sample_reads")
+    @classmethod
+    def _declared(cls, v: bool) -> bool:
+        if not v:
+            raise ValueError("a registered draft must be declared as assembled from this sample's reads")
+        return v
+
+
 class AssemblyImportRequest(BaseModel):
     raw_file_id: str = Field(max_length=64)
-    source: str = Field(min_length=1, max_length=100, pattern=r"^[A-Za-z0-9][A-Za-z0-9 ._:/()+-]*$",
+    source: str = Field(min_length=1, max_length=100, pattern=SAFE_STATED_TEXT,
                         description="Where the genome comes from, as the user states it, e.g. 'NCBI RefSeq GCF_000013465.1'")
+    draft: RegisteredDraftDeclaration | None = Field(
+        default=None, description="Set only when the user declares the FASTA is a draft assembled outside ARVA from "
+                                  "this sample's reads; such a draft can be polished. Omit for a finished genome.")
 
 
 class FlyeRequest(BaseModel):
@@ -1337,7 +1361,12 @@ class AssemblyRead(ORMModel):
     mode: AssemblyMode
     read_type: str
     coverage_kind: CoverageKind | None = Field(description=COVERAGE_KIND_DESCRIPTION)
-    input_file_ids: list[str] = Field(description="The imported or derived read files the assembler used")
+    declared_assembler: str | None = Field(
+        default=None, description="Registered genomes only: the assembler the user declared for a draft assembled "
+                                  "outside ARVA from this sample's reads (null for ARVA's assemblies and finished genomes)")
+    declared_assembler_version: str | None = Field(default=None, description="Its version, as the user declared it")
+    input_file_ids: list[str] = Field(description="The imported or derived read files the assembler used (a registered "
+                                                  "genome: its FASTA file)")
     contigs_path: str
     graph_path: str | None
     info_path: str | None
@@ -1693,6 +1722,9 @@ class PolishingDraftRead(BaseModel):
     assembler_version: str
     mode: AssemblyMode
     read_type: str
+    declared_assembler: str | None = Field(default=None, description="A registered draft: the assembler the user "
+                                                                     "declared (outside ARVA)")
+    declared_assembler_version: str | None = None
     parent_assembly_id: str | None
     contig_count: int
     total_length: int

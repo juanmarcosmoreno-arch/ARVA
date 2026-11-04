@@ -13,8 +13,9 @@ import { Field, Input, Select } from "@/components/ui/form";
 import { EmptyState, ErrorNote } from "@/components/ui/misc";
 import { type TranslationKey, useT } from "@/i18n";
 import { assemblyOptions } from "@/lib/annotation";
+import { assemblerText, assemblyOptionLabel } from "@/lib/assembly";
 import { api } from "@/lib/api";
-import { fmtBases, fmtDate, fmtInt } from "@/lib/format";
+import { fmtDate, fmtInt } from "@/lib/format";
 import { toolMessage } from "@/lib/messages";
 import type { AnalysisJobDetail, Assembly } from "@/lib/types";
 import {
@@ -278,7 +279,7 @@ export function TypingSection({ sampleId, jobs, onStart }: { sampleId: string; j
       {v?.assemblies.map((a) => (
         <div key={a.assembly_id} className="space-y-1">
           <p className="text-xs text-muted-foreground">
-            {a.assembler} {a.assembler_version} · {fmtDate(a.created_at)} · {a.assembly_id.slice(0, 8)}
+            {assemblerText(t, a.assembler, a.assembler_version)} · {fmtDate(a.created_at)} · {a.assembly_id.slice(0, 8)}
           </p>
           {a.applicability[STAPH_MODULE] && <ApplicabilityNote info={a.applicability[STAPH_MODULE]} />}
           {a.summary && <StaphSummaryCard summary={a.summary} />}
@@ -359,7 +360,7 @@ export function StaphTypingDialog({ open, onOpenChange, sampleId, assemblies }: 
               <option key={a.id} value={a.id}>
                 {"  ".repeat(depth)}
                 {depth ? "↳ " : ""}
-                {a.assembler} {a.assembler_version} · {fmtInt(a.stats.contig_count)} contigs · {fmtBases(a.stats.total_length)} · {fmtDate(a.created_at)} · {a.id.slice(0, 8)}
+                {assemblyOptionLabel(t, a)}
               </option>
             ))}
           </Select>

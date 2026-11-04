@@ -6,6 +6,7 @@ import { Card, CardBody, CardHeader } from "@/components/ui/card";
 import { ErrorNote } from "@/components/ui/misc";
 import { type TranslationKey, useT } from "@/i18n";
 import { api } from "@/lib/api";
+import { assemblerText, IMPORTED_ASSEMBLER } from "@/lib/assembly";
 import { fmtBases, fmtBp, fmtDate, fmtInt, fmtPct } from "@/lib/format";
 import { COVERAGE_LABEL, coverageKind, fmtCoverage } from "@/lib/shortReads";
 
@@ -55,8 +56,8 @@ export function ProjectAssemblies({ projectId }: { projectId: string }) {
                     </Link>
                   </td>
                   <td className="whitespace-nowrap px-2 py-1.5">
-                    {r.assembler} {r.assembler_version}{" "}
-                    <span className="text-muted-foreground">· {r.assembler === "Flye" ? `--${r.read_type}` : r.read_type}</span>
+                    {assemblerText(t, r.assembler, r.assembler_version)}{" "}
+                    {r.assembler !== IMPORTED_ASSEMBLER && <span className="text-muted-foreground">· {r.assembler === "Flye" ? `--${r.read_type}` : r.read_type}</span>}
                     {r.kind === "polished" && (
                       <Badge tone="teal" className="ml-1.5" title={r.parent_assembly_id ? t("polishing.polishedFrom", { label: r.parent_assembly_id.slice(0, 8) }) : undefined}>
                         {t("polishing.polishedTag")}

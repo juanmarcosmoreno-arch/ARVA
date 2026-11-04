@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardBody, CardHeader } from "@/components/ui/card";
 import { useT } from "@/i18n";
 import { api } from "@/lib/api";
-import { assemblyLabel } from "@/lib/assembly";
+import { assemblerWithVersion, assemblyLabel } from "@/lib/assembly";
 import { escapeHtml, fmtBp, fmtDate, fmtInt, fmtNum, fmtPct } from "@/lib/format";
 import { CHANGE_KINDS, type CompareRow, assemblyRows, changeSeries, indirectRows, lineage, polishingSummary, trend } from "@/lib/polishing";
 import { basename } from "@/lib/results";
@@ -28,7 +28,9 @@ export function PolishingCard({ job, assemblies }: { job: AnalysisJobDetail; ass
   const byId = new Map(assemblies.map((a) => [a.id, a]));
   const draft = byId.get(s.draft.assembly_id);
   const polished = byId.get(s.polished_assembly_id);
-  const draftLabel = draft ? assemblyLabel(draft) : `${s.draft.assembler} ${s.draft.assembler_version} · ${s.draft.assembly_id.slice(0, 8)}`;
+  const draftLabel = draft
+    ? assemblyLabel(t, draft)
+    : `${s.draft.mode ? assemblerWithVersion(t, { ...s.draft, mode: s.draft.mode }) : `${s.draft.assembler} ${s.draft.assembler_version}`} · ${s.draft.assembly_id.slice(0, 8)}`;
   const chain = polished ? lineage(polished, assemblies) : [];
   const files = (job.output_paths ?? []).map(basename).filter((n) => n !== "polished.fasta");
   return (
@@ -52,7 +54,7 @@ export function PolishingCard({ job, assemblies }: { job: AnalysisJobDetail; ass
             {chain.map((a, i) => (
               <span key={a.id} className="flex items-center gap-1.5">
                 {i > 0 && <ArrowRight className="h-3 w-3 text-muted-foreground" aria-hidden />}
-                <Badge tone={a.kind === "polished" ? "teal" : "neutral"}>{assemblyLabel(a)}</Badge>
+                <Badge tone={a.kind === "polished" ? "teal" : "neutral"}>{assemblyLabel(t, a)}</Badge>
               </span>
             ))}
           </div>
@@ -132,6 +134,7 @@ function observation(t: ReturnType<typeof useT>, o: PolishingObservation): strin
   if (o.code === "medaka_regions_unpolished") return t("polishing.obs.medaka_regions_unpolished", { bases: fmtInt(Number(p.bases)), contigs: String(p.contigs) });
   if (o.code === "medaka_model_mismatch") return t("polishing.obs.medaka_model_mismatch", { model: String(p.model), expected: String(p.expected), basecall: String(p.basecall) });
   if (o.code === "medaka_draft_not_flye") return t("polishing.obs.medaka_draft_not_flye", { assembler: String(p.assembler) });
+  if (o.code === "medaka_draft_declared") return t("polishing.obs.medaka_draft_declared", { assembler: String(p.assembler), version: String(p.version) });
   return o.message;
 }
 

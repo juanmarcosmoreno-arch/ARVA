@@ -12,6 +12,14 @@ export function warningText(t: T, w: MlstWarning): string {
   return messageText(t, "mlst.warning", { code: w.code, params: w.params, text: w.code });
 }
 
+/** The name the API gives the schemes bundled with mlst (apps/api/app/services/mlst.py, bundled_database), in the
+ * interface language; any other database name is shown as recorded. */
+const BUNDLED_NAME = /^PubMLST schemes bundled with mlst (\S+)$/;
+export function mlstDatabaseName(t: T, name: string | null | undefined): string {
+  const m = name ? BUNDLED_NAME.exec(name) : null;
+  return m ? t("mlst.bundledName", { version: m[1] }) : (name ?? "");
+}
+
 /** The clonal complex as the scheme's profile file gives it, or why there is none. */
 export function clonalComplexText(t: T, cc: MlstClonalComplex): string {
   if (cc.reason === "no_scheme") return t("mlst.cc.noScheme");

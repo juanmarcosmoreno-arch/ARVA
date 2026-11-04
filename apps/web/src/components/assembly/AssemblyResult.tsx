@@ -9,7 +9,7 @@ import { Card, CardBody, CardHeader } from "@/components/ui/card";
 import { ErrorNote, Skeleton } from "@/components/ui/misc";
 import { dictionaries, type TranslationKey, useT } from "@/i18n";
 import { api } from "@/lib/api";
-import { type ContigSortKey, type SortDir, assemblyLabel, lineageNames, sortContigs } from "@/lib/assembly";
+import { type ContigSortKey, type SortDir, assemblerName, assemblyLabel, canPolish, isRegistered, lineageNames, sortContigs } from "@/lib/assembly";
 import { flyeContigRows } from "@/lib/flye";
 import { fmtBases, fmtBp, fmtDate, fmtInt, fmtNum, fmtPct } from "@/lib/format";
 import { assemblyWarningText } from "@/lib/messages";
@@ -35,7 +35,17 @@ const SKIPPED_REASON: Record<string, TranslationKey> = {
   "no contig is chromosome-sized": "assembly.skipped.noChromosome",
   "the assembler reported no circularity": "assembly.skipped.noCircularity",
   "fewer than two contigs are long enough": "assembly.skipped.gc",
+  "imported genome: the reads it was assembled from are not known": "assembly.skipped.imported",
 };
+
+/** Where a registered genome, or an assembly polished from one, comes from (null for ARVA's own lineage): a genome
+ * FASTA the user registered, or a draft they declared was assembled outside ARVA from this sample's reads. */
+export function provenanceNote(t: ReturnType<typeof useT>, a: Assembly, root: Assembly | undefined): string | null {
+  if (!root || !isRegistered(root)) return null;
+  const vars = { assembler: root.declared_assembler ?? "", version: root.declared_assembler_version ?? "?" };
+  if (root.id !== a.id) return root.declared_assembler ? t("assembly.imported.polishedProvenance", vars) : null;
+  return root.declared_assembler ? t("assembly.imported.draftProvenance", vars) : t("assembly.imported.provenance");
+}
 
 /** The read files an assembly used, each with the files it was derived from ("filtered ← original"). */
 export function inputLineage(a: Pick<Assembly, "input_file_ids">, files: RawFile[]): string {
@@ -47,9 +57,13 @@ export function inputLineage(a: Pick<Assembly, "input_file_ids">, files: RawFile
     .join(", ");
 }
 
-/** The card's title: assembler, version and reads, or the polisher and the reads it used. */
+/** The card's title: assembler, version and reads, the polisher and the reads it used, or what a registered genome
+ * is and its source (the user's statements). */
 function cardTitle(t: ReturnType<typeof useT>, a: Assembly): string {
   if (a.kind === "polished") return t("polishing.cardTitle", { polisher: a.assembler, version: a.assembler_version, reads: a.read_type });
+  if (a.mode === "imported" && a.declared_assembler) {
+    return t("assembly.imported.draftTitle", { assembler: a.declared_assembler, version: a.declared_assembler_version ?? "?", source: a.assembler_version });
+  }
   if (a.mode === "imported") return t("assembly.imported.title", { source: a.assembler_version });
   return t("assembly.result", { assembler: a.assembler, version: a.assembler_version, readType: a.assembler === "Flye" ? `--${a.read_type}` : t("assembly.layout", { mode: t(`assembly.mode.${a.mode}`), layout: a.read_type }) });
 }
@@ -79,14 +93,19 @@ export function AssemblyCard({
   const median = s.coverage.length_weighted_median;
   const kind = coverageKind(a);
   const skipped = (s.warning_checks ?? []).filter((c) => !c.evaluated && c.code !== "genome_size_mismatch");
+  // The root of the lineage: for a registered genome (and what was polished from it) coverage and circularity are
+  // not known, and the card says where the genome comes from.
+  const root = chain[0] ?? a;
+  const registered = isRegistered(root);
+  const provenance = provenanceNote(t, a, root);
   return (
     <Card>
       <CardHeader
         title={cardTitle(t, a)}
-        description={`${fmtDate(a.created_at)} · ${t("assembly.inputs", { files: inputLineage(a, files) })}`}
+        description={`${fmtDate(a.created_at)} · ${t(isRegistered(a) ? "assembly.imported.inputs" : "assembly.inputs", { files: inputLineage(a, files) })}`}
         action={
           <div className="flex flex-wrap gap-2">
-            {onPolish && a.mode !== "imported" && (
+            {onPolish && canPolish(a) && (
               <button type="button" className={LINK_BUTTON} onClick={onPolish}>
                 <Sparkles className="h-3.5 w-3.5" /> {t("polishing.polishThis")}
               </button>
@@ -113,16 +132,17 @@ export function AssemblyCard({
         }
       />
       <CardBody className="space-y-5 pt-3">
+        {provenance && <p className="rounded-lg bg-muted/60 px-3 py-2 text-xs">{provenance}</p>}
         {(a.kind === "polished" || children.length > 0) && (
           <div className="space-y-0.5 text-xs">
             {a.kind === "polished" && (
               <p>
                 <Badge tone="teal">{t("polishing.polishedTag")}</Badge>{" "}
-                {parent ? t("polishing.polishedFrom", { label: assemblyLabel(parent) }) : t("polishing.parentGone")}
-                {chain.length > 2 && <span className="text-muted-foreground"> · {t("polishing.chain", { chain: chain.map((x) => x.assembler).join(" → ") })}</span>}
+                {parent ? t("polishing.polishedFrom", { label: assemblyLabel(t, parent) }) : t("polishing.parentGone")}
+                {chain.length > 2 && <span className="text-muted-foreground"> · {t("polishing.chain", { chain: chain.map((x) => assemblerName(t, x)).join(" → ") })}</span>}
               </p>
             )}
-            {children.length > 0 && <p className="text-muted-foreground">{t("polishing.polishedVersions", { labels: children.map(assemblyLabel).join(", ") })}</p>}
+            {children.length > 0 && <p className="text-muted-foreground">{t("polishing.polishedVersions", { labels: children.map((c) => assemblyLabel(t, c)).join(", ") })}</p>}
           </div>
         )}
         <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
@@ -138,7 +158,9 @@ export function AssemblyCard({
             label={t("assembly.stat.circular")}
             value={s.circularity.contigs_with_circularity ? t("assembly.circularValue", { circular: s.circularity.circular_contigs, total: s.circularity.contigs_with_circularity }) : "—"}
             sub={
-              a.kind === "polished"
+              registered
+                ? t("assembly.imported.notKnown")
+                : a.kind === "polished"
                 ? t("polishing.circularFromDraft", { assembler: chain[0]?.assembler ?? "?" })
                 : s.circularity.contigs_with_circularity
                   ? t("assembly.byAssembler", { assembler: a.assembler })
@@ -149,7 +171,7 @@ export function AssemblyCard({
           <MetricTile
             label={t("assembly.stat.medianCoverage")}
             value={fmtCoverage(median, kind)}
-            sub={kind ? t(COVERAGE_LABEL[kind]) : t("assembly.byAssembler", { assembler: a.assembler })}
+            sub={kind ? t(COVERAGE_LABEL[kind]) : registered ? t("assembly.imported.notKnown") : t("assembly.byAssembler", { assembler: a.assembler })}
             explain={kind === "kmer_coverage" ? "kmer_coverage" : kind === "mapped_read_depth" ? "polishing" : "assembly_coverage"}
           />
         </div>
@@ -315,6 +337,8 @@ export function ContigTable({ assembly: a, contigs, job }: { assembly: Assembly;
       <p className="mt-1.5 text-[11px] text-muted-foreground">
         {a.kind === "polished"
           ? t("polishing.columnsNote")
+          : isRegistered(a)
+          ? t("assembly.columnsNote.imported")
           : a.assembler === "SPAdes"
             ? t("assembly.columnsNote.spades")
             : a.assembler === "Unicycler"

@@ -6,7 +6,7 @@ import { Card, CardBody, CardHeader } from "@/components/ui/card";
 import { type TranslationKey, useT } from "@/i18n";
 import { api } from "@/lib/api";
 import { fmtDate, shellJoin } from "@/lib/format";
-import { clonalComplexText, warningText } from "@/lib/mlst";
+import { clonalComplexText, mlstDatabaseName, warningText } from "@/lib/mlst";
 import type { AnalysisJobDetail, MlstAllele, MlstResult } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -59,7 +59,7 @@ export function MlstCard({ result, job }: { result: MlstResult; job?: AnalysisJo
           <div>
             <dt className="text-muted-foreground">{t("mlst.database")}</dt>
             <dd>
-              {m.database_name} · {t("mlst.downloaded", { date: m.database_version ?? "?" })}
+              {mlstDatabaseName(t, m.database_name)} · {t("mlst.downloaded", { date: m.database_version ?? "?" })}
               {m.database_checksum && <code className="block break-all text-muted-foreground">{m.database_checksum}</code>}
             </dd>
           </div>
