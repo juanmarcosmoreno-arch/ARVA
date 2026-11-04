@@ -1,14 +1,15 @@
-import { AlertTriangle, Download } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { AlertTriangle, Download, Info } from "lucide-react";
 import { Link } from "react-router-dom";
 import { MetricTile } from "@/components/domain/bits";
 import { Explain } from "@/components/guide/Explain";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardBody, CardHeader } from "@/components/ui/card";
 import { type TranslationKey, useT } from "@/i18n";
-import { KIND_TONE, kindText, sections, warningText } from "@/lib/amr";
+import { hitNotes, KIND_TONE, kindText, sections, warningText } from "@/lib/amr";
 import { api } from "@/lib/api";
 import { fmtDate, fmtInt, fmtNum, shellJoin } from "@/lib/format";
-import type { AmrHit, AmrRun, AnalysisJobDetail } from "@/lib/types";
+import type { AmrHit, AmrRun, AnalysisJobDetail, AssemblyDetail } from "@/lib/types";
 
 const TH = "px-2 py-1.5 text-left font-medium text-muted-foreground whitespace-nowrap";
 const TD = "px-2 py-1.5 align-top";
@@ -18,6 +19,10 @@ const TD = "px-2 py-1.5 align-top";
  * point mutations apart, and the reminder that a gene found is not a phenotype. */
 export function AmrCard({ run, job }: { run: AmrRun; job?: AnalysisJobDetail }) {
   const t = useT();
+  // The contigs' circularity is read only when a hit stops at a contig end (hitNotes).
+  const contigEnd = Boolean(run.assembly_id) && run.hits.some((h) => h.method_kind === "contig_end");
+  const detail = useQuery({ queryKey: ["assembly", run.assembly_id], queryFn: () => api.assembly(run.assembly_id as string), enabled: contigEnd });
+  const assembly = detail.data;
   const p = run.parameters;
   const c = run.counts;
   const notSearched = t("amr.notSearched");
@@ -77,7 +82,7 @@ export function AmrCard({ run, job }: { run: AmrRun; job?: AnalysisJobDetail }) 
               {t(`amr.section.${s.key}` as TranslationKey)} <span className="font-normal text-muted-foreground">({fmtInt(s.hits.length)})</span>
               {s.key === "point" && <Explain id="point_mutation" compact />}
             </h4>
-            <HitTable hits={s.hits} point={s.key === "point"} />
+            <HitTable hits={s.hits} point={s.key === "point"} assembly={assembly} />
           </section>
         ))}
         {run.point_mutation_screen && (
@@ -145,7 +150,7 @@ export function MethodBadge({ hit }: { hit: Pick<AmrHit, "method" | "method_kind
 
 const pct = (v: number | null) => (v == null ? "—" : fmtNum(v, 2));
 
-function HitTable({ hits, point }: { hits: AmrHit[]; point: boolean }) {
+function HitTable({ hits, point, assembly }: { hits: AmrHit[]; point: boolean; assembly?: AssemblyDetail | null }) {
   const t = useT();
   return (
     <div className="overflow-x-auto rounded-lg border">
@@ -173,6 +178,11 @@ function HitTable({ hits, point }: { hits: AmrHit[]; point: boolean }) {
                 <span className="font-mono font-medium">{h.element_symbol}</span>
                 {h.element_name && <span className="block max-w-xs text-muted-foreground">{h.element_name}</span>}
                 {h.scope === "plus" && <Badge className="mt-0.5">{t("amr.plusBadge")}</Badge>}
+                {hitNotes(h, assembly).map((n) => (
+                  <span key={n.code} role="note" className="mt-0.5 flex max-w-xs gap-1 text-amber-700 dark:text-warning">
+                    <Info className="mt-px h-3 w-3 shrink-0" aria-hidden /> {t(`amr.note.${n.code}`, n.params)}
+                  </span>
+                ))}
               </td>
               <td className={TD}>
                 {h.amr_class ?? (h.type === "VIRULENCE" ? t("amr.virulenceClass") : "—")}

@@ -16,6 +16,8 @@ import { api } from "@/lib/api";
 import { fmtBases, fmtDate, fmtInt, fmtNum } from "@/lib/format";
 import { toolMessage } from "@/lib/messages";
 import { COMPLETENESS_TONE, warningText } from "@/lib/mobile";
+import { delimitedText, saveText } from "@/lib/tableExport";
+import { combinedFileName, combinedTable, flagText } from "@/lib/virulence";
 import { DatabaseTerms } from "./MobileDialog";
 import type { Assembly, VirulenceRun, VirulenceSample } from "@/lib/types";
 
@@ -211,11 +213,36 @@ export function VirulenceCard({ view, runs }: { view: VirulenceSample["assemblie
                     <td className={`${TD} whitespace-nowrap font-mono`}>
                       {r.contig ?? "?"}:{r.start != null ? fmtInt(r.start) : "?"}–{r.end != null ? fmtInt(r.end) : "?"} ({r.strand ?? "?"})
                     </td>
-                    <td className={TD}>{r.also_found_by.length ? r.also_found_by.join(", ") : "—"}</td>
+                    <td className={TD}>
+                      {r.also_found_by.length ? r.also_found_by.join(", ") : "—"}
+                      {(r.flags ?? []).map((f) => (
+                        <span key={f.code} role="note" className="mt-0.5 flex max-w-xs gap-1 text-amber-700 dark:text-warning">
+                          <AlertTriangle className="mt-px h-3 w-3 shrink-0" aria-hidden /> {flagText(t, f)}
+                        </span>
+                      ))}
+                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
+          </div>
+        )}
+        {view.rows.length > 0 && (
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            {(["tsv", "csv"] as const).map((format) => (
+              <button
+                key={format}
+                type="button"
+                onClick={() => {
+                  const { columns, rows } = combinedTable(t, view, runs);
+                  saveText(delimitedText(columns, rows, format), combinedFileName(view, format), format);
+                }}
+                className="inline-flex items-center gap-1 rounded border px-2 py-1 hover:bg-muted"
+              >
+                <Download className="h-3.5 w-3.5" aria-hidden /> {t(format === "tsv" ? "virulence.downloadTsv" : "virulence.downloadCsv")}
+              </button>
+            ))}
+            <span className="text-muted-foreground">{t("virulence.downloadHint")}</span>
           </div>
         )}
         {run && (

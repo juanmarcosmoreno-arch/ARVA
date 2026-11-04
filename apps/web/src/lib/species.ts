@@ -55,6 +55,18 @@ export function checkText(t: T, c: SpeciesCheck): string {
 /** The hit's aligned fraction as a percentage, or null when the method gives none. */
 export const afPercent = (h: Pick<SpeciesHit, "af">) => (typeof h.af === "number" ? h.af * 100 : null);
 
+/** The chart's category label of a hit: the whole species name and the accession. It is not shortened here: the chart
+ * truncates it to the room it has (see {@link hitLabelWidth}) and the axis tooltip shows it whole. */
+export function hitChartLabel(h: Pick<SpeciesHit, "species" | "organism" | "reference" | "accession">): string {
+  const name = h.species ?? h.organism ?? h.reference ?? "?";
+  const accession = h.accession ?? h.reference ?? "";
+  return accession && accession !== name ? `${name} · ${accession}` : name;
+}
+
+/** Pixels the chart gives to a hit label: enough for a long binomial and a GCF accession at 11 px ("Staphylococcus
+ * schweitzeri · GCF_000000000.1", 45 characters) on a laptop, less on a narrow window so the bars keep some width. */
+export const hitLabelWidth = (viewportWidth: number) => (viewportWidth >= 1024 ? 300 : viewportWidth >= 640 ? 220 : 130);
+
 export interface SpeciesForm {
   assemblyId: string;
   method: SpeciesMethod;

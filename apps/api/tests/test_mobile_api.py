@@ -265,6 +265,11 @@ def test_stand_in_runs_contig_table_virulence_overview_and_reports(client, mobil
     hlb = next(r for r in merged["rows"] if r["gene"] == "hlb")
     assert (hlb["source"], hlb["kind"], hlb["vf_id"]) == ("vfdb", "partial", hlb["vf_id"])
     assert hlb["vf_id"] and hlb["vf_id"].startswith("VF")
+    # ABRicate's real N315 row: hlb 170-993/993, 82.98 % coverage (interrupted in N315, as in many S. aureus).
+    assert (hlb["ref_start"], hlb["ref_end"], hlb["ref_length"]) == (170, 993, 993)
+    assert hlb["flags"] == [{"code": "partial_reference", "params": {"ref_start": 170, "ref_end": 993,
+                                                                     "ref_length": 993, "coverage": 82.98}}]
+    assert all(r["flags"] == [] for r in merged["rows"] if r["coverage"] is not None and r["coverage"] >= 90)
 
     ann = empty_annotation(sample, a, storage_root)
     placed = client.get(f"{API}/annotations/{ann}/mobile-elements").json()
@@ -288,10 +293,54 @@ def test_stand_in_runs_contig_table_virulence_overview_and_reports(client, mobil
     html = client.get(f"{API}/samples/{sample['id']}/report?format=html").text
     assert "Plasmids and mobile elements" in html and "chromosome (not assigned to a plasmid)" in html
     assert "Virulence factors" in html and "never merged into one call" in html and "VFDB licence" in html
+    assert "truncated or interrupted: only positions 170-993 of the 993-position reference" in html
     data = client.get(f"{API}/samples/{sample['id']}/report?format=json").json()
     assert len(data["mobile"]["runs"]) == 3 and len(data["virulence"]["runs"]) == 1
     report_csv = client.get(f"{API}/samples/{sample['id']}/report?format=csv").text
     assert report_csv.count(",mobile,") > 20 and report_csv.count(",virulence,") == 86
+
+
+def _vrow(source, gene, start, end, identity, coverage=100.0, contig="contig_1", **extra):
+    return {"source": source, "gene": gene, "contig": contig, "start": start, "end": end, "identity": identity,
+            "coverage": coverage, "ref_start": None, "ref_end": None, "ref_length": None, **extra}
+
+
+def test_virulence_row_flags_name_the_better_gene_and_partial_hits():
+    from app.services.virulence import flag_text, row_flags
+
+    # The Mac test's real pitfall: VFDB lukF-PV at 82.27 % on contig_1:44819-45787, AMRFinderPlus lukD at 94.19 % on
+    # contig_1:44813-45793 (no lukS-PV): the VFDB row is flagged, the AMRFinderPlus row is not.
+    vf = _vrow("vfdb", "lukF-PV", 44819, 45787, 82.27)
+    amr = _vrow("amrfinderplus", "lukD", 44813, 45793, 94.19)
+    # Same gene, other spelling: not flagged. A different gene with a lower identity: not flagged.
+    hla = _vrow("vfdb", "hly/hla", 1000, 1960, 90.0)
+    hla_amr = _vrow("amrfinderplus", "hla", 1000, 1960, 99.0)
+    lower = _vrow("vfdb", "geneA", 5000, 5999, 99.0)
+    lower_amr = _vrow("amrfinderplus", "geneB", 5000, 5999, 95.0)
+    # A different gene that overlaps less than half of the shorter hit, or sits on another contig: not flagged.
+    edge = _vrow("vfdb", "geneC", 9000, 9999, 80.0)
+    edge_amr = _vrow("amrfinderplus", "geneD", 9600, 10599, 99.0)
+    other_contig = _vrow("amrfinderplus", "lukE", 44819, 45787, 99.0, contig="contig_2")
+    # Partial hits: VFDB with its reference positions, AMRFinderPlus with its coverage only.
+    hlb = _vrow("vfdb", "hlb", 2000, 2823, 99.27, coverage=82.98, ref_start=170, ref_end=993, ref_length=993)
+    part = _vrow("amrfinderplus", "sak", 3000, 3300, 98.0, coverage=75.5)
+    rows = [vf, amr, hla, hla_amr, lower, lower_amr, edge, edge_amr, other_contig, hlb, part]
+    row_flags(rows)
+    assert vf["flags"] == [{"code": "probable_other_gene",
+                            "params": {"gene": "lukD", "source": "AMRFinderPlus", "identity": 94.19}}]
+    assert flag_text(vf["flags"][0]) == ("probably lukD (AMRFinderPlus, 94.19 % identity); VFDB's best match may be "
+                                         "a homologue")
+    assert all(r["flags"] == [] for r in (amr, hla, hla_amr, lower, lower_amr, edge, edge_amr, other_contig))
+    assert [f["code"] for f in hlb["flags"]] == ["partial_reference"]
+    assert flag_text(hlb["flags"][0]) == "truncated or interrupted: only positions 170-993 of the 993-position reference"
+    assert part["flags"] == [{"code": "partial_coverage", "params": {"coverage": 75.5}}]
+    assert flag_text(part["flags"][0]) == "truncated or interrupted: covers only 75.50 % of the reference"
+
+    # Two better AMRFinderPlus rows on the region: the one with the highest identity is named.
+    vf2 = _vrow("vfdb", "lukF-PV", 100, 1000, 80.0)
+    rows = [vf2, _vrow("amrfinderplus", "lukD", 100, 1000, 90.0), _vrow("amrfinderplus", "lukE", 120, 990, 96.0)]
+    row_flags(rows)
+    assert vf2["flags"][0]["params"]["gene"] == "lukE"
 
 
 def test_runtime_check_of_the_mobsuite_database(client, mobile_fake_tools, storage_root, held_queue, tmp_path):

@@ -1,6 +1,6 @@
 import type { TranslationKey, TranslationVars } from "@/i18n";
 import { messageText } from "@/lib/messages";
-import type { AmrHit, AmrMapHit, AmrPlan, AmrRequest, AmrWarning, MapFeature } from "@/lib/types";
+import type { AmrHit, AmrMapHit, AmrPlan, AmrRequest, AmrWarning, AssemblyDetail, MapFeature } from "@/lib/types";
 
 export const AMR_JOB = "amr_detection";
 
@@ -31,6 +31,30 @@ export function kindText(t: T, kind: string): string {
 }
 
 export const isPointMutation = (h: Pick<AmrHit, "subtype">) => h.subtype === "POINT" || h.subtype === "POINT_DISRUPT";
+
+/** A note on one hit that the assembly explains, as a translation key (amr.note.<code>) and its values. */
+export interface AmrHitNote {
+  code: "contig_end_circular" | "contig_end_registered" | "rrna_copies";
+  params: Record<string, string>;
+}
+
+/** Notes on a hit that follow from facts ARVA has, never a verdict:
+ * - a PARTIAL_CONTIG_END[P/X/N] hit (method kind contig_end) on a contig the assembler marked circular may be the gene
+ *   split at the place where the circle was opened (the contig's start and end are neighbours); on a registered genome
+ *   ARVA does not know the circularity, so the note says so;
+ * - a point mutation in 23S rRNA (AMRFinderPlus names them 23S_<ref><pos><alt>, hierarchy node 23S): the gene has
+ *   several copies in a genome and an assembly may collapse identical copies, so the mutation needs confirmation. */
+export function hitNotes(h: Pick<AmrHit, "method_kind" | "subtype" | "element_symbol" | "hierarchy_node" | "contig" | "assembly_contig">, assembly?: Pick<AssemblyDetail, "mode" | "contigs"> | null): AmrHitNote[] {
+  const notes: AmrHitNote[] = [];
+  const name = h.assembly_contig ?? h.contig;
+  if (h.method_kind === "contig_end" && assembly && name) {
+    const contig = assembly.contigs.find((c) => c.name === name);
+    if (contig?.circular === true) notes.push({ code: "contig_end_circular", params: { contig: name } });
+    else if (assembly.mode === "imported" && contig && contig.circular == null) notes.push({ code: "contig_end_registered", params: { contig: name } });
+  }
+  if (isPointMutation(h) && (h.element_symbol.startsWith("23S_") || h.hierarchy_node === "23S")) notes.push({ code: "rrna_copies", params: {} });
+  return notes;
+}
 
 /** The circular map's ring for an element: virulence genes on the virulence ring, the rest (AMR genes, point
  * mutations, stress response) on the AMR ring. */

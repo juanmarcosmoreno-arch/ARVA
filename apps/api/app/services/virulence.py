@@ -155,6 +155,79 @@ def _overlap(a: dict[str, Any], b: dict[str, Any]) -> bool:
             and min(a["end"], b["end"]) >= max(a["start"], b["start"]))
 
 
+# A VFDB row is read as "probably the other gene" when an AMRFinderPlus row naming a different gene, with a higher
+# identity, covers at least this share of the shorter of the two hits on the same contig. Seen on real data: VFDB
+# reported lukF-PV (82.27 %) on the very region where AMRFinderPlus found lukD (94.19 %), and no lukS-PV: it was lukD.
+SAME_REGION_SHARE = 0.5
+# Below this coverage of its reference a hit is shown as truncated or interrupted (e.g. VFDB hlb 170-993/993).
+PARTIAL_COVERAGE = 90.0
+
+# English texts of the row flags (the interface has them as virulence.flag.<code>; the sample report uses these).
+FLAGS = {
+    "probable_other_gene": "probably {gene} ({source}, {identity} % identity); VFDB's best match may be a homologue",
+    "partial_reference": "truncated or interrupted: only positions {ref_start}-{ref_end} of the {ref_length}-position "
+                         "reference",
+    "partial_coverage": "truncated or interrupted: covers only {coverage} % of the reference",
+}
+
+
+def flag_text(flag: dict[str, Any]) -> str:
+    from app.core.messages import render
+
+    if flag["code"] not in FLAGS:
+        return flag["code"]
+    params = {k: f"{v:.2f}" if isinstance(v, float) else v for k, v in (flag.get("params") or {}).items()}
+    return render(FLAGS[flag["code"]], params)
+
+
+def _gene_keys(name: str | None) -> set[str]:
+    """A symbol's spellings to compare: the whole symbol and each "/" part, lower case, letters and digits only."""
+    key = lambda s: "".join(c for c in s.lower() if c.isalnum())  # noqa: E731
+    return {k for k in [key(name or ""), *(key(p) for p in (name or "").split("/"))] if k}
+
+
+def _same_gene(a: str | None, b: str | None) -> bool:
+    """Whether two sources' symbols name the same gene, spelling aside ("lukF-PV"/"lukFPV", "hly/hla"/"hla")."""
+    return bool(_gene_keys(a) & _gene_keys(b))
+
+
+def _shared_share(a: dict[str, Any], b: dict[str, Any]) -> float:
+    """The overlap of two hits on the same contig as a share of the shorter one (0 when apart or unplaced)."""
+    if a["contig"] != b["contig"] or None in (a["start"], a["end"], b["start"], b["end"]):
+        return 0.0
+    shared = min(a["end"], b["end"]) - max(a["start"], b["start"]) + 1
+    shorter = min(a["end"] - a["start"] + 1, b["end"] - b["start"] + 1)
+    return shared / shorter if shared > 0 and shorter > 0 else 0.0
+
+
+def row_flags(rows: list[dict[str, Any]]) -> None:
+    """Adds `flags` (codes with values, never a verdict) to each row of the combined view:
+
+    - probable_other_gene (VFDB rows): an AMRFinderPlus row on the same region (overlap >= half of the shorter hit)
+      names a different gene with a higher identity, so VFDB's best match may be a homologue of that gene;
+    - partial_reference / partial_coverage: the hit covers less than 90 % of its reference (VFDB gives the
+      reference positions; AMRFinderPlus only the percentage). It says truncated or interrupted, not why.
+    """
+    for x in rows:
+        flags: list[dict[str, Any]] = []
+        if x["source"] == "vfdb" and x["identity"] is not None:
+            better = [y for y in rows if y["source"] == "amrfinderplus" and y["identity"] is not None
+                      and y["identity"] > x["identity"] and not _same_gene(x["gene"], y["gene"])
+                      and _shared_share(x, y) >= SAME_REGION_SHARE]
+            if better:
+                y = max(better, key=lambda r: r["identity"])
+                flags.append({"code": "probable_other_gene",
+                              "params": {"gene": y["gene"], "source": "AMRFinderPlus", "identity": y["identity"]}})
+        if x["coverage"] is not None and x["coverage"] < PARTIAL_COVERAGE:
+            if x.get("ref_start") is not None and x.get("ref_end") is not None and x.get("ref_length"):
+                flags.append({"code": "partial_reference",
+                              "params": {"ref_start": x["ref_start"], "ref_end": x["ref_end"],
+                                         "ref_length": x["ref_length"], "coverage": x["coverage"]}})
+            else:
+                flags.append({"code": "partial_coverage", "params": {"coverage": x["coverage"]}})
+        x["flags"] = flags
+
+
 def merged(db: Session, a: Assembly) -> dict[str, Any]:
     """The assembly's most recent VFDB screen and most recent AMRFinderPlus run side by side: one list of rows, each
     with its source, sorted by position; `also_found_by` names the other source's overlapping rows. A source that was
@@ -167,7 +240,8 @@ def merged(db: Session, a: Assembly) -> dict[str, Any]:
             rows.append({"source": "vfdb", "gene": r.gene, "contig": r.contig, "start": r.start, "end": r.end,
                          "strand": r.strand, "identity": r.identity, "coverage": r.coverage, "kind": r.hit_kind,
                          "method": "blastn", "description": r.product, "vf_name": r.vf_name, "vf_id": r.vf_id,
-                         "vf_category": r.vf_category, "reference": r.accession, "pieces": r.pieces, "id": r.id})
+                         "vf_category": r.vf_category, "reference": r.accession, "pieces": r.pieces, "id": r.id,
+                         "ref_start": r.ref_start, "ref_end": r.ref_end, "ref_length": r.ref_length})
     amr_plus = bool((amr_job.parameters or {}).get("plus")) if amr_job else False
     if amr_job is not None and amr_plus:
         for r in db.scalars(select(AmrResult).where(AmrResult.job_id == amr_job.id, AmrResult.type == "VIRULENCE")):
@@ -175,17 +249,23 @@ def merged(db: Session, a: Assembly) -> dict[str, Any]:
                          "start": r.start, "end": r.stop, "strand": r.strand, "identity": r.identity,
                          "coverage": r.coverage, "kind": r.method_kind, "method": r.method,
                          "description": r.element_name, "vf_name": None, "vf_id": None, "vf_category": r.subtype,
-                         "reference": r.closest_accession, "pieces": None, "id": r.id})
+                         "reference": r.closest_accession, "pieces": None, "id": r.id,
+                         # AMRFinderPlus gives no reference positions, and its reference length is in amino acids
+                         # for protein and translated searches: only its coverage is used.
+                         "ref_start": None, "ref_end": None, "ref_length": None})
     rows.sort(key=lambda x: (x["contig"] or "", x["start"] or 0, x["source"]))
     for x in rows:
         x["also_found_by"] = sorted({f"{y['source']}:{y['gene']}" for y in rows
                                      if y["source"] != x["source"] and _overlap(x, y)})
+    row_flags(rows)
     status = {"vfdb": {"status": "searched" if vf_job else "not_searched", "job_id": vf_job.id if vf_job else None,
+                       "tool": vf_job.tool_name if vf_job else None,
                        "tool_version": vf_job.tool_version if vf_job else None,
                        "database_version": vf_job.database_version if vf_job else None,
                        "hits": sum(1 for x in rows if x["source"] == "vfdb")},
               "amrfinderplus": {"status": "searched" if amr_plus else ("plus_off" if amr_job else "not_searched"),
                                 "job_id": amr_job.id if amr_job else None,
+                                "tool": amr_job.tool_name if amr_job else None,
                                 "tool_version": amr_job.tool_version if amr_job else None,
                                 "database_version": amr_job.database_version if amr_job else None,
                                 "hits": sum(1 for x in rows if x["source"] == "amrfinderplus")}}
