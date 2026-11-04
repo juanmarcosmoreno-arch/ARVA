@@ -235,7 +235,10 @@ $1
 EOF
 }
 
-# One answer from standard input (a terminal, or a pipe in the tests); at the end of the input, the default.
+# One answer from standard input (a terminal, or a pipe in the tests). At the end of the input (Control-D, a Terminal
+# window that went away, a pipe with no more lines) the answer is empty and wiz_eof is set: every question of the first
+# run checks it right after asking (wiz_ended), and the first run then stops without saving anything, saying why,
+# instead of taking the defaults of the questions that are left (the last one being "Save?", whose default is yes).
 ask() {
   if [ "$lang" = es ]; then printf '%s ' "$2"; else printf '%s ' "$1"; fi
   if IFS= read -r reply; then
@@ -244,6 +247,22 @@ ask() {
     reply='' wiz_eof=1
     printf '\n'
   fi
+}
+
+# The input of the first run ended (wiz_eof): says so once, on standard error, and returns 0 so that the question
+# can stop the first run (`wiz_ended && return 1`). Returns 1 while answers are still being read.
+wiz_ended() {
+  [ "${wiz_eof:-0}" = 1 ] || return 1
+  if [ "${wiz_eof_said:-0}" = 0 ]; then
+    wiz_eof_said=1
+    say "The answers ended before all the questions were answered (no more input could be read: Control-D was pressed,
+the window was closed, or the input is not a terminal). Nothing was saved and ARVA did not start. Run ARVA again
+(or scripts/start.sh --setup) to answer the questions." \
+        "Las respuestas terminaron antes de que se respondieran todas las preguntas (no se pudo leer nada más: se pulsó
+Control-D, se cerró la ventana o la entrada no es una terminal). No se guardó nada y ARVA no se inició. Volver a
+abrir ARVA (o scripts/start.sh --setup) para responder las preguntas." >&2
+  fi
+  return 0
 }
 
 # Yes or no; $3 is the default (y or n).
@@ -379,10 +398,12 @@ wiz_storage() {
     if [ "$wiz_count" -gt 0 ]; then
       ask "Disk for ARVA's data and databases: its number [1], 0 to keep them inside Docker Desktop, or a folder path:" \
           "Disco para los datos y las bases de datos de ARVA: su número [1], 0 para guardarlos dentro de Docker Desktop, o la ruta de una carpeta:"
+      wiz_ended && return 1
       if [ -z "$reply" ]; then reply=1; fi
     else
       ask "No external disk is connected. A folder path for ARVA's data and databases, or Enter to keep them inside Docker Desktop:" \
           "No hay ningún disco externo conectado. La ruta de una carpeta para los datos y las bases de datos de ARVA, o Enter para guardarlos dentro de Docker Desktop:"
+      wiz_ended && return 1
       if [ -z "$reply" ]; then reply=0; fi
     fi
     case "$reply" in
@@ -394,7 +415,6 @@ wiz_storage() {
           break
         fi
         say "There is no disk $reply." "No hay ningún disco $reply."
-        if [ "${wiz_eof:-0}" = 1 ]; then return 1; fi
         continue
         ;;
     esac
@@ -404,7 +424,6 @@ wiz_storage() {
     esac
     say "Type a number from the list or an absolute folder path (starting with /)." \
         "Escribir un número de la lista o la ruta absoluta de una carpeta (que empiece por /)."
-    if [ "${wiz_eof:-0}" = 1 ]; then return 1; fi
   done
   data=$wiz_base/data databases=$wiz_base/databases
   say "Proposed folders:" "Carpetas propuestas:"
@@ -413,10 +432,14 @@ wiz_storage() {
   if [ -f "$data/.arva-storage" ]; then
     say "  $data is already an ARVA data folder: it is used as it is." "  $data ya es una carpeta de datos de ARVA: se usa tal como está."
   fi
-  if ! ask_yes "Use these folders (created if missing)?" "¿Usar estas carpetas (se crean si no existen)?" y; then
+  if ask_yes "Use these folders (created if missing)?" "¿Usar estas carpetas (se crean si no existen)?" y; then use=1; else use=0; fi
+  wiz_ended && return 1
+  if [ "$use" = 0 ]; then
     ask "Data folder [$data]:" "Carpeta de datos [$data]:"
+    wiz_ended && return 1
     if [ -n "$reply" ]; then data=$(wiz_path "$reply"); fi
     ask "Database folder [$databases]:" "Carpeta de bases de datos [$databases]:"
+    wiz_ended && return 1
     if [ -n "$reply" ]; then databases=$(wiz_path "$reply"); fi
   fi
   for folder in "$data" "$databases"; do
@@ -452,25 +475,43 @@ each database afterwards in Tools & Databases. A folder can be dragged from Find
 borra nada en ellas): por ejemplo la carpeta con la base de datos completa de Bakta y los genomas de referencia de
 FastANI. Después cada base de datos se registra en Herramientas y bases de datos. Se puede arrastrar una carpeta desde
 el Finder a esta ventana."
+  # Folders saved by an earlier run (--setup, ARVA → Set Up Again) stay: these questions only add.
+  if [ -n "$cfg_extra" ]; then
+    say "Already added, kept (scripts/start.sh --remove-databases PATH stops using one):" \
+        "Ya añadidas, se conservan (scripts/start.sh --remove-databases RUTA deja de usar una):"
+    while IFS= read -r folder; do
+      [ -n "$folder" ] || continue
+      printf '  - %s\n' "$folder"
+    done <<EOF
+$cfg_extra
+EOF
+  fi
   while :; do
     ask "Existing database folder (e.g. $example), or Enter to continue:" \
         "Carpeta de bases de datos existente (p. ej. $example), o Enter para continuar:"
+    wiz_ended && return 1
     [ -n "$reply" ] || break
     folder=$(wiz_path "$reply")
     if arva_inspect "$folder" ro; then
-      if ! list_has "$want_add" "$folder"; then want_add=$(list_add "$want_add" "$folder"); fi
+      if ! list_has "$want_add" "$chk_real"; then want_add=$(list_add "$want_add" "$chk_real"); fi
       say "  added (read-only): $chk_real" "  añadida (solo lectura): $chk_real"
     else
       arva_unavailable databases "$folder" database "bases de datos"
     fi
-    if [ "${wiz_eof:-0}" = 1 ]; then break; fi
   done
-  ask "Folder with sequencing runs to import from, read-only (Enter to skip):" \
-      "Carpeta con corridas de secuenciación para importar, en solo lectura (Enter para omitir):"
+  if [ -n "$cfg_import" ]; then
+    ask "Folder with sequencing runs to import from, read-only (Enter to keep $cfg_import):" \
+        "Carpeta con corridas de secuenciación para importar, en solo lectura (Enter para conservar $cfg_import):"
+  else
+    ask "Folder with sequencing runs to import from, read-only (Enter to skip):" \
+        "Carpeta con corridas de secuenciación para importar, en solo lectura (Enter para omitir):"
+  fi
+  wiz_ended && return 1
   if [ -n "$reply" ]; then
     folder=$(wiz_path "$reply")
     if arva_inspect "$folder" ro; then want_import=$folder; else arva_unavailable import "$folder" import importación; fi
   fi
+  return 0
 }
 
 # Docker Desktop must share every chosen folder with its virtual machine, or it refuses to mount it ("mounts
@@ -479,10 +520,12 @@ el Finder a esta ventana."
 wiz_sharing() {
   [ "$arva_os" = Darwin ] || return 0
   # Without a chosen import folder, docker-compose.yml mounts the import/ folder next to it, which must be shared too.
+  # Folders saved by an earlier run that the answers keep (the import folder, existing database folders) count too.
+  import=${want_import:-$cfg_import}
   default_import=''
-  if [ -z "$want_import" ] && [ -n "${ROOT:-}" ] && [ -d "$ROOT/import" ]; then default_import=$ROOT/import; fi
-  folders=$(printf '%s\n%s\n%s\n%s\n%s\n' "$want_data" "$want_databases" "$want_import" "$default_import" "$want_add" |
-    sed '/^$/d')
+  if [ -z "$import" ] && [ -n "${ROOT:-}" ] && [ -d "$ROOT/import" ]; then default_import=$ROOT/import; fi
+  folders=$(printf '%s\n%s\n%s\n%s\n%s\n%s\n' "$want_data" "$want_databases" "$import" "$default_import" "$want_add" \
+    "$cfg_extra" | sed '/^$/d' | awk '!seen[$0]++')
   [ -n "$folders" ] || return 0
   wiz_rule "File sharing" "Uso compartido de archivos (File sharing)"
   sharing_report "$folders"
@@ -498,6 +541,7 @@ wiz_sharing() {
     return 0
   fi
   ask "Press Enter when done." "Presionar Enter cuando esté listo."
+  wiz_ended && return 1
   wiz_wait_docker || true
   before=$sharing_bad
   sharing_report "$folders" >/dev/null
@@ -561,6 +605,7 @@ wiz_platform() {
   2) arm64: nativa, sin las herramientas que no tienen versión arm64 (los pasos de CDS y ARN de Bakta, Prokka,
      MOB-suite, IntegronFinder, AgrVATE, ISEScan, GTDB-Tk)."
   ask "Image [1]:" "Imagen [1]:"
+  wiz_ended && return 1
   case "$reply" in
     2)
       want_platform=linux/arm64
@@ -580,26 +625,97 @@ wiz_platform() {
         "  Activar Docker Desktop → Settings → General → \"Use Rosetta for x86_64/amd64 emulation on Apple Silicon\"
   (Apply & restart) si está desactivado; sin él Docker emula amd64 con QEMU, que es mucho más lento."
     ask "Press Enter when done." "Presionar Enter cuando esté listo."
+    wiz_ended && return 1
     rosetta=$(docker_rosetta)
     if [ "$rosetta" = on ]; then say "  Rosetta is on." "  Rosetta está activado."; fi
   fi
   if [ "$rosetta" = off ]; then want_platform=linux/amd64; else want_platform=auto; fi
 }
 
-# The whole first run. Returns 1 when ARVA must not start (the reason has been printed).
+# Everything that "Save these choices and start ARVA?" saves (what arva.conf holds afterwards), so that an answer
+# skipped with Enter shows as "none" before anything is saved. On a run with saved choices (--setup, ARVA → Set Up
+# Again), the answers to the disk and image questions replace the saved ones (scripts/start.sh forgets a saved data
+# or database folder when the answer is 0, inside Docker Desktop: the folder itself is not touched), while the
+# existing database folders and the import folder saved before are kept unless replaced, and are marked so.
+wiz_summary() {
+  wiz_rule "Summary" "Resumen"
+  docker_volumes=$(say "inside Docker Desktop (Docker volumes)" "dentro de Docker Desktop (volúmenes de Docker)")
+  none=$(say "none" "ninguna")
+  kept=$(say "(saved before, kept)" "(guardada antes, se conserva)")
+  say "  Projects, results, reports, logs, backups:  ${want_data:-$docker_volumes}" \
+      "  Proyectos, resultados, informes, registros, copias:  ${want_data:-$docker_volumes}"
+  say "  Databases that ARVA downloads:              ${want_databases:-$docker_volumes}" \
+      "  Bases de datos que descarga ARVA:                    ${want_databases:-$docker_volumes}"
+  for folder in "$cfg_data" "$cfg_databases"; do
+    if [ -n "$folder" ] && [ "$folder" != "$want_data" ] && [ "$folder" != "$want_databases" ]; then
+      say "    $folder, saved before, is no longer used (nothing in it is moved or deleted)." \
+          "    $folder, guardada antes, deja de usarse (no se mueve ni se borra nada de ella)."
+    fi
+  done
+  kept_add=''
+  while IFS= read -r folder; do
+    if [ -n "$folder" ] && ! list_has "$want_add" "$folder"; then kept_add=$(list_add "$kept_add" "$folder"); fi
+  done <<EOF
+$cfg_extra
+EOF
+  if [ -z "$want_add$kept_add" ]; then
+    say "  Existing database folders (read-only):      $none" \
+        "  Carpetas de bases de datos existentes (solo lectura): $none"
+  else
+    say "  Existing database folders (read-only):" "  Carpetas de bases de datos existentes (solo lectura):"
+    while IFS= read -r folder; do
+      [ -n "$folder" ] || continue
+      printf '    - %s\n' "$folder"
+    done <<EOF
+$want_add
+EOF
+    while IFS= read -r folder; do
+      [ -n "$folder" ] || continue
+      printf '    - %s %s\n' "$folder" "$kept"
+    done <<EOF
+$kept_add
+EOF
+  fi
+  if [ -n "$want_import" ]; then
+    say "  Folder to import from (read-only):          $want_import" \
+        "  Carpeta para importar (solo lectura):                $want_import"
+  elif [ -n "$cfg_import" ]; then
+    say "  Folder to import from (read-only):          $cfg_import $kept" \
+        "  Carpeta para importar (solo lectura):                $cfg_import $kept"
+  else
+    say "  Folder to import from (read-only):          $none (ARVA's own import folder)" \
+        "  Carpeta para importar (solo lectura):                $none (la carpeta de importación propia de ARVA)"
+  fi
+  case "${want_platform:-}" in
+    linux/arm64) image=$(say "arm64 (native, without the tools that have no arm64 build)" "arm64 (nativa, sin las herramientas que no tienen versión arm64)") ;;
+    linux/amd64) image=amd64 ;;
+    auto) image=$(say "amd64 (every tool, through Rosetta)" "amd64 (todas las herramientas, a través de Rosetta)") ;;
+    *) image=$(say "this computer's own (${machine:-?})" "la propia de esta computadora (${machine:-?})") ;;
+  esac
+  say "  Image architecture:                         $image" \
+      "  Arquitectura de las imágenes:                        $image"
+}
+
+# The whole first run. Returns 1 when ARVA must not start (the reason has been printed). Stopped from outside
+# (Control-C, the Terminal window closed), it says so before ending, so the window never just goes back to the prompt.
 arva_first_run() {
-  wiz_eof=0
+  wiz_eof=0 wiz_eof_said=0
+  trap 'printf "\n"; say "The questions were interrupted: nothing was saved and ARVA did not start." "Las preguntas se interrumpieron: no se guardó nada y ARVA no se inició." >&2; exit 130' INT HUP TERM
   say "Welcome to ARVA. A few questions before the first start (the answers are saved in $ARVA_CONFIG;
 scripts/start.sh --setup asks them again)." \
       "Bienvenido a ARVA. Unas preguntas antes del primer inicio (las respuestas se guardan en $ARVA_CONFIG;
 scripts/start.sh --setup las vuelve a hacer)."
-  wiz_docker || return 1
-  wiz_storage || return 1
-  wiz_existing
-  wiz_platform
-  wiz_sharing
+  if ! wiz_docker || ! wiz_storage || ! wiz_existing || ! wiz_platform || ! wiz_sharing; then
+    trap - INT HUP TERM
+    return 1
+  fi
+  wiz_summary
   printf '\n'
-  if ! ask_yes "Save these choices and start ARVA?" "¿Guardar estas elecciones e iniciar ARVA?" y; then
+  if ask_yes "Save these choices and start ARVA?" "¿Guardar estas elecciones e iniciar ARVA?" y; then save=1; else save=0; fi
+  trap - INT HUP TERM
+  # The end of the input is no "yes" (the default of that question): nothing is saved.
+  wiz_ended && return 1
+  if [ "$save" = 0 ]; then
     say "Nothing was saved. Run ARVA again to answer the questions again." \
         "No se guardó nada. Volver a abrir ARVA para responder de nuevo las preguntas."
     exit 0

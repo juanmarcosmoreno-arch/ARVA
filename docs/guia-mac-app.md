@@ -100,9 +100,13 @@ Al abrir ARVA.app se ve una ventana pequeña con el logo de ARVA y lo que está 
    guardar los proyectos y las bases de datos (por ejemplo `/Volumes/<disco>/ARVA`). Se contestan escribiendo y
    pulsando Enter; las preguntas explican cada opción. Son las mismas que se describen en
    [guia-mac.md](guia-mac.md), paso 6.
-   La última pregunta es «¿Guardar estas elecciones e iniciar ARVA?»: si se contesta que no, no se guarda nada y
-   ARVA.app ofrece **Responder de nuevo**.
-3. **La descarga.** Después ARVA descarga sus programas (varios GB, puede tardar un rato según la conexión).
+   Antes de la última pregunta aparece un **Resumen** con todas las respuestas (las carpetas de bases de datos
+   existentes y la de importación dicen «ninguna» si se pasaron con Enter): conviene revisarlo. La última pregunta es
+   «¿Guardar estas elecciones e iniciar ARVA?»: si se contesta que no, no se guarda nada y ARVA.app ofrece
+   **Responder de nuevo**.
+3. **La descarga.** Después ARVA descarga sus programas. Antes de empezar avisa cuánto ocupan: unos 16 GB ya
+   descomprimidos (10 GB con la imagen arm64; la descarga en sí es menor porque viene comprimida). Con una conexión
+   lenta puede tardar más de una hora (en una prueba, 1,5 h a unos 0,8 MB/s).
    La ventana de Terminal lo va mostrando, y ARVA.app también, en **Detalles**.
 4. **ARVA se abre solo** en la ventana de ARVA.app cuando está listo (no hace falta el navegador: no se abre).
    La ventana de Terminal ya se puede cerrar.
@@ -112,7 +116,8 @@ ARVA.app lo nota y ofrece **Reintentar** para empezar de nuevo. **Cancelar** en 
 las preguntas de Terminal.
 
 Las respuestas quedan guardadas: las veces siguientes no se pregunta nada. Para cambiarlas más adelante (por
-ejemplo, otro disco), menú **ARVA → Volver a configurar…**.
+ejemplo, otro disco), menú **ARVA → Volver a configurar…**; para cambiar solo la carpeta de importación, menú
+**ARVA → Elegir carpeta de importación…** (ver [El uso diario](#el-uso-diario)).
 
 ## El uso diario
 
@@ -130,6 +135,24 @@ ejemplo, otro disco), menú **ARVA → Volver a configurar…**.
     carpeta que ARVA está leyendo: la que se eligió en las preguntas del primer inicio, o si no se eligió ninguna,
     `~/Library/Application Support/ARVA/runtime/import`. Si la carpeta elegida está en un disco que no está conectado,
     lo avisa.
+  - **Cambiar la carpeta de importación** sin usar la Terminal: menú **ARVA → Elegir carpeta de importación…**. Se
+    abre el panel de Finder para elegir una carpeta (por ejemplo la de las corridas en el disco externo). No puede ser
+    la carpeta personal entera, ni una carpeta oculta (o dentro de una), y tiene que existir y poder leerse; ARVA solo
+    la lee, nunca escribe, mueve ni borra nada en ella. Después de confirmar, ARVA.app la guarda (la misma opción que
+    `scripts/start.sh --import-dir`, en `~/.config/arva/arva.conf`) y vuelve a iniciar los servicios de ARVA para
+    usarla (más o menos un minuto); la ventana se vuelve a cargar sola. Si hay análisis en curso o en espera, el aviso
+    lo dice, porque reiniciar los interrumpe: en ese caso conviene elegirla más tarde.
+- **Avisos cuando termina un análisis:** la primera vez que ARVA se abre en la aplicación, pregunta si se quiere un
+  aviso de macOS cuando un análisis termina o falla; si se acepta, macOS pide su propio permiso. El aviso dice, por
+  ejemplo, «ARVA: Flye terminó — <muestra>» o «ARVA: fastp falló — <muestra>» (también «se canceló» si se canceló un
+  análisis que ya estaba en marcha) y aparece aunque la ventana de ARVA esté detrás de otras. Un clic lleva a la
+  página de esa muestra. Se activa o desactiva cuando se quiera en el menú **ARVA → Avisar cuando terminen los
+  análisis** (la marca ✓ indica que está activo). Si en macOS se eligió no permitir las notificaciones, ARVA.app no
+  insiste: se cambia en **Ajustes del Sistema → Notificaciones → ARVA → Permitir notificaciones**. Los avisos se
+  generan en la Mac: no se envía nada a ningún lado. Cómo funciona: mientras hay análisis en curso, ARVA.app consulta
+  cada 30 segundos la lista de análisis en curso y en espera de ARVA y avisa de los que salieron de ella; un análisis
+  muy corto que empieza y termina entre dos consultas puede no avisarse, y no se avisa de lo que terminó con ARVA.app
+  cerrada.
 - **Menús útiles:** **Visualización → Volver a cargar la página** (⌘R), **Ampliar / Reducir / Tamaño real**
   (⌘+, ⌘−, ⌘0), **Ver en el navegador** (⇧⌘B: abre la misma página en Safari u otro navegador), **Pantalla completa**.
   **Edición** tiene Copiar, Pegar y Seleccionar todo como siempre.
@@ -218,6 +241,7 @@ También está en el menú **Ayuda → Copiar detalles del inicio**.
 | **ARVA no se inició** (en el primer inicio) | Lo que pasó está en **Detalles** (y en la ventana de Terminal); corregirlo si dice cómo (por ejemplo, conectar el disco) y **Reintentar**. Si no está claro: **Copiar detalles** y enviarlo. |
 | **Las preguntas no se terminaron** | Se cerró la ventana de Terminal (o se pulsó Control-C) antes de terminar. **Reintentar** las vuelve a mostrar. |
 | **ARVA no se configuró** | En la última pregunta se eligió no guardar. **Responder de nuevo** vuelve a mostrar las preguntas. |
+| **ARVA no responde: ¿Docker Desktop está abierto?** (sobre la ventana de ARVA) | ARVA.app comprueba cada 15 segundos que ARVA responda; tras dos comprobaciones fallidas seguidas (casi siempre porque se cerró Docker Desktop) muestra este aviso. Si Docker Desktop está cerrado, el botón **Abrir Docker Desktop** lo abre y vuelve a iniciar ARVA (como al abrir la aplicación); si está abierto, **Reintentar** hace lo mismo. **Esperar** cierra el aviso: si ARVA vuelve a responder solo (sus contenedores tienen `restart: unless-stopped`, así que pueden volver cuando Docker Desktop se abre; todavía no se comprobó en una Mac real), el aviso desaparece y la página se vuelve a cargar sola si mostraba «ARVA no responde» o si ARVA estuvo sin responder un minuto o más; tras un corte breve (ARVA solo estaba muy ocupado) la página queda como estaba, para no perder lo que se estaba haciendo en ella. Los proyectos y las bases de datos se conservan. |
 | **ARVA no responde** (dentro de la ventana) | Puede que Docker Desktop se haya cerrado. Abrirlo y pulsar **Reintentar** (o ⌘R). Si sigue, salir de ARVA.app y volver a abrirla. |
 | macOS dice que **no se puede abrir** ARVA | Ver [La primera vez que se abre](#la-primera-vez-que-se-abre). |
 
@@ -264,4 +288,13 @@ Los proyectos y las bases de datos no están ahí: están en el disco elegido o 
   aplicación.
 - La ventana solo carga `http://localhost:8080` y `http://127.0.0.1:8080`; el resto de los enlaces va al navegador.
   No expone ningún puente de JavaScript a la página.
+- El ícono de la aplicación (`ARVA.icns`, hasta 1024 px) y el logo de la ventana de inicio salen del logo de 1254 px
+  `docs/brand/arva-logo-1254.png` (la aplicación misma lo dibuja al compilar, con `--render-iconset`).
+- Avisos de análisis: `UserNotifications` de macOS; la aplicación consulta `GET /api/v1/jobs?status=running` y
+  `?status=pending` (y `GET /api/v1/jobs/{id}` y `GET /api/v1/samples/{id}` para los que terminaron) a través de la
+  sesión de la propia página, como para evitar el reposo. La preferencia se guarda en `ARVA.notifyAnalyses`
+  (`defaults read org.arva.ARVA`).
+- **ARVA → Elegir carpeta de importación…** ejecuta `scripts/start.sh --no-setup --import-dir <carpeta>` (una lista
+  de argumentos, sin pasar por un intérprete de comandos), que vuelve a comprobar la carpeta, la guarda y reinicia los
+  servicios con `docker compose up -d`.
 - `ARVA.app/Contents/MacOS/ARVA --self-test` comprueba la aplicación sin abrir ventanas ni tocar Docker.

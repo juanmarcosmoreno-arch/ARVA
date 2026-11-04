@@ -142,6 +142,14 @@ if [ "$first_run" = 1 ] && ! arva_first_run; then
   say "ARVA did not start; nothing was saved." "ARVA no se inició; no se guardó nada." >&2
   exit 1
 fi
+# The answers to the disk and image questions replace what an earlier run saved, as the summary showed: 0 (inside
+# Docker Desktop) forgets a saved data or database folder (the folder itself is not touched), and a computer that is
+# not an Apple-silicon Mac uses its own architecture. Saved existing database folders and the import folder are kept.
+if [ "$first_run" = 1 ]; then
+  if [ -z "$want_data" ]; then cfg_data='' cfg_data_mount=''; fi
+  if [ -z "$want_databases" ]; then cfg_databases='' cfg_databases_mount=''; fi
+  if [ -z "$want_platform" ]; then cfg_platform=''; fi
+fi
 
 if [ -n "$want_data$want_databases$want_import$want_add$want_remove" ]; then
   for role in data databases; do
@@ -190,8 +198,9 @@ if [ -n "$want_platform" ]; then
   if [ "$want_platform" = auto ]; then cfg_platform=''; else cfg_platform=$want_platform; fi
   arva_write_config
 fi
-# Answers that keep everything in Docker volumes still leave a (header-only) file, so the questions are not asked again.
-if [ "$first_run" = 1 ] && [ ! -e "$ARVA_CONFIG" ]; then arva_write_config; fi
+# The answers are always written: even answers that keep everything in Docker volumes leave a (header-only) file, so
+# the questions are not asked again, and a saved folder the answers forgot is no longer in it.
+if [ "$first_run" = 1 ]; then arva_write_config; fi
 
 for legacy in ARVA_DATA_DIR ARVA_DATABASES_DIR ARVA_IMPORT_DIR; do
   if printenv "$legacy" >/dev/null 2>&1 || { [ -f "$ROOT/.env" ] && grep -q "^[[:space:]]*$legacy=" "$ROOT/.env"; }; then
@@ -462,6 +471,32 @@ un token de acceso personal con el permiso read:packages (docs/guia-mac.md, paso
   arva_compose pull api web
 }
 
+# Before the first download of this version's published images (the API image of this version is not on this
+# computer yet): how big they are and that it can take long. Nothing is asked of the registry for this: `docker image
+# inspect` and `docker image ls` only look at this computer's images, and the sizes are the ones measured when the
+# images were published (docs/installation.md, "Size of ARVA's images": unpacked, as `docker image ls` shows them; the
+# download is compressed, so smaller). The time is from a real test on a Mac (docs/registro-prueba-mac.md, row 6:
+# about 1.5 h at about 0.8 MB/s). When an earlier version's API image is here, Docker downloads only the layers it does
+# not have yet, so the download may be much smaller. The architecture of the image already here is not compared:
+# with Docker Desktop's containerd image store, which platform `docker image inspect` describes for an image pulled
+# for another one has not been checked, so a switch of --platform gets no note rather than a wrong one.
+if [ "$build" = 0 ] && [ "$ARVA_API_IMAGE" = ghcr.io/juanmarcosmoreno-arch/arva-api ] &&
+  ! docker image inspect "$ARVA_API_IMAGE:$ARVA_IMAGE_TAG" >/dev/null 2>&1; then
+  case "$image_platform" in linux/arm64) image_size='10 GB' ;; *) image_size='16 GB' ;; esac
+  say "Downloading ARVA $ARVA_IMAGE_TAG (this version is not on this computer yet): once unpacked, its images take about
+$image_size (${image_platform:-linux/amd64}; the download itself is compressed, so smaller). On a slow connection this
+can take more than an hour (one test on a Mac took 1.5 h at about 0.8 MB/s). Docker shows its progress below." \
+      "Se descarga ARVA $ARVA_IMAGE_TAG (esta versión todavía no está en esta computadora): ya descomprimidas, sus
+imágenes ocupan unos $image_size (${image_platform:-linux/amd64}; la descarga en sí está comprimida, así que es
+menor). Con una conexión lenta puede tardar más de una hora (en una prueba en una Mac tardó 1,5 h a unos 0,8 MB/s).
+Docker muestra el avance a continuación."
+  if docker image ls --format '{{.Tag}}' "$ARVA_API_IMAGE" 2>/dev/null | grep -qv '^<none>$'; then
+    say "  An earlier ARVA version is on this computer: Docker reuses the parts it already has, so the download may be
+  much smaller." \
+        "  Hay una versión anterior de ARVA en esta computadora: Docker reutiliza las partes que ya tiene, así que la
+  descarga puede ser mucho menor."
+  fi
+fi
 if [ "$build" = 0 ] && ! pull; then
   if docker image inspect "$ARVA_API_IMAGE:$ARVA_IMAGE_TAG" "$ARVA_WEB_IMAGE:$ARVA_IMAGE_TAG" >/dev/null 2>&1; then
     say "The images could not be updated; ARVA starts with the copies already on this computer."         "No se pudieron actualizar las imágenes; ARVA se inicia con las copias que ya hay en este equipo."

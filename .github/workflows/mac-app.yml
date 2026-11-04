@@ -27,7 +27,7 @@ on:
       - docker/web.Dockerfile
       - docker/nginx.conf
       - docker/api-entrypoint.sh
-      - apps/web/public/arva-logo.png
+      - docs/brand/arva-logo-1254.png
       - docs/guia-mac-app.md
   workflow_dispatch:
 

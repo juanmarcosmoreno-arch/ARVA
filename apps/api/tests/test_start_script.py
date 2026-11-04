@@ -30,6 +30,7 @@ FAKES = {
               '    env | grep -E "^ARVA_(PLATFORM|API_IMAGE|WEB_IMAGE|IMAGE_TAG)=" | sort > "$FAKE/compose_images" ;;\n'
               '  "compose pull") echo "$*" > "$FAKE/compose_pull"; [ -z "${FAKE_PULL_FAIL:-}" ] ;;\n'
               '  "image inspect") [ -n "${FAKE_IMAGES_HERE:-}" ] ;;\n'
+              '  "image ls") [ -z "${FAKE_OLDER_TAG:-}" ] || printf "%s\\n" "$FAKE_OLDER_TAG" ;;\n'
               '  "compose exec") echo "PROFILE REPORT: $*" ;;\n'
               '  *) exit 2 ;;\n'
               'esac',
@@ -251,6 +252,46 @@ def test_a_failed_pull_explains_docker_login_unless_the_images_are_here(tmp_path
     assert "docker login ghcr.io -u <your GitHub user name>" in proc.stderr and "read:packages" in proc.stderr
     proc, env = run(tmp_path, fake, shell, extra={"FAKE_PULL_FAIL": "1", "FAKE_IMAGES_HERE": "1"})
     assert proc.returncode == 0 and "copies already on this computer" in proc.stdout
+
+
+@pytest.mark.parametrize("shell", SHELLS)
+def test_the_first_download_of_a_version_says_how_big_it_is_and_that_it_can_take_long(tmp_path, shell):
+    fake = mac(tmp_path, APPLE_SILICON, AIR)
+    # The images of this version are not here yet (`docker image inspect` fails): the measured size, before the pull.
+    proc, _ = run(tmp_path, fake, shell)
+    assert proc.returncode == 0, proc.stderr
+    out = " ".join(proc.stdout.split())
+    assert f"Downloading ARVA {VERSION} (this version is not on this computer yet)" in out
+    assert "for the first time" not in out
+    assert "about 16 GB (linux/amd64; the download itself is compressed, so smaller)" in out
+    assert "can take more than an hour (one test on a Mac took 1.5 h at about 0.8 MB/s)" in out
+    assert "An earlier ARVA version" not in out
+    # The native arm64 image is smaller; and the same text in Spanish.
+    (tmp_path / "home").mkdir()
+    proc, _ = run(tmp_path, fake, shell, "Darwin", "es_AR.UTF-8", "--platform", "linux/arm64",
+                  extra={"HOME": str(tmp_path / "home")})
+    assert proc.returncode == 0, proc.stderr
+    out = " ".join(proc.stdout.split())
+    assert f"Se descarga ARVA {VERSION} (esta versión todavía no está en esta computadora)" in out
+    assert "unos 10 GB (linux/arm64; la descarga en sí está comprimida, así que es menor)" in out
+    assert "puede tardar más de una hora" in out
+    # An update: an earlier version's API image is here (only `docker image ls`, local), so the download may be smaller.
+    for lang, text in (("en_US.UTF-8", "An earlier ARVA version is on this computer: Docker reuses the parts it already "
+                                       "has, so the download may be much smaller."),
+                       ("es_AR.UTF-8", "Hay una versión anterior de ARVA en esta computadora: Docker reutiliza las "
+                                       "partes que ya tiene, así que la descarga puede ser mucho menor.")):
+        proc, _ = run(tmp_path, fake, shell, "Darwin", lang, extra={"FAKE_OLDER_TAG": "0.9.0"})
+        assert proc.returncode == 0, proc.stderr
+        assert text in " ".join(proc.stdout.split())
+    # An untagged leftover (<none>) is no earlier version.
+    proc, _ = run(tmp_path, fake, shell, extra={"FAKE_OLDER_TAG": "<none>"})
+    assert "An earlier ARVA version" not in proc.stdout
+    # Not when the images are already here, nor when they are built here or are not ARVA's published ones.
+    for extra, args in (({"FAKE_IMAGES_HERE": "1"}, ()), ({}, ("--build",)),
+                        ({"ARVA_API_IMAGE": "registry.example/other-api"}, ())):
+        proc, _ = run(tmp_path, fake, shell, "Darwin", "en_US.UTF-8", *args, extra=extra)
+        assert proc.returncode == 0, proc.stderr
+        assert "this version is not on this computer yet" not in proc.stdout
 
 
 def test_shellcheck_clean():

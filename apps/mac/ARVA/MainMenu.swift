@@ -32,6 +32,8 @@ enum MainMenu {
             sleepStatus,
             .separator(),
             item(L("Set Up Again…", "Volver a configurar…"), #selector(AppDelegate.arvaSetupAgain(_:))),
+            item(L("Choose Import Folder…", "Elegir carpeta de importación…"), #selector(AppDelegate.arvaChooseImportFolder(_:))),
+            item(L("Notify When Analyses End", "Avisar cuando terminen los análisis"), #selector(AppDelegate.arvaToggleNotifications(_:))),
             .separator(),
             item(L("Hide ARVA", "Ocultar ARVA"), #selector(NSApplication.hide(_:)), "h"),
             item(L("Hide Others", "Ocultar otros"), #selector(NSApplication.hideOtherApplications(_:)), "h", [.command, .option]),

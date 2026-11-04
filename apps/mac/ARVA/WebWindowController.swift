@@ -87,6 +87,13 @@ final class WebWindowController: NSObject, NSWindowDelegate, WKNavigationDelegat
         webView.load(URLRequest(url: ArvaServer.base))
     }
 
+    /// The window shows one of ARVA's own pages: not the "ARVA is not answering" page (loaded without an address, so
+    /// about:blank), and not nothing.
+    var showsARVAPage: Bool {
+        guard let url = webView.url else { return false }
+        return WebPolicy.classify(url) == .local
+    }
+
     // MARK: Menu commands
 
     func reload() {

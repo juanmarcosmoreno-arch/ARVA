@@ -11,8 +11,9 @@
 #   scripts/lib/*.sh, the docker/ files docker-compose.yml names, import/README.md, apps/api/app/__init__.py (the
 #   version start.sh uses as the image tag) and the ARVA.command pair. The app copies them into
 #   ~/Library/Application Support/ARVA/runtime when they change (.arva-runtime-id, a checksum of them all).
-# - The icon is drawn from apps/web/public/arva-logo.png (padded to a square, never stretched) by the app itself
-#   (--render-iconset), or by sips when that fails, then made into ARVA.icns by iconutil.
+# - The icon is drawn from the 1254 px logo docs/brand/arva-logo-1254.png (its transparent margins left out, padded to a
+#   square, never stretched; every size up to 512@2x = 1024 px is a reduction) by the app itself (--render-iconset), or
+#   by sips when that fails, then made into ARVA.icns by iconutil. The same file is the logo of the start window.
 # - Signed ad hoc (codesign -s -): not notarized, so the first open needs Control-click → Open or System Settings →
 #   Privacy & Security → Open Anyway (docs/guia-mac-app.md).
 # ARVA_BUILD_NUMBER sets CFBundleVersion (default: the number of commits).
@@ -55,7 +56,7 @@ for arch in arm64 x86_64; do
   printf 'Compiling for %s\n' "$arch"
   xcrun --sdk macosx swiftc -O -swift-version 5 -module-name ARVA \
     -target "$arch-apple-macos13.0" -sdk "$sdk" \
-    -framework AppKit -framework WebKit -framework UniformTypeIdentifiers -framework IOKit \
+    -framework AppKit -framework WebKit -framework UniformTypeIdentifiers -framework IOKit -framework UserNotifications \
     -o "$WORK/ARVA-$arch" "$SRC"/*.swift
 done
 lipo -create -output "$APP/Contents/MacOS/ARVA" "$WORK/ARVA-arm64" "$WORK/ARVA-x86_64"
@@ -91,8 +92,8 @@ printf 'Launcher files: %s\n' "$(cat "$RUNTIME/.arva-runtime-id")"
 
 # 4. Resources: translations of the Info.plist texts, the logo and the icon.
 cp -R "$SRC/Resources/en.lproj" "$SRC/Resources/es.lproj" "$APP/Contents/Resources/"
-LOGO=$ROOT/apps/web/public/arva-logo.png
-[ -f "$LOGO" ] || fail "apps/web/public/arva-logo.png is missing."
+LOGO=$ROOT/docs/brand/arva-logo-1254.png
+[ -f "$LOGO" ] || fail "docs/brand/arva-logo-1254.png is missing."
 cp "$LOGO" "$APP/Contents/Resources/arva-logo.png"
 ICONSET=$WORK/ARVA.iconset
 host_arch=$(uname -m)
