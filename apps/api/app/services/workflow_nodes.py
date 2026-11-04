@@ -326,9 +326,11 @@ def flye_memory_guard(db: Session, sample: Sample, file_ids: list[str], params: 
     configured and the reason is recorded.
 
     memory_gb: what the batch reserves for this job (its memory per job, which decides how many jobs run at once);
-    the estimate is compared with that, capped by the memory the container has, not with the whole container's
-    memory, because other jobs of the batch may run beside this one. Below Flye's fixed k-mer counter floor
-    (arva_tools.flye.KMER_COUNTER_FLOOR) --asm-coverage cannot help: nothing is added and the reason is recorded."""
+    the part of the estimate that depends on the reads is compared with that, capped by the memory the container
+    has, because other jobs of the batch may run beside this one. Flye's fixed k-mer counter floor
+    (arva_tools.flye.KMER_COUNTER_FLOOR) is compared with the container's memory only: Flye allocates it whatever
+    the batch reserves. When the container is below the floor --asm-coverage cannot help: nothing is added and the
+    reason is recorded."""
     from arva_tools.flye import SUGGESTED_ASM_COVERAGE, FlyeParams
 
     from app.services import flye

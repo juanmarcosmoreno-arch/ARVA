@@ -390,4 +390,39 @@ def test_memory_estimate_has_flyes_fixed_kmer_counter_floor():
     assert memory_estimate(None, 5.9)["verdict"] == "below_floor"
     # Enough memory for the floor: small reads fit.
     assert memory_estimate(413_000_000, 15.7, genome_size_bp=2_800_000)["verdict"] == "fits"
-    assert memory_estimate(413_000_000, 8.6)["verdict"] == "fits"
+
+
+def test_memory_estimate_is_tight_within_a_gigabyte_of_the_floor():
+    """The container's memory is shared with ARVA's database, queue, API and worker, and the measured peak (8787 MB)
+    is above the floor: a container with less than the floor plus FLOOR_HEADROOM_GB is "tight", not "fits"."""
+    from arva_tools.flye import FLOOR_HEADROOM_GB, memory_estimate
+
+    assert FLOOR_HEADROOM_GB == 1.0
+    tight = memory_estimate(413_000_000, 8.7)
+    assert tight["verdict"] == "tight" and tight["suggestion"] is None and tight["floor_headroom_gb"] == 1.0
+    assert memory_estimate(413_000_000, 8.6)["verdict"] == "tight"
+    assert memory_estimate(413_000_000, 9.6)["verdict"] == "fits"
+    # Reads that need more than the container are "may not fit" whatever the headroom.
+    assert memory_estimate(1_100_000_000, 9.0)["verdict"] == "may_not_fit"
+
+
+def test_memory_estimate_compares_a_batch_share_with_the_reads_part_only():
+    """A batch reserves memory per job (other jobs may run beside it). Flye allocates its fixed k-mer table whatever
+    that share is, so the floor is decided by the container's memory, and the share is compared with the part of the
+    estimate that depends on the reads."""
+    from arva_tools.flye import memory_estimate
+
+    # 11.7 GB container, 8 GB per job: few reads fit (the 8.6 GB floor is within the container).
+    small = memory_estimate(413_000_000, 8, genome_size_bp=2_800_000, container_gb=11.7)
+    assert small["verdict"] == "fits" and small["available_gb"] == 8 and small["container_gb"] == 11.7
+    # 2.5 Gb of reads of a 5 Mb genome (about 21.7 GB) do not fit; --asm-coverage 40 (200 Mb, about 1.74 GB) would.
+    big = memory_estimate(2_500_000_000, 8, genome_size_bp=5_000_000, container_gb=11.7)
+    assert big["verdict"] == "may_not_fit" and big["suggestion"]["estimate_gb"] == 8.6
+    after = memory_estimate(2_500_000_000, 8, asm_coverage=40, genome_size_bp=5_000_000, container_gb=11.7)
+    assert after["verdict"] == "fits" and after["scaled_gb"] == 1.74
+    # Reads whose scaled part fits the container but not the share.
+    assert memory_estimate(1_000_000_000, 4, container_gb=11.7)["verdict"] == "may_not_fit"
+    # Below the floor only when the container itself is.
+    assert memory_estimate(413_000_000, 4, container_gb=5.9)["verdict"] == "below_floor"
+    # A share larger than the container is capped by it.
+    assert memory_estimate(413_000_000, 64, container_gb=11.7)["available_gb"] == 11.7

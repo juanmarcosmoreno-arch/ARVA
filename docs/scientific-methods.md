@@ -725,7 +725,10 @@ against `flye --help`, the Flye 2.9.3 manual and README, and the source of the i
   actually has, as measured (cgroup limit or `MemTotal`; never a profile's share, and no verdict when it cannot be
   read). The verdict is shown in the dialog: "below the floor" when the container has less than the floor
   (the dialog then says that Flye needs about 9 GB inside Docker and cannot run on this computer as configured,
-  that `--asm-coverage` does not lower that floor, and offers no `--asm-coverage`), "fits", "may not fit", or no
+  that `--asm-coverage` does not lower that floor, and offers no `--asm-coverage`), "tight" when the run fits but
+  the container has less than the floor plus **1 GB** (`FLOOR_HEADROOM_GB`: ARVA's database, queue, API and worker
+  use the same memory, about 1 GB at rest, and the measured peak, 8787 MB, is already above the floor; the dialog
+  warns that Flye may still be stopped while counting k-mers), "fits", "may not fit", or no
   estimate without read statistics; when it may not fit only because of the reads, the dialog offers Flye's
   documented way to use less memory (`--asm-coverage 40`, the coverage
   Flye's manual calls typically enough; it requires `--genome-size` and cannot be combined with `--meta`, and it
@@ -2240,10 +2243,12 @@ fragmented assembly can separate a gene from its element, and an element not sea
   With `auto`, before the Flye job is queued ARVA computes the memory estimate above for the sample's reads (the
   Filtlong step waits for the ARVA statistics of its output, which the estimate reads; if that statistics job's
   task is lost, the Filtlong step still completes and the estimate has no read statistics). In a run the estimate
-  is compared with the memory the run reserves per job (`memory_per_job_gb`, which with the memory budget sets how
-  many jobs run at once), capped by the memory the container has, because other jobs may run beside Flye. Below
-  Flye's fixed k-mer floor (8.6 GB) the guard adds nothing, since `--asm-coverage` does not lower it, and records
-  `below_kmer_floor`. When it may
+  is checked in two parts. The part that depends on the reads is compared with the memory the run reserves per job
+  (`memory_per_job_gb`, which with the memory budget sets how many jobs run at once), capped by the memory the
+  container has, because other jobs may run beside Flye. Flye's fixed k-mer floor (8.6 GB) is compared with the
+  container's memory only: Flye allocates it whatever share the run reserves, so a memory per job below 8.6 GB in a
+  larger container is not "below the floor". Only when the container itself has less than the floor does the guard
+  add nothing, since `--asm-coverage` does not lower it, and record `below_kmer_floor`. When it may
   not fit, the guard adds `--asm-coverage 40` and, when the node sets no genome size, the sample's expected genome
   size (basis `expected_genome_size`). It never changes a value the node sets itself: it does not apply when the
   node sets `asm_coverage` or `meta`, and it cannot apply without a genome size or read statistics, or when the

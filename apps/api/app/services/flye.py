@@ -223,8 +223,9 @@ def memory(db: Session, sample: Sample, ev: list[dict[str, Any]], params: FlyePa
            res: Resources | None = None, available_gb: float | None = None) -> dict[str, Any]:
     """ARVA's estimate of whether this Flye run fits the memory the container has (arva_tools.flye.memory_estimate,
     with Flye's fixed k-mer counter floor): for the given parameters, or, for a preview, for the reads alone with the
-    sample's expected genome size (when known) for the suggestion. available_gb: a smaller share to compare with
-    (a batch's memory per job); never more than the container has."""
+    sample's expected genome size (when known) for the suggestion. available_gb: a smaller share (a batch's memory
+    per job), compared with the part of the estimate that depends on the reads only; the fixed floor is compared with
+    the container's memory, which Flye uses whatever a batch reserves."""
     res = res or effective_resources(db)
     if params is not None:
         size, asm, meta = params.genome_size_bp, params.asm_coverage, params.meta
@@ -234,7 +235,7 @@ def memory(db: Session, sample: Sample, ev: list[dict[str, Any]], params: FlyePa
     available = container
     if available_gb is not None:
         available = available_gb if container is None else min(container, available_gb)
-    out = memory_estimate(read_bases(ev), available, asm, size, meta)
+    out = memory_estimate(read_bases(ev), available, asm, size, meta, container_gb=container)
     out["container_memory_gb"] = container
     out["in_container"] = res.in_container
     out["expected_genome_size_bp"] = expected_genome_size(db, sample.id, None)["bp"]
@@ -251,7 +252,7 @@ def tool_status(res: Resources) -> dict[str, Any]:
             supported = frozenset()
         options = [o for o in OPTIONAL_OPTIONS if o in supported]
     return {"status": d.status.value, "version": d.version, "version_validated": d.version_validated,
-            "message": d.message, "reason": d.reason, "options": options, "max_threads": res.max_threads,
+            "message": d.message, "reason": d.reason, "reason_params": d.reason_params, "options": options, "max_threads": res.max_threads,
             "default_threads": res.threads}
 
 

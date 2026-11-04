@@ -1198,9 +1198,12 @@ export interface FlyeMemory {
   read_bases: number | null;
   /** Flye's fixed k-mer counter (about 8.6 GB whatever the reads; arva_tools.flye.KMER_COUNTER_FLOOR). */
   floor_gb?: number;
+  /** Below the floor plus this margin the container is "tight": ARVA's other services share its memory
+   * (arva_tools.flye.FLOOR_HEADROOM_GB). */
+  floor_headroom_gb?: number;
   scaled_gb?: number | null;
   estimate_gb: number | null;
-  verdict: "fits" | "may_not_fit" | "below_floor" | "unknown";
+  verdict: "fits" | "tight" | "may_not_fit" | "below_floor" | "unknown";
   expected_genome_size_bp: number | null;
 }
 

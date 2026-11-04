@@ -112,10 +112,26 @@ describe("New assembly with Flye", () => {
   });
 
   it("says why an option field is off when the installed Flye's --help does not list it", async () => {
-    vi.spyOn(api, "flyePreview").mockResolvedValue(plan(["--genome-size", "--meta"], { ...memory, available_gb: 15.6, verdict: "fits" }));
+    vi.spyOn(api, "flyePreview").mockResolvedValue(plan(["--genome-size", "--meta"], { ...memory, available_gb: 15.6, container_memory_gb: 15.6, verdict: "fits" }));
     renderWith(<AssemblyDialog open onOpenChange={() => undefined} sampleId="s" files={[original, filtered]} technology="nanopore" />);
     expect(await screen.findAllByText("El Flye 2.9.6 instalado no la ofrece: su --help no muestra esta opción, así que ARVA no la pasa.")).toHaveLength(3);
     expect(screen.getByLabelText(/Cobertura de la primera etapa/)).toBeDisabled();
+  });
+
+  it("does not list a retried --asm-coverage in the summary when the installed Flye does not offer it", async () => {
+    vi.spyOn(api, "flyePreview").mockResolvedValue(plan(["--genome-size", "--meta"], { ...memory, available_gb: 15.6, container_memory_gb: 15.6, verdict: "fits" }));
+    renderWith(<AssemblyDialog open onOpenChange={() => undefined} sampleId="s" files={[original, filtered]} technology="nanopore" retry={failed} />);
+    const summary = await screen.findByRole("region", { name: "Qué hará esta ejecución" });
+    expect(await screen.findAllByText(/El Flye 2.9.6 instalado no la ofrece/)).not.toHaveLength(0);
+    expect(within(summary).queryByText(/--asm-coverage 40/)).not.toBeInTheDocument();
+    expect(within(summary).getByText("Cobertura de la primera etapa: todas las lecturas (sin --asm-coverage).")).toBeInTheDocument();
+  });
+
+  it("says the memory is tight when the container has less than a gigabyte above Flye's floor", async () => {
+    vi.spyOn(api, "flyePreview").mockResolvedValue(plan(ALL, { ...memory, available_gb: 8.7, container_memory_gb: 8.7, floor_headroom_gb: 1, verdict: "tight" }));
+    renderWith(<AssemblyDialog open onOpenChange={() => undefined} sampleId="s" files={[original, filtered]} technology="nanopore" />);
+    expect(await screen.findByText(/^Justo: ARVA estima unos 8,6 GB y el contenedor tiene 8,7 GB, con menos de 1,0 GB de margen\..*al menos 10 GB\.$/)).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
   it("shows in English too that Flye cannot run below its fixed k-mer table", async () => {

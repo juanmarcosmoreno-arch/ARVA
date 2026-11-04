@@ -551,28 +551,43 @@ KMER_COUNTER_FLOOR = {
 }
 
 
+# Headroom above the floor. The container's memory (Docker Desktop's VM MemTotal) is shared with ARVA's other services
+# (PostgreSQL, Redis, the API and the worker, which together use about 1 GB at rest), and the measured peak (8787 MB)
+# is already above the floor, so a container that has less than the floor plus this margin is "tight": Flye may be
+# killed while counting k-mers even though the floor itself fits.
+FLOOR_HEADROOM_GB = 1.0
+
+
 def memory_estimate(read_bases: int | None, available_gb: float | None, asm_coverage: int | None = None,
-                    genome_size_bp: int | None = None, meta: bool = False) -> dict[str, Any]:
+                    genome_size_bp: int | None = None, meta: bool = False,
+                    container_gb: float | None = None) -> dict[str, Any]:
     """Whether a Flye run may fit the memory the container has, by ARVA's estimate: the larger of Flye's fixed k-mer
     counter (KMER_COUNTER_FLOOR, about 8.6 GB whatever the reads) and Flye's documented 2 GB for 230 Mb of reads
     (E. coli, 50x of 4.6 Mb) scaled in proportion to the bases the disjointig stage reads (every read base, or
     asm_coverage * genome size when that is smaller). The scaled part is a rough guide, not a measurement: Flye's
     memory also depends on the genome's repeats and the reads' error rate, and later stages read every base.
 
-    available_gb: the memory the container (or computer) has; None when it could not be read.
+    container_gb: the memory the container (or computer) has; None when it could not be read (then available_gb is
+    taken as the container's). available_gb: the memory this run may use, at most the container's: the container's
+    for a single run, or a batch's memory per job, which is compared with the part that depends on the reads only
+    (the floor is decided by the container alone: Flye allocates it whatever share a batch reserves).
     verdict: "below_floor" when the container has less memory than the fixed floor (Flye cannot run here, whatever
-    the reads or options), else "fits", "may_not_fit" or "unknown" (no read bases or no memory known).
+    the reads or options), "may_not_fit" when the estimate exceeds the container or the reads' part exceeds the
+    share, "tight" when it fits but the container has less than the floor plus FLOOR_HEADROOM_GB, else "fits", or
+    "unknown" (no read bases or no memory known).
     suggestion: what Flye documents to reduce memory (--asm-coverage with --genome-size), when the run may not fit
     only because of the reads (never below the floor, which --asm-coverage does not lower), does not use it already,
     and it would reduce the bases (with a known genome size, only when SUGGESTED_ASM_COVERAGE x genome size < the
     read bases)."""
     floor = KMER_COUNTER_FLOOR["gb"]
+    container = available_gb if container_gb is None else container_gb
+    share = container if available_gb is None or container is None else min(available_gb, container)
     out: dict[str, Any] = {"reference": MEMORY_REFERENCE, "reference_bases": MEMORY_REFERENCE_BASES,
-                           "available_gb": available_gb, "read_bases": read_bases,
+                           "available_gb": share, "container_gb": container, "read_bases": read_bases,
                            "asm_coverage": asm_coverage, "genome_size_bp": genome_size_bp, "bases_used": None,
-                           "floor": KMER_COUNTER_FLOOR, "floor_gb": floor, "scaled_gb": None,
-                           "estimate_gb": None, "verdict": "unknown", "suggestion": None}
-    below = available_gb is not None and floor > available_gb
+                           "floor": KMER_COUNTER_FLOOR, "floor_gb": floor, "floor_headroom_gb": FLOOR_HEADROOM_GB,
+                           "scaled_gb": None, "estimate_gb": None, "verdict": "unknown", "suggestion": None}
+    below = container is not None and floor > container
     if below:
         out["verdict"] = "below_floor"
     if not read_bases:
@@ -583,9 +598,16 @@ def memory_estimate(read_bases: int | None, available_gb: float | None, asm_cove
     scaled = MEMORY_REFERENCE["ram_gb"] * used / MEMORY_REFERENCE_BASES
     estimate = max(scaled, floor)
     out.update(bases_used=used, scaled_gb=round(scaled, 2), estimate_gb=round(estimate, 2))
-    if below or available_gb is None:
+    if below or container is None or share is None:
         return out
-    out["verdict"] = "fits" if estimate <= available_gb else "may_not_fit"
+
+    def fits(scaled_gb: float) -> bool:
+        return max(scaled_gb, floor) <= container and scaled_gb <= share
+
+    if not fits(scaled):
+        out["verdict"] = "may_not_fit"
+    else:
+        out["verdict"] = "tight" if container < floor + FLOOR_HEADROOM_GB else "fits"
     if out["verdict"] == "may_not_fit" and not asm_coverage and not meta:
         reduced = None
         if genome_size_bp:

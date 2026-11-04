@@ -199,7 +199,8 @@ def bakta_database(db: Session, database_id: str | None) -> ReferenceDatabase:
 def _tool(tool_id: str, res: Resources) -> dict[str, Any]:
     d = detect(tool_id, refresh=True)
     return {"status": d.status.value, "version": d.version, "version_validated": d.version_validated,
-            "message": d.message, "reason": d.reason, "path": d.path, "license": d.info.license,
+            "message": d.message, "reason": d.reason, "reason_params": d.reason_params, "path": d.path,
+            "license": d.info.license,
             "citation": d.info.citation, "citation_url": d.info.citation_url,
             "max_threads": res.max_threads, "default_threads": res.threads}
 

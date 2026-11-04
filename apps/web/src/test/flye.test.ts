@@ -188,6 +188,16 @@ describe("Flye memory estimate", () => {
     expect(flyeMemory(FLYE_FORM_DEFAULTS, withMemory({ floor_gb: 8.6, available_gb: null }))?.verdict).toBe("unknown");
   });
 
+  it("says tight when the container has less than the floor plus the server's headroom", () => {
+    const near = withMemory({ floor_gb: 8.6, floor_headroom_gb: 1, available_gb: 8.7, container_memory_gb: 8.7 });
+    expect(flyeMemory(FLYE_FORM_DEFAULTS, near)).toMatchObject({ verdict: "tight", estimateGb: 8.6, suggestion: null });
+    const roomy = withMemory({ floor_gb: 8.6, floor_headroom_gb: 1, available_gb: 9.6, container_memory_gb: 9.6 });
+    expect(flyeMemory(FLYE_FORM_DEFAULTS, roomy)?.verdict).toBe("fits");
+    // The floor is decided by the container: a smaller share is compared with the reads' part only.
+    const share = withMemory({ floor_gb: 8.6, floor_headroom_gb: 1, available_gb: 8, container_memory_gb: 11.7 });
+    expect(flyeMemory(FLYE_FORM_DEFAULTS, share)?.verdict).toBe("fits");
+  });
+
   it("suggests no --asm-coverage when 40x of the genome size is more than the reads hold", () => {
     const m = flyeMemory(FLYE_FORM_DEFAULTS, withMemory({ expected_genome_size_bp: 12_000_000 }));
     expect(m).toMatchObject({ verdict: "may_not_fit", suggestion: null });

@@ -20,6 +20,7 @@ import {
   flyeRequestParams,
   initialFlyeChoices,
   memoryFailure,
+  offeredFlyeForm,
   rememberFlyeChoices,
   selectedTwice,
   type FlyeForm,
@@ -100,12 +101,14 @@ export function FlyePanel({
     retry: false,
   });
   const p = plan.data;
-  const keys = flyeProblems(form, p, ids.length, confirmed);
+  // What would be sent: options the installed Flye does not offer are left out (their fields say why).
+  const sent = offeredFlyeForm(form, p);
+  const keys = flyeProblems(sent, p, ids.length, confirmed);
   if (selectedTwice(files, selected).length) keys.push("flye.problem.twice");
   if (ids.length && (plan.isError || (p && p.tool.status !== "available"))) keys.push("assembly.problem.tool");
   else if (ids.length && !p) keys.push("assembly.problem.checking");
   const problems = keys.map((k) => t(k, { max: p?.tool.max_threads ?? "?", tool: "Flye" }));
-  const request = problems.length ? null : { raw_file_ids: ids, params: flyeRequestParams(form, p), long_reads_confirmed: confirmed };
+  const request = problems.length ? null : { raw_file_ids: ids, params: flyeRequestParams(sent, p), long_reads_confirmed: confirmed };
   const stateKey = JSON.stringify({ problems, request });
   useEffect(() => report("flye", { problems, request }), [stateKey]);
 
@@ -120,11 +123,11 @@ export function FlyePanel({
   const twice = selectedTwice(files, selected);
   const names = new Map(files.map((f) => [f.id, f.original_filename]));
   const producedBy = new Map(jobs.map((j) => [j.id, `${j.tool_name} ${j.tool_version}`]));
-  const advanced = advancedFlags(form);
+  const advanced = advancedFlags(sent);
 
   return (
     <div className="space-y-5 text-sm">
-      {retry && <RetryNote job={retry} form={form} plan={p} setForm={setForm} />}
+      {retry && <RetryNote job={retry} form={sent} plan={p} setForm={setForm} />}
       {p && <ToolLine plan={p} />}
 
       <Section title={t("flye.filesLabel")} hint={t("flye.filesHint")}>
@@ -248,9 +251,9 @@ export function FlyePanel({
         </label>
       )}
 
-      {!(retry && memoryFailure(retry)) && <MemoryNote form={form} plan={p} setForm={setForm} />}
+      {!(retry && memoryFailure(retry)) && <MemoryNote form={sent} plan={p} setForm={setForm} />}
 
-      <RunSummary form={form} plan={p} files={files} ids={ids} advanced={advanced} />
+      <RunSummary form={sent} plan={p} files={files} ids={ids} advanced={advanced} />
     </div>
   );
 }
@@ -283,9 +286,14 @@ function MemoryNote({ form, plan, setForm }: { form: FlyeForm; plan: FlyePlan | 
       genomeChoice: f.genomeChoice === "none" && plan?.genome_size.expected.status === "given" ? "expected" : f.genomeChoice,
     }));
   return (
-    <section aria-label={t("flye.memory.title")} className={cn("space-y-1 rounded-lg border p-2.5 text-xs", m.verdict === "may_not_fit" ? "border-warning/40 bg-warning/5" : "bg-muted/30")}>
+    <section aria-label={t("flye.memory.title")} className={cn("space-y-1 rounded-lg border p-2.5 text-xs", m.verdict === "fits" ? "bg-muted/30" : "border-warning/40 bg-warning/5")}>
       {m.verdict === "fits" ? (
         <p>{t("flye.memory.fits", { gb: gb(m.estimateGb), available: gb(m.availableGb) })}</p>
+      ) : m.verdict === "tight" ? (
+        <p className="flex gap-1.5 text-amber-700 dark:text-warning">
+          <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden />{" "}
+          {t("flye.memory.tight", { gb: gb(m.estimateGb), available: gb(m.availableGb), headroom: gb(plan?.memory?.floor_headroom_gb ?? 0), need: Math.ceil(m.floorGb + (plan?.memory?.floor_headroom_gb ?? 0)) })}
+        </p>
       ) : (
         <p className="flex gap-1.5 text-amber-700 dark:text-warning">
           <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden /> {t("flye.memory.mayNotFit", { gb: gb(m.estimateGb), available: gb(m.availableGb) })}

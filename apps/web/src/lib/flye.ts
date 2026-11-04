@@ -171,21 +171,24 @@ const round2 = (v: number) => Math.round(v * 100) / 100;
 const scaled = (m: FlyeMemory, bases: number) => round2((m.reference.ram_gb * bases) / m.reference_bases);
 
 /** The server's estimate (arva_tools.flye.memory_estimate) for what the form would send now: the larger of Flye's
- * fixed k-mer counter floor and its documented figure scaled to the bases the first stage reads. */
+ * fixed k-mer counter floor and its documented figure scaled to the bases the first stage reads; "tight" when it
+ * fits but the container has less than the floor plus the server's headroom (ARVA's other services share it). */
 export function flyeMemory(form: FlyeForm, plan: FlyePlan | undefined): FlyeMemoryView | null {
   const m = plan?.memory;
   if (!m) return null;
   const floor = m.floor_gb ?? 0;
   const available = m.available_gb;
-  const below = available !== null && floor > available;
+  const container = m.container_memory_gb ?? available;
+  const below = container !== null && floor > container;
   const view: FlyeMemoryView = { verdict: below ? "below_floor" : "unknown", estimateGb: null, availableGb: available, floorGb: floor, suggestion: null };
   if (!m.read_bases) return view;
   const genome = chosenGenomeSize(form, plan).bp;
   const asm = num(form.asmCoverage);
   const used = asm && genome ? Math.min(m.read_bases, asm * genome) : m.read_bases;
   view.estimateGb = round2(Math.max(scaled(m, used), floor));
-  if (below || available === null) return view;
-  view.verdict = view.estimateGb <= available ? "fits" : "may_not_fit";
+  if (below || available === null || container === null) return view;
+  const fits = view.estimateGb <= container && scaled(m, used) <= available;
+  view.verdict = !fits ? "may_not_fit" : container < floor + (m.floor_headroom_gb ?? 0) ? "tight" : "fits";
   if (view.verdict === "may_not_fit" && !asm && !form.meta) {
     const size = genome ?? m.expected_genome_size_bp;
     // With a known size, only when it would use fewer bases than the reads hold (as the server decides).
@@ -259,6 +262,22 @@ export function initialFlyeChoices(sampleId: string, files: RawFile[], retry?: P
     form: last?.form ?? FLYE_FORM_DEFAULTS,
     confirmed: last?.confirmed ?? false,
   };
+}
+
+/** The form as it would be sent: an option the installed Flye's --help does not list (a remembered or retried value)
+ * is left out, since ARVA never passes it; its field is shown disabled with the reason. */
+export function offeredFlyeForm(form: FlyeForm, plan: FlyePlan | undefined): FlyeForm {
+  if (!plan || plan.tool.status !== "available") return form;
+  const off = (flag: string) => !plan.tool.options.includes(flag);
+  const out = { ...form };
+  if (off("--min-overlap")) out.minOverlap = "";
+  if (off("--asm-coverage")) out.asmCoverage = "";
+  if (off("--read-error")) out.readError = "";
+  if (off("--meta")) out.meta = false;
+  if (off("--keep-haplotypes")) out.keepHaplotypes = false;
+  if (off("--no-alt-contigs")) out.noAltContigs = false;
+  if (off("--scaffold")) out.scaffold = false;
+  return out;
 }
 
 export function flyeRequestParams(form: FlyeForm, plan: FlyePlan | undefined): FlyeParams {

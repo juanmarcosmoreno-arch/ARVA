@@ -272,6 +272,27 @@ describe("Polishing dialog", () => {
     expect(polish.mock.calls[0][1].medaka).toEqual({ model: null, batch_size: 100, accept_model_mismatch: false });
   });
 
+  it("says in Spanish why Medaka's version check failed, with its exit status and error output", async () => {
+    useSettings.setState({ language: "es" });
+    const failed = { ...tool("medaka"), status: "failed" as const, version: null, message: "medaka --version exited with status 1: ImportError: libtorch_cpu.so", reason: "version_exit", reason_params: { status: "1", output: "ImportError: libtorch_cpu.so" } };
+    vi.spyOn(api, "polishingPreview").mockResolvedValue({ ...plan, tools: { ...plan.tools, medaka: failed }, medaka: { ...plan.medaka!, available: false } });
+    renderWith(<PolishingDialog open onOpenChange={() => undefined} sampleId="s" technology="nanopore" assemblies={[draft]} files={[ont]} jobs={[]} draftId="draft-0001" />);
+    fireEvent.click(await screen.findByRole("radio", { name: /Lecturas de Oxford Nanopore: Medaka/ }));
+    const tools = await screen.findByRole("list", { name: "Herramientas" });
+    expect(within(tools).getByText("medaka: Su comprobación de versión terminó con el estado 1, también al reintentarla: ImportError: libtorch_cpu.so")).toBeInTheDocument();
+    expect(tools.textContent).not.toMatch(/\{status\}|\{output\}/);
+  });
+
+  it("says in Spanish how long Medaka's version check waited", async () => {
+    useSettings.setState({ language: "es" });
+    const slow = { ...tool("medaka"), status: "failed" as const, version: null, message: "timed out", reason: "version_timeout", reason_params: { seconds: "180", first: "60" } };
+    vi.spyOn(api, "polishingPreview").mockResolvedValue({ ...plan, tools: { ...plan.tools, medaka: slow }, medaka: { ...plan.medaka!, available: false } });
+    renderWith(<PolishingDialog open onOpenChange={() => undefined} sampleId="s" technology="nanopore" assemblies={[draft]} files={[ont]} jobs={[]} draftId="draft-0001" />);
+    fireEvent.click(await screen.findByRole("radio", { name: /Lecturas de Oxford Nanopore: Medaka/ }));
+    const tools = await screen.findByRole("list", { name: "Herramientas" });
+    expect(within(tools).getByText(/^medaka: Su comprobación de versión no respondió en 180 s, ni al reintentarla después de un primer intento de 60 s\./)).toBeInTheDocument();
+  });
+
   it("explains in Spanish when no basecall model is known", async () => {
     useSettings.setState({ language: "es" });
     vi.spyOn(api, "polishingPreview").mockResolvedValue(noBasecall);

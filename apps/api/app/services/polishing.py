@@ -149,7 +149,7 @@ def check_request(sample: Sample, inputs: short_hybrid.Inputs, ev: list[dict[str
 def _tool(tool_id: str) -> dict[str, Any]:
     d = detect(tool_id, refresh=True)
     return {"status": d.status.value, "version": d.version, "version_validated": d.version_validated,
-            "message": d.message, "reason": d.reason, "path": d.path}
+            "message": d.message, "reason": d.reason, "reason_params": d.reason_params, "path": d.path}
 
 
 def tools_status() -> dict[str, Any]:

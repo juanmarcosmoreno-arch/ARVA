@@ -212,7 +212,7 @@ export type Counts = Record<ItemStatus, number>;
 
 export interface FlyeGuardNote {
   guard: "off" | "auto";
-  estimate: { verdict: "fits" | "may_not_fit" | "below_floor" | "unknown"; estimate_gb: number | null; available_gb: number | null };
+  estimate: { verdict: "fits" | "tight" | "may_not_fit" | "below_floor" | "unknown"; estimate_gb: number | null; available_gb: number | null };
   applied: { asm_coverage: number; genome_size_bp?: number } | null;
   not_applied: "asm_coverage_set" | "meta" | "no_genome_size" | "no_read_statistics" | "reads_below_asm_coverage" | "below_kmer_floor" | "memory_unknown" | null;
 }
