@@ -261,7 +261,7 @@ export function CompareCumulativeChart({ assemblies }: { assemblies: Assembly[] 
     xAxis: { type: "value", min: 1, minInterval: 1, ...axisStyle(th, t("assembly.chart.rankAxis"), { nameGap: 28 }) },
     yAxis: { type: "value", min: 0, ...axisStyle(th, t("assembly.chart.cumulative"), { nameGap: 44 }), axisLabel: compactAxis(th) },
     series: shown.map((a, i) => ({
-      name: assemblyLabel(a),
+      name: assemblyLabel(t, a),
       type: "line",
       step: "end",
       data: cumulativePoints(a.stats.cumulative!),
@@ -280,7 +280,7 @@ export function CompareCumulativeChart({ assemblies }: { assemblies: Assembly[] 
       filePrefix="arva_assemblies"
       height={320}
       table={{
-        columns: [t("assembly.col.rank"), ...shown.map(assemblyLabel)],
+        columns: [t("assembly.col.rank"), ...shown.map((a) => assemblyLabel(t, a))],
         rows: Array.from({ length: maxRank }, (_, i) => [i + 1, ...shown.map((a) => a.stats.cumulative!.cumulative_length[i] ?? "—")]),
       }}
     />

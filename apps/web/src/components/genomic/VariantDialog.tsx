@@ -10,7 +10,7 @@ import { type TranslationKey, useT } from "@/i18n";
 import { api } from "@/lib/api";
 import { fmtBases, fmtInt } from "@/lib/format";
 import { hasReads } from "@/lib/results";
-import { formProblems, initialVariantForm, isLong, TECHNOLOGIES, type Technology, type VariantForm, variantBody, type VariantSettings } from "@/lib/variants";
+import { formProblems, initialVariantForm, isLong, referenceLabel, TECHNOLOGIES, type Technology, type VariantForm, variantBody, type VariantSettings } from "@/lib/variants";
 
 const CHECK = "mt-0.5 h-4 w-4 shrink-0 accent-[#00B4A6]";
 
@@ -109,7 +109,7 @@ export function VariantDialog({ open, onOpenChange, sampleId }: { open: boolean;
             <Select value={form.assemblyId} onChange={(e) => set("assemblyId", e.target.value)} aria-label={t("variants.reference")}>
               {(o?.assemblies ?? []).map((a) => (
                 <option key={a.assembly_id} value={a.assembly_id}>
-                  {a.label} · {fmtInt(a.contigs ?? 0)} contigs · {fmtBases(a.total_length ?? 0)}{a.annotation ? ` · ${t("variants.annotated", { tool: a.annotation.tool })}` : ""}{a.own_sample ? ` · ${t("variants.ownSample")}` : ""}
+                  {referenceLabel(t, a)} · {fmtInt(a.contigs ?? 0)} contigs · {fmtBases(a.total_length ?? 0)}{a.annotation ? ` · ${t("variants.annotated", { tool: a.annotation.tool })}` : ""}{a.own_sample ? ` · ${t("variants.ownSample")}` : ""}
                 </option>
               ))}
             </Select>

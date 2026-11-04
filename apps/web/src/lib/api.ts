@@ -384,7 +384,7 @@ export const api = {
     request<FlyePlan>(`/samples/${sampleId}/assembly/flye/preview`, json("POST", body)),
   runFlye: (sampleId: string, body: FlyeRequest) =>
     request<AnalysisJob>(`/samples/${sampleId}/assembly/flye`, json("POST", body)),
-  importAssembly: (sampleId: string, body: { raw_file_id: string; source: string }) =>
+  importAssembly: (sampleId: string, body: { raw_file_id: string; source: string; draft?: { from_this_sample_reads: true; assembler: string; assembler_version: string } }) =>
     request<AnalysisJob>(`/samples/${sampleId}/assembly/import`, json("POST", body)),
   spadesPreview: (sampleId: string, inputs: ShortReadInputs) =>
     request<ShortReadPlan>(`/samples/${sampleId}/assembly/spades/preview`, json("POST", { inputs })),

@@ -9,6 +9,7 @@ import { Field, Input, Select, Textarea } from "@/components/ui/form";
 import { ErrorNote } from "@/components/ui/misc";
 import { useT } from "@/i18n";
 import { api } from "@/lib/api";
+import { assemblerText } from "@/lib/assembly";
 import type { ComparisonCandidate, ComparisonSet } from "@/lib/comparative";
 import { fmtBases, fmtDate } from "@/lib/format";
 
@@ -151,7 +152,7 @@ function CandidateLine({ c }: { c: ComparisonCandidate }) {
       <span className="font-medium">{c.sample_code}</span> <span className="text-muted-foreground">· {c.project_name}</span>{" "}
       {c.kind === "polished" && <Badge tone="teal">{t("comparative.polished")}</Badge>}
       <span className="block text-muted-foreground">
-        {c.assembler} {c.assembler_version} · {c.total_length ? fmtBases(c.total_length) : "—"} · {t("comparative.contigCount", { n: c.contigs ?? 0 })} · {fmtDate(c.created_at)}
+        {assemblerText(t, c.assembler, c.assembler_version)} · {c.total_length ? fmtBases(c.total_length) : "—"} · {t("comparative.contigCount", { n: c.contigs ?? 0 })} · {fmtDate(c.created_at)}
       </span>
     </span>
   );

@@ -11,9 +11,10 @@ import { Field, Input, Select } from "@/components/ui/form";
 import { ErrorNote } from "@/components/ui/misc";
 import { type TranslationKey, useT } from "@/i18n";
 import { assemblyOptions } from "@/lib/annotation";
+import { assemblyOptionLabel } from "@/lib/assembly";
 import { KIND_TONE, kindText } from "@/lib/amr";
 import { api } from "@/lib/api";
-import { fmtBases, fmtDate, fmtInt, fmtNum } from "@/lib/format";
+import { fmtInt, fmtNum } from "@/lib/format";
 import { toolMessage } from "@/lib/messages";
 import { COMPLETENESS_TONE, warningText } from "@/lib/mobile";
 import { DatabaseTerms } from "./MobileDialog";
@@ -63,7 +64,7 @@ export function VirulenceDialog({ open, onOpenChange, sampleId, assemblies }: { 
         <Select value={assemblyId} onChange={(e) => setAssemblyId(e.target.value)} aria-label={t("mlst.assembly")}>
           {options.map(({ assembly: a }) => (
             <option key={a.id} value={a.id}>
-              {a.assembler} {a.assembler_version} · {fmtInt(a.stats.contig_count)} contigs · {fmtBases(a.stats.total_length)} · {fmtDate(a.created_at)} · {a.id.slice(0, 8)}
+              {assemblyOptionLabel(t, a)}
             </option>
           ))}
         </Select>

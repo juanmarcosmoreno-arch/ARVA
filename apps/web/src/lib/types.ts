@@ -1266,6 +1266,10 @@ export interface Assembly {
   mode: "long" | "short" | "hybrid" | "imported";
   read_type: string;
   coverage_kind?: CoverageKind | null;
+  /** A registered genome the user declared a draft assembled outside ARVA from this sample's reads: the assembler and
+   * version they stated (null otherwise). */
+  declared_assembler?: string | null;
+  declared_assembler_version?: string | null;
   input_file_ids: string[];
   stats: AssemblyStats;
   warnings: AssemblyWarning[];
@@ -1577,6 +1581,8 @@ export interface PolishingPlan {
     assembler_version: string;
     mode: AssemblyModeName;
     read_type: string;
+    declared_assembler?: string | null;
+    declared_assembler_version?: string | null;
     parent_assembly_id: string | null;
     contig_count: number;
     total_length: number;
@@ -1718,7 +1724,8 @@ export interface PolishingObservation {
     | "medaka_contig_unpolished"
     | "medaka_regions_unpolished"
     | "medaka_model_mismatch"
-    | "medaka_draft_not_flye";
+    | "medaka_draft_not_flye"
+    | "medaka_draft_declared";
   params: Record<string, string | number | boolean | null>;
   message: string;
 }
@@ -1738,7 +1745,7 @@ export interface PolishingSummary {
   polisher: "Racon" | "Medaka" | "Pilon";
   polisher_version: string;
   strategy: PolishingStrategy | null;
-  draft: { assembly_id: string; assembler: string; assembler_version: string; kind: AssemblyKind };
+  draft: { assembly_id: string; assembler: string; assembler_version: string; kind: AssemblyKind; mode?: AssemblyModeName; declared_assembler?: string | null; declared_assembler_version?: string | null };
   polished_assembly_id: string;
   read_type: string;
   rounds_requested: number;

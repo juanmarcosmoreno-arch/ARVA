@@ -1053,6 +1053,17 @@ checked), the FASTA's SHA-256 and no reads. The contig-count heuristic is not ev
 on the reads an assembly was built from), and it cannot be polished. Imported genomes are the usual way to bring
 reference strains into a comparison set; a reference uploaded for QUAST is a separate use of the same kind of file.
 
+**Registered drafts.** When registering, the user may instead declare that the FASTA is a *draft assembled outside
+ARVA from this sample's reads* (for example a Flye draft from their own pipeline), stating the assembler and its
+version as free text (`draft` in the request; stored as `declared_assembler` and `declared_assembler_version`,
+migration `b8e4d2a6f1c3`). ARVA records the declaration as stated and cannot check it. Such a draft, and only such a
+registered genome, can be polished with the sample's reads like ARVA's own assemblies (Racon or Medaka with long
+reads, Pilon with short reads); its polished versions keep the registered lineage (mode `imported`). The assembly
+card, the sample report (HTML and JSON `provenance`) and the polishing summary state that the draft was assembled
+outside ARVA as declared by the user. Coverage and circularity stay unknown: ARVA reads neither from a FASTA, so the
+polished contigs have no circularity either. Medaka's models were trained on unpolished Flye drafts (medaka's
+README); a declared draft is not taken as one, and the run notes that ARVA cannot check it.
+
 ### Evidence levels across assembly and polishing
 
 Every value ARVA shows for an assembly belongs to one of these levels, and the interface, reports and exports

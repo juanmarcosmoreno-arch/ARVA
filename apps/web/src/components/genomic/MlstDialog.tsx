@@ -9,10 +9,10 @@ import { Field, Input, Select } from "@/components/ui/form";
 import { ErrorNote } from "@/components/ui/misc";
 import { type TranslationKey, useT } from "@/i18n";
 import { assemblyOptions } from "@/lib/annotation";
+import { assemblyOptionLabel } from "@/lib/assembly";
 import { api } from "@/lib/api";
-import { fmtBases, fmtDate, fmtInt } from "@/lib/format";
 import { toolMessage } from "@/lib/messages";
-import { initialMlstForm, MLST_DEFAULT_EXCLUDE, mlstBody, type MlstForm, mlstProblems } from "@/lib/mlst";
+import { initialMlstForm, MLST_DEFAULT_EXCLUDE, mlstBody, mlstDatabaseName, type MlstForm, mlstProblems } from "@/lib/mlst";
 import type { Assembly, MlstPlan } from "@/lib/types";
 
 const CHECK = "mt-0.5 h-4 w-4 shrink-0 accent-[#00B4A6]";
@@ -69,8 +69,7 @@ export function MlstDialog({
               <option key={a.id} value={a.id}>
                 {"  ".repeat(depth)}
                 {depth ? "↳ " : ""}
-                {a.assembler} {a.assembler_version} · {a.kind === "polished" ? t("annotation.polished") : a.read_type} · {fmtInt(a.stats.contig_count)} contigs ·{" "}
-                {fmtBases(a.stats.total_length)} · {fmtDate(a.created_at)} · {a.id.slice(0, 8)}
+                {assemblyOptionLabel(t, a)}
               </option>
             ))}
           </Select>
@@ -216,7 +215,7 @@ export function DatabaseNote({ plan }: { plan: Pick<MlstPlan, "database"> }) {
   const d = plan.database!;
   return (
     <div className="space-y-1.5 rounded-lg border p-3 text-xs">
-      <p className="font-medium">{d.name}</p>
+      <p className="font-medium">{mlstDatabaseName(t, d.name)}</p>
       <p className="text-muted-foreground">
         {t("mlst.dbLine", { schemes: d.scheme_count ?? "?", date: d.version ?? "?", file: d.version_txt ?? "?", index: d.blast_last_updated ?? "?" })}
       </p>

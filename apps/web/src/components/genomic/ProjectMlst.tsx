@@ -7,6 +7,7 @@ import { Card, CardBody, CardHeader } from "@/components/ui/card";
 import { ErrorNote } from "@/components/ui/misc";
 import { type TranslationKey, useT } from "@/i18n";
 import { api } from "@/lib/api";
+import { assemblerText } from "@/lib/assembly";
 import { fmtDate } from "@/lib/format";
 import { clonalComplexText, warningText } from "@/lib/mlst";
 import { STATUS_TONE } from "@/lib/species";
@@ -133,7 +134,7 @@ export function MlstTable({
                   </td>
                   <td className={TD}>{clonalComplexText(t, row.clonal_complex)}</td>
                   <td className={TD}>
-                    {row.assembler} {row.assembler_version}
+                    {assemblerText(t, row.assembler, row.assembler_version)}
                     {row.assembly_kind === "polished" && <span className="text-muted-foreground"> · {t("annotation.polished")}</span>}
                   </td>
                   <td className="max-w-md px-2 py-1.5" title={row.warnings.map((w) => warningText(t, w)).join("\n")}>
