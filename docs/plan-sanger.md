@@ -7,8 +7,8 @@ cepa 27: "es importante".
 
 Amplifica un gen por PCR y lo manda a secuenciar por Sanger, por ejemplo a Macrogen (Corea). Macrogen devuelve por
 cada lectura un cromatograma `.ab1`, un `.pdf` del cromatograma y un `.txt` con la secuencia FASTA llamada por el
-equipo. Hay una lectura forward y otra reverse, por ejemplo `1-27_784-F` y `1-27_1401-R`: 16S rRNA con los
-cebadores 784F y 1401R, de la cepa 27.
+equipo. Hay una lectura forward y otra reverse, por ejemplo un par de 16S rRNA amplificado con los
+cebadores 784F y 1401R.
 
 Genes que manda:
 
@@ -32,7 +32,7 @@ Genes que manda:
 - **Calidad:** visor de cromatograma (picos, calidad por base, bases ambiguas o dobles picos) y recorte de
   extremos de mala calidad con un método publicado (por ejemplo el recorte de Mott que usa Phred), con los
   parámetros a la vista.
-  - En el ejemplo `1-27_784-F`, el `.txt` de Macrogen tiene 1.541 bases, pero después de unas 600 la secuencia
+  - En una lectura de ejemplo del usuario, el `.txt` de Macrogen tiene unas 1.500 bases, pero después de unas 600 la secuencia
     se vuelve ruido (poli-A, picos sin sentido).
   - Por eso el recorte es imprescindible, y la longitud útil debe mostrarse.
 - **Consenso F+R:** revertir y complementar la reverse, alinear, resolver diferencias mirando las calidades y
@@ -67,5 +67,5 @@ Genes que manda:
 
 ## Datos de prueba del usuario
 
-Los `.ab1`, `.pdf` y `.txt` de `1-27_784-F` y `1-27_1401-R` están **fuera del repositorio** (datos del usuario; el
+Los `.ab1`, `.pdf` y `.txt` de ejemplo del usuario están **fuera del repositorio** (datos del usuario; el
 repositorio es público). No se suben a GitHub.
