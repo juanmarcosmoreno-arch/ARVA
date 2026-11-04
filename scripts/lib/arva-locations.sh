@@ -227,6 +227,18 @@ arva_problem() {
     control) say "The $3 folder's path contains control characters." "La ruta de la carpeta de $4 contiene caracteres de control." ;;
     too_long) say "The $3 folder's path is longer than 1024 characters." "La ruta de la carpeta de $4 tiene más de 1024 caracteres." ;;
     missing)
+      # A folder on a macOS volume that is not mounted: creating it would make a folder of that name under /Volumes on
+      # the startup disk, and the external disk would then mount under another name ("JM 1").
+      case "$2" in
+        /Volumes/*/*)
+          vol=${2#/Volumes/}; vol=${vol%%/*}
+          if [ ! -d "/Volumes/$vol" ]; then
+            say "The $3 folder $2 is on the disk \"$vol\", which is not connected. Connect the disk and run this script again. Do not create the folder: under /Volumes it would be created on the Mac's own disk." \
+                "La carpeta de $4 $2 está en el disco «$vol», que no está conectado. Conecta el disco y vuelve a ejecutar este script. No crees la carpeta: dentro de /Volumes se crearía en el disco de la Mac."
+            return 0
+          fi
+          ;;
+      esac
       say "The $3 folder $2 does not exist. If it is on an external disk, connect the disk and run this script again; otherwise create the folder first: mkdir -p $q" \
           "La carpeta de $4 $2 no existe. Si está en un disco externo, conéctalo y vuelve a ejecutar este script; si no, crea primero la carpeta: mkdir -p $q"
       ;;
