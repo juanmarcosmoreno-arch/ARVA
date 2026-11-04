@@ -201,6 +201,76 @@ def test_the_spanish_summary_lists_the_chosen_folders(tmp_path, shell):
     assert f"ARVA_IMPORT_DIR={runs}" in m.config.read_text().splitlines()
 
 
+def saved(m: FirstRun) -> list[str]:
+    return m.config.read_text().splitlines()[1:]
+
+
+@pytest.mark.parametrize("shell", SHELLS)
+def test_a_second_setup_keeps_saved_folders_skipped_with_enter_and_the_summary_says_so(tmp_path, shell):
+    m = FirstRun(tmp_path)
+    m.settings(sharing(m, "/Users", "/Volumes/JM"))
+    bioinf, runs = m.folder("BioInf"), m.folder("runs")
+    # Disk 1, these folders, one database folder, end, the import folder, image 1, save.
+    first = m.ask(shell, ["1", "", str(bioinf), "", str(runs), "", ""], "--setup", lang="en_US.UTF-8")
+    assert first.returncode == 0, first.stdout + first.stderr
+    # Again, with Enter at the database-folder and import questions: both saved folders stay, and the summary shows
+    # them as kept instead of "none".
+    again = m.ask(shell, ["1", "", "", "", "", ""], "--setup", lang="en_US.UTF-8")
+    assert again.returncode == 0, again.stdout + again.stderr
+    out = " ".join(again.stdout.split())
+    assert f"Already added, kept (scripts/start.sh --remove-databases PATH stops using one): - {bioinf}" in out
+    assert f"read-only (Enter to keep {runs}):" in out
+    text = summary(again.stdout)
+    assert f"Existing database folders (read-only): - {bioinf} (saved before, kept)" in text
+    assert f"Folder to import from (read-only): {runs} (saved before, kept)" in text
+    assert "none" not in text
+    lines = saved(m)
+    assert f"ARVA_ADD_DATABASES={bioinf}" in lines and f"ARVA_IMPORT_DIR={runs}" in lines
+    # A folder added again is listed once, as an answer.
+    third = m.ask(shell, ["1", "", str(bioinf), "", "", "", ""], "--setup", lang="en_US.UTF-8")
+    assert third.returncode == 0, third.stdout + third.stderr
+    text = summary(third.stdout)
+    assert text.count(str(bioinf)) == 1 and f"- {bioinf} (saved before" not in text
+    assert [line for line in saved(m) if line.startswith("ARVA_ADD_DATABASES=")] == [f"ARVA_ADD_DATABASES={bioinf}"]
+
+
+@pytest.mark.parametrize("shell", SHELLS)
+def test_a_second_setup_that_keeps_everything_in_docker_forgets_the_saved_disk_as_the_summary_says(tmp_path, shell):
+    m = FirstRun(tmp_path)
+    m.settings(sharing(m, "/Users", "/Volumes/JM"))
+    data, dbs = m.disk / "ARVA" / "data", m.disk / "ARVA" / "databases"
+    first = m.ask(shell, ["1", "", "", "", "", ""], "--setup", lang="es_AR.UTF-8")
+    assert first.returncode == 0, first.stdout + first.stderr
+    assert f"ARVA_DATA_DIR={data}" in saved(m)
+    (data / "keep.txt").write_text("x")
+    # 0: inside Docker Desktop. The summary says so, and says that the saved folders are no longer used.
+    again = m.ask(shell, ["0", "", "", "", ""], "--setup", lang="es_AR.UTF-8")
+    assert again.returncode == 0, again.stdout + again.stderr
+    text = summary(again.stdout)
+    assert "Proyectos, resultados, informes, registros, copias: dentro de Docker Desktop (volúmenes de Docker)" in text
+    assert "Bases de datos que descarga ARVA: dentro de Docker Desktop (volúmenes de Docker)" in text
+    assert f"{data}, guardada antes, deja de usarse (no se mueve ni se borra nada de ella)." in text
+    assert f"{dbs}, guardada antes, deja de usarse" in text
+    # What was saved is what the summary showed; the folder itself is untouched.
+    assert saved(m) == []
+    assert (data / "keep.txt").read_text() == "x"
+    assert not m.override.exists() or str(data) not in m.override.read_text()
+
+
+@pytest.mark.parametrize("shell", SHELLS)
+def test_a_second_setup_on_a_computer_without_an_apple_chip_forgets_a_saved_platform(tmp_path, shell):
+    m = FirstRun(tmp_path)
+    m.settings('{"UseVirtualizationFrameworkRosetta": true}')
+    (m.bin / "uname").write_text('#!/bin/sh\ncase "$1" in -s) echo Darwin ;; -m) echo x86_64 ;; esac\n')
+    m.config.parent.mkdir(parents=True, exist_ok=True)
+    m.config.write_text("# saved\nARVA_PLATFORM=linux/arm64\n")
+    m.config.chmod(0o600)
+    proc = m.ask(shell, ["0", "", "", ""], "--setup", lang="en_US.UTF-8")
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert "Image architecture: this computer's own (x86_64)" in summary(proc.stdout)
+    assert saved(m) == []
+
+
 @pytest.mark.parametrize("shell", SHELLS)
 @pytest.mark.parametrize("answers", [
     [],                             # at the first question (the disk)
@@ -218,8 +288,8 @@ def test_input_that_ends_early_stops_the_first_run_with_a_message(tmp_path, shel
     proc = m.ask(shell, answers, "--setup", lang="en_US.UTF-8")
     assert proc.returncode == 1, proc.stdout + proc.stderr
     err = " ".join(proc.stderr.split())
-    assert "The answers ended before the last question" in err and "Nothing was saved and ARVA did not start" in err
-    assert err.count("The answers ended before the last question") == 1
+    assert "The answers ended before all the questions were answered" in err and "Nothing was saved and ARVA did not start" in err
+    assert err.count("The answers ended before all the questions were answered") == 1
     assert "ARVA did not start; nothing was saved." in err
     assert not m.config.exists() and not any("up" in c for c in m.calls)
     assert not (m.disk / "ARVA").exists()
@@ -233,7 +303,7 @@ def test_input_that_ends_early_is_explained_in_spanish(tmp_path, shell):
     proc = m.ask(shell, ["1", "", "", ""], "--setup")
     assert proc.returncode == 1
     err = " ".join(proc.stderr.split())
-    assert "Las respuestas terminaron antes de la última pregunta" in err and "No se guardó nada" in err
+    assert "Las respuestas terminaron antes de que se respondieran todas las preguntas" in err and "No se guardó nada" in err
     assert not m.config.exists()
 
 

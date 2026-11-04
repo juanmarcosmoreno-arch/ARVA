@@ -143,7 +143,11 @@ and no location options, it asks first (`scripts/lib/arva-firstrun.sh`; Spanish 
 
 The answers set the same values as `--data-dir`, `--databases-dir`, `--add-databases`, `--import-dir` and
 `--platform`, are checked the same way and saved only after *Save these choices and start ARVA?*, which a summary of
-every answer precedes ("none" for an existing database folder or import folder skipped with Enter). When the input
+what will be saved precedes ("none" for an existing database folder or import folder skipped with Enter). On a later
+`--setup` (ARVA.app: ARVA → Set Up Again…) the disk and image answers replace the saved ones (0, inside Docker
+Desktop, forgets a saved data or database folder, and the summary says so; the folder is not touched), while saved
+existing database folders and the import folder are kept when their question is skipped with Enter: they are listed
+at that question and marked "saved before, kept" in the summary (`--remove-databases` stops using one). When the input
 ends before that question (Control-D, the window closed, no more lines in a pipe), or the wizard is interrupted
 (INT, HUP, TERM), it says so and saves nothing: the end of the input is never taken as "yes". Even an answer
 that keeps everything in Docker volumes writes the file, so the questions are not asked again. `--setup` asks them
