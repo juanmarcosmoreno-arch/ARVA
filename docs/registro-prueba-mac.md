@@ -105,3 +105,9 @@ los merges `fix/g1` a `fix/g6`. Los textos nuevos de la interfaz están en ingl�
 | 32 | Diseño en `docs/plan-flye-nativo.md` (Flye nativo en macOS desde ARVA.app); pendiente de la decisión del usuario. |
 
 Quedan como ideas sin hacer: 21 (control DCS de lambda).
+
+## Cepa 27, después de la ronda de arreglos
+
+| # | Qué se vio | Estado |
+|---|---|---|
+| 48 | MOB-suite 3.1.9 con la base del pipeline del usuario (registrada con versión declarada "3.1.8 (mob_init, pipeline propio)"; funcionó tras el arreglo del punto 47). Contig 2 (24.656 pb, GC 28,7 %): **plásmido**, cluster AA409/AI458, replicones rep_cluster_1017 (92,7 %, 94 % de cobertura), 1733 y 2214 (100 %), relaxasa MOBV, oriT tipo MOBQ, sin MPF → **movilizable**; vecino más cercano por Mash NC_013292 (*S. aureus*, distancia 0,00029); rango de hospedadores: género *Staphylococcus*. Contig 1: **cromosoma**, con un replicón (rep_cluster_1636, 96 %) en 2,633 Mb (zona del fago que interrumpe hlb, entre hlb y sak) y una relaxasa MOBT dentro de un elemento de 14,4 kb que MOB-suite llama ISSau5 (familia IS30), en 1,456-1,470 Mb. Concuerda con PlasmidFinder (rep19, rep16, rep5a en el contig 2). | falta comparar con el `mob_recon` del pipeline del usuario |
