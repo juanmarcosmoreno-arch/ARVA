@@ -119,4 +119,4 @@ Quedan como ideas sin hacer: 21 (control DCS de lambda).
 
 ## Pendientes para la próxima ronda (decisión del usuario, 2026-11-05)
 
-Para hacer juntos más adelante: (1) Flye nativo en macOS desde ARVA.app (`docs/plan-flye-nativo.md`); (2) memoria de Bakta: estimación antes de lanzar y opciones cuando la base completa no entra en Docker (punto 49); (3) botón de proyecto "Registrar los FASTA de todas las muestras" como ensamblajes, con un origen común (hoy es un diálogo por muestra; con 22 cepas lo hizo a mano).
+Para hacer juntos más adelante: (1) Flye nativo en macOS desde ARVA.app (`docs/plan-flye-nativo.md`); (2) memoria de Bakta: estimación antes de lanzar y opciones cuando la base completa no entra en Docker (punto 49); (3) ~~botón de proyecto "Registrar los FASTA de todas las muestras"~~ hecho el 2026-11-05 a pedido del usuario: botón "Registrar genomas" en la página del proyecto (`genome_registration.py`, `RegisterGenomesDialog.tsx`).
