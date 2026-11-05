@@ -11,6 +11,8 @@ name: Container images
 on:
   push:
     branches: [main, claude/affectionate-darwin-oknu0k]
+    # A push that only changes documentation builds nothing, so it never cancels the build of the code before it.
+    paths-ignore: ["docs/**", "**/*.md"]
   workflow_dispatch:
 
 permissions:
