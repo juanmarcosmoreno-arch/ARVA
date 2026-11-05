@@ -2,7 +2,7 @@ import { Check, ClipboardCopy } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { useT } from "@/i18n";
-import { copyText, fetchReport } from "@/lib/diagnostics";
+import { copyFetched, fetchReport, reportUrl } from "@/lib/diagnostics";
 import { cn } from "@/lib/utils";
 import { useSettings } from "@/store/settings";
 
@@ -15,16 +15,18 @@ export function CopyErrorDetails({ jobId, errorId, fallback, className }: { jobI
   const [problem, setProblem] = useState("");
 
   async function copy() {
-    setState("busy");
-    try {
-      let text: string;
+    // The clipboard write must start while the click is handled (WebKit), so it is started before anything is awaited.
+    const copying = copyFetched(async () => {
       try {
-        text = await fetchReport({ anonymise, jobId, errorId });
+        return await fetchReport({ anonymise, jobId, errorId });
       } catch (err) {
         if (!fallback) throw err;
-        text = fallback();
+        return fallback();
       }
-      await copyText(text);
+    });
+    setState("busy");
+    try {
+      await copying;
       setState("copied");
       window.setTimeout(() => setState("idle"), 2500);
     } catch (err) {
@@ -39,7 +41,16 @@ export function CopyErrorDetails({ jobId, errorId, fallback, className }: { jobI
         {state === "copied" ? <Check className="h-3.5 w-3.5 text-success" aria-hidden /> : <ClipboardCopy className="h-3.5 w-3.5" aria-hidden />}
         {state === "copied" ? t("error.copied") : t("error.copyDetails")}
       </Button>
-      {state === "failed" && <span role="alert" className="text-xs text-danger">{t("diagnostics.copyFailed", { error: problem })}</span>}
+      {state === "failed" && (
+        <span role="alert" className="text-xs text-danger">
+          {t("diagnostics.copyFailed", { error: problem })}{" "}
+          {(jobId || errorId) && (
+            <a className="font-medium underline" href={reportUrl({ anonymise, jobId, errorId, format: "markdown" })} download>
+              {t("diagnostics.downloadInstead")}
+            </a>
+          )}
+        </span>
+      )}
     </span>
   );
 }

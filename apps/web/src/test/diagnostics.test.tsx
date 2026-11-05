@@ -89,6 +89,42 @@ describe("Copy error details", () => {
     expect(writeText).toHaveBeenCalledWith(REPORT);
   });
 
+  it("starts the clipboard write during the click, with the report still on its way (WebKit refuses it later)", async () => {
+    let release: (r: Response) => void = () => {};
+    serve(() => new Promise<Response>((resolve) => { release = resolve; }));
+    const items: { types: Record<string, Promise<Blob>> }[] = [];
+    class FakeItem { constructor(public types: Record<string, Promise<Blob>>) {} }
+    vi.stubGlobal("ClipboardItem", FakeItem);
+    const write = vi.fn(async (list: { types: Record<string, Promise<Blob>> }[]) => { items.push(...list); await list[0].types["text/plain"]; });
+    Object.assign(navigator.clipboard, { write });
+    try {
+      render(<CopyErrorDetails jobId="6f1c2a7e-0000-4000-8000-000000000000" />);
+      fireEvent.click(screen.getByRole("button", { name: "Copy error details" }));
+      // Called in the click itself, before the report arrived.
+      expect(write).toHaveBeenCalledTimes(1);
+      release(new Response(REPORT));
+      expect(await screen.findByRole("button", { name: "Copied" })).toBeInTheDocument();
+      const blob = await items[0].types["text/plain"];
+      const copied = await new Promise<string>((resolve) => { const r = new FileReader(); r.onload = () => resolve(String(r.result)); r.readAsText(blob); });
+      expect(copied).toBe(REPORT);
+    } finally {
+      vi.unstubAllGlobals();
+      Object.assign(navigator.clipboard, { write: undefined });
+    }
+  });
+
+  it("offers to download the report when the browser refuses to copy it", async () => {
+    serve(() => new Response(REPORT));
+    writeText.mockRejectedValueOnce(new Error("NotAllowedError"));
+    const exec = vi.fn(() => false);
+    Object.assign(document, { execCommand: exec });
+    render(<CopyErrorDetails jobId="6f1c2a7e-0000-4000-8000-000000000000" />);
+    fireEvent.click(screen.getByRole("button", { name: "Copy error details" }));
+    const link = await screen.findByRole("link", { name: /Download it instead/ });
+    expect(link).toHaveAttribute("href", "/api/v1/system/diagnostics?format=markdown&anonymise=false&job_id=6f1c2a7e-0000-4000-8000-000000000000");
+    expect(screen.getByText(/copy refused/)).toBeInTheDocument();
+  });
+
   it("an unexpected server error shows its id with the button, also in a toast", async () => {
     serve(() => new Response(REPORT));
     render(<ErrorNote error={new ApiError(500, "ARVA hit an unexpected error (error ID R2D2-C3P0).", "R2D2-C3P0")} />);

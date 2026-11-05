@@ -51,6 +51,23 @@ export async function fetchReport(o: ReportOptions): Promise<string> {
   return res.text();
 }
 
+/** Copies text that is still being fetched. Safari and the Mac app's web view (WebKit) only let a page write to the
+ * clipboard while the click is being handled: awaiting the report first loses that, and the copy is refused. So the
+ * clipboard write starts at once with a ClipboardItem whose content is the pending text (WebKit's documented way);
+ * where that is not supported, the text is copied once it arrives. Call it from the click handler before any await. */
+export async function copyFetched(get: () => Promise<string>): Promise<void> {
+  const text = get();
+  if (navigator.clipboard?.write && typeof ClipboardItem !== "undefined") {
+    try {
+      await navigator.clipboard.write([new ClipboardItem({ "text/plain": text.then((t) => new Blob([t], { type: "text/plain" })) })]);
+      return;
+    } catch {
+      /* refused or not supported with a pending item: copy the text once it is here */
+    }
+  }
+  await copyText(await text);
+}
+
 /** The clipboard, or (an insecure page, an older browser) a hidden text area and the copy command. */
 export async function copyText(text: string): Promise<void> {
   if (navigator.clipboard?.writeText) {

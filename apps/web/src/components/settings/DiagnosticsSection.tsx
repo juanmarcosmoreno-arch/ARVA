@@ -7,7 +7,7 @@ import { Card, CardBody, CardHeader } from "@/components/ui/card";
 import { Field, Select } from "@/components/ui/form";
 import { ErrorNote, Skeleton } from "@/components/ui/misc";
 import { useT, type TranslationKey } from "@/i18n";
-import { WINDOWS, copyText, entryMessage, fetchReport, recentErrors, reportUrl } from "@/lib/diagnostics";
+import { WINDOWS, copyFetched, entryMessage, fetchReport, recentErrors, reportUrl } from "@/lib/diagnostics";
 import { fmtDate } from "@/lib/format";
 import { useSettings } from "@/store/settings";
 
@@ -24,9 +24,10 @@ export function DiagnosticsSection() {
   const options = { anonymise, includeLogs, sinceHours };
 
   async function copyReport() {
+    const copying = copyFetched(() => fetchReport(options));
     setCopy({ state: "busy" });
     try {
-      await copyText(await fetchReport(options));
+      await copying;
       setCopy({ state: "copied" });
     } catch (err) {
       setCopy({ state: "failed", error: err instanceof Error ? err.message : String(err) });
