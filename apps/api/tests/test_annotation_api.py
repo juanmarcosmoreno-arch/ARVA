@@ -206,6 +206,10 @@ def test_tsv_neutralises_formulas_from_databases():
     row = text.splitlines()[1].split("\t")
     assert row[10] == "'=HYPERLINK(\"http://evil\")" and row[15] == "'@SUM(1)" and row[4] == "chr"
     assert row[19] == "a b" and len(row) == len(svc.TSV_COLUMNS)
+    # A strand is written as the bare sign (the user's Bakta table showed '+ and '- before this).
+    assert row[7] == "+"
+    minus = svc.tsv(SimpleNamespace(sequences=[{"id": "c", "original_id": "chr"}]), [{**features[0], "strand": "-"}])
+    assert minus.splitlines()[1].split("\t")[7] == "-"
 
 
 # --- Bakta -----------------------------------------------------------------------------------------------------

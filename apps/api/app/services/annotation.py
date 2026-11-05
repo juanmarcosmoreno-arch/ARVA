@@ -458,6 +458,8 @@ def tsv(annotation: Annotation, features: list[dict[str, Any]]) -> str:
         elif isinstance(value, bool):
             value = "yes" if value else "no"
         text = "" if value is None else str(value)
+        if text in ("+", "-"):  # a strand: a lone sign is not a formula, and an apostrophe would corrupt the column
+            return text
         return sanitize_spreadsheet_cell(text.replace("\t", " ").replace("\n", " ").replace("\r", " "))
 
     rows = ["\t".join(TSV_COLUMNS)]
