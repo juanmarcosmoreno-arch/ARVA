@@ -188,6 +188,9 @@ def _bakta_body(ctx: JobContext) -> None:
         if reason is None:
             raise
         ctx.log("Bakta output (last lines):\n" + exc.stderr_tail.strip())
+        console_text = console.read_text(errors="replace") if console.is_file() else ""
+        if BaktaAdapter.out_of_memory(console_text + exc.stderr_tail, exc.returncode):
+            raise JobFailure(reason, "bakta_out_of_memory") from None
         raise JobFailure(reason) from None
     monitor(finished=True)
     shutil.rmtree(tmp, ignore_errors=True)

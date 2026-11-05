@@ -121,6 +121,9 @@ STAGES = ("parse", "trna", "tmrna", "rrna", "ncrna", "ncrna_region", "crispr", "
 _FOUND = re.compile(r"^\t(?:found|predicted|detected): (\d+)\s*$")
 _CRISPR_CRASH = re.compile(r"PILER-CR crashed \(error code=(-?\d+)\)")
 _ERROR = re.compile(r"^(?:ERROR|Error): ?(.+?)\s*$", re.M)
+# Bakta 1.12 runs DIAMOND itself (bakta/psc.py, pscc.py: "--block-size 3") and, when it fails, raises
+# Exception(f'diamond error! error code: {proc.returncode}'); -9 is the kernel's SIGKILL (out of memory).
+_DIAMOND_KILLED = re.compile(r"diamond error! error code: (?:-9|137)\b")
 _WARNING = re.compile(r"^\s*WARNING: ?(.+?)\s*$", re.M)
 
 TYPES = {"cds": "cds", "sorf": "sorf", "tRNA": "trna", "tmRNA": "tmrna", "rRNA": "rrna", "ncRNA": "ncrna",
@@ -428,12 +431,22 @@ class BaktaAdapter(ToolAdapter):
 
     @staticmethod
     def failure_reason(console: str, returncode: int | None) -> str | None:
+        if _DIAMOND_KILLED.search(console):
+            return ("DIAMOND, the protein search Bakta runs against its database, was stopped by the operating system "
+                    "(out of memory). Bakta sets DIAMOND's block size itself (3), so its memory cannot be lowered from "
+                    "ARVA: give Docker Desktop more memory, or annotate with Bakta's light database, which is much "
+                    "smaller")
         errors = [m.group(1) for m in _ERROR.finditer(console)]
         if errors:
             return f"Bakta stopped: {errors[-1]}"
         if returncode in (-9, 137):
             return "Bakta was stopped by the operating system (out of memory)"
         return None
+
+    @staticmethod
+    def out_of_memory(console: str, returncode: int | None) -> bool:
+        """Whether Bakta, or the DIAMOND search it runs, was killed by the operating system."""
+        return bool(_DIAMOND_KILLED.search(console)) or returncode in (-9, 137)
 
     @staticmethod
     def parse_json(data: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:

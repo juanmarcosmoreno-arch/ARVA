@@ -142,6 +142,14 @@ def test_bakta_failure_reason_uses_its_error_line():
     console = "ERROR: Wrong Diamond version installed. Please, either install Diamond version v2.2.0 or use ...!\n"
     assert BaktaAdapter.failure_reason(console, 1).startswith("Bakta stopped: Wrong Diamond version")
     assert BaktaAdapter.failure_reason("", -9).endswith("(out of memory)")
+    # Bakta 1.12.2 on a 6 GB Docker VM: DIAMOND killed in the CDS step, Bakta exits 1 with its own traceback.
+    console = ("predict & annotate CDSs...\n\tpredicted: 2546 \nTraceback (most recent call last):\n"
+               "  File \".../bakta/psc.py\", line 65, in search\n"
+               "    raise Exception(f'diamond error! error code: {proc.returncode}')\n"
+               "Exception: diamond error! error code: -9\n")
+    assert BaktaAdapter.failure_reason(console, 1).startswith("DIAMOND, the protein search Bakta runs")
+    assert BaktaAdapter.out_of_memory(console, 1) and BaktaAdapter.out_of_memory("", 137)
+    assert not BaktaAdapter.out_of_memory("Exception: diamond error! error code: 1\n", 1)
     assert BaktaAdapter.failure_reason("", 1) is None
 
 
