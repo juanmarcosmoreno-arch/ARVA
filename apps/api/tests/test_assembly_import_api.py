@@ -193,3 +193,43 @@ def test_registered_draft_migration_up_and_down_on_a_scratch_database(monkeypatc
         db.dispose()
         with admin.connect() as conn:
             conn.execute(text(f"DROP DATABASE IF EXISTS {name}"))
+
+
+def test_every_samples_genome_fasta_is_registered_at_once(client, tmp_path):
+    p = client.post(f"{API}/projects", json={"name": "Batch genomes"}).json()
+    samples = {code: client.post(f"{API}/projects/{p['id']}/samples",
+                                 json={"sample_code": code, "sequencing_technology": "nanopore"}).json()
+               for code in ("S1", "S2", "S3", "S4")}
+    for code in ("S1", "S2"):
+        fasta = tmp_path / f"{code}.fasta"
+        fasta.write_text(GENOME)
+        upload(client, samples[code]["id"], fasta)
+    for name in ("a.fasta", "b.fasta"):  # S3 has two FASTA files: ARVA cannot choose for the user
+        (tmp_path / name).write_text(GENOME.replace("ACGT", "TTGC") if name == "b.fasta" else GENOME)
+        upload(client, samples["S3"]["id"], tmp_path / name)
+    upload(client, samples["S4"]["id"], ONT)  # reads only
+
+    plan = {r["sample_code"]: r for r in client.get(f"{API}/projects/{p['id']}/assembly/import-all").json()}
+    assert {c: r["status"] for c, r in plan.items()} == {
+        "S1": "ready", "S2": "ready", "S3": "several_fasta", "S4": "no_fasta"}
+    assert plan["S1"]["file_name"] == "S1.fasta"
+
+    r = client.post(f"{API}/projects/{p['id']}/assembly/import-all",
+                    json={"source": "Own pipeline: Flye 2.9.6 + Medaka 2.1.1"})
+    assert r.status_code == 202, r.text
+    body = r.json()
+    assert sorted(s["sample_code"] for s in body["started"]) == ["S1", "S2"]
+    assert {s["sample_code"]: s["status"] for s in body["skipped"]} == {"S3": "several_fasta", "S4": "no_fasta"}
+    for s in body["started"]:
+        job = client.get(f"{API}/jobs/{s['job_id']}").json()
+        assert job["status"] == "completed", job["log_text"]
+        (a,) = client.get(f"{API}/samples/{s['sample_id']}/assemblies").json()
+        assert (a["mode"], a["assembler_version"]) == ("imported", "Own pipeline: Flye 2.9.6 + Medaka 2.1.1")
+
+    # A second press registers nothing twice.
+    again = {r["sample_code"]: r["status"] for r in client.get(f"{API}/projects/{p['id']}/assembly/import-all").json()}
+    assert again["S1"] == again["S2"] == "registered"
+    r = client.post(f"{API}/projects/{p['id']}/assembly/import-all", json={"source": "x1", "sample_ids": [samples["S1"]["id"]]})
+    assert r.json() == {"started": [], "skipped": [{"sample_id": samples["S1"]["id"], "sample_code": "S1",
+                                                     "status": "registered"}]}
+    assert client.post(f"{API}/projects/{p['id']}/assembly/import-all", json={"source": "<bad>"}).status_code == 422

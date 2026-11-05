@@ -14,7 +14,7 @@ import type { RawFile } from "@/lib/types";
 const CHECK = "mt-0.5 h-4 w-4 shrink-0 accent-[#00B4A6]";
 /** The characters the API accepts for what the user states (AssemblyImportRequest in apps/api/app/schemas). */
 const SOURCE = /^[A-Za-z0-9][A-Za-z0-9 ._:/()+-]*$/;
-const stated = (s: string) => SOURCE.test(s.trim()) && s.trim().length <= 100;
+export const stated = (s: string) => SOURCE.test(s.trim()) && s.trim().length <= 100;
 
 /** Registers a genome FASTA of the sample as an imported assembly: a finished genome (e.g. an NCBI RefSeq genome), or a
  * draft the user declares they assembled outside ARVA from this sample's reads (which ARVA then lets them polish). */

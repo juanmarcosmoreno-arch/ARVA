@@ -445,6 +445,42 @@ class AssemblyImportRequest(BaseModel):
                                   "this sample's reads; such a draft can be polished. Omit for a finished genome.")
 
 
+class ProjectGenomeRegistrationRow(BaseModel):
+    sample_id: str
+    sample_code: str
+    status: Literal["ready", "registered", "no_fasta", "several_fasta"]
+    file_id: str | None = None
+    file_name: str | None = None
+    fasta_files: int
+
+
+class ProjectGenomeRegistrationRequest(BaseModel):
+    source: str = Field(min_length=1, max_length=100, pattern=SAFE_STATED_TEXT,
+                        description="Where the genomes come from, as the user states it; the same for every sample")
+    draft: RegisteredDraftDeclaration | None = Field(
+        default=None, description="Set only when the user declares every FASTA is a draft assembled outside ARVA from "
+                                  "its sample's reads")
+    sample_ids: list[Annotated[str, Field(max_length=64)]] | None = Field(
+        default=None, max_length=2000, description="Only these samples; omitted: every sample that is ready")
+
+
+class ProjectGenomeRegistrationStarted(BaseModel):
+    sample_id: str
+    sample_code: str
+    job_id: str
+
+
+class ProjectGenomeRegistrationSkipped(BaseModel):
+    sample_id: str
+    sample_code: str
+    status: str
+
+
+class ProjectGenomeRegistrationRead(BaseModel):
+    started: list[ProjectGenomeRegistrationStarted]
+    skipped: list[ProjectGenomeRegistrationSkipped]
+
+
 class FlyeRequest(BaseModel):
     raw_file_ids: list[Annotated[str, Field(max_length=64)]] = Field(min_length=1, max_length=100)
     params: FlyeParamsIn

@@ -33,6 +33,9 @@ from app.schemas.schemas import (
     PolishingPreviewRequest,
     PolishingRequest,
     ProjectAssemblyRead,
+    ProjectGenomeRegistrationRead,
+    ProjectGenomeRegistrationRequest,
+    ProjectGenomeRegistrationRow,
     QuastPlanRead,
     QuastPreviewRequest,
     QuastRequest,
@@ -43,7 +46,7 @@ from app.schemas.schemas import (
     UnicyclerPreviewRequest,
     UnicyclerRequest,
 )
-from app.services import flye, polishing, quast, short_hybrid
+from app.services import flye, genome_registration, polishing, quast, short_hybrid
 from app.services.assemblies import GRAPH_MAX_EDGES, GRAPH_MAX_NODES, assembly_graph
 from app.services.jobs import (
     create_assembly_import_job,
@@ -281,6 +284,24 @@ def import_assembly(sample_id: str, payload: AssemblyImportRequest, db: Session 
     draft = None if payload.draft is None else {"assembler": payload.draft.assembler.strip(),
                                                 "assembler_version": payload.draft.assembler_version.strip()}
     return create_assembly_import_job(db, sample, fasta, payload.source.strip(), draft)
+
+
+@router.get("/projects/{project_id}/assembly/import-all", response_model=list[ProjectGenomeRegistrationRow])
+def preview_project_genome_registration(project_id: str, db: Session = Depends(get_db)):
+    """Per sample of the project: the genome FASTA that "Register all genome FASTA files" would register, or why the
+    sample is skipped (no FASTA, several, or already registered). Nothing is started."""
+    return genome_registration.plan(db, project_or_404(db, project_id))
+
+
+@router.post("/projects/{project_id}/assembly/import-all", response_model=ProjectGenomeRegistrationRead,
+             status_code=status.HTTP_202_ACCEPTED)
+def register_project_genomes(project_id: str, payload: ProjectGenomeRegistrationRequest, db: Session = Depends(get_db)):
+    """Register the genome FASTA of every ready sample with one source (the per-sample registration, once per
+    sample); samples with no FASTA, several, or one already registered are listed as skipped."""
+    project = project_or_404(db, project_id)
+    draft = None if payload.draft is None else {"assembler": payload.draft.assembler.strip(),
+                                                "assembler_version": payload.draft.assembler_version.strip()}
+    return genome_registration.register_all(db, project, payload.source.strip(), draft, payload.sample_ids)
 
 
 @router.post("/samples/{sample_id}/assembly/quast/preview", response_model=QuastPlanRead)

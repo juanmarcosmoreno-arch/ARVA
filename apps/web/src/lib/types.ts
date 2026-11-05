@@ -3518,3 +3518,18 @@ export interface VirulenceAnnotationHits {
   run: { job_id: string; tool_version: string; database_version: string | null; created_at: string } | null;
   hits: VirulenceMapHit[];
 }
+
+/** A sample of a project and the genome FASTA that "Register all genome FASTA files" would register. */
+export interface ProjectGenomeRow {
+  sample_id: string;
+  sample_code: string;
+  status: "ready" | "registered" | "no_fasta" | "several_fasta";
+  file_id: string | null;
+  file_name: string | null;
+  fasta_files: number;
+}
+
+export interface ProjectGenomeRegistration {
+  started: { sample_id: string; sample_code: string; job_id: string }[];
+  skipped: { sample_id: string; sample_code: string; status: string }[];
+}

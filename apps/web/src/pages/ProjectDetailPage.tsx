@@ -1,8 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { FlaskConical, Pencil, Plus, Telescope, Trash2, UploadCloud } from "lucide-react";
+import { FileInput, FlaskConical, Pencil, Plus, Telescope, Trash2, UploadCloud } from "lucide-react";
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { BulkImportDialog } from "@/components/domain/BulkImportDialog";
+import { RegisterGenomesDialog } from "@/components/assembly/RegisterGenomesDialog";
 import { MetadataSection } from "@/components/domain/MetadataImport";
 import { ProjectAssemblies } from "@/components/domain/ProjectAssemblies";
 import { ProjectAmr } from "@/components/genomic/ProjectAmr";
@@ -36,6 +37,7 @@ export function ProjectDetailPage() {
   const [editing, setEditing] = useState(false);
   const [creating, setCreating] = useState(false);
   const [bulk, setBulk] = useState(false);
+  const [genomes, setGenomes] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const project = useQuery({ queryKey: ["project", projectId], queryFn: () => api.project(projectId) });
   const samples = useQuery({ queryKey: ["samples", projectId], queryFn: () => api.samples(projectId) });
@@ -80,6 +82,11 @@ export function ProjectDetailPage() {
             <Button variant="outline" onClick={() => setBulk(true)}>
               <UploadCloud className="h-4 w-4" /> {t("bulk.button")}
             </Button>
+            {!!samples.data?.length && (
+              <Button variant="outline" onClick={() => setGenomes(true)} title={t("genomes.buttonHint")}>
+                <FileInput className="h-4 w-4" /> {t("genomes.button")}
+              </Button>
+            )}
             <Button onClick={() => setCreating(true)}>
               <Plus className="h-4 w-4" /> {t("samples.new")}
             </Button>
@@ -121,6 +128,7 @@ export function ProjectDetailPage() {
       <ProjectFormDialog open={editing} onOpenChange={setEditing} project={p} />
       <SampleFormDialog open={creating} onOpenChange={setCreating} projectId={p.id} />
       <BulkImportDialog open={bulk} onOpenChange={setBulk} projectId={p.id} samples={samples.data ?? []} />
+      <RegisterGenomesDialog open={genomes} onOpenChange={setGenomes} projectId={p.id} />
       <Dialog open={confirmDelete} onOpenChange={setConfirmDelete} title={t("projects.deleteTitle")}>
         <p className="text-sm text-muted-foreground">
           {t("projects.deleteText", { count: p.sample_count })}
