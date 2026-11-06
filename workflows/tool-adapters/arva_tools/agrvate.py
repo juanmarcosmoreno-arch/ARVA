@@ -105,7 +105,7 @@ def outputs(workdir: Path) -> dict[str, Path]:
             "error_report": workdir / f"{INPUT}-error-report.tab"}
 
 
-def _rows(text: str, columns: tuple[str, ...], name: str) -> list[list[str]]:
+def _rows(text: str, columns: tuple[str, ...], name: str, *, at_least: bool = False) -> list[list[str]]:
     lines = [ln for ln in text.splitlines() if ln.strip()]
     if not lines:
         raise ValueError(f"{name} is empty")
@@ -113,7 +113,7 @@ def _rows(text: str, columns: tuple[str, ...], name: str) -> list[list[str]]:
     if tuple(rows[0]) != columns:
         raise ValueError(f"{name} has other columns than AgrVATE 1.0.2 writes: {', '.join(rows[0])}")
     for n, cols in enumerate(rows[1:], 2):
-        if len(cols) != len(columns):
+        if len(cols) < len(columns) if at_least else len(cols) != len(columns):
             raise ValueError(f"row {n} of {name} has {len(cols)} fields instead of {len(columns)}")
     return rows[1:]
 
@@ -143,8 +143,14 @@ def parse_error_report(text: str) -> dict[str, str]:
 
 
 def parse_variants(text: str) -> list[dict[str, Any]]:
-    return [{"position": int(p) if p.isdigit() else p, "type": t, "effect": e, "gene": g}
-            for _f, p, t, e, g in _rows(text, VARIANT_COLUMNS, "AgrVATE's frameshift table")]
+    """AgrVATE 1.0.2 writes snippy's columns 1, 2, 3, 11 (EFFECT) and 13 (GENE), then turns every space into a tab
+    (`sed 's/ /\t/g'` in bin/agrvate), so an effect such as "frameshift_variant c.67delA p.Lys23fs" spans several
+    fields: the effect is everything between the type and the last field (the gene), joined again with spaces."""
+    out = []
+    for cols in _rows(text, VARIANT_COLUMNS, "AgrVATE's frameshift table", at_least=True):
+        p, t, g = cols[1], cols[2], cols[-1]
+        out.append({"position": int(p) if p.isdigit() else p, "type": t, "effect": " ".join(cols[3:-1]), "gene": g})
+    return out
 
 
 def parse_coords(text: str) -> dict[str, Any]:

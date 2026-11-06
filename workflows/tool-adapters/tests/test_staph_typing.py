@@ -195,6 +195,14 @@ def test_agr_constructed_rows():
     variants = ag.parse_variants("\t".join(ag.VARIANT_COLUMNS) + "\ncontigs\t2013\tdel\tframeshift_variant c.16del\t"
                                  "agrC\n")
     assert variants == [{"position": 2013, "type": "del", "effect": "frameshift_variant c.16del", "gene": "agrC"}]
+    # AgrVATE 1.0.2 turns snippy's spaces into tabs (sed 's/ /\t/g' in bin/agrvate): the effect spans 3 fields and the
+    # row has 7, as in two real isolates of the Mac test (log item 58).
+    split = ag.parse_variants("\t".join(ag.VARIANT_COLUMNS) + "\ncontigs\t1187\tdel\tframeshift_variant\tc.230delA\t"
+                              "p.Lys77fs\tagrA\ncontigs\t2410\tsnp\tstop_gained\tc.88C>T\tp.Gln30*\tagrC\n")
+    assert split == [{"position": 1187, "type": "del", "effect": "frameshift_variant c.230delA p.Lys77fs", "gene": "agrA"},
+                     {"position": 2410, "type": "snp", "effect": "stop_gained c.88C>T p.Gln30*", "gene": "agrC"}]
+    with pytest.raises(ValueError, match="4 fields instead of 5"):
+        ag.parse_variants("\t".join(ag.VARIANT_COLUMNS) + "\ncontigs\t1\tdel\tagrA\n")
     with pytest.raises(ValueError, match="unknown agr group"):
         ag.parse_summary(head + "contigs\tgp5\t9\t1\ts\t0\n")
 
