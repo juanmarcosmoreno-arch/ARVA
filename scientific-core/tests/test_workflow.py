@@ -132,3 +132,17 @@ def test_s_aureus_typing_follows_the_species_evidence_in_the_complete_template()
     assert wf.edge_problem(nodes, edge)["code"] == "wf_edge_type"
     edge = {"source": "s", "source_port": "evidence", "target": "t", "target_port": "species"}
     assert wf.edge_problem(nodes, edge) is None
+
+
+def test_assembled_genomes_template_starts_from_the_registered_assembly():
+    d = wf.TEMPLATES["assembled_genome_characterisation"]
+    kinds = {n["id"]: n["kind"] for n in d["nodes"]}
+    assert [i for i, k in kinds.items() if k.endswith("_input")] == ["asm"]
+    assert next(n for n in d["nodes"] if n["id"] == "asm")["params"] == {"prefer": "latest_polished"}
+    assert wf.tools_of(d)["pf"] == wf.tools_of(wf.TEMPLATES["plasmid_analysis"])["pf"]
+    order = wf.topological_order(d)
+    for step in ("sccmec", "spa", "agr"):
+        assert order.index("species") < order.index(step) and order.index("mlst") < order.index(step)
+    # AMRFinderPlus reads the assembly only: a Bakta failure (memory) leaves the AMR result standing.
+    assert {(e["source"], e["target_port"]) for e in d["edges"] if e["target"] == "amr"} == {("asm", "assembly")}
+    assert all(wf.edge_problem({n["id"]: n for n in d["nodes"]}, e) is None for e in d["edges"])

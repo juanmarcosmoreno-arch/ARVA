@@ -76,7 +76,7 @@ def test_catalogue_templates_and_parameter_schemas(client):
     assert [t["id"] for t in kinds["polishing"]["tools"]["medaka"]] == ["medaka", "minimap2", "samtools"]
     assert "medaka" in kinds["polishing"]["params_schema"]["properties"]
     templates = {t["key"]: t for t in cat["templates"]}
-    assert len(templates) == 12
+    assert len(templates) == 13
     assert {p["params"]["field"] for p in templates["nanopore_assembly"]["needs_parameters"]} == {"params.read_type"}
     assert cat["nextflow"] == {"generated": False, "reason_code": "wf_nextflow_not_faithful"}
     for t in templates.values():

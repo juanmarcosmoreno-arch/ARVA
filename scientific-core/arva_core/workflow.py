@@ -416,6 +416,16 @@ TEMPLATES: dict[str, dict[str, Any]] = {
          ("unicycler", "unicycler", {}), ("quast", "quast", {})],
         [("short", "reads", "fastp", "reads"), ("fastp", "reads", "unicycler", "short_reads"),
          ("long", "reads", "unicycler", "long_reads"), ("unicycler", "assembly", "quast", "assembly")])),
+    # Genomes assembled elsewhere and registered in ARVA (or assembled earlier): everything after the assembly. AMR
+    # reads the assembly alone, so that it does not wait on (or fail with) Bakta, the longest and largest step.
+    "assembled_genome_characterisation": layout(_graph(
+        [*_ASM_IN, ("species", "species", {"method": "skani"}), ("mlst", "mlst", {}),
+         ("amr", "amrfinderplus", {}), ("vir", "virulence", {}),
+         ("mob", "mobile_elements", {"method": "mobsuite"}), ("pf", "mobile_elements", {"method": "plasmidfinder"}),
+         *[(m, "staph_typing", {"method": m}) for m in _STAPH_STEPS], ("bakta", "bakta", {})],
+        [*[("asm", "assembly", n, "assembly") for n in ("species", "mlst", "amr", "vir", "mob", "pf", "bakta")],
+         *[e for m in _STAPH_STEPS for e in (("asm", "assembly", m, "assembly"), ("species", "evidence", m, "species"),
+                                             ("mlst", "evidence", m, "mlst"))]])),
     "amr_screening": layout(_graph(
         [*_ANN_IN, ("amr", "amrfinderplus", {})],
         [("ann", "assembly", "amr", "assembly"), ("ann", "annotation", "amr", "annotation")])),
