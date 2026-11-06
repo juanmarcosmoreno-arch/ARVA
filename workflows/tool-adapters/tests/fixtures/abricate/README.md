@@ -21,3 +21,17 @@ integrated plasmid pUB110 inside SCCmec (Kuroda et al. 2001, Lancet 357:1225), w
 PlasmidFinder finds there. `help_1.4.0.txt` is `abricate --help`. The genomes were downloaded from NCBI E-utilities
 (`efetch.fcgi?db=nuccore&id=<accession>&rettype=fasta`) and deleted after the runs; local paths in the logs were
 replaced with `/env` and `/input`.
+
+## VFDB full (set B)
+
+`tests/test_abricate_vfdb.py` checks ARVA's conversion of VFDB's nucleotide FASTA (`arva_tools/abricate_vfdb.py`)
+against ABRicate 1.4.0's own `abricate-get_db --db vfdb` on a CONSTRUCTED set B (random sequences under VFDB-style
+headers, written by the test: no accession, a gene name with a space, a Latin-1 byte, a repeated sequence, a gene
+stored on the other strand), run offline (the file is put where `get_vfdb` would download it). With VFDB's real
+`VFDB_setB_nt.fas.gz` at `ARVA_TEST_VFDB_SETB` (default `~/.arva-testdata/vfdb/VFDB_setB_nt.fas.gz`; downloaded from
+https://www.mgc.ac.cn/VFs/Down/ on 2026-11-06, sha256
+`baf005d1ba55becc214dcc3fb65b9be3e29e1c6c19e2adedc5c5623ac3ca4dcd`, 10,685,329 bytes; VFDB's terms: CC BY-NC 4.0, so
+the file is not kept in this repository) and N315 (GCF_000009645.1) in `ARVA_TEST_GENOMES`, the test converts it,
+indexes it with ABRicate's makeblastdb and finds the egc cluster (seg, sei, selm, seln, selo, ABK27166) on N315, and
+no selX; it is skipped without them. ARVA's conversion of that file and of VFDB's set A of the same day is
+byte-identical to `abricate-get_db`'s, except for the 16 set B gene names with a space, written with `_`.

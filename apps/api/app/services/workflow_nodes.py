@@ -612,6 +612,9 @@ def database_kinds(kind: str) -> dict[str, str | None] | None:
     if kind == "amrfinderplus":
         from app.services import amrfinder_db
         return {"": amrfinder_db.KIND}
+    if kind == "virulence":
+        # A VFDB ABRicate can search: its bundled core set A (the default unless another was chosen) or a full set B.
+        return {"": "vfdb"}
     if kind == "species":
         from app.services import species
         return {m: spec["kind"] for m, spec in species.METHODS.items()}

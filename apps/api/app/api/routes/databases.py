@@ -26,8 +26,12 @@ from app.schemas.schemas import (
     NcbiPlanRequest,
     NcbiStartRequest,
     ReferenceDatabaseRead,
+    VfdbBuildPlanRequest,
+    VfdbBuildRequest,
+    VfdbPlanRequest,
+    VfdbStartRequest,
 )
-from app.services import abricate_db, mlst
+from app.services import abricate_db, mlst, vfdb_db
 from app.services import database_catalogue as catalogue
 from app.services import database_kinds as kinds
 from app.services import databases as svc
@@ -67,7 +71,15 @@ def _read(db: Session, r: ReferenceDatabase, log: bool = False) -> ReferenceData
         "host_path": to_host(r.path),
         "log_text": r.log_text if log else None,
         "mlst": mlst.database_summary(r) if r.kind == mlst.KIND else None,
+        "vfdb": _vfdb(r),
     })
+
+
+def _vfdb(r: ReferenceDatabase) -> dict | None:
+    """A VFDB record's set (A core, B full) and provenance, when ABRicate can search it."""
+    if r.kind != vfdb_db.KIND or not vfdb_db.abricate_ready(r):
+        return None
+    return vfdb_db.provenance(r)
 
 
 def _collection(r: ReferenceDatabase, c: dict | None) -> dict | None:
@@ -122,7 +134,7 @@ def _refusal(exc: Exception):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Reference database not found") from exc
     if isinstance(exc, svc.DatabaseFolderUnavailable):
         return _coded(status.HTTP_503_SERVICE_UNAVAILABLE, exc)
-    if isinstance(exc, ncbi.NcbiError) and exc.upstream:
+    if isinstance(exc, ncbi.NcbiError | vfdb_db.VfdbError) and exc.upstream:
         return _coded(status.HTTP_502_BAD_GATEWAY, exc)
     code = status.HTTP_409_CONFLICT if isinstance(exc, svc.DatabaseStateError) else status.HTTP_400_BAD_REQUEST
     if getattr(exc, "code", None):
@@ -250,6 +262,55 @@ def ncbi_start(payload: NcbiStartRequest, db: Session = Depends(get_db)):
         return _refusal(exc)
 
 
+@router.post("/databases/vfdb/plan", responses={502: {"description": "VFDB's server could not be read"}})
+def vfdb_plan(payload: VfdbPlanRequest, db: Session = Depends(get_db)):
+    """What downloading VFDB's current full dataset (set B nucleotides) would do: the file, its size and date as
+    VFDB's server states them (one HEAD request; nothing is sent), the source, VFDB's licence and citation, the folder
+    and the space needed. VFDB publishes no checksum."""
+    try:
+        return vfdb_db.plan_download(db, payload.destination, payload.folder)
+    except _EXPECTED as exc:
+        return _refusal(exc)
+
+
+@router.post("/databases/vfdb/download", response_model=ReferenceDatabaseRead, status_code=status.HTTP_202_ACCEPTED,
+             responses={502: {"description": "VFDB's server could not be read"},
+                        507: {"description": "Not enough free space in the chosen database folder"}})
+def vfdb_download(payload: VfdbStartRequest, db: Session = Depends(get_db)):
+    """Download the confirmed set B file (date and size must still be VFDB's current ones) and build an ABRicate
+    database from it in the worker, as abricate-get_db builds set A; the SHA-256 of the file, of its FASTA and of the
+    database are recorded."""
+    try:
+        return _read(db, vfdb_db.start_download(db, payload.confirm_version, payload.confirm_bytes,
+                                                payload.accept_terms, payload.destination, payload.folder))
+    except _EXPECTED as exc:
+        return _refusal(exc)
+
+
+@router.post("/databases/vfdb/build-plan")
+def vfdb_build_plan(payload: VfdbBuildPlanRequest, db: Session = Depends(get_db)):
+    """What building an ABRicate database from a VFDB nucleotide file you have (VFDB_setB_nt.fas or .gz) would do;
+    the file is only read."""
+    try:
+        return vfdb_db.plan_build(db, payload.path, payload.vfdb_set, payload.declared_version, payload.destination,
+                                  payload.folder)
+    except _EXPECTED as exc:
+        return _refusal(exc)
+
+
+@router.post("/databases/vfdb/build", response_model=ReferenceDatabaseRead, status_code=status.HTTP_202_ACCEPTED,
+             responses={507: {"description": "Not enough free space in the chosen database folder"}})
+def vfdb_build(payload: VfdbBuildRequest, db: Session = Depends(get_db)):
+    """Build an ABRicate database from the confirmed VFDB file into a database folder (the worker converts and indexes
+    it; the file is never changed)."""
+    try:
+        return _read(db, vfdb_db.start_build(db, payload.path, payload.confirm_bytes, payload.accept_terms,
+                                             payload.vfdb_set, payload.declared_version, payload.destination,
+                                             payload.folder))
+    except _EXPECTED as exc:
+        return _refusal(exc)
+
+
 @router.get("/databases/{record_id}", response_model=ReferenceDatabaseRead)
 def get_database(record_id: str, db: Session = Depends(get_db)):
     record = db.get(ReferenceDatabase, record_id)
@@ -280,7 +341,7 @@ def register_database(payload: DatabaseRegisterRequest, db: Session = Depends(ge
     deletes a registered folder."""
     try:
         record = svc.register(db, payload.path, payload.kind, payload.declared_version, payload.collection_date,
-                              payload.full_checksum)
+                              payload.full_checksum, payload.vfdb_set)
     except _EXPECTED as exc:
         return _refusal(exc)
     return _read(db, record)

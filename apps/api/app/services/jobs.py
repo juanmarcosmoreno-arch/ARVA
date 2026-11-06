@@ -824,7 +824,9 @@ def create_mobile_job(db: Session, sample: Sample, assembly: Assembly, method: s
 
 def create_virulence_job(db: Session, sample: Sample, assembly: Assembly, params, record: ReferenceDatabase,
                          provenance: dict) -> AnalysisJob:
-    """One ABRicate screen of an assembly against its bundled VFDB (recorded as a read-only database)."""
+    """One ABRicate screen of an assembly against a VFDB: ABRicate's bundled core set A (recorded as a read-only
+    database) or a VFDB folder in ABRicate's format (a full set B); the record's name, version, checksum and path are
+    recorded on the job, the set and source in its parameters."""
     from arva_tools.abricate import AbricateAdapter
     from arva_tools.abricate import flags as abricate_flags
 

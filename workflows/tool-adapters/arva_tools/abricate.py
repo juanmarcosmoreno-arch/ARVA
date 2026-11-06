@@ -6,12 +6,18 @@ its `--help`, its source (bin/abricate, bin/abricate-get_db), the README and rea
 * `bin/abricate` starts with `#!/usr/bin/env perl` and calls blastn, blastdbcmd and any2fasta from PATH, so the
   environment's bin/ must come first in PATH.
 * Databases are folders <datadir>/<name>/ with a FASTA file `sequences` and its BLAST index (default datadir
-  <RealBin>/../db). ARVA uses two of the bundled ones: `vfdb` (VFDB's core set A nucleotides,
-  VFDB_setA_nt.fas.gz, per abricate-get_db) and `plasmidfinder` (the plasmidfinder_db repository of the Center for
-  Genomic Epidemiology, per abricate-get_db). `abricate --list` prints DATABASE, SEQUENCES, DBTYPE and DATE, where
-  DATE is the BLAST index's own date (`blastdbcmd -info`), i.e. when the package indexed the files, not a release
-  date of VFDB or PlasmidFinder; the files record no such release or commit. ARVA never runs abricate-get_db or
-  --setupdb (they fetch the latest data, unpinned).
+  <RealBin>/../db); a run with --datadir X --db Y reads only X/Y/sequences (`blastdbcmd -info` on it, "ERROR: BLAST
+  database not found" when it has no index). ARVA uses two of the bundled ones: `vfdb` (VFDB's core set A
+  nucleotides, VFDB_setA_nt.fas.gz, per abricate-get_db) and `plasmidfinder` (the plasmidfinder_db repository of the
+  Center for Genomic Epidemiology, per abricate-get_db), and VFDB folders in the same format that ARVA builds
+  (arva_tools.abricate_vfdb: VFDB's full set B, converted as abricate-get_db converts set A) or that the user built;
+  for those, --datadir is the folder's parent and --db its name. `abricate --list` prints DATABASE, SEQUENCES, DBTYPE
+  and DATE, where DATE is the BLAST index's own date (`blastdbcmd -info`), i.e. when the package indexed the files,
+  not a release date of VFDB or PlasmidFinder; the files record no such release or commit. ARVA never runs
+  abricate-get_db or --setupdb (they fetch the latest data, unpinned, and --setupdb re-indexes every database of the
+  datadir).
+* The report's DATABASE column is the first part of each sequence name (`vfdb` for VFDB however its folder is
+  named); a name without `~~~` is reported whole as the gene, with no accession and the --db name as DATABASE.
 * Defaults (--help): --minid 80, --mincov 80, --threads 1, --db ncbi. ARVA passes --datadir, --db, --minid,
   --mincov and --threads explicitly, and --nopath.
 * Search: `blastn -task blastn -dust no -perc_identity <minid> -evalue 1E-20 -culling_limit 1 -max_target_seqs
@@ -39,6 +45,15 @@ from typing import Any
 from arva_tools.base import ToolAdapter, ToolInfo, help_options, read_help
 
 DATABASES = ("vfdb", "plasmidfinder")
+# The name of a database folder ARVA passes as --db (a bundled one, or a VFDB folder ARVA built or the user registered).
+_DB_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,99}")
+
+
+def database_name_ok(name: str) -> bool:
+    """Whether a database folder's name can be passed as --db (ABRicate joins it to --datadir as a path)."""
+    return name in DATABASES or bool(_DB_NAME.fullmatch(name or ""))
+
+
 DEFAULTS = {"minid": "80", "mincov": "80", "threads": "1", "db": "ncbi"}
 OUTPUTS = {"report": "abricate.tsv", "log": "abricate.stderr.log"}
 COLUMNS = {
@@ -71,8 +86,9 @@ class AbricateParams:
 
     def validate(self) -> None:
         errors = []
-        if self.database not in DATABASES:
-            errors.append(f"database must be one of {', '.join(DATABASES)}")
+        if not database_name_ok(self.database):
+            errors.append(f"database must be one of {', '.join(DATABASES)} or the name of a database folder (letters, "
+                          "digits, . _ -)")
         if not 0 < self.minid <= 100:
             errors.append("minid must be a percentage greater than 0 and at most 100")
         if not 0 <= self.mincov <= 100:
@@ -218,9 +234,10 @@ def parse_stderr(text: str) -> dict[str, Any]:
             "errors": [m.group(1).strip() for m in _ERROR.finditer(text)]}
 
 
-def warnings(params: AbricateParams, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """ARVA's coded warnings about one run (the interface translates them)."""
-    out: list[dict[str, Any]] = [{"code": f"{params.database}_meaning", "params": {}}]
+def warnings(params: AbricateParams, rows: list[dict[str, Any]], kind: str | None = None) -> list[dict[str, Any]]:
+    """ARVA's coded warnings about one run (the interface translates them); `kind` is vfdb or plasmidfinder (by
+    default the --db name, which is the kind for ABRicate's bundled databases)."""
+    out: list[dict[str, Any]] = [{"code": f"{kind or params.database}_meaning", "params": {}}]
     by: dict[str, list[str]] = {}
     for r in rows:
         by.setdefault(r["hit_kind"], []).append(r["gene"])
@@ -243,7 +260,7 @@ class AbricateAdapter(ToolAdapter):
         homepage="https://github.com/tseemann/abricate",
         license="GPL-2.0",
         citation="Seemann T. ABRicate. https://github.com/tseemann/abricate (software, unpublished). Cite the database "
-        "too: VFDB (Liu B. et al. 2022, Nucleic Acids Res 50:D912) or PlasmidFinder (Carattoli A. et al. 2014, "
+        "too: VFDB (Zhou S.Y. et al. 2025, Nucleic Acids Res 53:D871) or PlasmidFinder (Carattoli A. et al. 2014, "
         "Antimicrob Agents Chemother 58:3895).",
         citation_url="https://github.com/tseemann/abricate",
         executable="abricate",

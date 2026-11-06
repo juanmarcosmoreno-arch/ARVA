@@ -326,32 +326,54 @@ KINDS: tuple[DatabaseKind, ...] = (
     DatabaseKind(
         key="vfdb",
         name="VFDB",
-        description="The Virulence Factor Database's protein and nucleotide sequence sets. ARVA searches the copy of "
-                    "the core set A nucleotides ABRicate bundles (db/vfdb), recorded read-only when ABRicate is "
-                    "installed.",
+        description="The Virulence Factor Database's sequence sets: the core dataset (set A, genes of experimentally "
+                    "verified virulence factors only) and the full dataset (set B, also genes of predicted virulence "
+                    "factors). ARVA's virulence screen searches, with ABRicate, the copy of the core set A nucleotides "
+                    "ABRicate bundles (db/vfdb, recorded read-only when ABRicate is installed) or a VFDB database in "
+                    "ABRicate's format that ARVA built from the full set B nucleotides, or that you built.",
         tools=(ToolUse("ABRicate", "ABRicate 1.4.0 reads its bundled copy (db/vfdb: VFDB_setA_nt, sequences and its "
-                                   "BLAST index)", integrated=True),
+                                   "BLAST index) and any folder in the same format (sequences and its nucleotide BLAST "
+                                   "index), such as the set B database ARVA builds", integrated=True),
                ToolUse("BLAST, DIAMOND and similar", "VFDB's download page states no requirement")),
-        source_url="http://www.mgc.ac.cn/VFs/download.htm",
-        licence="Not stated on the download page",
-        citation="Liu B. et al. (2022) VFDB 2022: a general classification scheme for bacterial virulence factors. "
-                 "Nucleic Acids Research 50(D1), doi:10.1093/nar/gkab1107.",
+        source_url="https://www.mgc.ac.cn/VFs/download.htm",
+        licence="CC BY-NC 4.0 (VFDB terms of use: non-commercial research or academic use; commercial use only with "
+                "VFDB's permission)",
+        licence_url="https://creativecommons.org/licenses/by-nc/4.0/",
+        citation="Zhou S.Y., Liu B., Zheng D.D., Chen L.H., Yang J. (2025) VFDB 2025: an integrated resource for "
+                 "exploring anti-virulence compounds. Nucleic Acids Research 53(D1):D871-D877, PMID 39470738.",
         recognise="One or more of VFDB_setA_pro.fas, VFDB_setA_nt.fas, VFDB_setB_pro.fas and VFDB_setB_nt.fas "
-                  "(also .gz); ABRicate's copy: db/vfdb/sequences with its BLAST index (sequences.njs description "
-                  "\"vfdb\").",
-        version_from="Not stated in the files: declared by you (VFDB shows only a \"Last update\" date on its download "
-                     "page). ABRicate's copy states only the day the package indexed it (sequences.njs last-updated, "
-                     "2026-04-03 in ABRicate 1.4.0).",
-        typical_size="setB nucleotides: 10.19 MB zipped; setA proteins: 1276 kB zipped (download page); ABRicate "
-                     "1.4.0's copy: 4,592 sequences.",
-        download="register",
-        download_note="Undated files over plain HTTP without checksums; ABRicate's copy comes with its package "
-                      "(abricate-get_db fetches VFDB_setA_nt.fas.gz over plain HTTP, so ARVA never runs it).",
+                  "(also .gz); a folder in ABRicate's format: sequences with its nucleotide BLAST index (ABRicate's "
+                  "own copy db/vfdb, sequences.njs description \"vfdb\"; a folder ARVA built, with ARVA_DATABASE.json "
+                  "naming the set; or one you built).",
+        version_from="The day VFDB rebuilt the files, which state no release: the server's Last-Modified when ARVA "
+                     "downloads them (the same time gzip stores in VFDB_set*_nt.fas.gz, read from a file you have), "
+                     "recorded in ARVA_DATABASE.json; declared by you for a plain FASTA or a folder you built. ABRicate's "
+                     "copy states only the day the package indexed it (sequences.njs last-updated, 2026-04-03 in "
+                     "ABRicate 1.4.0).",
+        typical_size="Set B nucleotides (2026-11-06): 10,685,329 bytes zipped (10.19 MB on the download page), "
+                     "55,304,914 bytes unzipped, 35,192 sequences; as an ABRicate database about 74 MB (35,168 "
+                     "sequences once identical ones are dropped, as abricate-get_db does). Set A nucleotides: 2,010,277 "
+                     "bytes zipped; ABRicate 1.4.0's copy: 4,592 sequences.",
+        download="current",
+        download_note="VFDB publishes only its current files, over HTTPS, without checksums or version files, and "
+                      "rebuilds them often. After you confirm the file, its size and date, the source and VFDB's "
+                      "licence and citation, ARVA downloads VFDB_setB_nt.fas.gz (the full dataset's nucleotides), "
+                      "checks that it is gzip with FASTA inside and dated as confirmed, converts it to ABRicate's "
+                      "format as abricate-get_db converts set A, indexes it with makeblastdb as abricate-get_db does, "
+                      "and records the SHA-256 of the downloaded file, of the FASTA in it and of the database built. "
+                      "ABRicate's own copy (set A) comes with its package; ARVA never runs abricate-get_db (it fetches "
+                      "set A over plain HTTP).",
         accepts=("folder", "file"),
-        sources=("VFDB download page (www.mgc.ac.cn/VFs/download.htm, last update 2026-10-23)",
-                 "ABRicate 1.4.0 package: bin/abricate-get_db (get_vfdb), db/vfdb/sequences.njs"),
-        unconfirmed=("The download page does not say which set is the core and which the full dataset.",
-                     "The citation VFDB requests is not stated on the download page.",
+        sources=("VFDB download page and terms of use (https://www.mgc.ac.cn/VFs/download.htm and main.htm#termofuse, "
+                 "read 2026-11-06; \"Last update: Fri Nov 6 19:30:01 2026\"; the links read \"DNA sequences of core "
+                 "dataset\" for VFDB_setA_nt and \"DNA sequences of full dataset\" for VFDB_setB_nt)",
+                 "HTTP HEAD of Down/VFDB_set{A,B}_{nt,pro}.fas.gz (2026-11-06: sizes, Last-Modified, no checksum "
+                 "files)",
+                 "ABRicate 1.4.0 package: bin/abricate (database lookup, report columns), bin/abricate-get_db "
+                 "(get_vfdb, load_fasta, is_full_gene, dedupe_seq, save_fasta, makeblastdb), db/vfdb/sequences.njs"),
+        unconfirmed=("VFDB publishes no checksum or version file: ARVA can only record the SHA-256 of what it "
+                     "downloaded and the server's Last-Modified date.",
+                     "VFDB's pages ask for no particular citation; ARVA cites its newest paper as main.htm lists it.",
                      "Which VFDB release ABRicate 1.4.0's copy was taken from: its files do not say."),
     ),
     DatabaseKind(
@@ -521,6 +543,10 @@ KINDS: tuple[DatabaseKind, ...] = (
 
 BY_KEY = {k.key: k for k in KINDS}
 
+# Detection variants of a VFDB folder in ABRicate's format that is not ABRicate's own copy: one ARVA built (with
+# ARVA_DATABASE.json) and one the user built.
+ABRICATE_FOLDERS = ("abricate_arva", "abricate_folder")
+
 
 def kind(key: str) -> DatabaseKind:
     try:
@@ -586,6 +612,8 @@ def compatibility(kind_key: str, version_json: dict | None = None, installed: st
     if kind_key in ("vfdb", "plasmidfinder"):
         if (version_json or {}).get("variant") == "abricate":
             return Compatibility("compatible", "bundled_with_tool", {"tool": "ABRicate"})
+        if (version_json or {}).get("variant") in ABRICATE_FOLDERS:
+            return Compatibility("compatible", "abricate_format", {"tool": "ABRicate"})
         return Compatibility("unknown", "tool_not_integrated", {"tool": BY_KEY[kind_key].tools[-1].tool})
     if kind_key == "spa_types":
         return _spa_types(installed)

@@ -28,6 +28,7 @@ import type {
   MobileSample,
   VirulenceAnnotationHits,
   VirulencePlan,
+  VfdbPlan,
   VirulenceRequest,
   VirulenceSample,
   MlstOverview,
@@ -360,7 +361,7 @@ export const api = {
       "/databases/downloads",
       json("POST", { key, confirm_bytes: confirmBytes, accept_licence: acceptLicence, destination: destination ?? null, folder: folder ?? null, ...extras }),
     ),
-  registerDatabase: (body: { path: string; kind?: string | null; declared_version?: string | null; collection_date?: string | null; full_checksum?: boolean }) =>
+  registerDatabase: (body: { path: string; kind?: string | null; declared_version?: string | null; collection_date?: string | null; full_checksum?: boolean; vfdb_set?: "A" | "B" | null }) =>
     request<ReferenceDatabase>("/databases/register", json("POST", body)),
   verifyDatabase: (id: string, level: "quick" | "full" = "full") => request<ReferenceDatabase>(`/databases/${id}/verify`, json("POST", { level })),
   cancelDatabaseTask: (id: string) => request<ReferenceDatabase>(`/databases/${id}/cancel`, { method: "POST" }),
@@ -508,7 +509,8 @@ export const api = {
   typingProject: (projectId: string, module: string) => request<TypingProject>(`/projects/${projectId}/typing/${module}`),
   typingProjectCsvUrl: (projectId: string, module: string) => `${BASE}/projects/${projectId}/typing/${module}.csv`,
   typingFileUrl: (jobId: string, name: string) => `${BASE}/typing/runs/${jobId}/files/${name.split("/").map(encodeURIComponent).join("/")}`,
-  virulencePreview: (assemblyId: string) => request<VirulencePlan>(`/assemblies/${assemblyId}/virulence/preview`, json("POST", {})),
+  virulencePreview: (assemblyId: string, databaseId: string | null = null) =>
+    request<VirulencePlan>(`/assemblies/${assemblyId}/virulence/preview`, json("POST", { database_id: databaseId })),
   runVirulence: (assemblyId: string, body: VirulenceRequest) => request<AnalysisJob>(`/assemblies/${assemblyId}/virulence`, json("POST", body)),
   virulenceSample: (sampleId: string) => request<VirulenceSample>(`/samples/${sampleId}/virulence`),
   virulenceFileUrl: (jobId: string, kind: string) => `${BASE}/virulence/runs/${jobId}/files/${encodeURIComponent(kind)}`,
@@ -665,6 +667,13 @@ export const api = {
   startSangerSearch: (id: string, body: SearchIn) => request<AnalysisJob[]>(`/sanger/identifications/${id}/search`, json("POST", { ...body, confirmed: true })),
   sangerConsensusFastaUrl: (id: string) => `${BASE}/sanger/identifications/${id}/consensus.fasta`,
   sangerReportUrl: (id: string, format: "html" | "json" | "csv", lang: string) => `${BASE}/sanger/identifications/${id}/report?format=${format}&lang=${lang}`,
+  vfdbPlan: (body: { destination?: string | null; folder?: string | null }) => request<VfdbPlan>("/databases/vfdb/plan", json("POST", body)),
+  vfdbDownload: (body: { destination?: string | null; folder?: string | null; confirm_version: string; confirm_bytes: number; accept_terms: boolean }) =>
+    request<ReferenceDatabase>("/databases/vfdb/download", json("POST", body)),
+  vfdbBuildPlan: (body: { path: string; vfdb_set?: "A" | "B" | null; declared_version?: string | null; destination?: string | null; folder?: string | null }) =>
+    request<VfdbPlan>("/databases/vfdb/build-plan", json("POST", body)),
+  vfdbBuild: (body: { path: string; vfdb_set?: "A" | "B" | null; declared_version?: string | null; destination?: string | null; folder?: string | null; confirm_bytes: number; accept_terms: boolean }) =>
+    request<ReferenceDatabase>("/databases/vfdb/build", json("POST", body)),
   ncbi16sPlan: (body: { taxonomy: boolean }) => request<Ncbi16sPlan>("/databases/ncbi-16s/plan", json("POST", body)),
   ncbi16sDownload: (body: { taxonomy: boolean; confirm_version: string; confirm_bytes: number; accept_terms: boolean }) =>
     request<ReferenceDatabase>("/databases/ncbi-16s/download", json("POST", body)),

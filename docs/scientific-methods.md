@@ -1860,9 +1860,32 @@ defaults stated by the installed `--help` are recorded and compared with ARVA's.
   so it is nucleotide similarity only. Each hit keeps its reference coordinates, coverage map, gaps, identity and
   coverage; ARVA reads it as *complete*, *complete with gaps*, *partial* or *partial at a contig end* (within 10 bp
   of the end), and names references found in several partial pieces. A gene split across contigs is reported only
-  where each piece reaches `--mincov`. VFDB's download page states no licence for its files: ARVA says so and asks
-  for VFDB's citation (Liu B. et al. 2022). A replicon found is not a plasmid call (replicons lie in chromosomes too,
-  and small plasmids may carry none); a virulence-factor gene found is not evidence of virulence.
+  where each piece reaches `--mincov`. VFDB's data are licensed CC BY-NC 4.0 (VFDB's terms of use, main.htm#termofuse:
+  non-commercial research or academic use); ARVA shows the licence and cites VFDB's newest paper (Zhou S.Y. et al.
+  2025, Nucleic Acids Res 53:D871). A replicon found is not a plasmid call (replicons lie in chromosomes too, and small
+  plasmids may carry none); a virulence-factor gene found is not evidence of virulence.
+- **VFDB core (set A) or full (set B).** VFDB's core dataset (set A) holds only the genes of experimentally verified
+  virulence factors; its full dataset (set B) also those of predicted ones (2026-11-06: 4,891 against 35,192
+  nucleotide sequences). The virulence dialog and the workflow's virulence step search the VFDB chosen, by default the
+  Database Manager's default VFDB, which is ABRicate's bundled set A unless the user makes a set B the default. Set B
+  is downloaded by the Database Manager after the user confirms VFDB_setB_nt.fas.gz's size, date (the server's
+  Last-Modified: VFDB keeps only its current files and states no release), source, licence and citation, or built
+  from a VFDB_setB_nt file the user has, or registered as a folder the user built with abricate-get_db. ARVA converts
+  it exactly as ABRicate 1.4.0's `abricate-get_db` converts set A (same header rewrite
+  `>vfdb~~~gene~~~accession~~~ description`, same removal of identical sequences, reverse complements and order;
+  byte-identical on VFDB's files of 2026-11-06), except that the 16 set B gene names with a space get `_` so that
+  ABRicate reports them whole, indexes it with ABRicate's makeblastdb as abricate-get_db does, and checks the sequence
+  count with blastdbcmd. VFDB publishes no checksum: ARVA records the SHA-256 of the downloaded file, of the FASTA in it
+  and of the database (details in [databases/README.md](../databases/README.md#vfdb-full-set-b)). ABRicate runs
+  `--datadir <the folder's parent> --db <the folder>`. Every run records the set (A core, B full), its date, source and
+  checksums; the sample report, the project report (CSV `virulence_vfdb`, JSON `virulence.vfdb_set`, HTML), the sample
+  CSV (`virulence_vfdb_set`, `virulence_vfdb_version`) and a batch's consolidated table (`vfdb.set`, `vfdb.version`)
+  state it. Set B finds more genes, and more that are not true virulence factors; the same locus can carry another
+  gene name in each set, because ABRicate keeps the best match per region (N315: set A's lukF-PV at 82.4 % becomes
+  lukD and lukE at 100 %, set A's sea at 84.8 % becomes selp at 100 %). VFDB names enterotoxin-like genes sel<x>
+  (selm, seln, selo, selp, selu2) where AMRFinderPlus and older papers write se<x> (sem, sen, seo, sep): the cross-check
+  with AMRFinderPlus treats both spellings as the same gene, and still lists a VFDB hit apart when AMRFinderPlus found
+  a different gene with a higher identity on the same region.
 - **IntegronFinder 2.0.6** (Néron et al. 2022; GPL-3.0) with the models it bundles (their content checksum is
   recorded): integron integrases (HMMER), attC sites (Infernal), complete integrons, In0 (integrase without attC)
   and CALIN (attC sites without integrase). ARVA passes `--local-max` (on), `--distance-thresh 4000`,
@@ -1906,6 +1929,16 @@ SYNTHETIC genome; the downloaded genomes were deleted afterwards.
   the chromosome cut 10 % into adsA and halfway into cap8D) gives adsA at a contig start (90.04 % coverage) and no
   cap8D at all at `--mincov 80` (each half covers 50 %), and the two cap8D halves as a split gene at `--mincov 40`:
   the reason for the split-gene warning.
+- VFDB full (set B), VFDB_setB_nt.fas.gz downloaded from VFDB on 2026-11-06 (sha256 `baf005d1…`; FASTA sha256
+  `060222aa…`, 35,192 records; 35,168 once converted) and searched with the same command on NCBI RefSeq N315
+  (GCF_000009645.1): 150 hits (bundled set A 86, VFDB's current set A 93). Set B finds the egc enterotoxin cluster on
+  NC_002745.2 between 1,876,310 and 1,881,633 (seg, sei, selm, seln and selo at 100 % coverage and identity, selu2
+  reported by its accession ABK27166 at 99.61 %), which set A lacks; Mu50 the same; MW2 no egc genes with either set,
+  as expected for that strain. selX is in neither set (no set B nucleotide or protein header names it), so a selX call
+  comes from another database. Run time on N315 with 4 threads: 11.3 s against set B, 2.6 s against the bundled set A.
+  The adapter test runs this when the file is present (`ARVA_TEST_VFDB_SETB`, default
+  `~/.arva-testdata/vfdb/VFDB_setB_nt.fas.gz`), and compares ARVA's conversion of a constructed set B with
+  abricate-get_db's.
 - IntegronFinder: R388's class 1 integron, complete, 29,666–32,156 with two attC sites; none in N315.
 - ARVA's SYNTHETIC genome: nothing from any of them (MOB-suite calls both sequences 'chromosome').
 

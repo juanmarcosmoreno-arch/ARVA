@@ -44,7 +44,7 @@ def test_abricate_argv_passes_every_threshold_and_never_updates():
                  "60", "--threads", "2", "--nopath", "/job/in.fna"]
     assert "--setupdb" not in a
     with pytest.raises(ValueError, match="database must be"):
-        abr.AbricateParams("card").validate()
+        abr.AbricateParams("../card").validate()
     with pytest.raises(ValueError, match="minid"):
         abr.AbricateParams(minid=0).validate()
 

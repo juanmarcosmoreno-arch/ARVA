@@ -30,6 +30,20 @@ function VersionSourceLine({ record }: { record: ReferenceDatabase }) {
   return <>{t("databases.versionFrom.unknown")}</>;
 }
 
+/** A VFDB record: its set (A core, B full) and, for one ARVA built, the checksums it recorded (VFDB publishes none). */
+function VfdbLine({ vfdb }: { vfdb: NonNullable<ReferenceDatabase["vfdb"]> }) {
+  const t = useT();
+  return (
+    <div className="mt-1 space-y-0.5 text-xs">
+      <p>{t(vfdb.set === "A" ? "virulence.setCore" : "virulence.setFull", { version: vfdb.version ?? "?" })}</p>
+      {vfdb.source?.sha256 && <p className="break-all font-mono text-[11px] text-muted-foreground">{t("vfdb.recordedFile", { file: vfdb.source.file ?? "?", sha: vfdb.source.sha256 })}</p>}
+      {vfdb.sequences?.sha256 && (
+        <p className="break-all font-mono text-[11px] text-muted-foreground">{t("vfdb.recordedSequences", { n: fmtInt(vfdb.sequences.records), sha: vfdb.sequences.sha256 })}</p>
+      )}
+    </div>
+  );
+}
+
 export function RecordRow({ record }: { record: ReferenceDatabase }) {
   const t = useT();
   const refresh = useRefreshDatabases();
@@ -53,6 +67,7 @@ export function RecordRow({ record }: { record: ReferenceDatabase }) {
           </div>
           <code className="mt-1 block break-all text-xs text-muted-foreground">{record.host_path ?? record.path}</code>
           {offline && <p className="mt-1 text-xs text-muted-foreground">{t("databases.unavailableHint")}</p>}
+          {record.vfdb?.set && <VfdbLine vfdb={record.vfdb} />}
         </div>
         <div className="flex shrink-0 flex-wrap gap-2">
           {busy ? (

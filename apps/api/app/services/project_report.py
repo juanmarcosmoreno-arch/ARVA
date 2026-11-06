@@ -33,7 +33,7 @@ from app.services import comparative as comparative_svc
 from app.services.comparative_report import ANALYSIS_TITLES, METHOD_NAMES
 from app.services.jobs import AMR_JOB, MOBILE_JOB, VIRULENCE_JOB
 from app.services.qc_overview import build_overview
-from app.services.virulence import cross_hit_text, vfdb_genes
+from app.services.virulence import cross_hit_text, set_label, vfdb_genes, vfdb_of
 
 LANGS = ("en", "es")
 LABELS: dict[str, dict[str, str]] = {
@@ -127,7 +127,8 @@ LIMITATIONS = {
 CSV_COLUMNS = ["sample", "organism", "host", "origin", "collection_date", "sample_type", "technology", "reads",
                "bases", "read_n50", "mean_read_quality", "q30_percent", "assembler", "assembler_version",
                "assembly_kind", "contigs", "total_length", "n50", "gc_percent", "species", "species_tool", "mlst",
-               "mlst_tool", "amr_genes", "amr_tool", "virulence_genes", "virulence_cross_hits", "replicons", "typing",
+               "mlst_tool", "amr_genes", "amr_tool", "virulence_genes", "virulence_cross_hits", "virulence_vfdb",
+               "replicons", "typing",
                "assembly_id",
                "mixed_assemblies"]
 
@@ -218,9 +219,18 @@ def _sample(db: Session, s: Sample, qc: dict[str, Any] | None) -> dict[str, Any]
 
 def _vfdb(db: Session, vf_job: AnalysisJob) -> dict[str, Any]:
     """The screen's genes, with the hits the combined virulence view flags as probably another gene (VFDB lukF-PV on
-    AMRFinderPlus's lukD region) listed apart as cross-hits."""
+    AMRFinderPlus's lukD region) listed apart as cross-hits, and which VFDB it searched (set A core or B full, and its
+    version)."""
     found = vfdb_genes(db, vf_job)
-    return {"genes": found["genes"], "cross_hits": found["cross_hits"]}
+    v = vfdb_of(vf_job)
+    return {"genes": found["genes"], "cross_hits": found["cross_hits"], "vfdb_set": v.get("set"),
+            "vfdb_dataset": v.get("dataset"), "vfdb_version": v.get("version")}
+
+
+def _vfdb_label(section: dict[str, Any], lang: str = "en") -> str:
+    """'VFDB core (set A) 2026-04-03' / 'VFDB full (set B) 2026-11-06' for a sample's virulence column."""
+    return set_label({"set": section.get("vfdb_set"), "name": section.get("database"),
+                      "version": section.get("vfdb_version") or section.get("database_version")}, lang)
 
 
 def _typing_extra(t: TypingResult) -> dict[str, Any]:
@@ -403,11 +413,13 @@ def render_html(data: dict[str, Any], lang: str = "en") -> str:
             if r["amr"] is not None else f"<td colspan='{max(1, len(genes))}' class='muted'>{L['not_searched']}</td>")
         + "</tr>" for r in rows)
     def virulence(section: dict[str, Any] | None) -> str:
+        which = "" if section is None else f"<br><span class='muted'>{escape(_vfdb_label(section, lang))}</span>"
         if section is None or not section.get("cross_hits"):
-            return status(section, (section or {}).get("genes", []))
+            return status(section, (section or {}).get("genes", [])) + which
         crossed = "; ".join(L["cross_hit"].format(**c) for c in section["cross_hits"])
         genes = escape(", ".join(section["genes"])) if section["genes"] else ""
-        return f"{genes}{'<br>' if genes else ''}<span class='muted'>{escape(L['cross_hits'])}: {escape(crossed)}</span>"
+        return (f"{genes}{'<br>' if genes else ''}<span class='muted'>{escape(L['cross_hits'])}: {escape(crossed)}</span>"
+                + which)
 
     def amr_cell(section: dict[str, Any] | None) -> str:
         if section is None:
@@ -524,6 +536,7 @@ def render_csv(data: dict[str, Any]) -> str:
             "virulence_genes": "not searched" if r["virulence"] is None else ";".join(r["virulence"]["genes"]),
             "virulence_cross_hits": None if r["virulence"] is None else ";".join(
                 cross_hit_text(c) for c in r["virulence"]["cross_hits"]),
+            "virulence_vfdb": None if r["virulence"] is None else _vfdb_label(r["virulence"]),
             "replicons": "not searched" if r["replicons"] is None else ";".join(r["replicons"]["replicons"]),
             "typing": ";".join(f"{t['method']}={typing_text(t)}" for t in r["typing"]),
             "assembly_id": a.get("id"), "mixed_assemblies": "yes" if r.get("mixed_assemblies") else "no",

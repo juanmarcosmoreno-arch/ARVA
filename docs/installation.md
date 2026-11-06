@@ -955,7 +955,10 @@ than its own size) and passes `--skip-run-link-scripts`: MOB-suite's post-link s
 its database with TLS verification turned off and the latest NCBI taxonomy into the environment. ARVA never runs it;
 the database is downloaded and prepared by the Database Manager (below). ABRicate's VFDB and PlasmidFinder copies
 come with its package and are listed read-only in the Database Manager; ARVA never runs `abricate-get_db`, which
-fetches unpinned data (VFDB over plain HTTP). IntegronFinder uses the models its package bundles.
+fetches unpinned data (VFDB over plain HTTP). VFDB's full set B is optional: the Database Manager downloads it over
+HTTPS after you confirm it (or builds it from a VFDB_setB_nt file you have) and converts and indexes it with
+ABRicate's own makeblastdb, as `abricate-get_db` would ([databases/README.md](../databases/README.md#vfdb-full-set-b));
+about 85 MB in the database folder. IntegronFinder uses the models its package bundles.
 
 skani 0.4.0 (2026-10-11) and GTDB-Tk 2.8.0 (2026-10-13) were the newest releases and more than two weeks old when
 pinned. The species-identification databases are registered in the Database Manager, never bundled:

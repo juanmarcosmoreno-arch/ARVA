@@ -862,6 +862,9 @@ CSV_COLUMNS = [
     "virulence_job_id", "virulence_gene", "virulence_factor", "virulence_category", "virulence_hit_kind",
     "virulence_identity", "virulence_coverage", "virulence_reference_range", "virulence_contig", "virulence_start",
     "virulence_end", "virulence_strand", "virulence_accession", "virulence_database", "virulence_database_checksum",
+    # Which VFDB the screen searched: A (core dataset: experimentally verified virulence factors) or B (full dataset:
+    # also predicted ones), and VFDB's date of it.
+    "virulence_vfdb_set", "virulence_vfdb_version",
     # S. aureus typing rows: record_type "typing" (one per step's call: SCCmec, spa, agr; the call empty when not
     # determined) and "typing_summary" (one per typed assembly: the shorthand from the determined parts only).
     "typing_job_id", "typing_module", "typing_method", "typing_status", "typing_call", "typing_details",
@@ -1040,7 +1043,9 @@ def render_csv(data: dict[str, Any]) -> str:
                 "assembly_id": run["assembly_id"], "virulence_job_id": run["job_id"],
                 "virulence_database": sanitize_spreadsheet_cell(" ".join(x for x in (run["database_name"],
                                                                                     run["database_version"]) if x)),
-                "virulence_database_checksum": run["database_checksum"] or ""}
+                "virulence_database_checksum": run["database_checksum"] or "",
+                "virulence_vfdb_set": (run.get("vfdb") or {}).get("set") or "",
+                "virulence_vfdb_version": sanitize_spreadsheet_cell((run.get("vfdb") or {}).get("version") or "")}
         if not run["hits"]:
             writer.writerow({**base, "virulence_gene": "none found"})
         for h in run["hits"]:
@@ -1866,8 +1871,15 @@ def _virulence_html(data: dict[str, Any]) -> str:
     sections = []
     for run in vir["runs"]:
         terms = run.get("database_terms") or {}
-        sections.append(f"<h3>{escape(run['tool'])} {escape(run['tool_version'])} · VFDB</h3><p class='muted'>Run "
-                        f"<code>{escape(run['job_id'])}</code> · {escape(run['created_at'])} · VFDB licence: "
+        v = run.get("vfdb") or {}
+        dataset = {"A": "core dataset (set A): experimentally verified virulence factors only",
+                   "B": "full dataset (set B): also predicted virulence factors, so more hits and more false "
+                        "positives"}.get(v.get("set") or "", "set not recorded")
+        sections.append(f"<h3>{escape(run['tool'])} {escape(run['tool_version'])} · "
+                        f"{escape(virulence_svc.set_label(v) if v.get('set') else 'VFDB')}</h3><p class='muted'>Run "
+                        f"<code>{escape(run['job_id'])}</code> · {escape(run['created_at'])} · VFDB searched: "
+                        f"{escape(run.get('database_name') or '?')} {escape(run.get('database_version') or '')} "
+                        f"({escape(dataset)}) · VFDB licence: "
                         f"{escape(terms.get('licence') or '?')} · cite: {escape(terms.get('citation') or '')}</p>"
                         + _run_footer(run))
     return ("<h2>Virulence factors</h2><p>Hits against VFDB (through ABRicate) and the virulence genes AMRFinderPlus "
@@ -2031,15 +2043,19 @@ _TYPING_METHODS = (
 
 _VIRULENCE_METHODS = (
     "<p>Virulence-factor genes were searched with ABRicate (T. Seemann, https://github.com/tseemann/abricate) against "
-    "the VFDB core set A nucleotides bundled in its package (index date and content checksum shown; Liu B. et al. "
-    "Nucleic Acids Res 2022;50:D912, doi:10.1093/nar/gkab1107), blastn with the minimum identity and coverage shown. "
+    "VFDB (Zhou S.Y. et al. Nucleic Acids Res 2025;53:D871-D877): the core dataset (set A, genes of experimentally "
+    "verified virulence factors) bundled in ABRicate's package, or the full dataset (set B, which adds predicted "
+    "ones) that ARVA converted to ABRicate's format as abricate-get_db converts set A; each run names the set, its "
+    "date and content checksum. blastn with the minimum identity and coverage shown. "
     "The coverage is of the reference gene; a hit not covering the whole reference is partial, and a partial hit at "
     "a contig end may continue on another contig. AMRFinderPlus's own virulence genes (--plus) are listed beside "
     "them with their source.</p>"
 )
 VIRULENCE_LIMITATIONS = [
     "A VFDB hit is nucleotide similarity to a known virulence-factor gene; it does not show that the gene is "
-    "expressed or that the isolate is virulent. VFDB's download page states no licence for its files.",
+    "expressed or that the isolate is virulent. VFDB's full dataset (set B) also holds predicted virulence factors: "
+    "it reports more genes than the core set A, and more that are not true virulence factors; and the same locus can "
+    "carry another gene name in each set. VFDB's data are licensed CC BY-NC 4.0 (non-commercial use).",
     "A gene split across contigs is reported only where each piece reaches the minimum coverage; below it the gene "
     "is not reported at all.",
 ]

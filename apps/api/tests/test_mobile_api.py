@@ -227,8 +227,10 @@ def test_stand_in_runs_contig_table_virulence_overview_and_reports(client, mobil
     assert if_job["database_kind"] == "integronfinder_models" and if_job["database_checksum"].startswith("sha256:")
     assert "--local-max" in if_job["commands"][0] and "--topology-file" in if_job["commands"][0]
     vf_job = start(client, f"/assemblies/{a['id']}/virulence", {"settings": {"minid": 80, "mincov": 80}})
-    assert vf_job["database_key"] == "abricate-vfdb" and vf_job["parameters"]["database_terms"]["licence"] == \
-        "Not stated on the download page"
+    assert vf_job["database_key"] == "abricate-vfdb" and vf_job["parameters"]["database_terms"]["licence"].startswith(
+        "CC BY-NC 4.0")
+    assert vf_job["commands"][0][1:5] == ["--datadir", str(Path(vf_job["database_path"]).parent), "--db", "vfdb"]
+    assert (vf_job["parameters"]["vfdb"]["set"], vf_job["parameters"]["vfdb"]["dataset"]) == ("A", "core")
 
     view = client.get(f"{API}/samples/{sample['id']}/mobile-elements").json()
     runs = {r["method"]: r for r in view["runs"]}
@@ -260,7 +262,8 @@ def test_stand_in_runs_contig_table_virulence_overview_and_reports(client, mobil
     (run,) = vir["runs"]
     assert run["counts"]["hits"] == 86 and run["counts"]["incomplete"] == 13
     assert [w["code"] for w in run["warnings"]][:2] == ["vfdb_meaning", "hits_partial"]
-    assert "vfdb_terms_unstated" in [w["code"] for w in run["warnings"]]
+    assert {"vfdb_core", "vfdb_terms"} <= {w["code"] for w in run["warnings"]}
+    assert (run["vfdb"]["set"], run["vfdb"]["bundled"]) == ("A", True)
     (merged,) = vir["assemblies"]
     assert merged["sources"]["vfdb"]["status"] == "searched" and merged["sources"]["amrfinderplus"]["status"] == \
         "not_searched"

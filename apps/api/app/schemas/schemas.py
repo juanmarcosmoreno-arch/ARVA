@@ -2027,6 +2027,8 @@ class ReferenceDatabaseRead(ORMModel):
     log_text: str | None = None
     mlst: dict[str, Any] | None = Field(default=None, description="mlst's bundled schemes: count, dates, sources, "
                                         "schemes updated after PubMLST's open-data date, the terms")
+    vfdb: dict[str, Any] | None = Field(default=None, description="A VFDB that ABRicate can search: its set (A core, B "
+                                        "full), version, source and checksums")
 
 
 class DatabaseLocationRead(BaseModel):
@@ -2132,6 +2134,8 @@ class DatabaseRegisterRequest(BaseModel):
                                          description="When the files do not state the version")
     collection_date: str | None = Field(default=None, max_length=20, description="A reference collection's date")
     full_checksum: bool = Field(default=False, description="Also start the full checksum now")
+    vfdb_set: Literal["A", "B"] | None = Field(default=None, description="For a VFDB folder in ABRicate's format that "
+                                               "ARVA did not build: A (core dataset) or B (full dataset)")
 
 
 class DatabaseExtractRequest(BaseModel):
@@ -3622,10 +3626,19 @@ class MobileAnnotationRead(BaseModel):
     elements: list[dict[str, Any]]
 
 
+class VirulencePreviewRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    database_id: str | None = Field(default=None, max_length=36, description="A VFDB the Database Manager lists; "
+                                    "none: the default VFDB (ABRicate's bundled core set A unless you chose another)")
+
+
 class VirulenceRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     settings: AbricateSettingsIn = AbricateSettingsIn()
+    database_id: str | None = Field(default=None, max_length=36, description="A VFDB the Database Manager lists "
+                                    "(ABRicate's bundled core set A, or a full set B); none: the default VFDB")
     threads: int | None = Field(default=None, ge=1, le=256)
     confirmed: bool
 
@@ -3633,6 +3646,7 @@ class VirulenceRequest(BaseModel):
 class VirulencePlanRead(BaseModel):
     tool: AnnotationToolRead
     database: dict[str, Any] | None
+    databases: list[dict[str, Any]] = Field(default=[], description="The VFDB databases ABRicate can search here")
     defaults: dict[str, str]
     tool_defaults: dict[str, str]
     defaults_match: bool | None
@@ -3655,6 +3669,8 @@ class VirulenceRunRead(BaseModel):
     database_path: str | None
     parameters: dict[str, Any]
     database_terms: dict[str, Any]
+    vfdb: dict[str, Any] = Field(default={}, description="The VFDB searched: set (A core, B full), version, source "
+                                 "and checksums")
     warnings: list[dict[str, Any]]
     counts: dict[str, Any]
     files: dict[str, Any]
@@ -4482,6 +4498,30 @@ class Ncbi16sPlanRequest(BaseModel):
 class Ncbi16sStartRequest(Ncbi16sPlanRequest):
     confirm_version: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$", description="The build date the plan showed")
     confirm_bytes: int = Field(ge=0, description="The archive size the plan showed (NCBI's metadata)")
+    accept_terms: bool
+
+
+class VfdbPlanRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    destination: str | None = Field(default=None, max_length=4096)
+    folder: str | None = Field(default=None, max_length=400)
+
+
+class VfdbStartRequest(VfdbPlanRequest):
+    confirm_version: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$", description="The date (Last-Modified) the plan showed")
+    confirm_bytes: int = Field(ge=0, description="The file size the plan showed")
+    accept_terms: bool = Field(description="VFDB's licence (CC BY-NC 4.0) and citation accepted")
+
+
+class VfdbBuildPlanRequest(VfdbPlanRequest):
+    path: str = Field(min_length=1, max_length=4096, description="A VFDB nucleotide FASTA (VFDB_setB_nt.fas[.gz])")
+    vfdb_set: Literal["A", "B"] | None = Field(default=None, description="When the file's name does not say")
+    declared_version: str | None = Field(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$",
+                                         description="The day it was downloaded, when the file states no date")
+
+
+class VfdbBuildRequest(VfdbBuildPlanRequest):
+    confirm_bytes: int = Field(ge=0, description="The file size the plan showed")
     accept_terms: bool
 
 

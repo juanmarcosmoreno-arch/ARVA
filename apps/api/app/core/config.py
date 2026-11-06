@@ -78,6 +78,9 @@ class Settings(BaseSettings):
     # NCBI's BLAST database folder, for the current 16S_ribosomal_RNA build (app.services.ncbi16s_db). Tests point
     # it at a local server.
     ncbi_blast_db_url: str = "https://ftp.ncbi.nlm.nih.gov/blast/db"
+    # VFDB's download folder (its FASTA files are linked from https://www.mgc.ac.cn/VFs/download.htm as Down/...), for
+    # the full set B nucleotides (app.services.vfdb_db). Tests point it at a local server.
+    vfdb_url: str = "https://www.mgc.ac.cn/VFs/Down"
     # NCBI's dated taxonomy archives, read to build MOB-suite's taxa.sqlite. Tests point it at a local server.
     ncbi_taxonomy_url: str = "https://ftp.ncbi.nlm.nih.gov/pub/taxonomy/taxdump_archive"
 

@@ -1985,6 +1985,58 @@ export interface ReferenceDatabase {
   log_text: string | null;
   /** mlst's bundled schemes: count, dates, sources and the PubMLST terms. */
   mlst?: MlstDatabase | null;
+  /** A VFDB that ABRicate can search: its set (A core, B full), version, source and checksums. */
+  vfdb?: VfdbProvenance | null;
+}
+
+/** Which VFDB a record is or a virulence run searched (apps/api/app/services/vfdb_db.py provenance). */
+export interface VfdbProvenance {
+  set: "A" | "B" | null;
+  dataset: "core" | "full" | null;
+  name?: string | null;
+  version: string | null;
+  version_source?: string | null;
+  bundled?: boolean;
+  checksum?: string | null;
+  source?: { url?: string; path?: string; file?: string; bytes?: number; last_modified?: string; sha256?: string; gzip_mtime?: string | null } | null;
+  fasta?: { sha256: string; bytes: number; records: number } | null;
+  sequences?: { sha256: string; bytes: number; records: number; genes?: number } | null;
+}
+
+/** What downloading VFDB's current full set B (or building it from a file you have) would do. */
+export interface VfdbPlan {
+  set: "A" | "B";
+  dataset: "core" | "full";
+  name: string;
+  key: string;
+  version: string;
+  bytes: number;
+  file?: string;
+  url?: string;
+  last_modified?: string;
+  etag?: string | null;
+  source?: string;
+  host_source?: string | null;
+  version_source?: "file" | "declared";
+  gzip_name?: string | null;
+  compressed?: boolean;
+  db_dir: string;
+  destinations: DownloadPlan["destinations"];
+  target_path: string;
+  host_target_path: string | null;
+  abricate_db: string;
+  licence: string;
+  licence_url: string | null;
+  citation: string;
+  terms_url: string;
+  source_page: string;
+  no_checksum: boolean;
+  only_current?: boolean;
+  required_bytes: number;
+  available_bytes: number;
+  enough: boolean;
+  blocked_by: string | null;
+  blocked_code: string | null;
 }
 
 export interface DatabaseLocation {
@@ -3490,9 +3542,13 @@ export interface MobileAnnotationElements {
   elements: MobileMapElement[];
 }
 
+export type VirulenceDatabase = MobileDatabase & { vfdb_set: "A" | "B" | null; dataset: "core" | "full" | null; vfdb: VfdbProvenance };
+
 export interface VirulencePlan {
   tool: AnnotationPlan["tool"];
-  database: MobileDatabase | null;
+  database: VirulenceDatabase | null;
+  /** The VFDB databases ABRicate can search here (its bundled core set A, full set B folders), the default first. */
+  databases: VirulenceDatabase[];
   defaults: Record<string, string>;
   tool_defaults: Record<string, string>;
   defaults_match: boolean | null;
@@ -3502,6 +3558,8 @@ export interface VirulencePlan {
 
 export interface VirulenceRequest {
   settings: { minid: number; mincov: number };
+  /** A VFDB the Database Manager lists; null: the default VFDB. */
+  database_id: string | null;
   threads: number | null;
   confirmed: boolean;
 }
@@ -3550,6 +3608,8 @@ export interface VirulenceRun {
   database_path: string | null;
   parameters: Record<string, number | boolean | string>;
   database_terms: { licence?: string; licence_url?: string | null; citation?: string; unconfirmed?: string[] };
+  /** The VFDB searched: set (A core, B full), version, source and checksums. */
+  vfdb?: VfdbProvenance;
   warnings: MobileWarning[];
   counts: Record<string, number | string[]>;
   files: Record<string, { path: string; sha256: string; size_bytes: number }>;
@@ -3562,6 +3622,10 @@ export interface VirulenceSourceStatus {
   tool?: string | null;
   tool_version: string | null;
   database_version: string | null;
+  database_name?: string | null;
+  /** VFDB only: the set searched (A core, B full). */
+  vfdb_set?: "A" | "B" | null;
+  dataset?: "core" | "full" | null;
   hits: number;
 }
 
@@ -3611,7 +3675,7 @@ export interface VirulenceMapHit extends VirulenceHit {
 }
 
 export interface VirulenceAnnotationHits {
-  run: { job_id: string; tool_version: string; database_version: string | null; created_at: string } | null;
+  run: { job_id: string; tool_version: string; database_version: string | null; database_name?: string | null; vfdb_set?: "A" | "B" | null; created_at: string } | null;
   hits: VirulenceMapHit[];
 }
 

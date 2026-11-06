@@ -51,6 +51,10 @@ PROBLEMS = {
     "spa_format": "{file} does not look like the SpaServer's file: {detail}",
     "blastdb_unreadable": "blastdbcmd could not read this BLAST database: {detail}",
     "blastdb_mismatch": "{file} states {stated} sequences but the BLAST database holds {found}",
+    "not_nucleotide": "{file} describes a {dbtype} BLAST database; ABRicate's VFDB search needs a nucleotide one",
+    "vfdb_raw_names": "The sequences keep VFDB's own names (VFG...), so ABRicate will report each hit's VFDB "
+                      "identifier as the gene instead of the gene's name; ARVA can build a database with gene names from "
+                      "VFDB_setB_nt.fas(.gz) instead",
 }
 
 
@@ -606,12 +610,19 @@ def _vfdb_file(path: Path) -> Detection | None:
     return d
 
 
+def _in_abricate_package(root: Path) -> bool:
+    """Whether the folder lies where ABRicate's package installs its databases: <prefix>/db/<name> next to
+    <prefix>/bin/abricate (bin/abricate's default --datadir, $FindBin::RealBin/../db)."""
+    return root.parent.name == "db" and (root.parent.parent / "bin" / "abricate").exists()
+
+
 def _abricate_db(root: Path) -> Detection | None:
     """One of the databases ABRicate bundles (db/vfdb, db/plasmidfinder): the sequences file and its BLAST index,
-    whose .njs states the day the package indexed it (the only date the files hold)."""
+    whose .njs states the day the package indexed it (the only date the files hold). A folder of the same name
+    elsewhere (built with abricate-get_db --dbdir) is not ABRicate's copy: _abricate_vfdb reads it."""
     from arva_tools.abricate import DATABASES, database_info
 
-    if root.name not in DATABASES or not (root / "sequences.njs").is_file():
+    if root.name not in DATABASES or not (root / "sequences.njs").is_file() or not _in_abricate_package(root):
         return None
     info = database_info(root)
     if info["description"] != root.name:
@@ -622,6 +633,76 @@ def _abricate_db(root: Path) -> Detection | None:
     if re.fullmatch(r"\d{4}-\d{2}-\d{2}", day):
         d.version, d.version_file, d.version_detail = day, "sequences.njs", "last-updated"
     d.facts["abricate"] = {k: info[k] for k in ("sequences", "letters", "indexed", "dbtype")}
+    return d
+
+
+ARVA_DATABASE_FILE = "ARVA_DATABASE.json"
+_BLAST_V4 = ("sequences.nin", "sequences.nhr", "sequences.nsq")
+_VFDB_ARVA_KEYS = ("kind", "format", "set", "version")
+
+
+def _first_header(path: Path) -> str:
+    with open(path, "rb") as fh:
+        return fh.readline(4096).decode("latin-1").strip()
+
+
+def vfdb_arva_file(root: Path) -> dict | None:
+    """ARVA_DATABASE.json of a VFDB folder ARVA built, or None when the folder has none (or another kind's)."""
+    f = root / ARVA_DATABASE_FILE
+    if not f.is_file():
+        return None
+    try:
+        info = json.loads(read_text(f))
+    except ValueError:
+        return None
+    return info if isinstance(info, dict) and info.get("kind") == "vfdb" and info.get("format") == "abricate" else None
+
+
+def _abricate_vfdb(root: Path) -> Detection | None:
+    """A VFDB database in ABRicate's format that is not ABRicate's own copy: `sequences` and its nucleotide BLAST
+    index, built by ARVA (ARVA_DATABASE.json states the set, the version and the source) or by the user (recognised by
+    its sequence names: VFDB's own ">VFG..." headers, or abricate-get_db's ">vfdb~~~gene~~~accession~~~"). ABRicate
+    reads it with --datadir <parent> --db <folder name>."""
+    from arva_tools.abricate import database_info
+
+    seq = root / "sequences"
+    if not seq.is_file() or _in_abricate_package(root) or not any((root / f).is_file() for f in
+                                                                   ("sequences.njs", "sequences.nin")):
+        return None
+    try:
+        head = _first_header(seq)
+    except OSError:
+        return None
+    first = head[1:].split(maxsplit=1)[0] if head.startswith(">") and len(head) > 1 else ""
+    style = "abricate" if first.startswith("vfdb") and "~~~" in first else "vfdb" if re.match(r"VFG\d+", first) \
+        else None
+    meta = vfdb_arva_file(root)
+    if meta is None and style is None:
+        return None
+    info = database_info(root)
+    d = Detection("vfdb", str(root), "folder", variant="abricate_arva" if meta else "abricate_folder")
+    d.require(root, "sequences", *(info["index_files"] or _BLAST_V4))
+    if info["dbtype"] not in (None, "Nucleotide"):
+        d.problems.append(Problem("not_nucleotide", {"file": "sequences.njs", "dbtype": str(info["dbtype"])}))
+    facts = {"sequences": info["sequences"], "letters": info["letters"], "indexed": info["indexed"],
+             "dbtype": info["dbtype"], "header_style": style, "first_name": first[:120]}
+    if meta is not None:
+        if missing := [k for k in _VFDB_ARVA_KEYS if not meta.get(k)]:
+            d.problems.append(Problem("version_unreadable", {"file": ARVA_DATABASE_FILE, "kind": "VFDB",
+                                                             "detail": f"it lacks {', '.join(missing)}"}))
+        else:
+            d.version, d.version_file, d.version_detail = str(meta["version"]), ARVA_DATABASE_FILE, "version"
+        d.files.append(_check(root, ARVA_DATABASE_FILE, "version"))
+        facts["set"] = meta.get("set")
+        facts["vfdb"] = {k: meta.get(k) for k in ("set", "dataset", "version", "source", "fasta", "sequences",
+                                                   "conversion", "built_at", "built_by") if k in meta}
+    else:
+        if style == "vfdb":
+            d.problems.append(Problem("vfdb_raw_names", {}, blocking=False))
+        day = (info["indexed"] or "")[:10]
+        if re.fullmatch(r"\d{4}-\d{2}-\d{2}", day):
+            d.suggested_version, d.suggested_from = day, "index_date"
+    d.facts["abricate"] = facts
     return d
 
 
@@ -642,7 +723,8 @@ def _mlst_schemes(root: Path) -> Detection | None:
 
 
 FOLDER_DETECTORS = (_bakta, _amrfinderplus, _gtdbtk, _skani, _kraken2, _checkm2, _busco, _plasmidfinder, _mobsuite,
-                    _genomad, _interproscan, _spa_types, _vfdb, _mlst_schemes, _abricate_db, _ncbi_16s)
+                    _genomad, _interproscan, _spa_types, _vfdb, _mlst_schemes, _abricate_db, _abricate_vfdb,
+                    _ncbi_16s)
 FILE_DETECTORS = (_sylph, _mash, _vfdb_file)
 
 

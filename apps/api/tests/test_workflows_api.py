@@ -82,7 +82,7 @@ def test_catalogue_templates_and_parameter_schemas(client):
     assert kinds["mobile_elements"]["database_kinds"]["mobsuite"] == "mobsuite"
     assert kinds["mobile_elements"]["database_kinds"]["isescan"] is None
     assert kinds["staph_typing"]["database_kinds"] == {"sccmec": None, "spa": "spa_types", "agr": None}
-    assert kinds["mlst"]["database_kinds"] is None and kinds["virulence"]["database_kinds"] is None
+    assert kinds["mlst"]["database_kinds"] is None and kinds["virulence"]["database_kinds"] == {"": "vfdb"}
     for k in kinds.values():
         if k["database_kinds"]:
             assert "database_id" in k["params_schema"]["properties"]

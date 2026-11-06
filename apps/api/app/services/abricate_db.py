@@ -3,7 +3,9 @@
 ABRicate 1.4.0's package ships db/vfdb (VFDB's core set A nucleotides) and db/plasmidfinder (CGE's plasmidfinder_db)
 already indexed; ARVA reads them where the environment installed them, records the SHA-256 of every file, the
 index's date and sequence count, and never runs abricate-get_db or --setupdb (they fetch the latest data). The VFDB
-licence and citation are shown as the vfdb kind states them (database_kinds.py: not stated on VFDB's download page).
+licence (CC BY-NC 4.0, VFDB's terms of use) and citation are shown as the vfdb kind states them (database_kinds.py).
+The bundled core set A stays the default VFDB unless the user makes another VFDB (a full set B, app.services.vfdb_db)
+the default in the Database Manager.
 """
 from __future__ import annotations
 
@@ -23,6 +25,8 @@ from app.services.annotation import _signature
 from app.services.mlst import _manifest
 
 KEYS = {"vfdb": "abricate-vfdb", "plasmidfinder": "abricate-plasmidfinder"}
+# The bundled copy is the kind's default unless the user chose another (databases.BUNDLED_FIRST).
+BUNDLED_DEFAULT = ("vfdb",)
 NAMES = {"vfdb": "VFDB core set A (bundled with ABRicate {version})",
          "plasmidfinder": "PlasmidFinder replicons (bundled with ABRicate {version})"}
 
@@ -30,7 +34,13 @@ NAMES = {"vfdb": "VFDB core set A (bundled with ABRicate {version})",
 def bundled_database(db: Session, executable: str, tool_version: str | None, name: str) -> ReferenceDatabase | None:
     """One database bundled with this ABRicate as a record, created (or recorded again when its files changed) with
     the SHA-256 of every file; None when the package holds no complete, indexed copy."""
-    from app.services.databases import _stored_detection, append_log, ensure_default, now
+    from app.services.databases import (
+        _stored_detection,
+        append_log,
+        ensure_default,
+        now,
+        prefer_bundled_default,
+    )
 
     folder = abr.datadir(executable) / name
     found = next((d for d in detection.detect(folder) if d.kind == name), None) if folder.is_dir() else None
@@ -39,6 +49,9 @@ def bundled_database(db: Session, executable: str, tool_version: str | None, nam
     manifest, checksum = _manifest(str(folder), _signature(folder))
     record = db.scalar(select(ReferenceDatabase).where(ReferenceDatabase.path == str(folder)))
     if record is not None and record.checksum == checksum and record.status is DatabaseStatus.registered:
+        if name in BUNDLED_DEFAULT and not record.is_default:
+            prefer_bundled_default(db, name)
+            db.commit()
         return record
     stamp = now()
     k = kinds.BY_KEY[name]
@@ -65,6 +78,8 @@ def bundled_database(db: Session, executable: str, tool_version: str | None, nam
                        f"them; the files record no {name} release); content checksum {checksum}")
     db.flush()
     ensure_default(db, name)
+    if name in BUNDLED_DEFAULT:
+        prefer_bundled_default(db, name)
     db.commit()
     db.refresh(record)
     return record

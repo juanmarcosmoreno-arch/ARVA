@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import ValidationError
@@ -20,6 +22,7 @@ from app.schemas.schemas import (
     MobileSampleRead,
     VirulenceAnnotationRead,
     VirulencePlanRead,
+    VirulencePreviewRequest,
     VirulenceRequest,
     VirulenceRunRead,
     VirulenceSampleRead,
@@ -153,31 +156,45 @@ def annotation_mobile(annotation_id: str, db: Session = Depends(get_db)):
 # --- Virulence (VFDB through ABRicate) -----------------------------------------------------------------------
 
 @router.post("/assemblies/{assembly_id}/virulence/preview", response_model=VirulencePlanRead)
-def preview_virulence(assembly_id: str, db: Session = Depends(get_db)):
-    """What a VFDB screen of this assembly would do here: ABRicate, its bundled VFDB (index date, sequences,
-    checksum, licence and citation status) and the thresholds."""
+def preview_virulence(assembly_id: str, payload: VirulencePreviewRequest | None = None, db: Session = Depends(get_db)):
+    """What a VFDB screen of this assembly would do here: ABRicate, the VFDB it would search (the chosen one, else the
+    default: ABRicate's bundled core set A unless you made a full set B the default), its set, version, checksum,
+    licence and citation, the VFDB databases ABRicate can search and the thresholds."""
     sample, a = _assembly(db, assembly_id)
-    return vir.plan(db, sample, a)
+    try:
+        return vir.plan(db, sample, a, (payload or VirulencePreviewRequest()).database_id)
+    except vir.InputError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
 
 
 @router.post("/assemblies/{assembly_id}/virulence", response_model=AnalysisJobRead,
              status_code=status.HTTP_202_ACCEPTED)
 def start_virulence(assembly_id: str, payload: VirulenceRequest, db: Session = Depends(get_db)):
-    """Screen the assembly against ABRicate's bundled VFDB in one background job (--minid and --mincov passed)."""
+    """Screen the assembly against the chosen VFDB (default: the Database Manager's default VFDB, ABRicate's bundled
+    core set A unless you chose another) in one background job (--datadir and --db name its folder; --minid and
+    --mincov passed). The run records the set (A core, B full), version, source and checksums of the VFDB."""
     from arva_tools.abricate import AbricateParams
+
+    from app.services import vfdb_db
 
     sample, a = _assembly(db, assembly_id)
     if not payload.confirmed:
         return _coded(status.HTTP_400_BAD_REQUEST, "mobile_confirm")
-    plan = vir.plan(db, sample, a)
+    try:
+        plan = vir.plan(db, sample, a, payload.database_id)
+    except vir.InputError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
     if plan["problems"]:
         return _coded(status.HTTP_409_CONFLICT, "mobile_blocked", tool="ABRicate",
                       problems="; ".join(p["message"] for p in plan["problems"]))
-    params = AbricateParams(database="vfdb", minid=payload.settings.minid, mincov=payload.settings.mincov,
-                            threads=payload.threads or effective_resources(db).threads)
     record = db.get(ReferenceDatabase, plan["database"]["id"])
+    folder = Path(record.path or "").name
+    params = AbricateParams(database="vfdb" if vfdb_db.variant(record) == "abricate" else folder,
+                            minid=payload.settings.minid, mincov=payload.settings.mincov,
+                            threads=payload.threads or effective_resources(db).threads)
     terms = {k: plan["database"][k] for k in ("licence", "licence_url", "citation", "unconfirmed")}
-    provenance = {"synthetic_evidence": plan["assembly"]["synthetic_evidence"], "database_terms": terms}
+    provenance = {"synthetic_evidence": plan["assembly"]["synthetic_evidence"], "database_terms": terms,
+                  "vfdb": vfdb_db.provenance(record)}
     return _tool_call(create_virulence_job, db, sample, a, params, record, provenance)
 
 

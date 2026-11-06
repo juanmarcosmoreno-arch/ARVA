@@ -13,6 +13,7 @@ import { fmtBytes, fmtDayInWords, fmtInt } from "@/lib/format";
 import { serverText } from "@/lib/messages";
 import type { Detection } from "@/lib/types";
 import { DayFields } from "./DayFields";
+import { VfdbDialog } from "./VfdbDialog";
 import { useRefreshDatabases } from "./RecordRow";
 import { CompatibilityBadge, compatibilityText, coverageText, problemText } from "./shared";
 
@@ -161,7 +162,7 @@ function NestedHint({ detection, onPick }: { detection: Detection; onPick: (name
   );
 }
 
-const VARIANTS = ["light", "full", "ncbi_package", "ncbi_package_zip", "fastani_list", "fasta_folder"];
+const VARIANTS = ["light", "full", "ncbi_package", "ncbi_package_zip", "fastani_list", "fasta_folder", "abricate", "abricate_arva", "abricate_folder"];
 
 export function variantName(t: T, variant: string) {
   return VARIANTS.includes(variant) ? t(`databases.variant.${variant}` as TranslationKey) : variant;
@@ -183,6 +184,12 @@ function CandidatePanel({ detection: d, path, onDone }: { detection: Detection; 
   const [declared, setDeclared] = useState(collection ? "" : (d.suggested_version ?? ""));
   const [day, setDay] = useState(collection ? (d.suggested_version ?? "") : "");
   const [fullChecksum, setFullChecksum] = useState(false);
+  // A VFDB folder in ABRicate's format that ARVA did not build does not say which VFDB set it holds.
+  const needsSet = d.kind === "vfdb" && d.variant === "abricate_folder";
+  const [vfdbSet, setVfdbSet] = useState<"" | "A" | "B">("");
+  // A VFDB FASTA file: ABRicate cannot search it as it is; ARVA can build an ABRicate database from it.
+  const vfdbFile = d.kind === "vfdb" && d.path_type === "file" && /_nt\.fas(\.gz)?$/i.test(path);
+  const [building, setBuilding] = useState(false);
   const register = useMutation({
     mutationFn: () =>
       api.registerDatabase({
@@ -191,6 +198,7 @@ function CandidatePanel({ detection: d, path, onDone }: { detection: Detection; 
         declared_version: !collection && d.needs_declared_version ? declared.trim() : null,
         collection_date: collection ? day : null,
         full_checksum: fullChecksum,
+        ...(needsSet ? { vfdb_set: vfdbSet || null } : {}),
       }),
     onSuccess: () => {
       refresh();
@@ -199,7 +207,7 @@ function CandidatePanel({ detection: d, path, onDone }: { detection: Detection; 
   });
   const blocking = d.problems.filter((p) => p.blocking && p.code !== "zip_package");
   const needsVersion = !collection && d.needs_declared_version;
-  const inputsOk = collection ? validDate(day) : !needsVersion || validDeclaredVersion(declared);
+  const inputsOk = (collection ? validDate(day) : !needsVersion || validDeclaredVersion(declared)) && (!needsSet || vfdbSet !== "");
   const c = d.facts.collection;
   return (
     <div className="space-y-3 rounded-lg border p-3">
@@ -293,6 +301,25 @@ function CandidatePanel({ detection: d, path, onDone }: { detection: Detection; 
                 </span>
               </label>
             )}
+            {needsSet && (
+              <label className="block space-y-1 text-xs">
+                <span className="font-medium">{t("databases.vfdbSet")}</span>
+                <Select value={vfdbSet} onChange={(e) => setVfdbSet(e.target.value as "" | "A" | "B")} aria-label={t("databases.vfdbSet")}>
+                  <option value="">{t("databases.vfdbSetChoose")}</option>
+                  <option value="B">{t("virulence.set.B")}</option>
+                  <option value="A">{t("virulence.set.A")}</option>
+                </Select>
+                <span className="block text-muted-foreground">{t("databases.vfdbSetHint")}</span>
+              </label>
+            )}
+            {vfdbFile && (
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded border border-dashed p-2 text-xs">
+                <span className="max-w-md text-muted-foreground">{t("databases.vfdbBuildHint")}</span>
+                <Button size="sm" variant="outline" onClick={() => setBuilding(true)}>
+                  {t("vfdb.openBuild")}
+                </Button>
+              </div>
+            )}
             {collection && (
               <DayFields
                 value={day}
@@ -314,6 +341,16 @@ function CandidatePanel({ detection: d, path, onDone }: { detection: Detection; 
             </div>
           </div>
         )
+      )}
+      {building && (
+        <VfdbDialog
+          mode="build"
+          initialPath={path}
+          onClose={() => {
+            setBuilding(false);
+            onDone();
+          }}
+        />
       )}
     </div>
   );

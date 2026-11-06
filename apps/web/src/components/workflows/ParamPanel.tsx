@@ -128,7 +128,8 @@ function DatabaseSelect({ kind, value, readOnly, onChange }: {
   const t = useT();
   const records = useQuery({ queryKey: ["databases"], queryFn: api.databases, enabled: kind !== null });
   if (kind === null && !value) return <p className="text-[11px] text-muted-foreground">{t("wf.param.dbNone")}</p>;
-  const options = (records.data ?? []).filter((r) => r.kind === kind);
+  // VFDB: only the databases ABRicate can search (its bundled core set A, full set B folders), not a FASTA file.
+  const options = (records.data ?? []).filter((r) => r.kind === kind && (kind !== "vfdb" || Boolean(r.vfdb)));
   const known = !value || options.some((r) => r.id === value);
   return (
     <div className="space-y-1">

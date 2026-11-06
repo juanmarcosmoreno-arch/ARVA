@@ -20,7 +20,7 @@ import { COMPLETENESS_TONE, warningText } from "@/lib/mobile";
 import { delimitedText, saveText } from "@/lib/tableExport";
 import { combinedFileName, combinedTable, flagText } from "@/lib/virulence";
 import { DatabaseTerms } from "./MobileDialog";
-import type { Assembly, VirulenceRun, VirulenceSample } from "@/lib/types";
+import type { Assembly, VirulenceDatabase, VirulenceRun, VirulenceSample } from "@/lib/types";
 
 const CHECK = "mt-0.5 h-4 w-4 shrink-0 accent-[#00B4A6]";
 const TH = "px-2 py-1.5 text-left font-medium text-muted-foreground whitespace-nowrap";
@@ -39,20 +39,28 @@ export function VirulenceDialog({ open, onOpenChange, sampleId, assemblies }: { 
   const [minid, setMinid] = useState("80");
   const [mincov, setMincov] = useState("80");
   const [threads, setThreads] = useState("");
+  const [databaseId, setDatabaseId] = useState("");
   const [confirmed, setConfirmed] = useState(false);
   useEffect(() => {
     if (open) {
       setAssemblyId(last);
+      setDatabaseId("");
       setConfirmed(false);
     }
   }, [open]);
-  const plan = useQuery({ queryKey: ["virulencePlan", assemblyId], queryFn: () => api.virulencePreview(assemblyId), enabled: open && Boolean(assemblyId), retry: false });
+  const plan = useQuery({
+    queryKey: ["virulencePlan", assemblyId, databaseId],
+    queryFn: () => api.virulencePreview(assemblyId, databaseId || null),
+    enabled: open && Boolean(assemblyId),
+    retry: false,
+  });
   const p = plan.data;
   const problems: TranslationKey[] = [];
   if (!proportion(minid, 0) || !proportion(mincov, -1)) problems.push("mobile.problem.setting");
   if (!confirmed) problems.push("amr.problem.confirm");
   const run = useMutation({
-    mutationFn: () => api.runVirulence(assemblyId, { settings: { minid: Number(minid), mincov: Number(mincov) }, threads: threads ? Number(threads) : null, confirmed }),
+    mutationFn: () =>
+      api.runVirulence(assemblyId, { settings: { minid: Number(minid), mincov: Number(mincov) }, database_id: p?.database?.id ?? null, threads: threads ? Number(threads) : null, confirmed }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["jobs", sampleId] });
       queryClient.invalidateQueries({ queryKey: ["virulence", sampleId] });
@@ -80,7 +88,25 @@ export function VirulenceDialog({ open, onOpenChange, sampleId, assemblies }: { 
             <h4 className="flex items-center gap-1.5 text-sm font-semibold">
               {t("virulence.database")} <Explain id="vfdb" compact />
             </h4>
+            {p.databases.length > 1 && (
+              <Select
+                value={databaseId || p.database.id}
+                onChange={(e) => {
+                  setDatabaseId(e.target.value);
+                  setConfirmed(false);
+                }}
+                aria-label={t("virulence.database")}
+              >
+                {p.databases.map((d) => (
+                  <option key={d.id} value={d.id} disabled={!d.available}>
+                    {vfdbOptionLabel(t, d)}
+                  </option>
+                ))}
+              </Select>
+            )}
+            <p className="text-xs">{vfdbSetText(t, p.database.vfdb_set, p.database.version)}</p>
             <DatabaseTerms plan={p} />
+            {p.databases.length < 2 && <p className="text-xs text-muted-foreground">{t("virulence.fullHint")}</p>}
             <p className="text-xs text-muted-foreground">{t("virulence.noUpdater")}</p>
           </section>
         )}
@@ -130,6 +156,22 @@ export function VirulenceDialog({ open, onOpenChange, sampleId, assemblies }: { 
   );
 }
 
+const SERVER_SET_NAMES = ["VFDB core (set A)", "VFDB full (set B)"];
+
+/** "VFDB core (set A) 2026-04-03 · default" for the dialog's choice. */
+export function vfdbOptionLabel(t: ReturnType<typeof useT>, d: VirulenceDatabase) {
+  const set = d.vfdb_set ? t(`virulence.set.${d.vfdb_set}` as TranslationKey) : d.name;
+  // The record's own name only when it adds something (the server names a database ARVA built "VFDB full (set B)").
+  const origin = d.bundled ? t("virulence.setBundled") : SERVER_SET_NAMES.includes(d.name) ? null : d.name;
+  return [`${set} ${d.version ?? ""}`.trim(), origin, d.is_default ? t("databases.badge.default") : null].filter(Boolean).join(" · ");
+}
+
+/** What the chosen set holds: core (experimentally verified factors only) or full (also predicted ones). */
+export function vfdbSetText(t: ReturnType<typeof useT>, set: "A" | "B" | null | undefined, version: string | null | undefined) {
+  if (set !== "A" && set !== "B") return t("virulence.setUnknown");
+  return t(set === "A" ? "virulence.setCore" : "virulence.setFull", { version: version ?? "?" });
+}
+
 const pct = (v: number | null) => (v == null ? "—" : fmtNum(v, 2));
 
 /** The virulence genes of an assembly from both sources, side by side: VFDB hits (ABRicate) and AMRFinderPlus's
@@ -140,7 +182,8 @@ export function VirulenceCard({ view, runs }: { view: VirulenceSample["assemblie
   const run = runs.find((r) => r.job_id === view.sources.vfdb.job_id);
   const sourceLine = (key: "vfdb" | "amrfinderplus") => {
     const s = view.sources[key];
-    return t(`virulence.source.${s.status}` as TranslationKey, { source: t(`virulence.sourceName.${key}` as TranslationKey), n: fmtInt(s.hits), version: s.tool_version ?? "?", db: s.database_version ?? "?" });
+    const db = key === "vfdb" && s.vfdb_set ? `${t(`virulence.set.${s.vfdb_set}` as TranslationKey)} ${s.database_version ?? ""}`.trim() : (s.database_version ?? "?");
+    return t(`virulence.source.${s.status}` as TranslationKey, { source: t(`virulence.sourceName.${key}` as TranslationKey), n: fmtInt(s.hits), version: s.tool_version ?? "?", db });
   };
   return (
     <Card>
@@ -250,6 +293,7 @@ export function VirulenceCard({ view, runs }: { view: VirulenceSample["assemblie
           <>
             <p className="text-xs text-muted-foreground">
               {t("virulence.runLine", { version: run.tool_version, db: run.database_version ?? "?", minid: String(run.parameters.minid ?? "?"), mincov: String(run.parameters.mincov ?? "?") })}
+              <span className="block">{vfdbSetText(t, run.vfdb?.set, run.vfdb?.version ?? run.database_version)}</span>
               {run.database_terms.licence && <span className="block">{t("mobile.dbLicence", { licence: run.database_terms.licence })}</span>}
             </p>
             <div className="flex flex-wrap gap-2 text-xs">

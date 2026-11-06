@@ -195,7 +195,7 @@ describe("virulence factors from both sources", () => {
   it("builds the combined table for download, one row per hit with its origin and notes", () => {
     const t = (k: string, v?: Record<string, unknown>) => `${k}${v ? JSON.stringify(v) : ""}`;
     const { columns, rows } = combinedTable(t as never, flagged, [run]);
-    expect(columns.slice(0, 7)).toEqual(["assembly_id", "source", "tool", "tool_version", "database_version", "gene", "product"]);
+    expect(columns.slice(0, 8)).toEqual(["assembly_id", "source", "tool", "tool_version", "database_version", "vfdb_set", "gene", "product"]);
     const col = (r: (string | number | null | undefined)[], name: string) => r[columns.indexOf(name)];
     expect(rows).toHaveLength(3);
     expect([col(rows[0], "tool"), col(rows[0], "tool_version"), col(rows[0], "database_version")]).toEqual(["ABRicate", "1.4.0", "2026-04-03"]);

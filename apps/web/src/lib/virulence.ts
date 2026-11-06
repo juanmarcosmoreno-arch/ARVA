@@ -20,7 +20,7 @@ export function flagText(t: T, f: VirulenceFlag): string {
 }
 
 export const COMBINED_COLUMNS = [
-  "assembly_id", "source", "tool", "tool_version", "database_version", "gene", "product", "virulence_factor", "category", "match_type", "method",
+  "assembly_id", "source", "tool", "tool_version", "database_version", "vfdb_set", "gene", "product", "virulence_factor", "category", "match_type", "method",
   "identity", "coverage", "ref_start", "ref_end", "ref_length", "contig", "start", "end", "strand", "reference_accession",
   "also_found_by", "flags", "notes",
 ];
@@ -37,6 +37,7 @@ export function combinedTable(t: T, view: View, runs: VirulenceRun[] = []): { co
     const flags = r.flags ?? [];
     return [
       view.assembly_id, r.source, s.tool ?? (r.source === "vfdb" ? vfRun?.tool : null) ?? TOOL_NAME[r.source], s.tool_version, s.database_version,
+      r.source === "vfdb" ? (s.vfdb_set ?? vfRun?.vfdb?.set ?? null) : null,
       r.gene, r.description, r.vf_name, r.vf_category, r.kind, r.method,
       r.identity, r.coverage, r.ref_start, r.ref_end, r.ref_length, r.contig, r.start, r.end, r.strand, r.reference,
       r.also_found_by.join("; "), flags.map((f) => f.code).join("; "), flags.map((f) => flagText(t, f)).join(" "),

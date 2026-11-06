@@ -1072,7 +1072,8 @@ def _found_metrics(db: Session, job: AnalysisJob) -> dict[str, Any]:
     * AMRFinderPlus: the AMR genes (type AMR, point mutations included) and their count, with the search and the
       organism, which decide what can be found;
     * VFDB: the genes, the hit count and the cross-hits listed apart, as the project report reads them
-      (virulence.vfdb_genes: a VFDB hit on the region of a different AMRFinderPlus gene with a higher identity);
+      (virulence.vfdb_genes: a VFDB hit on the region of a different AMRFinderPlus gene with a higher identity), and
+      which VFDB was searched (set A core or B full, and its version), since set B finds more genes;
     * MOB-suite: the plasmid cluster ids, the replicon types of the reconstructed plasmids and the number of contigs
       assigned to a plasmid;
     * PlasmidFinder: the replicons."""
@@ -1086,11 +1087,13 @@ def _found_metrics(db: Session, job: AnalysisJob) -> dict[str, Any]:
         return {"amr.genes": joined(genes), "amr.genes_count": len(set(genes)), "amr.hits": len(genes),
                 "amr.search": p.get("mode") or "nucleotide", "amr.organism": p.get("organism") or "none"}
     if job.job_type == VIRULENCE_JOB:
-        from app.services.virulence import cross_hit_text, vfdb_genes
+        from app.services.virulence import cross_hit_text, vfdb_genes, vfdb_of
 
         found = vfdb_genes(db, job)
+        v = vfdb_of(job)
         return {"vfdb.genes": joined(found["genes"]), "vfdb.genes_count": len(found["genes"]),
-                "vfdb.hits": found["hits"], "vfdb.cross_hits": ";".join(cross_hit_text(c) for c in found["cross_hits"])}
+                "vfdb.hits": found["hits"], "vfdb.cross_hits": ";".join(cross_hit_text(c) for c in found["cross_hits"]),
+                "vfdb.set": v.get("set") or "", "vfdb.version": v.get("version") or ""}
     if job.job_type == MOBILE_JOB and p.get("method") == "mobsuite":
         rows = db.scalars(select(MobileElementResult).where(MobileElementResult.job_id == job.id,
                                                             MobileElementResult.category.in_(("plasmid", "contig"))))

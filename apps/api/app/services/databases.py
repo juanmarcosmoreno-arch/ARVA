@@ -405,10 +405,12 @@ def collection_version(d: detection.Detection, day: str | None) -> str:
 
 
 def register(db: Session, raw_path: str, kind: str | None = None, declared_version: str | None = None,
-             collection_date: str | None = None, full_checksum: bool = False) -> ReferenceDatabase:
+             collection_date: str | None = None, full_checksum: bool = False,
+             vfdb_set: str | None = None) -> ReferenceDatabase:
     """Record an existing database folder or file after the quick verification (its kind's files, their sizes and
     its version). The folder is never modified; with `full_checksum` the worker then computes the SHA-256 of every
-    file, otherwise that can be asked for later."""
+    file, otherwise that can be asked for later. A VFDB folder in ABRicate's format that ARVA did not build needs
+    `vfdb_set` (A, the core dataset, or B, the full one): its files do not say."""
     path, found = detect(raw_path)
     if db.scalar(select(ReferenceDatabase).where(ReferenceDatabase.path == str(path))) is not None:
         raise DatabaseStateError("", "already_registered", path=raw_path)
@@ -435,6 +437,14 @@ def register(db: Session, raw_path: str, kind: str | None = None, declared_versi
         elif not d.version_by_checksum:
             raise refusal("version_needed", path=raw_path, suggested=d.suggested_version or "")
     key, name = record_name(d)
+    vfdb_details = None
+    if d.kind == "vfdb" and d.variant in kinds.ABRICATE_FOLDERS:
+        from app.services import vfdb_db
+
+        vfdb_details = vfdb_db.registered_details(d, vfdb_set)
+        key = vfdb_db.SET_KEYS[vfdb_details["set"]]
+        name = f"{vfdb_db.SET_NAMES[vfdb_details['set']]}, " + ("built by ARVA" if d.variant == "abricate_arva" else
+                                                                "your ABRicate folder")
     k = kinds.BY_KEY[d.kind]
     catalogue = bakta_entry_for(d.variant or "") if d.kind == "bakta" else None
     same = catalogue is not None and catalogue.version == version
@@ -450,7 +460,8 @@ def register(db: Session, raw_path: str, kind: str | None = None, declared_versi
                                                       "licence) describe that version only."),
         details={"detection": _stored_detection(d), "version_json": d.facts.get("version_json"),
                  "collection": d.facts.get("collection"),
-                 "catalogue": catalogue_snapshot(catalogue) if same else None},
+                 "catalogue": catalogue_snapshot(catalogue) if same else None,
+                 **({"vfdb": vfdb_details} if vfdb_details else {})},
         inventory=d.facts.get("genomes") if d.kind == "reference_genomes" else None,
     )
     known = {VersionSource.file: f"version read from {d.version_file}", VersionSource.declared: "version declared by the "
@@ -857,9 +868,15 @@ def usable_now(record: ReferenceDatabase) -> bool:
         record_compatibility(record).status != "incompatible"
 
 
+# Kinds whose default, unless the user chose one, is the copy bundled with the tool (VFDB: ABRicate's core set A, not
+# a full set B added later).
+BUNDLED_FIRST = ("vfdb",)
+
+
 def ensure_default(db: Session, kind: str) -> None:
     """Keep one default per kind: when none of a kind's usable databases is the default, the most recently verified
-    becomes it. An explicit choice is never replaced while that database is usable."""
+    becomes it (for BUNDLED_FIRST kinds, the bundled copy first). An explicit choice is never replaced while that
+    database is usable."""
     rows = list(db.scalars(select(ReferenceDatabase).where(ReferenceDatabase.kind == kind)
                            .order_by(ReferenceDatabase.verified_at.desc().nulls_last(),
                                      ReferenceDatabase.created_at.desc())))
@@ -869,7 +886,10 @@ def ensure_default(db: Session, kind: str) -> None:
     for r in current:
         r.is_default = False
     db.flush()
-    pick = next((r for r in rows if r.status in USABLE and record_compatibility(r).status != "incompatible"), None)
+    candidates = [r for r in rows if r.status in USABLE and record_compatibility(r).status != "incompatible"]
+    if kind in BUNDLED_FIRST:
+        candidates.sort(key=lambda r: r.origin is not DatabaseOrigin.bundled)
+    pick = candidates[0] if candidates else None
     if pick is not None:
         pick.is_default = True
         db.flush()
@@ -888,10 +908,27 @@ def set_default(db: Session, record_id: str) -> ReferenceDatabase:
                                                ReferenceDatabase.id != record.id).values(is_default=False))
     db.flush()
     record.is_default = True
+    record.details = {**(record.details or {}), "default_chosen_at": now().isoformat()}
     append_log(record, "Made the default database of its kind")
     db.commit()
     db.refresh(record)
     return record
+
+
+def prefer_bundled_default(db: Session, kind: str) -> None:
+    """Make the kind's bundled copy the default again when the current default was not chosen by the user (it was
+    picked automatically, e.g. before the bundled copy was recorded)."""
+    rows = list(db.scalars(select(ReferenceDatabase).where(ReferenceDatabase.kind == kind)))
+    bundled = next((r for r in rows if r.origin is DatabaseOrigin.bundled and r.status in USABLE), None)
+    current = next((r for r in rows if r.is_default), None)
+    if bundled is None or current is bundled or (current is not None and current.status in USABLE
+                                                 and (current.details or {}).get("default_chosen_at")):
+        return
+    if current is not None:
+        current.is_default = False
+        db.flush()
+    bundled.is_default = True
+    db.flush()
 
 
 def default_for(db: Session, kind: str) -> ReferenceDatabase | None:
@@ -958,9 +995,13 @@ def delete(db: Session, record_id: str) -> None:
         if (folder := _owned_folder(record)) is not None:
             if folder.exists():
                 shutil.rmtree(folder)
+            # The empty folders above it that ARVA made (bakta-light/ of bakta-light/6.0; vfdb-setB/<date>/ of
+            # vfdb-setB/<date>/vfdb_setB), up to the database folder.
+            parent = folder.parent
             try:
-                if folder.parent != root:
-                    folder.parent.rmdir()
+                while parent != root and root in parent.parents:
+                    parent.rmdir()
+                    parent = parent.parent
             except OSError:
                 pass
         for d in (downloads_dir(record.id, root), staging_dir(record.id, root)):

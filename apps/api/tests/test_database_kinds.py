@@ -721,7 +721,10 @@ def _dictionaries() -> tuple[dict, dict]:
 @pytest.mark.skipif(not I18N.exists(), reason="the web sources are not next to the API")
 def test_every_database_code_and_server_text_has_both_languages():
     en, es = _dictionaries()
+    from app.services import vfdb_db
+
     keys = [f"api.error.{c}" for c in svc.MESSAGES] + [f"databases.problem.{c}" for c in detection.PROBLEMS]
+    keys += [f"api.error.{c}" for c in vfdb_db.MESSAGES]
     keys += [f"database.error.{c}" for c in ("not_recognised", "check_failed", "version_mismatch", "published_mismatch",
                                              "quick_failed")]
     assert [k for k in keys if k not in en or k not in es] == []

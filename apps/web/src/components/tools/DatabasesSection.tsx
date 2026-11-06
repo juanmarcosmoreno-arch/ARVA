@@ -7,6 +7,7 @@ import { Ncbi16sDialog } from "@/components/databases/Ncbi16sDialog";
 import { NcbiCollectionDialog } from "@/components/databases/NcbiCollectionDialog";
 import { RecordRow } from "@/components/databases/RecordRow";
 import { RegisterDialog } from "@/components/databases/RegisterDialog";
+import { VfdbDialog } from "@/components/databases/VfdbDialog";
 import { CompatibilityBadge, ExtLink, Fact, kindText, kindToolText, kindUnconfirmed } from "@/components/databases/shared";
 import { Explain } from "@/components/guide/Explain";
 import { Badge } from "@/components/ui/badge";
@@ -123,6 +124,7 @@ function KindCard({ group }: { group: KindGroup }) {
   const [building, setBuilding] = useState(false);
   const [release, setRelease] = useState(false);
   const [current16s, setCurrent16s] = useState(false);
+  const [vfdb, setVfdb] = useState<"download" | "build" | null>(null);
   return (
     <Card>
       <button type="button" className="flex w-full items-start justify-between gap-3 px-5 py-4 text-left" onClick={() => setOpen((o) => !o)} aria-expanded={open}>
@@ -178,6 +180,19 @@ function KindCard({ group }: { group: KindGroup }) {
               </Button>
             </div>
           )}
+          {kind.key === "vfdb" && (
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-dashed p-3 text-xs">
+              <p className="max-w-2xl text-muted-foreground">{t("vfdb.kindHint")}</p>
+              <span className="flex flex-wrap gap-2">
+                <Button size="sm" variant="outline" onClick={() => setVfdb("download")}>
+                  <Download className="h-3.5 w-3.5" aria-hidden /> {t("vfdb.open")}
+                </Button>
+                <Button size="sm" variant="outline" onClick={() => setVfdb("build")}>
+                  <FolderPlus className="h-3.5 w-3.5" aria-hidden /> {t("vfdb.openBuild")}
+                </Button>
+              </span>
+            </div>
+          )}
           {kind.key === "reference_genomes" && (
             <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-dashed p-3 text-xs">
               <p className="max-w-2xl text-muted-foreground">{t("ncbi.kindHint")}</p>
@@ -193,6 +208,7 @@ function KindCard({ group }: { group: KindGroup }) {
       {building && <NcbiCollectionDialog onClose={() => setBuilding(false)} />}
       {release && <AmrReleaseDialog onClose={() => setRelease(false)} />}
       {current16s && <Ncbi16sDialog onClose={() => setCurrent16s(false)} />}
+      {vfdb && <VfdbDialog mode={vfdb} onClose={() => setVfdb(null)} />}
     </Card>
   );
 }
