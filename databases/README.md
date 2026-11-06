@@ -11,8 +11,10 @@ The kinds and their facts are in `apps/api/app/services/database_kinds.py`, the 
 `apps/api/app/services/database_catalogue.py`, and the detectors in `database_detect.py` and
 `reference_collections.py`. Every fact was checked (Bakta on 2026-10-28, the others on 2026-10-29) in the tool's official documentation or source
 code, or in the publisher's records, cited below; what could not be confirmed is listed as such. ARVA only
-downloads a version when the publisher offers a stable, versioned archive with a published checksum; every kind can
-be registered where it already is. ARVA never writes into a registered folder and never redistributes the Ridom
+downloads a version when the publisher offers a stable, versioned archive with a published checksum, with one
+exception: VFDB's full set B, which VFDB publishes only as its current, undated file without a checksum, is downloaded
+after you confirm its size, date, source, licence and citation, and ARVA records its date and SHA-256 itself (see
+[VFDB full (set B)](#vfdb-full-set-b)); every kind can be registered where it already is. ARVA never writes into a registered folder and never redistributes the Ridom
 spa-type files.
 
 ## Kinds
@@ -30,7 +32,7 @@ spa-type files.
 | **BUSCO lineage dataset** (`busco`) | dataset.cfg, hmms/ with the marker HMMs, and scores_cutoff. | dataset.cfg: name and creation_date (also OrthoDB_version and dataset_version). | BUSCO: odb12.2 datasets need BUSCO 6.1.0 or later (BUSCO user guide); the minimum for odb10 and odb12 datasets was not confirmed | yes — Dated archives listed with their MD5 in file_versions.tsv. | CC BY-ND 4.0 (BUSCO user guide: the datasets are licensed under the Creative Commons Attribution-NoDerivatives 4.0 International License) |
 | **PlasmidFinder database** (`plasmidfinder`) | config ("# Database configuration file", one database per line) and the .fsa file of every database it lists. | VERSION (2.2.0 in the repository on 2026-10-29). | PlasmidFinder: no version requirement is stated in the database repository | no, register only — Distributed as a git repository, without versioned archives or checksums. | Not stated in the database repository |
 | **MOB-suite databases** (`mobsuite`) | ncbi_plasmid_full_seqs.fas, rep.dna.fas, mob.proteins.faa, mpf.proteins.faa, orit.fas, repetitive.dna.fas and clusters.txt; status.txt and ncbi_plasmid_full_seqs.fas.msh show that mob_init finished. | Not stated: status.txt records only the download date. Declared by you. | MOB-suite: mob_suite 3.1.9's mob_init downloads database v. 3.1.8 (Zenodo 10304948) | no, register only — The archive needs mob_init (makeblastdb, mash sketch, NCBI taxonomy) before MOB-suite can use it: register a folder mob_init prepared. | CC BY 4.0 (Zenodo record 10304948) |
-| **VFDB** (`vfdb`) | One or more of VFDB_setA_pro.fas, VFDB_setA_nt.fas, VFDB_setB_pro.fas and VFDB_setB_nt.fas (also .gz). | Not stated in the files: declared by you (VFDB shows only a "Last update" date on its download page). | BLAST, DIAMOND, ABRicate and similar: VFDB's download page states no requirement | no, register only — Undated files over plain HTTP without checksums. | Not stated on the download page |
+| **VFDB** (`vfdb`) | One or more of VFDB_setA_pro.fas, VFDB_setA_nt.fas, VFDB_setB_pro.fas and VFDB_setB_nt.fas (also .gz); a folder in ABRicate's format: `sequences` with its nucleotide BLAST index (ABRicate's own copy `db/vfdb`; a folder ARVA built, with `ARVA_DATABASE.json` naming the set; or one you built with abricate-get_db). | The day VFDB rebuilt the files (they state no release): the server's Last-Modified when ARVA downloads them, or the time gzip stored in a VFDB_set*_nt.fas.gz you have; declared by you for a plain FASTA or a folder you built. ABRicate's copy: the day its package indexed it (2026-04-03 in 1.4.0). | ABRicate 1.4.0 searches its bundled core set A and any folder in the same format (`--datadir` the parent, `--db` the folder) | yes, the current full set B only (VFDB publishes no older files and no checksums), after you confirm file, size, date, source, licence and citation; or built from your own VFDB_setB_nt file | CC BY-NC 4.0 (VFDB's terms of use) |
 | **geNomad database** (`genomad`) | version.txt, genomad_db, genomad_mini_db, genomad_integrase_db, names.dmp, nodes.dmp and genomad_marker_metadata.tsv (genomad/database.py). | version.txt (a number such as 1.9). | geNomad: database 1.9 with geNomad 1.10 to 1.13 (releases.txt on portal.nersc.gov) | yes — Versioned Zenodo record with an MD5. | CC BY 4.0 (Zenodo record 14886553) |
 | **InterProScan installation and data** (`interproscan`) | interproscan-5.jar and a data/ folder. | Not read from a file: declared by you (ARVA suggests it from the folder name, e.g. interproscan-5.78-109.0). | InterProScan: the data belong to the InterProScan release they ship with | no, register only — The release archive contains executable programs; ARVA downloads data only. | InterProScan: Apache-2.0; member databases have their own licences |
 | **spa types (Ridom SpaServer)** (`spa_types`) | sparepeats.fasta (FASTA) and spatypes.txt (one "type,repeats" line per spa type). | Not stated in the files: declared by you (the date you downloaded them). | spaTyper: spaTyper 0.3.3 reads sparepeats.fasta and spatypes.txt | no, register only — User-provided only: ARVA never redistributes the Ridom files. | Not stated by the SpaServer; ARVA treats the files as provided by you, for your use only |
@@ -79,8 +81,53 @@ known, the content checksum (after a full verification) and the path.
 - **BUSCO lineage dataset** — sources: BUSCO user guide (busco.ezlab.org); busco-data.ezlab.org/v5/data/file_versions.tsv; bacteria_odb12.2.2026-05-22.tar.gz downloaded and listed on 2026-10-29. Not confirmed: Older (odb10) datasets may name the date creation instead of creation_date; ARVA reads both. Cite: Tegenfeldt F. et al. OrthoDB and BUSCO update: annotation of orthologs with wider sampling of genomes (odb12 datasets); Manni M. et al. (2021) BUSCO update. Molecular Biology and Evolution 38(10), doi:10.1093/molbev/msab199.
 - **PlasmidFinder database** — sources: plasmidfinder_db repository (master, 2026-10-29): config, VERSION, INSTALL.py. Not confirmed: The KMA or BLAST index files PlasmidFinder builds are not checked. Cite: Carattoli A. et al. (2014) In silico detection and typing of plasmids using PlasmidFinder and plasmid multilocus sequence typing. Antimicrobial Agents and Chemotherapy 58(7), doi:10.1128/AAC.02412-14.
 - **MOB-suite databases** — sources: mob_suite 3.1.9 wheel: mob_suite/mob_init.py, mob_suite/config.json; Zenodo record 10304948. Cite: Robertson J., Nash J.H.E. (2018) MOB-suite: software tools for clustering, reconstruction and typing of plasmids from draft assemblies. Microbial Genomics 4(8), doi:10.1099/mgen.0.000206.
-- **VFDB** — sources: VFDB download page (www.mgc.ac.cn/VFs/download.htm, last update 2026-10-23). Not confirmed: The download page does not say which set is the core and which the full dataset. The citation VFDB requests is not stated on the download page. Cite: Liu B. et al. (2022) VFDB 2022: a general classification scheme for bacterial virulence factors. Nucleic Acids Research 50(D1), doi:10.1093/nar/gkab1107.
+- **VFDB** — sources: VFDB download page and terms of use (https://www.mgc.ac.cn/VFs/download.htm and main.htm#termofuse, read 2026-11-06: "Last update: Fri Nov 6 19:30:01 2026"; "DNA sequences of core dataset" = VFDB_setA_nt, "DNA sequences of full dataset" = VFDB_setB_nt; "core dataset includes representative genes associated with experimentally verified VFs only, whereas full dataset covers all genes related to known and predicted VFs"); HTTP HEAD of Down/VFDB_set{A,B}_{nt,pro}.fas.gz on 2026-11-06 (set B nucleotides: 10,685,329 bytes, Last-Modified Fri, 06 Nov 2026 11:30:33 GMT; md5sum.txt, MD5SUM, *.md5, README and version.txt answer 404); ABRicate 1.4.0's bin/abricate and bin/abricate-get_db (get_vfdb). Not confirmed: VFDB publishes no checksum or version file, so ARVA records the SHA-256 of what it downloaded, of the FASTA inside and of the database built, with the server's date; VFDB asks for no particular citation (ARVA cites its newest paper); which VFDB release ABRicate 1.4.0's copy was taken from. Cite: Zhou S.Y., Liu B., Zheng D.D., Chen L.H., Yang J. (2025) VFDB 2025: an integrated resource for exploring anti-virulence compounds. Nucleic Acids Research 53(D1):D871-D877, PMID 39470738. How ARVA builds set B: [VFDB full (set B)](#vfdb-full-set-b).
 - **geNomad database** — sources: geNomad source: genomad/database.py, genomad/modules/download.py; portal.nersc.gov/genomad/__data__/releases.txt; Zenodo record 14886553. Cite: Camargo A.P. et al. (2023) Identification of mobile genetic elements with geNomad. Nature Biotechnology, doi:10.1038/s41587-023-01953-y.
 - **InterProScan installation and data** — sources: EBI FTP iprscan/5/5.78-109.0/ (listing and the archive's first members). Not confirmed: interproscan.sh, interproscan.properties and the data/ layout were not read from the archive. Cite: Jones P. et al. (2014) InterProScan 5: genome-scale protein function classification. Bioinformatics 30(9), doi:10.1093/bioinformatics/btu031.
 - **spa types (Ridom SpaServer)** — sources: spaTyper 0.3.3 wheel: spaTyper/utils.py, spaTyper/spa_typing.py. Cite: Harmsen D. et al. (2003) Typing of methicillin-resistant Staphylococcus aureus in a university hospital setting by using novel software for spa repeat determination and database management. Journal of Clinical Microbiology 41(12), doi:10.1128/JCM.41.12.5442-5448.2003.
 - **Reference genome collection** — sources: NCBI Datasets documentation: genome data package; A two-genome package downloaded from the NCBI Datasets v2 API on 2026-10-29 (README.md, md5sum.txt, assembly_data_report.jsonl fields); FastANI source: parseCmdArgs.hpp (--rl). Not confirmed: The zip entries' date is when NCBI built the package, in a time zone the zip does not record. Cite: Jain C. et al. (2018) High throughput ANI analysis of 90K prokaryotic genomes reveals clear species boundaries. Nature Communications 9:5114, doi:10.1038/s41467-018-07641-9.
+
+## VFDB full (set B)
+
+ARVA's virulence screen searches, by default, VFDB's **core dataset (set A)** that ABRicate 1.4.0 bundles
+(`db/vfdb`, 4,592 sequences). VFDB's **full dataset (set B)** adds the genes of predicted virulence factors
+(VFDB_setB_nt.fas.gz of 2026-11-06: 35,192 sequences), so it finds more genes, and more that are not true virulence
+factors. It is optional, kind `vfdb` like the bundled copy (so the Database Manager's *default* chooses between them:
+the bundled set A stays the default until you make set B the default), key `vfdb-setB`:
+
+- **Download** (Reference databases → VFDB → *Download VFDB full (set B)…*): ARVA reads only the file's HTTP headers
+  (size, Last-Modified) from https://www.mgc.ac.cn/VFs/Down/VFDB_setB_nt.fas.gz and shows the file, its size and date,
+  the source, the licence (CC BY-NC 4.0: non-commercial research or academic use), the citation, the folder and the
+  free space. After you confirm, the worker downloads it (cancellable; a stopped download resumes), refuses a web page
+  (VFDB's security filter can answer one with status 200) or a file of another date (gzip header), converts it, indexes
+  it and checks the index. VFDB keeps only its current files and rebuilds them often: the date is the version.
+- **Build from a file you have** (*Build from a VFDB file…*, or from *Register existing folder…* on a VFDB_setB_nt
+  file): the same conversion from VFDB_setB_nt.fas(.gz) in an added or database folder; the file is only read. A .gz as
+  VFDB serves it states its set (its name) and date (the time gzip stored); for a plain FASTA you give both.
+- **Register a folder you built** with abricate-get_db (a folder with `sequences` and its nucleotide BLAST index):
+  *Register existing folder…*, with the set (A or B) and the version declared, since its files state neither. A folder
+  whose sequences keep VFDB's own names (`>VFG…`) is accepted with a warning: ABRicate would report VFG identifiers as
+  gene names.
+
+**Conversion** (`workflows/tool-adapters/arva_tools/abricate_vfdb.py`): as ABRicate 1.4.0's `abricate-get_db --db vfdb`
+converts set A (`get_vfdb`, `load_fasta`, `is_full_gene`, `dedupe_seq`, sorting, `save_fasta`): headers
+`>vfdb~~~<gene>~~~<accession without version>~~~ <description>`, identical sequences dropped (set B: 35,192 → 35,168),
+records with internal stops on one strand reverse-complemented, sorted by gene, 60 letters per line. Byte-identical to
+`abricate-get_db` on VFDB's set A and set B of 2026-11-06 except for one deliberate difference: 16 set B gene names
+contain a space (`clp G`, `cryI ET4`, `luk S-R`…), which `abricate-get_db` writes into the identifier, so BLAST cuts it
+and ABRicate reports a truncated gene and no accession; ARVA writes `_` there (the description keeps VFDB's text). The
+files are read as bytes: VFDB's headers hold Latin-1 bytes (0xA0). **Index**: ABRicate's own makeblastdb, as
+`abricate-get_db` runs it (`makeblastdb -in sequences -title vfdb -dbtype nucl -hash_index`, as an argument list;
+never `abricate --setupdb`, which re-indexes every database of a folder); `blastdbcmd -info` must count the sequences
+written. Layout: `<database folder>/vfdb-setB/<date>/vfdb_setB/` (`sequences`, its index, `src/VFDB_setB_nt.fas.gz`
+for a download, `ARVA_DATABASE.json`), searched with `abricate --datadir <database folder>/vfdb-setB/<date> --db
+vfdb_setB`. **Recorded** (`ARVA_DATABASE.json` and the record): the set, the date and where it came from
+(Last-Modified, ETag, gzip time), the SHA-256 of the downloaded file, of the FASTA inside (it does not change when
+VFDB only re-gzips) and of `sequences`, the conversion's counts, the makeblastdb version and command, and the SHA-256
+of every file.
+
+On *S. aureus* N315 (GCF_000009645.1) set B finds the egc enterotoxin cluster that set A lacks (seg, sei, selm, seln,
+selo, and selu2 reported by its accession ABK27166, all at 100 % on NC_002745.2 1,876,310–1,881,633); 150 hits against
+86 with the bundled set A. selX is not in VFDB (neither set). VFDB names the enterotoxin-like genes sel<x>, where
+AMRFinderPlus and older papers write se<x>; ARVA treats both spellings as the same gene in its cross-check.
+
