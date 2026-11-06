@@ -133,7 +133,8 @@ describe("A native run's progress", () => {
 const status = (over: Partial<NativeExecutorStatus> = {}): NativeExecutorStatus => ({
   known: true, open: true, seen_at: "2026-11-06T10:00:00Z", app_version: "1.4.0", platform: "osx-arm64", macos: "15.1", chip: "Apple M1",
   memory_bytes: 8 * 1024 ** 3,
-  expected: { flye: { platform: "osx-arm64", version: "2.9.6", build: "py313h05f0e27_1", lock_sha256: "54c2a42c2ee358b76f4776ab22bf3b7de38946f899ea2b039a8f3233fe8aa780" } },
+  expected: { flye: { platform: "osx-arm64", version: "2.9.6", build: "py313h05f0e27_1", lock_sha256: "54c2a42c2ee358b76f4776ab22bf3b7de38946f899ea2b039a8f3233fe8aa780" },
+    bakta: { platform: "osx-arm64", version: "1.12.2", build: "pyhdfd78af_0", lock_sha256: "8a302d44802f" } },
   tools: { flye: { installed: true, version: "2.9.6", version_text: "2.9.6-b1802", build: "py313h05f0e27_1", lock_sha256: "54c2a42c2ee358b76f4776ab22bf3b7de38946f899ea2b039a8f3233fe8aa780", lock_matches: true, ready: true, reason: null } },
   ...over,
 });
