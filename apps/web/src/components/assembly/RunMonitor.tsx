@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, CheckCircle2, Circle, Loader2, Pause, Play, RotateCcw, XCircle } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Circle, Laptop, Loader2, Pause, Play, RotateCcw, XCircle } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { CopyErrorDetails } from "@/components/diagnostics/CopyErrorDetails";
 import { CancelJobButton, CancellingNote, FlyeRecovery } from "@/components/domain/JobControls";
@@ -199,11 +199,33 @@ export function RunningCard({ job, names }: { job: AnalysisJobDetail; names: Map
               : t(k.starting)}
           {elapsed != null && <span className="ml-2 text-xs text-muted-foreground">{t("assembly.elapsed", { time: fmtDuration(elapsed) })}</span>}
         </div>
+        {p?.native && <NativeState native={p.native} tool={job.tool_name} />}
         <StageList job={job} />
         <CancellingNote job={job} />
         {running && <LogTail job={job} />}
       </CardBody>
     </Card>
+  );
+}
+
+/** A native run (ARVA.app runs Flye or Bakta on this Mac): waiting for ARVA.app to take it, or running on this Mac. */
+function NativeState({ native, tool }: { native: NonNullable<NonNullable<AnalysisJobDetail["progress"]>["native"]>; tool: string }) {
+  const t = useT();
+  const waiting = native.state === "waiting_for_app";
+  return (
+    <div className="space-y-1 rounded-lg border border-arva-teal/40 bg-arva-teal/5 p-2.5 text-xs" role="status">
+      <p className="flex items-center gap-1.5 font-medium">
+        <Laptop className="h-3.5 w-3.5 text-arva-teal" aria-hidden /> {t(waiting ? "native.waiting" : "native.running")}
+      </p>
+      <p className="text-muted-foreground">
+        {waiting ? t("native.waitingHint", { tool }) : t("native.runningHint", { tool, version: native.app_version ?? "?", macos: native.macos ?? "?", chip: native.chip ?? "?" })}
+      </p>
+      {waiting && !native.app_open && (
+        <p className="flex gap-1.5 text-danger">
+          <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden /> {t("native.notOpen", { tool })}
+        </p>
+      )}
+    </div>
   );
 }
 

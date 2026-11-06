@@ -49,12 +49,14 @@ from app.core import errorlog
 from app.core.config import get_settings
 from app.db.session import SessionLocal, engine
 from app.models import (
+    AmrResult,
     AnalysisJob,
     Annotation,
     Assembly,
     BatchItem,
     BatchRun,
     JobStatus,
+    MobileElementResult,
     Project,
     Sample,
     Workflow,
@@ -236,7 +238,7 @@ def catalogue() -> dict[str, Any]:
                       "inputs": [{"name": p.name, "accepts": list(p.accepts), "required": p.required,
                                   "collection": p.collection} for p in spec.inputs],
                       "outputs": [{"name": p.name, "type": p.accepts[0]} for p in spec.outputs],
-                      "params_schema": nodes.param_schema(kind),
+                      "params_schema": nodes.param_schema(kind), "database_kinds": nodes.database_kinds(kind),
                       "defaults": nodes.normalise(kind, {})[0]})
     templates = []
     for key, d in core.TEMPLATES.items():
@@ -1058,7 +1060,54 @@ def _metrics(db: Session, outputs: dict[str, Any] | None, job: AnalysisJob | Non
     if job is not None and isinstance(job.result_summary, dict):
         out.update({f"result.{k}": v for k, v in job.result_summary.items()
                     if isinstance(v, int | float | str) and not isinstance(v, bool) and not k.endswith("_id")})
+    if job is not None and job.status == JobStatus.completed:
+        out.update(_found_metrics(db, job))
     return out
+
+
+def _found_metrics(db: Session, job: AnalysisJob) -> dict[str, Any]:
+    """What a gene or plasmid search found, read from its stored rows (so a run made before these metrics existed
+    shows them too), as ";"-joined text and counts that a table can compare across samples and runs:
+
+    * AMRFinderPlus: the AMR genes (type AMR, point mutations included) and their count, with the search and the
+      organism, which decide what can be found;
+    * VFDB: the genes, the hit count and the cross-hits listed apart, as the project report reads them
+      (virulence.vfdb_genes: a VFDB hit on the region of a different AMRFinderPlus gene with a higher identity);
+    * MOB-suite: the plasmid cluster ids, the replicon types of the reconstructed plasmids and the number of contigs
+      assigned to a plasmid;
+    * PlasmidFinder: the replicons."""
+    from app.services.jobs import AMR_JOB, MOBILE_JOB, VIRULENCE_JOB
+
+    p = job.parameters or {}
+    joined = lambda items: ";".join(sorted({i for i in items if i}))  # noqa: E731
+    if job.job_type == AMR_JOB:
+        genes = list(db.scalars(select(AmrResult.element_symbol).where(AmrResult.job_id == job.id,
+                                                                       AmrResult.type == "AMR")))
+        return {"amr.genes": joined(genes), "amr.genes_count": len(set(genes)), "amr.hits": len(genes),
+                "amr.search": p.get("mode") or "nucleotide", "amr.organism": p.get("organism") or "none"}
+    if job.job_type == VIRULENCE_JOB:
+        from app.services.virulence import cross_hit_text, vfdb_genes
+
+        found = vfdb_genes(db, job)
+        return {"vfdb.genes": joined(found["genes"]), "vfdb.genes_count": len(found["genes"]),
+                "vfdb.hits": found["hits"], "vfdb.cross_hits": ";".join(cross_hit_text(c) for c in found["cross_hits"])}
+    if job.job_type == MOBILE_JOB and p.get("method") == "mobsuite":
+        rows = db.scalars(select(MobileElementResult).where(MobileElementResult.job_id == job.id,
+                                                            MobileElementResult.category.in_(("plasmid", "contig"))))
+        plasmids, contigs = [], 0
+        for r in rows:
+            if r.category == "plasmid":
+                plasmids.append(r)
+            elif r.element_type == "plasmid":
+                contigs += 1
+        return {"mobsuite.clusters": joined(r.element for r in plasmids), "mobsuite.plasmids": len(plasmids),
+                "mobsuite.replicons": joined(t for r in plasmids for t in (r.details or {}).get("rep_type(s)") or []),
+                "mobsuite.plasmid_contigs": contigs}
+    if job.job_type == MOBILE_JOB and p.get("method") == "plasmidfinder":
+        reps = list(db.scalars(select(MobileElementResult.element).where(
+            MobileElementResult.job_id == job.id, MobileElementResult.category == "replicon")))
+        return {"plasmidfinder.replicons": joined(reps), "plasmidfinder.hits": len(reps)}
+    return {}
 
 
 def compare_runs(db: Session, a: BatchRun, b: BatchRun) -> dict[str, Any]:

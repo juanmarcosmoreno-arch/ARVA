@@ -186,12 +186,38 @@ def test_agr_groups_of_n315_usa300_and_synthetic():
     assert ag.parse_error_report(read("agrvate", "synthetic.error-report.tab"))["snippy_check"] == "fail"
 
 
+def test_agr_multiple_groups_real_run():
+    # AgrVATE 1.0.2 on USA300_FPR3757 (agr I) and N315 (agr II) concatenated in one FASTA (fixtures README).
+    summary = ag.parse_summary(read("agrvate", "multiple.summary.tab"))
+    assert (summary["agr_group"], summary["match_score"], summary["multiple_agr"]) == ("II", 15, "multiple")
+    kmers = ag.parse_kmer_hits(read("agrvate", "multiple.agr_gp.tab"))
+    assert kmers == {"I": {"hits": 13, "contigs": ["NC_007793.1"]}, "II": {"hits": 15, "contigs": ["NC_002745.2"]}}
+    assert ag.interpret(summary, kmers) == {"status": "multiple", "call": "II"}
+    assert ag.parse_kmer_hits(read("agrvate", "n315.agr_gp.tab")) == {"II": {"hits": 15, "contigs": ["NC_002745.2"]}}
+    assert ag.parse_kmer_hits(read("agrvate", "synthetic.agr_gp.tab")) == {}
+    assert ag.parse_error_report(read("agrvate", "multiple.error-report.tab"))["snippy_check"] == "pass"
+
+
 def test_agr_constructed_rows():
     head = "\t".join(ag.SUMMARY_COLUMNS) + "\n"
     low = ag.parse_summary(head + "contigs\tgp3\t3\tu\ts\tu\n")
     assert ag.interpret(low) == {"status": "low_confidence", "call": "III"} and low["frameshifts"] is None
     multi = ag.parse_summary(head + "contigs\tgp1\t12\t1\tm\t0\n")
+    # Without the k-mer hits a tie cannot be ruled out: no group.
     assert ag.interpret(multi) == {"status": "multiple", "call": None}
+    # A tie (AgrVATE picks one by sort order) and a top count of 4 or less (AgrVATE's own stop) are not calls.
+    tie = {"I": {"hits": 12, "contigs": ["a"]}, "II": {"hits": 12, "contigs": ["b"]}}
+    assert ag.interpret(multi, tie) == {"status": "multiple", "call": None}
+    weak = ag.parse_summary(head + "contigs\tgp1\t4\tu\tm\tu\n")
+    assert ag.interpret(weak, {"I": {"hits": 4, "contigs": ["a"]}, "II": {"hits": 2, "contigs": ["b"]}})["call"] is None
+    assert ag.interpret(multi, {"I": {"hits": 12, "contigs": ["a"]}, "III": {"hits": 3, "contigs": ["a"]}}) == \
+        {"status": "multiple", "call": "I"}
+    kmers = "\n".join(["c1\tgp3\t2.01e-10\t100.000\t5\t35"] * 2 + ["c2\tgp3\t2.01e-10\t100.000\t5\t35",
+                                                                     "c2\tgp4\t2.01e-10\t100.000\t9\t39"]) + "\n"
+    assert ag.parse_kmer_hits(kmers) == {"III": {"hits": 3, "contigs": ["c1", "c2"]}, "IV": {"hits": 1, "contigs": ["c2"]}}
+    assert ag.parse_kmer_hits("") == {}
+    with pytest.raises(ValueError, match="line 1"):
+        ag.parse_kmer_hits("c1\tgp5\t1e-10\t100\t1\t30\n")
     variants = ag.parse_variants("\t".join(ag.VARIANT_COLUMNS) + "\ncontigs\t2013\tdel\tframeshift_variant c.16del\t"
                                  "agrC\n")
     assert variants == [{"position": 2013, "type": "del", "effect": "frameshift_variant c.16del", "gene": "agrC"}]

@@ -228,12 +228,9 @@ def row_flags(rows: list[dict[str, Any]]) -> None:
         x["flags"] = flags
 
 
-def merged(db: Session, a: Assembly) -> dict[str, Any]:
-    """The assembly's most recent VFDB screen and most recent AMRFinderPlus run side by side: one list of rows, each
-    with its source, sorted by position; `also_found_by` names the other source's overlapping rows. A source that was
-    not run (or AMRFinderPlus without --plus, which does not search virulence genes) is 'not_searched'."""
-    vf_job = latest_run(db, a.id, a.sample_id)
-    amr_job = latest_amr_run(db, a.id)
+def _source_rows(db: Session, vf_job: AnalysisJob | None, amr_job: AnalysisJob | None) -> list[dict[str, Any]]:
+    """The rows of the combined view: the VFDB screen's hits and the AMRFinderPlus run's VIRULENCE rows (pass a run
+    with --plus, or None)."""
     rows: list[dict[str, Any]] = []
     if vf_job is not None:
         for r in db.scalars(select(VirulenceResult).where(VirulenceResult.job_id == vf_job.id)):
@@ -242,8 +239,7 @@ def merged(db: Session, a: Assembly) -> dict[str, Any]:
                          "method": "blastn", "description": r.product, "vf_name": r.vf_name, "vf_id": r.vf_id,
                          "vf_category": r.vf_category, "reference": r.accession, "pieces": r.pieces, "id": r.id,
                          "ref_start": r.ref_start, "ref_end": r.ref_end, "ref_length": r.ref_length})
-    amr_plus = bool((amr_job.parameters or {}).get("plus")) if amr_job else False
-    if amr_job is not None and amr_plus:
+    if amr_job is not None:
         for r in db.scalars(select(AmrResult).where(AmrResult.job_id == amr_job.id, AmrResult.type == "VIRULENCE")):
             rows.append({"source": "amrfinderplus", "gene": r.element_symbol, "contig": r.assembly_contig or r.contig,
                          "start": r.start, "end": r.stop, "strand": r.strand, "identity": r.identity,
@@ -253,6 +249,55 @@ def merged(db: Session, a: Assembly) -> dict[str, Any]:
                          # AMRFinderPlus gives no reference positions, and its reference length is in amino acids
                          # for protein and translated searches: only its coverage is used.
                          "ref_start": None, "ref_end": None, "ref_length": None})
+    return rows
+
+
+def vfdb_genes(db: Session, vf_job: AnalysisJob) -> dict[str, Any]:
+    """The genes of one VFDB screen as reports and tables list them, read as the combined view reads them: a hit the
+    view flags probable_other_gene (on the region where AMRFinderPlus, in the assembly's most recent run with --plus,
+    found a different gene with a higher identity) is listed apart as a cross-hit, with that gene, never dropped.
+
+    `genes`: genes with at least one hit that is not a cross-hit; `cross_hits`: one entry per VFDB gene and gene
+    AMRFinderPlus names (e.g. VFDB lukF-PV on the region of AMRFinderPlus lukD, which is not PVL), with both
+    identities and the hits' places; `hits`: every VFDB hit; `amr_job_id`: the AMRFinderPlus run compared (None:
+    no run with --plus, so nothing is set apart)."""
+    aid = ((vf_job.parameters or {}).get("assembly") or {}).get("assembly_id")
+    amr_job = latest_amr_run(db, aid) if aid else None
+    if amr_job is not None and not (amr_job.parameters or {}).get("plus"):
+        amr_job = None
+    rows = _source_rows(db, vf_job, amr_job)
+    row_flags(rows)
+    vf = [x for x in rows if x["source"] == "vfdb"]
+    crossed: dict[tuple[str, str], dict[str, Any]] = {}
+    plain: set[str] = set()
+    for x in sorted(vf, key=lambda r: (r["contig"] or "", r["start"] or 0)):
+        flag = next((f for f in x["flags"] if f["code"] == "probable_other_gene"), None)
+        if flag is None:
+            plain.add(x["gene"])
+            continue
+        other = flag["params"]["gene"]
+        c = crossed.setdefault((x["gene"], other), {"gene": x["gene"], "probable_gene": other,
+                                                    "source": flag["params"]["source"], "identity": x["identity"],
+                                                    "other_identity": flag["params"]["identity"], "places": []})
+        c["places"].append(f"{x['contig']}:{x['start']}-{x['end']}")
+    return {"genes": sorted(plain), "cross_hits": sorted(crossed.values(), key=lambda c: (c["gene"], c["probable_gene"])),
+            "hits": len(vf), "amr_job_id": amr_job.id if amr_job else None}
+
+
+def cross_hit_text(c: dict[str, Any], lang: str = "en") -> str:
+    """A cross-hit in a list of genes: "lukF-PV (probably lukD, AMRFinderPlus)"."""
+    word = "probablemente" if lang == "es" else "probably"
+    return f"{c['gene']} ({word} {c['probable_gene']}, {c['source']})"
+
+
+def merged(db: Session, a: Assembly) -> dict[str, Any]:
+    """The assembly's most recent VFDB screen and most recent AMRFinderPlus run side by side: one list of rows, each
+    with its source, sorted by position; `also_found_by` names the other source's overlapping rows. A source that was
+    not run (or AMRFinderPlus without --plus, which does not search virulence genes) is 'not_searched'."""
+    vf_job = latest_run(db, a.id, a.sample_id)
+    amr_job = latest_amr_run(db, a.id)
+    amr_plus = bool((amr_job.parameters or {}).get("plus")) if amr_job else False
+    rows = _source_rows(db, vf_job, amr_job if amr_plus else None)
     rows.sort(key=lambda x: (x["contig"] or "", x["start"] or 0, x["source"]))
     for x in rows:
         x["also_found_by"] = sorted({f"{y['source']}:{y['gene']}" for y in rows

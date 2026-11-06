@@ -64,7 +64,7 @@ FILTERED = {"/projects", "/samples", "/dashboard", "/jobs", "/annotations", "/co
             "/batches", "/mlst", "/species"}
 # Unscoped GET routes that show no project data.
 GLOBAL_READS = {"/tools", "/tools/libraries", "/metadata/template", "/typing/modules", "/workflows/catalogue",
-                "/workflows", "/gene-queries", "/system/storage", "/system/performance", "/auth/me",
+                "/workflows", "/gene-queries", "/system/storage", "/system/performance", "/system/native-executor", "/auth/me",
                 "/comparisons/phylogeny/compare", "/batches/compare", "/batches/queue", "/assist/status"}
 DOWNLOADS = re.compile(r"(report|export|download|\.csv|\.json|\.nwk|\.fasta|\.Rtab|/files/|/outputs/|/file$)")
 

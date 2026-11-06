@@ -105,6 +105,8 @@ export interface AnnotationForm {
   evalue: string;
   coverage: string;
   rename: boolean;
+  /** Bakta: run it natively on this Mac (ARVA.app), when offered. */
+  native: boolean;
   confirmed: boolean;
 }
 
@@ -128,8 +130,13 @@ export const initialForm = (assemblyId = ""): AnnotationForm => ({
   evalue: "1e-09",
   coverage: "80",
   rename: false,
+  native: false,
   confirmed: false,
 });
+
+/** Whether this Bakta run goes to ARVA.app on this Mac: chosen, and offered by the plan for this database. */
+export const nativeChosen = (form: AnnotationForm, plan: AnnotationPlan | undefined) =>
+  form.annotator === "bakta" && form.native && Boolean(plan?.native?.offered);
 
 const text = (s: string) => (s.trim() === "" ? null : s.trim());
 const num = (s: string) => (s.trim() === "" ? null : Number(s));
@@ -156,6 +163,7 @@ export function annotationProblems(form: AnnotationForm, plan: AnnotationPlan | 
     if (form.useGenus && !text(form.genus)) out.push("annotation.problem.useGenus");
   }
   if (plan?.problems.length) out.push("annotation.problem.plan");
+  if (nativeChosen(form, plan) && !plan?.native?.ready) out.push("annotation.native.problem");
   if (!form.confirmed) out.push("annotation.problem.confirm");
   return out;
 }
@@ -179,6 +187,9 @@ export function baktaBody(form: AnnotationForm, plan: AnnotationPlan): BaktaRequ
     skip_options: plan.skip_options,
     complete_confirmed: form.complete && form.completeConfirmed,
     confirmed: form.confirmed,
+    // The plan was made for the same choice (the preview asks with the same execution), so its skip options are the
+    // ones ARVA.app found on the Mac.
+    ...(nativeChosen(form, plan) && plan.execution === "mac_native" ? { execution: "mac_native" as const } : {}),
   };
 }
 

@@ -263,20 +263,31 @@ def create_filtlong_job(db: Session, sample: Sample, f: RawFile, params: Filtlon
 
 
 def create_flye_job(db: Session, sample: Sample, files: list[RawFile], params: FlyeParams,
-                    provenance: dict) -> AnalysisJob:
+                    provenance: dict, execution: str = "docker") -> AnalysisJob:
     """One assembly job; `provenance` (request evidence such as ARVA's read-type suggestion) is stored with the
-    parameters and never passed to Flye."""
+    parameters and never passed to Flye. execution "mac_native": ARVA.app runs Flye on this Mac (app.services.native);
+    the job then records the Mac's Flye (path, version) and its options are checked against that Flye's --help.
+    Raises native.NativeError when ARVA.app is not open or cannot run it."""
+    from app.services import native
     from app.tasks.tools import run_flye_job
 
-    tool = require_tool("flye")
-    try:
-        supported = FlyeAdapter.help_options(tool.path or "flye")
-    except (OSError, RuntimeError, subprocess.TimeoutExpired) as exc:
-        raise ToolUnavailableError(f"Flye's --help could not be read to check its options: {exc}") from exc
+    executor = None
+    if execution == native.MAC_NATIVE:
+        record, facts = native.ready_executor("flye")
+        tool = native.detected_tool(facts)
+        supported = frozenset(facts["help_options"])
+        executor = native.provenance(record, facts)
+    else:
+        tool = require_tool("flye")
+        try:
+            supported = FlyeAdapter.help_options(tool.path or "flye")
+        except (OSError, RuntimeError, subprocess.TimeoutExpired) as exc:
+            raise ToolUnavailableError(f"Flye's --help could not be read to check its options: {exc}") from exc
     res = effective_resources(db)
     params.threads = res.cap_threads(params.threads)
     params.validate(supported)
-    job = _tool_job(sample, FLYE_JOB, tool, {**params.as_dict(), **provenance}, [f.id for f in files],
+    extra = {"execution": native.MAC_NATIVE, "native_executor": executor} if executor is not None else {}
+    job = _tool_job(sample, FLYE_JOB, tool, {**params.as_dict(), **provenance, **extra}, [f.id for f in files],
                     res.record(params.threads))
     db.add(job)
     db.commit()
@@ -634,20 +645,38 @@ def create_polishing_job(db: Session, sample: Sample, draft: Assembly, strategy:
 # --- Annotation -----------------------------------------------------------------------------------------------
 
 def create_bakta_job(db: Session, sample: Sample, assembly: Assembly, params: BaktaParams, record: ReferenceDatabase,
-                     plan: dict, provenance: dict) -> AnalysisJob:
+                     plan: dict, provenance: dict, execution: str = "docker") -> AnalysisJob:
     """One Bakta run of an assembly with an installed database. `plan` is the preview the user confirmed: the
-    worker checks the programs again and refuses to run if the steps that can run have changed since."""
+    worker checks the programs again and refuses to run if the steps that can run have changed since. execution
+    "mac_native": ARVA.app runs Bakta on this Mac (app.services.native); the job records the Mac's Bakta (path,
+    version), its options are checked against that Bakta's --help, and the database (and AMRFinderPlus data) must be
+    in a folder of the Mac that ARVA.app named. Raises native.NativeError when it cannot."""
+    from app.services import native
     from app.services.databases import record_use
     from app.tasks.annotation import run_bakta_job
 
-    tool = require_tool("bakta")
     res = effective_resources(db)
     params.threads = res.cap_threads(params.threads)
     params.validate()
-    _check_flags(BaktaAdapter.help_options, tool, tuple(bakta_flags(params, plan["skip_options"])), tool.path or "bakta")
+    flags = tuple(bakta_flags(params, plan["skip_options"]))
+    extra: dict = {}
+    if execution == native.MAC_NATIVE:
+        executor, facts = native.ready_executor("bakta")
+        tool = native.detected_tool(facts, "bakta")
+        if missing := [f for f in flags if f not in set(facts["help_options"])]:
+            raise ToolUnavailableError(f"The Bakta on this Mac does not offer {', '.join(missing)} (not in its --help)")
+        replacement = (plan.get("amr_data") or {}).get("replacement") \
+            if (plan.get("amr_data") or {}).get("used") == "replacement" else None
+        extra = {"execution": native.MAC_NATIVE, "native_executor": native.provenance(executor, facts, "bakta"),
+                 "native_database": native.database_ref(record.path, executor),
+                 "native_amr_data": native.database_ref(replacement["path"], executor) if replacement else None}
+    else:
+        tool = require_tool("bakta")
+        _check_flags(BaktaAdapter.help_options, tool, flags, tool.path or "bakta")
     parameters = {**params.as_dict(), "assembly": assembly_record(assembly), "steps": plan["steps"],
                   "skip_options": plan["skip_options"], "dependencies": plan["dependencies"],
-                  "amr_data": plan.get("amr_data"), **provenance}
+                  "amr_data": plan.get("amr_data"), "memory_estimate": _memory_record(plan.get("memory")),
+                  **provenance, **extra}
     # Bakta has no memory option.
     job = _tool_job(sample, BAKTA_JOB, tool, parameters, [], res.record(params.threads))
     record_use(job, record)
@@ -656,6 +685,14 @@ def create_bakta_job(db: Session, sample: Sample, assembly: Assembly, params: Ba
     _enqueue([job], run_bakta_job)
     db.refresh(job)
     return job
+
+
+def _memory_record(memory: dict | None) -> dict | None:
+    """What a Bakta job records of the memory estimate the user saw (no paths)."""
+    if not memory:
+        return None
+    return {k: memory.get(k) for k in ("verdict", "estimate_gb", "container_gb", "largest", "block_letters",
+                                       "bytes_per_letter")}
 
 
 def create_prokka_job(db: Session, sample: Sample, assembly: Assembly, params: ProkkaParams, plan: dict,
@@ -1164,15 +1201,28 @@ def resume_flye_job(db: Session, job: AnalysisJob) -> AnalysisJob:
     if found is None or found["resume_stage"] != kept["resume_stage"]:
         raise JobStateError("The kept Flye work folder is missing or has changed on disk; discard it and start a "
                             "new assembly")
-    tool = require_tool("flye")
+    from app.services import native
+
+    if (job.parameters or {}).get("execution") == native.MAC_NATIVE:
+        # A native run resumes natively only, with the same osx-arm64 build (one run, one compilation of Flye).
+        record, facts = native.ready_executor("flye")
+        tool = native.detected_tool(facts)
+        build = (facts.get("package") or {}).get("build")
+        if kept.get("build") and build != kept["build"]:
+            raise JobStateError(f"The work folder was written by Flye build {kept['build']} on this Mac and ARVA.app "
+                                f"now has build {build}; ARVA resumes only with the same build. Start a new assembly")
+        supported = frozenset(facts["help_options"])
+    else:
+        tool = require_tool("flye")
     if tool.version != kept["tool_version"]:
         raise JobStateError(f"The work folder was written by Flye {kept['tool_version']} and Flye {tool.version} is "
                             "installed now. Flye does not check this, and one run made by two versions could not be "
                             "described by either, so ARVA resumes only with the same version; start a new assembly")
-    try:
-        supported = FlyeAdapter.help_options(tool.path or "flye")
-    except (OSError, RuntimeError, subprocess.TimeoutExpired) as exc:
-        raise ToolUnavailableError(f"Flye's --help could not be read to check its options: {exc}") from exc
+    if (job.parameters or {}).get("execution") != native.MAC_NATIVE:
+        try:
+            supported = FlyeAdapter.help_options(tool.path or "flye")
+        except (OSError, RuntimeError, subprocess.TimeoutExpired) as exc:
+            raise ToolUnavailableError(f"Flye's --help could not be read to check its options: {exc}") from exc
     if "--resume" not in supported:
         raise ToolUnavailableError("this Flye version does not offer --resume (not in its --help)")
     params = FlyeParams.from_dict(job.parameters or {})
@@ -1189,6 +1239,8 @@ def resume_flye_job(db: Session, job: AnalysisJob) -> AnalysisJob:
     parameters = {k: v for k, v in (job.parameters or {}).items() if k != "resume"}
     parameters["resume"] = {"of_job_id": job.id, "checkpoint_path": kept["path"], "stage": kept["resume_stage"],
                             "completed_stages": kept["completed_stages"]}
+    if parameters.get("execution") == native.MAC_NATIVE:
+        parameters["native_executor"] = native.provenance(record, facts)
     new = _tool_job(sample, FLYE_JOB, tool, parameters, list(job.input_raw_file_ids or []), res.record(params.threads))
     db.add(new)
     db.commit()

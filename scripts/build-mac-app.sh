@@ -90,6 +90,31 @@ done | shasum -a 256 | cut -d ' ' -f 1)
 printf '%s-%s\n' "$version" "$runtime_id" > "$RUNTIME/.arva-runtime-id"
 printf 'Launcher files: %s\n' "$(cat "$RUNTIME/.arva-runtime-id")"
 
+# 3b. Flye and Bakta for this Mac (docs/plan-flye-nativo.md): ARVA's own adapters (standard library only), the lock
+# scripts, the osx-arm64 locks and the --help texts of Flye 2.9.6 and Bakta 1.12.2, in Contents/Resources/native. The
+# app installs each tool only from its lock and runs it only through these adapters (apps/mac/ARVA/NativeFlye.swift,
+# NativeExecutor.swift).
+NATIVE=$APP/Contents/Resources/native
+native() {
+  [ -f "$ROOT/$1" ] || fail "$1 is missing from the repository."
+  mkdir -p "$NATIVE/$(dirname -- "$2")"
+  cp -p "$ROOT/$1" "$NATIVE/$2"
+}
+for file in __init__.py base.py runner.py native_common.py flye.py bakta.py nanoplot.py amrfinderplus.py native.py; do
+  native "workflows/tool-adapters/arva_tools/$file" "arva_tools/$file"
+done
+native scripts/conda_locks.py scripts/conda_locks.py
+native scripts/install-micromamba.sh scripts/install-micromamba.sh
+native docker/conda-locks/flye/osx-arm64.lock docker/conda-locks/flye/osx-arm64.lock
+native docker/conda-locks/flye/native-platforms docker/conda-locks/flye/native-platforms
+native workflows/tool-adapters/tests/fixtures/flye/help_2.9.6.txt fixtures/flye/help_2.9.6.txt
+native docker/conda-locks/bakta/osx-arm64.lock docker/conda-locks/bakta/osx-arm64.lock
+native docker/conda-locks/bakta/native-platforms docker/conda-locks/bakta/native-platforms
+native workflows/tool-adapters/tests/fixtures/bakta/help_1.12.2.txt fixtures/bakta/help_1.12.2.txt
+chmod 0755 "$NATIVE/scripts/install-micromamba.sh"
+printf 'Flye for this Mac: %s\n' "$(grep -c '^https://' "$NATIVE/docker/conda-locks/flye/osx-arm64.lock") packages in the osx-arm64 lock"
+printf 'Bakta for this Mac: %s\n' "$(grep -c '^https://' "$NATIVE/docker/conda-locks/bakta/osx-arm64.lock") packages in the osx-arm64 lock"
+
 # 4. Resources: translations of the Info.plist texts, the logo and the icon.
 cp -R "$SRC/Resources/en.lproj" "$SRC/Resources/es.lproj" "$APP/Contents/Resources/"
 LOGO=$ROOT/docs/brand/arva-logo-1254.png

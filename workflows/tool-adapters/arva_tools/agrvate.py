@@ -9,7 +9,9 @@ linux-aarch64 lock: snippy's dependencies cannot be solved there, see linux-aarc
   folder (<name> is the file name without its extension). Typing: blastn of the k-mers of
   agrvate_databases/gp1234_all_motifs.fna (100 % identity and query coverage); the number of matching k-mers is the
   match score; 0 is untypeable (then nhmmer looks for a possibly non-canonical agrD), 1-4 is "low confidence", and
-  k-mers of several groups mean several agr types (the most frequent is reported).
+  k-mers of several groups mean several agr types: AgrVATE then reports the group with the most hits (multiple_agr
+  m), stops if that count is 4 or less, and otherwise types the operon against that group's reference
+  (<name>-agr_gp.tab keeps every hit: contig, k-mer group, e-value, identity, start, end).
 * Operon extraction: by default an in-silico PCR with usearch11.0.667_i86linux32, a 32-bit binary that is not part of
   the package (AgrVATE asks the user to download it from drive5.com; without it the run ends after typing with
   frameshifts "u"). With -m (help: "Uses mummer instead of usearch (May not perform frameshift detection)") MUMmer's
@@ -178,9 +180,34 @@ def parse_coords(text: str) -> dict[str, Any]:
             "covered_fraction": round(bases / ref_length, 4) if ref_length else None}
 
 
-def interpret(summary: dict[str, Any]) -> dict[str, Any]:
+def parse_kmer_hits(text: str) -> dict[str, dict[str, Any]]:
+    """<name>-agr_gp.tab, AgrVATE's blastn of the group k-mers (`-outfmt "6 sseqid qseqid evalue pident sstart send"`,
+    one HSP per k-mer and contig, no header): per agr group (I-IV), the number of hits and the contigs they lie on,
+    in file order. The k-mers are all named after their group (gp1-gp4), so these are hits, not distinct k-mers;
+    AgrVATE's match score counts the same rows. An empty file means no k-mer was found."""
+    out: dict[str, dict[str, Any]] = {}
+    for n, line in enumerate(text.splitlines(), 1):
+        if not line.strip():
+            continue
+        cols = line.split("\t")
+        if len(cols) != 6 or cols[1] not in GROUPS:
+            raise ValueError(f"line {n} of AgrVATE's k-mer hits is not contig, gp1-gp4, e-value, identity, start, end")
+        entry = out.setdefault(GROUPS[cols[1]], {"hits": 0, "contigs": []})
+        entry["hits"] += 1
+        if cols[0] not in entry["contigs"]:
+            entry["contigs"].append(cols[0])
+    return out
+
+
+def interpret(summary: dict[str, Any], kmers: dict[str, dict[str, Any]] | None = None) -> dict[str, Any]:
     """ARVA's reading of AgrVATE's call: typed, low_confidence (match score 1-4, AgrVATE's own limit), multiple or
-    untypeable."""
+    untypeable.
+
+    With k-mers of several groups AgrVATE reports the group with the most hits ("the displayed agr group is the
+    majority/highest confidence", its README) and types the operon against that group's reference. ARVA keeps that
+    call (status multiple) unless AgrVATE could not choose: the top count is 4 or less (AgrVATE's low-confidence stop)
+    or the two largest counts tie (AgrVATE then picks by `sort` order, which is not a call). Without the k-mer hits a
+    tie cannot be ruled out, so no group is reported."""
     if summary["agr_group"] is None:
         status = "untypeable"
     elif summary["multiple_agr"] == "multiple":
@@ -189,7 +216,14 @@ def interpret(summary: dict[str, Any]) -> dict[str, Any]:
         status = "low_confidence"
     else:
         status = "typed"
-    return {"status": status, "call": summary["agr_group"] if status in ("typed", "low_confidence") else None}
+    call = summary["agr_group"] if status in ("typed", "low_confidence") else None
+    if status == "multiple" and kmers:
+        counts = sorted((k["hits"] for k in kmers.values()), reverse=True)
+        top = (kmers.get(summary["agr_group"]) or {}).get("hits", 0)
+        tie = len(counts) > 1 and counts[0] == counts[1]
+        if top == counts[0] and not tie and top > LOW_CONFIDENCE_MAX:
+            call = summary["agr_group"]
+    return {"status": status, "call": call}
 
 
 class AgrvateAdapter(ToolAdapter):

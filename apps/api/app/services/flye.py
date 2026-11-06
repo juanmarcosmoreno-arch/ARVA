@@ -242,6 +242,29 @@ def memory(db: Session, sample: Sample, ev: list[dict[str, Any]], params: FlyePa
     return out
 
 
+# The memory verdicts (arva_tools.flye.memory_estimate) for which Docker has too little memory for this run: below
+# Flye's fixed k-mer table floor (about 8.6 GB whatever the reads, log item 29), within a gigabyte of it, or short for
+# these reads. Only then is running Flye natively on the Mac offered.
+NATIVE_WHEN = ("below_floor", "tight", "may_not_fit")
+
+
+def native_offer(estimate: dict[str, Any]) -> dict[str, Any]:
+    """Whether the dialog offers "Run on this Mac (native)": when the memory estimate says Docker is short and
+    ARVA.app's executor is known with a Flye; ready when it is open and can run it now (else `reason`, such as
+    app_not_open, which the interface explains)."""
+    from app.services import native
+
+    st = native.status()
+    tool = st["tools"].get("flye")
+    short = estimate.get("verdict") in NATIVE_WHEN
+    reason = tool["reason"] if tool else ("app_not_open" if st["known"] and not st["open"] else
+                                          "not_installed" if st["known"] else "not_known")
+    return {"memory_short": short, "offered": short and tool is not None, "ready": bool(tool and tool["ready"]),
+            "app_open": st["open"], "reason": None if tool and tool["ready"] else reason,
+            "flye": {k: tool[k] for k in ("version", "build", "lock_matches")} if tool else None,
+            "mac_memory_bytes": st["memory_bytes"], "chip": st["chip"]}
+
+
 def tool_status(res: Resources) -> dict[str, Any]:
     d = detect("flye")
     options: list[str] = []
@@ -259,12 +282,14 @@ def tool_status(res: Resources) -> dict[str, Any]:
 def plan(db: Session, sample: Sample, files: list[RawFile], depth_x: float | None) -> dict[str, Any]:
     ev = evidence(db, files)
     check_files(sample, files, ev)
+    estimate = memory(db, sample, ev)
     return {
         "tool": tool_status(effective_resources(db)),
         "files": ev,
         "read_type_suggestion": read_type_suggestion(sample, ev),
         "genome_size": genome_size_options(db, sample, ev, depth_x),
-        "memory": memory(db, sample, ev),
+        "memory": estimate,
         "sample_technology": sample.sequencing_technology,
         "long_reads_confirmation_required": needs_confirmation(sample),
+        "native": native_offer(estimate),
     }

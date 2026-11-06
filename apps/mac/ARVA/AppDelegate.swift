@@ -29,6 +29,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private var jobWatch = JobWatch()
     private var jobPollInFlight = false
     private let notifier = AnalysisNotifier()
+    /// Flye for this Mac: runs Flye natively for ARVA's worker while ARVA runs (NativeExecutor).
+    private let nativeExecutor = NativeExecutor()
+    private lazy var nativeUI = NativeFlyeUI(executor: nativeExecutor)
+    /// Bakta for this Mac: the same executor runs Bakta natively when its DIAMOND block does not fit Docker.
+    private lazy var nativeBaktaUI = NativeFlyeUI(executor: nativeExecutor, tool: .bakta)
+    /// A Flye left running by an earlier run of the app (which quit or crashed) has been looked for and stopped.
+    private var nativeOrphansChecked = false
     /// Asks every 15 seconds whether ARVA answers, to say so when it stops (Docker Desktop closed).
     private var healthTimer: Timer?
     private var serverWatch = ServerWatch()
@@ -53,6 +60,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.mainMenu = MainMenu.build()
         sleepGuard.onChange = { [weak self] active in self?.showSleepStatus(active) }
+        nativeExecutor.onChange = { [weak self] in
+            guard let self else { return }
+            MainMenu.setNativeStatus(self.nativeExecutor.statusText)
+        }
+        nativeUI.onChange = { [weak self] in
+            guard let self else { return }
+            self.nativeExecutor.reloadFacts()
+            self.startNativeExecutor()
+        }
+        nativeBaktaUI.onChange = { [weak self] in
+            guard let self else { return }
+            self.nativeExecutor.reloadFacts()
+            self.startNativeExecutor()
+        }
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            let stopped = NativeRunningRecord.killOrphans()
+            DispatchQueue.main.async {
+                guard let self else { return }
+                if stopped > 0 {
+                    self.note(L("A native run (Flye or Bakta) left running on this Mac by an earlier ARVA.app was stopped (\(stopped) processes); a Flye folder is kept for a resume.\n",
+                                "Se detuvo una ejecución nativa (Flye o Bakta) que una ARVA.app anterior dejó en marcha en esta Mac (\(stopped) procesos); la carpeta de Flye se conserva para reanudarlo.\n"))
+                }
+                self.nativeOrphansChecked = true
+                self.startNativeExecutor()
+            }
+        }
         begin()
         NSApp.activate(ignoringOtherApps: true)
     }
@@ -70,6 +103,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     func applicationWillTerminate(_ notification: Notification) {
         stopSleepWatch()
+        // A Flye running on this Mac does not stop with the app: it is stopped here and its report sent.
+        nativeExecutor.shutdownNow()
+    }
+
+    /// Flye for this Mac starts taking work once ARVA answers (and after a Flye left by an earlier run was stopped).
+    private func startNativeExecutor() {
+        guard nativeOrphansChecked, phase == .running else { return }
+        nativeExecutor.start()
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
@@ -863,6 +904,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         splash?.window.orderOut(nil)
         NSApp.activate(ignoringOtherApps: true)
         startSleepWatch()
+        startNativeExecutor()
         offerNotificationsOnce()
     }
 
@@ -896,6 +938,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 info += "\n\n⚠️ " + L("\(en): stopping ARVA interrupts them (they can be run again later). To let them finish, choose Quit without stopping.",
                                      "Hay \(count) análisis en curso o en espera: detener ARVA los interrumpe (se pueden volver a ejecutar después). Para que terminen, elige Salir sin detener.")
             }
+            if self.nativeExecutor.isBusy {
+                info += "\n\n⚠️ " + L("Flye or Bakta is running on this Mac for ARVA: quitting ARVA.app stops it, either way (a Flye folder is kept, so it can be resumed later; Bakta starts again from the beginning).",
+                                     "Flye o Bakta se está ejecutando en esta Mac para ARVA: salir de ARVA.app lo detiene en cualquier caso (la carpeta de Flye se conserva, así que se puede reanudar después; Bakta vuelve a empezar desde el principio).")
+            }
             alert.informativeText = info
             let stopButton = alert.addButton(withTitle: L("Stop and quit", "Detener y salir"))
             let leaveButton = alert.addButton(withTitle: L("Quit without stopping", "Salir sin detener"))
@@ -927,7 +973,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 self.stopAndQuit(quitDocker: quitDocker)
             case .alertSecondButtonReturn:
                 self.terminating = true
-                NSApp.reply(toApplicationShouldTerminate: true)
+                // ARVA keeps running; a Flye running on this Mac is stopped first (its report says so to ARVA).
+                self.nativeExecutor.shutdown {
+                    NSApp.reply(toApplicationShouldTerminate: true)
+                }
             default:
                 NSApp.reply(toApplicationShouldTerminate: false)
                 if let error = self.deferredError {
@@ -1018,8 +1067,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         window.show()
         mainWeb?.window.orderOut(nil)
         for other in otherWebs { other.window.orderOut(nil) }
-        // A start still under way is stopped first, so that stop.sh does not race a docker compose up.
-        stopLaunchers { [weak self] in self?.runStop(quitDocker: quitDocker) }
+        // A Flye running on this Mac is stopped while ARVA can still take its report; a start still under way is
+        // stopped first, so that stop.sh does not race a docker compose up.
+        nativeExecutor.shutdown { [weak self] in
+            self?.stopLaunchers { [weak self] in self?.runStop(quitDocker: quitDocker) }
+        }
     }
 
     private func runStop(quitDocker: Bool) {
@@ -1231,6 +1283,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         note(AppInfo.summary + "\n")
         note(L("New import folder: \(path)\n", "Nueva carpeta de importación: \(path)\n"))
         runLauncher(current, extra: ["--import-dir", path])
+    }
+
+    /// ARVA → Flye for This Mac…: install, reinstall or remove it, and its state.
+    @objc func arvaNativeFlye(_ sender: Any?) {
+        nativeUI.show()
+    }
+
+    /// ARVA → Bakta for This Mac…: install, reinstall or remove it, and its state.
+    @objc func arvaNativeBakta(_ sender: Any?) {
+        nativeBaktaUI.show()
     }
 
     /// ARVA → Notify When Analyses End: on (macOS is asked first) or off.

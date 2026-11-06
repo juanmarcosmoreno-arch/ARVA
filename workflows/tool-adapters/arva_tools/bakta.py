@@ -39,21 +39,44 @@ database 6.0 on SYNTHETIC genomes (Python 3.12.3, Ubuntu 24.04):
 """
 from __future__ import annotations
 
+import datetime as dt
 import os
 import random
 import re
 import shutil
+import struct
 import subprocess
 import tempfile
-from dataclasses import asdict, dataclass
+import time
+from dataclasses import asdict, dataclass, fields
 from pathlib import Path
 from typing import Any
 
-from arva_core.annotation import new_feature, sort_xrefs, span_length
-
-from arva_tools.base import DetectedTool, ToolAdapter, ToolInfo, ToolStatus, help_options, read_help
+# Standard library and arva_tools.{base,runner,nanoplot,amrfinderplus,native_common} only at import time: ARVA.app
+# runs this module on the Mac (the native entry, below) without arva_core, which parse_json imports when it runs.
+from arva_tools.base import (
+    DetectedTool,
+    ToolAdapter,
+    ToolInfo,
+    ToolStatus,
+    conda_platform,
+    help_options,
+    read_help,
+)
 from arva_tools.nanoplot import python_of
-from arva_tools.runner import isolated_home, tool_environment
+from arva_tools.native_common import (
+    NativeRefusal,
+    NativeStopped,
+    check_storage,
+    conda_package,
+    mac_facts,
+    native_folder,
+    native_path,
+    native_program,
+    native_relative,
+    sha256_file,
+)
+from arva_tools.runner import ToolExecutionError, isolated_home, run_command, tool_environment
 
 PREFIX = "annotation"
 OUT_DIR = "bakta"
@@ -356,7 +379,7 @@ class BaktaAdapter(ToolAdapter):
         tested_versions=("1.12.2",),
         install={"conda_lock": "python3 scripts/conda_locks.py install bakta ~/.arva-tools/conda/bakta  # then "
                                "ARVA_TOOL_BAKTA=~/.arva-tools/conda/bakta/bin/bakta (Bakta and every program it runs)"},
-        conda_platforms=("linux-64",),
+        conda_platforms=("linux-64", "osx-arm64"),
     )
     version_pattern = re.compile(r"bakta (\d+\.\d+\.\d+)")
 
@@ -430,8 +453,14 @@ class BaktaAdapter(ToolAdapter):
                 "finished": "Annotation successfully finished" in text}
 
     @staticmethod
-    def failure_reason(console: str, returncode: int | None) -> str | None:
+    def failure_reason(console: str, returncode: int | None, native: bool = False) -> str | None:
+        """Bakta's own reason for a failed run. `native`: the run was on the Mac (ARVA.app), not in Docker."""
         if _DIAMOND_KILLED.search(console):
+            if native:
+                return ("DIAMOND, the protein search Bakta runs against its database, was stopped by macOS (out of "
+                        "memory) although Bakta ran directly on this Mac. Bakta sets DIAMOND's block size itself (3), "
+                        "so its memory cannot be lowered from ARVA: close other applications (Docker Desktop's "
+                        "virtual machine keeps its memory while it is open), or annotate with Bakta's light database")
             return ("DIAMOND, the protein search Bakta runs against its database, was stopped by the operating system "
                     "(out of memory). Bakta sets DIAMOND's block size itself (3), so its memory cannot be lowered from "
                     "ARVA: give Docker Desktop more memory, or annotate with Bakta's light database, which is much "
@@ -512,6 +541,12 @@ def _evidence(kind: str, f: dict[str, Any]) -> list[str]:
 
 
 def _feature(index: int, f: dict[str, Any], lengths: dict[str, int]) -> dict[str, Any]:
+    from arva_core.annotation import (  # not on the Mac (see the imports)
+        new_feature,
+        sort_xrefs,
+        span_length,
+    )
+
     kind = TYPES.get(f.get("type", ""), "other")
     contig = f.get("sequence", f.get("contig", ""))
     start, end, edge = int(f["start"]), int(f["stop"]), bool(f.get("edge"))
@@ -525,3 +560,316 @@ def _feature(index: int, f: dict[str, Any], lengths: dict[str, int]) -> dict[str
         hypothetical=bool(f.get("hypothetical")) if kind in ("cds", "sorf") else None,
         inference=_evidence(kind, f),
     )
+
+
+# --- Memory: DIAMOND's reference block (log item 49) ------------------------------------------------------------------
+#
+# Bakta 1.12.2 runs DIAMOND itself with "--block-size 3" (psc.py, pscc.py, features/s_orf.py) and has no option to
+# change it. DIAMOND processes the reference in blocks of up to block-size billion letters ("Block size in billions of
+# sequence letters to be processed at a time. This is the main parameter for controlling the program's memory";
+# DIAMOND wiki, "3. Command line options"), so one search needs memory for one block: the whole database when it has
+# fewer than 3 billion letters. Each .dmnd file says how many letters it holds in its header (DIAMOND's
+# ReferenceHeader: magic number, build, database version, sequences, letters; checked against the sequences and
+# letters DIAMOND 2.2.8 prints for the light database 6.0). Bakta runs its searches one after another, so the largest
+# block decides.
+#
+# Bytes per letter: measured by ARVA, not documented. DIAMOND 2.2.8 (linux-64, ARVA's Bakta lock) with Bakta's exact
+# pscc arguments (--fast --block-size 3, --id 50, --query-cover 80, --subject-cover 80, --max-target-seqs 1) on the
+# light database 6.0 pscc.dmnd (1,245,018,838 letters, one block) and the 2,646 proteins of S. aureus N315
+# (GCF_000011265.1): peak resident memory 2,933,644 KiB with 2 threads and 2,932,388 KiB with 4 (identical hits), so
+# about 2.41 bytes per reference letter, independent of the thread count. DIAMOND's documentation gives a rougher
+# upper figure, "roughly six times this number of memory (in GB)" for a block-size, which ARVA does not use: it would
+# say the light database cannot run in 5.9 GB, and on the user's Mac it did (log item 53).
+# Checked against the user's Mac (Docker with 5.9 GB): the light database 6.0 ran (item 53; estimate 2.8 GB); the
+# full database 6.0 had DIAMOND killed for lack of memory (item 49; its psc.dmnd is not here to read, but a block of 3
+# billion letters gives 6.7 GB). GB here are of 1024^3 bytes, like the container memory ARVA shows.
+DIAMOND_BLOCK_LETTERS = 3_000_000_000
+DIAMOND_DATABASES = ("psc.dmnd", "pscc.dmnd", "sorf.dmnd", "expert-protein-sequences.dmnd")
+DIAMOND_MAGIC = 0x24AF8A415EE186D
+DIAMOND_MEASUREMENT = {"diamond": "2.2.8", "platform": "linux-64", "database": "Bakta light 6.0 pscc.dmnd",
+                       "letters": 1_245_018_838, "peak_rss_bytes": 3_004_051_456, "threads": [2, 4],
+                       "query": "2,646 proteins of S. aureus N315 (GCF_000011265.1)"}
+DIAMOND_BYTES_PER_LETTER = round(DIAMOND_MEASUREMENT["peak_rss_bytes"] / DIAMOND_MEASUREMENT["letters"], 2)
+# Room for Bakta's own process (it stays alive while DIAMOND runs) and the rest of the container. An allowance, not a
+# measurement: within it the verdict is "tight".
+MEMORY_HEADROOM_GB = 1.0
+# Memory in GB of 1024^3 bytes, the unit ARVA's container memory is in (app.services.performance); letters in billions.
+GIB = 1024**3
+
+
+def diamond_header(path: Path) -> dict[str, int] | None:
+    """Sequences and letters of a DIAMOND database (.dmnd) from its header; None when it is not one."""
+    try:
+        with open(path, "rb") as fh:
+            raw = fh.read(32)
+    except OSError:
+        return None
+    if len(raw) < 32:
+        return None
+    magic, build, db_version, sequences, letters = struct.unpack("<QIIQQ", raw)
+    if magic != DIAMOND_MAGIC:
+        return None
+    return {"build": build, "db_version": db_version, "sequences": sequences, "letters": letters}
+
+
+def memory_estimate(db_path: Path | None, container_gb: float | None) -> dict[str, Any]:
+    """Whether Bakta's DIAMOND searches with this database fit the memory the container (or computer) has, by ARVA's
+    estimate: the largest reference block (letters of the largest .dmnd Bakta searches, at most 3 billion) times the
+    bytes per letter ARVA measured (DIAMOND_MEASUREMENT). verdict: "fits" (with MEMORY_HEADROOM_GB to spare), "tight"
+    (fits without that room), "may_not_fit" (the estimate exceeds the container's memory), or "unknown" (no DIAMOND
+    database readable, or no memory known)."""
+    databases = []
+    for name in DIAMOND_DATABASES:
+        header = diamond_header(db_path / name) if db_path is not None else None
+        if header is not None:
+            databases.append({"file": name, "sequences": header["sequences"], "letters": header["letters"],
+                              "block_letters": min(header["letters"], DIAMOND_BLOCK_LETTERS)})
+    out: dict[str, Any] = {"databases": databases, "block_size": DIAMOND_BLOCK_LETTERS // 1_000_000_000,
+                           "block_letters": None, "largest": None, "bytes_per_letter": DIAMOND_BYTES_PER_LETTER,
+                           "measurement": DIAMOND_MEASUREMENT, "headroom_gb": MEMORY_HEADROOM_GB,
+                           "estimate_gb": None, "container_gb": container_gb, "verdict": "unknown"}
+    if not databases:
+        return out
+    largest = max(databases, key=lambda d: d["block_letters"])
+    estimate = round(largest["block_letters"] * DIAMOND_BYTES_PER_LETTER / GIB, 1)
+    out.update(block_letters=largest["block_letters"], largest=largest["file"], estimate_gb=estimate)
+    if container_gb is None:
+        return out
+    out["verdict"] = ("may_not_fit" if estimate > container_gb else
+                      "tight" if estimate + MEMORY_HEADROOM_GB > container_gb else "fits")
+    return out
+
+
+# --- Native run on the user's Mac (ARVA.app; docs/plan-flye-nativo.md, "Contrato implementado" and "Bakta") ----------
+#
+# The full database's DIAMOND block does not fit Docker Desktop's VM on an 8 GB Mac (log item 49), and Bakta has no
+# option for it; natively macOS compresses and swaps memory (the user's own Bakta 1.11.4 ran with the full database
+# 6.0 on the same Mac, item 51). ARVA.app then runs this module with the Python of the osx-arm64 Bakta environment
+# (created only from NATIVE_LOCK's lock file) through arva_tools/native.py. The work record carries structured
+# parameters, paths relative to the data folder or to a database folder named in arva.conf, the skip options the user
+# confirmed and the argument vector the API built for the Mac. This module checks the programs of the Mac's Bakta
+# environment again (the same start-up checks as in Docker), refuses to run when the steps that can run differ from
+# the confirmed ones, builds the argument vector itself with the same BaktaAdapter.argv, and runs only an identical
+# one. Nothing in the work record is executed as given.
+
+# The lock ARVA.app installs from (scripts/conda_locks.py update bakta --platform osx-arm64, 2026-11-06: 140 packages,
+# 296.2 MB): its SHA-256 and the Bakta package it pins (noarch, the same file as the Linux lock). A test checks both
+# against docker/conda-locks/bakta/osx-arm64.lock.
+NATIVE_LOCK = {
+    "platform": "osx-arm64",
+    "lock": "docker/conda-locks/bakta/osx-arm64.lock",
+    "lock_sha256": "8a302d44802fc18019bef6e81d46adc4228c8bcf66d1a40605f0e6978b21205b",
+    "package": "bakta-1.12.2-pyhdfd78af_0.conda",
+    "version": "1.12.2",
+    "build": "pyhdfd78af_0",
+    "package_sha256": "8bc71bb2ac0e302263deaebb49c3e37b05455f882e1c156da64f6393297d615d",
+    "subdir": "noarch",
+}
+# Inside the job's tmp-dir: the database view whose amrfinderplus-db/latest is the AMRFinderPlus data ARVA chose
+# (compose_database), made on the Mac with the Mac's paths.
+COMPOSED_DB = "database"
+DATABASE_TYPES = ("light", "full")
+NATIVE_WORK_KEYS = ("tool", "storage_id", "data_dir", "executable", "params", "genome", "out_dir", "tmp_dir",
+                    "results_dir", "console_log", "database", "amr_data", "database_type", "skip_options", "argv")
+
+
+def native_data_dir(path: Any) -> str:
+    """The data folder as given (absolute, normalised, without spaces)."""
+    return native_folder(path, "Bakta")
+
+
+def native_executable(path: Any) -> str:
+    return native_program(path, "bakta")
+
+
+def native_database(ref: Any, database_dirs: list[str] | None) -> str:
+    """The Mac path of a database given as {"root": a database folder of arva.conf, "rel": a path inside it}: the root
+    must be one of `database_dirs` (ARVA.app's arva.conf), the path must exist and stay inside it once links are
+    resolved. With database_dirs None (the API's side, which cannot see the Mac's folders), the form only."""
+    if not isinstance(ref, dict) or set(ref) != {"root", "rel"}:
+        raise NativeRefusal("work_incomplete", "a database must be given as its folder and a path inside it")
+    root = native_folder(ref["root"], "Bakta", "a database folder")
+    rel = native_relative(ref["rel"])
+    if database_dirs is None:
+        return f"{root}/{rel}"
+    if root not in {os.path.normpath(d) for d in database_dirs}:
+        raise NativeRefusal("database_folder_unknown", f"{root} is not a database folder of this Mac's ARVA "
+                                                       "(arva.conf: ARVA_DATABASES_DIR, ARVA_ADD_DATABASES)")
+    try:
+        return native_path(root, rel, what="the database folder")
+    except NativeRefusal as exc:
+        raise NativeRefusal("outside_database_dir" if exc.code == "outside_data_dir" else exc.code, str(exc)) from None
+
+
+def _inside(rel: str, results_dir: str) -> None:
+    if not rel.startswith(results_dir + "/"):
+        raise NativeRefusal("unsafe_path", f"{rel} is not inside the job's folder {results_dir}")
+
+
+def native_expected_argv(params: BaktaParams, data_dir: str, executable: str, genome: str, database: dict[str, str],
+                         amr_data: dict[str, str] | None, out_dir: str, tmp_dir: str, skips: list[str],
+                         supported: frozenset[str]) -> list[str]:
+    """The argument vector of a native run, built by the API for the work record (paths checked for form only): the
+    Docker run's BaktaAdapter.argv with the Mac's paths; --db is the database itself, or the composed view inside
+    tmp-dir when AMRFinderPlus data replaces the database's own copy."""
+    data_dir, executable = native_data_dir(data_dir), native_executable(executable)
+    db = native_database(database, None)
+    if amr_data is not None:
+        native_database(amr_data, None)
+        db = f"{data_dir}/{native_relative(tmp_dir)}/{COMPOSED_DB}"
+    return BaktaAdapter.argv(executable, params, Path(f"{data_dir}/{native_relative(genome)}"), Path(db),
+                             Path(f"{data_dir}/{native_relative(out_dir)}"), Path(f"{data_dir}/{native_relative(tmp_dir)}"),
+                             skips, supported)
+
+
+def _bakta_version(executable: str) -> str | None:
+    with isolated_home() as home:
+        proc = subprocess.run([executable, "--version"], capture_output=True, text=True, errors="replace",
+                              timeout=120, env={**tool_environment(home), **env_for(executable)}, cwd=home,
+                              stdin=subprocess.DEVNULL)
+    text = (proc.stdout + proc.stderr).strip()
+    return text.splitlines()[0] if proc.returncode == 0 and text else None
+
+
+def native_facts(executable: str, lock: str | None = None) -> dict[str, Any]:
+    """What ARVA.app reports about its Bakta when it registers: version (bakta --version), the installed package's
+    build and SHA-256, the SHA-256 of the lock it was created from, the options of its --help, Bakta's start-up checks
+    of the programs of its environment (without a database), and the Mac."""
+    native_executable(executable)
+    try:
+        dependencies = [{k: d.get(k) for k in ("name", "status", "found", "minimum", "steps")}
+                        for d in check_dependencies(executable, None)]
+    except RuntimeError:
+        dependencies = []
+    return {
+        "tool": "bakta",
+        "executable": executable,
+        "version": _bakta_version(executable),
+        "package": conda_package(executable, "bakta"),
+        "lock_sha256": sha256_file(Path(lock)) if lock else None,
+        "help_options": sorted(BaktaAdapter.help_options(executable)),
+        "dependencies": dependencies,
+        **mac_facts(conda_platform()),
+    }
+
+
+def _params(work: dict[str, Any]) -> BaktaParams:
+    try:
+        return BaktaParams(**{f.name: work["params"][f.name] for f in fields(BaktaParams)})
+    except (KeyError, TypeError) as exc:
+        raise NativeRefusal("settings_rejected", f"the work's Bakta settings are incomplete: {exc}") from None
+
+
+def _check_work(work: Any, data_dir: str, executable: str) -> None:
+    if not isinstance(work, dict) or work.get("tool") != "bakta":
+        raise NativeRefusal("not_bakta_work", "the work record is not a Bakta run")
+    if missing := [k for k in NATIVE_WORK_KEYS if k not in work]:
+        raise NativeRefusal("work_incomplete", f"the work record lacks {', '.join(missing)}")
+    if work["data_dir"] != data_dir:
+        raise NativeRefusal("other_data_dir", f"the work is for the data folder {work['data_dir']}, this Mac's "
+                                              f"ARVA uses {data_dir}")
+    if work["executable"] != executable:
+        raise NativeRefusal("other_executable", f"the work names {work['executable']}, this Mac's Bakta is "
+                                                f"{executable}")
+    if not isinstance(work["params"], dict) or not isinstance(work["argv"], list) \
+            or not isinstance(work["skip_options"], list) or work["database_type"] not in (*DATABASE_TYPES, None):
+        raise NativeRefusal("work_incomplete", "the work record's params, argv, skip options or database type are "
+                                               "malformed")
+    if work["console_log"] != CONSOLE_LOG:
+        raise NativeRefusal("unsafe_path", f"unexpected log name {work['console_log']!r}")
+    results_dir = native_relative(work["results_dir"])
+    for key in ("genome", "out_dir", "tmp_dir"):
+        _inside(native_relative(work[key]), results_dir)
+    check_storage(data_dir, work["storage_id"])
+
+
+def prepare_native(work: Any, data_dir: str, executable: str, database_dirs: list[str]
+                   ) -> tuple[list[str], Path, dict[str, str], list[dict[str, Any]]]:
+    """Every check before a native run, then (argv, results folder, extra environment, Bakta's start-up checks as
+    found on this Mac). The composed database view (when AMRFinderPlus data replaces the database's own copy) is made
+    only once everything else passed. Raises NativeRefusal."""
+    data_dir, executable = native_data_dir(data_dir), native_executable(executable)
+    _check_work(work, data_dir, executable)
+    params = _params(work)
+    db = native_database(work["database"], database_dirs)
+    amr = native_database(work["amr_data"], database_dirs) if work["amr_data"] is not None else None
+    genome = native_path(data_dir, work["genome"])
+    out_dir = native_path(data_dir, work["out_dir"], must_exist=False)
+    tmp_dir = native_path(data_dir, work["tmp_dir"])
+    results = Path(native_path(data_dir, work["results_dir"]))
+    if os.path.lexists(out_dir):
+        raise NativeRefusal("work_incomplete", f"{work['out_dir']} exists already (Bakta writes a new folder)")
+    composed = Path(tmp_dir) / COMPOSED_DB
+    if amr is not None and os.path.lexists(composed):
+        raise NativeRefusal("work_incomplete", f"{work['tmp_dir']}/{COMPOSED_DB} exists already")
+    try:
+        supported = BaktaAdapter.help_options(executable)
+    except (OSError, RuntimeError, subprocess.TimeoutExpired) as exc:
+        raise NativeRefusal("help_unreadable", f"bakta --help could not be read: {exc}") from exc
+    try:
+        dependencies = check_dependencies(executable, Path(db), Path(amr) if amr else None)
+    except RuntimeError as exc:
+        raise NativeRefusal("dependencies_unreadable", str(exc)) from exc
+    skips = skip_options(plan_steps(dependencies, work["database_type"], params.skip_plot))
+    if skips != work["skip_options"]:
+        raise NativeRefusal("programs_changed", f"Bakta's programs on this Mac would skip {', '.join(skips) or 'nothing'}"
+                                                f", not {', '.join(work['skip_options']) or 'nothing'} as confirmed")
+    try:
+        argv = BaktaAdapter.argv(executable, params, Path(genome), composed if amr is not None else Path(db),
+                                 Path(out_dir), Path(tmp_dir), skips, supported)
+    except ValueError as exc:
+        raise NativeRefusal("settings_rejected", str(exc)) from exc
+    if argv != work["argv"]:
+        raise NativeRefusal("argv_mismatch", "the argument vector built here differs from the API's; nothing was run")
+    if amr is not None:
+        try:
+            compose_database(Path(db), Path(amr), composed)
+        except (OSError, ValueError) as exc:
+            raise NativeRefusal("amr_data_unreadable", f"the database view for AMRFinderPlus could not be made: {exc}"
+                                ) from exc
+    return argv, results, {**ENVIRONMENT, **env_for(executable)}, dependencies
+
+
+def run_native(work: Any, data_dir: str, executable: str, database_dirs: list[str],
+               timeout_seconds: float = 7 * 24 * 3600) -> dict[str, Any]:
+    """Check the work and run Bakta as the Docker run does (no shell, its own process group, cleaned environment,
+    temporary HOME, standard output and error to <results>/bakta.console.log, which the worker reads for progress,
+    Bakta's own bin/ first on PATH). Returns the report ARVA.app sends to the API's finish endpoint: outcome "exited"
+    (with Bakta's exit code, negative for a signal), "refused" (nothing was run, with a code), "stopped" (by ARVA.app,
+    or the time limit) or "not_started"; with Bakta's start-up checks as found on this Mac."""
+    report: dict[str, Any] = {"tool": "bakta", "outcome": "refused", "exit_code": None, "argv": None,
+                              "executable": executable, "outputs": [], "started_at": None, "finished_at": None,
+                              "duration_seconds": None, "code": None, "detail": None, "dependencies": []}
+    try:
+        argv, results, env, dependencies = prepare_native(work, data_dir, executable, database_dirs)
+    except NativeRefusal as exc:
+        report.update(code=exc.code, detail=str(exc))
+        return report
+    except NativeStopped:
+        # Stopped by ARVA.app while the checks ran: nothing was started.
+        report.update(outcome="not_started", code="stopped_by_app", detail="stopped before the run started")
+        return report
+    report.update(argv=argv, started_at=dt.datetime.now(dt.UTC).isoformat(timespec="seconds"),
+                  dependencies=[{k: d.get(k) for k in ("name", "status", "found", "minimum")} for d in dependencies])
+    start = time.monotonic()
+    try:
+        run_command(argv, cwd=results, stderr_path=results / CONSOLE_LOG, timeout_seconds=timeout_seconds,
+                    extra_env=env)
+        report.update(outcome="exited", exit_code=0)
+    except NativeStopped:
+        report.update(outcome="stopped", code="stopped_by_app")
+    except ToolExecutionError as exc:
+        outcome = "exited" if exc.returncode is not None else \
+            "stopped" if exc.code == "tool_timeout" else "not_started"
+        report.update(outcome=outcome, exit_code=exc.returncode, code=exc.code, detail=str(exc)[:2000])
+    report.update(finished_at=dt.datetime.now(dt.UTC).isoformat(timespec="seconds"),
+                  duration_seconds=round(time.monotonic() - start, 1))
+    out_dir = work["out_dir"]
+    report["outputs"] = [f"{out_dir}/{PREFIX}.{suffix}" for suffix in OUTPUTS.values()
+                         if os.path.isfile(f"{data_dir}/{out_dir}/{PREFIX}.{suffix}")]
+    return report
+
+
+def native_outputs(out_dir: str) -> set[str]:
+    """The files a native report may name: Bakta's outputs in the job's out-dir."""
+    return {f"{out_dir}/{PREFIX}.{suffix}" for suffix in OUTPUTS.values()}

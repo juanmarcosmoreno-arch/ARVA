@@ -75,6 +75,18 @@ def test_catalogue_templates_and_parameter_schemas(client):
     assert kinds["polishing"]["tools"]["hybrid"][0]["id"] == "racon"
     assert [t["id"] for t in kinds["polishing"]["tools"]["medaka"]] == ["medaka", "minimap2", "samtools"]
     assert "medaka" in kinds["polishing"]["params_schema"]["properties"]
+    # database_id is chosen among the registered databases of the kind the node (and its method) reads.
+    assert kinds["bakta"]["database_kinds"] == {"": "bakta"}
+    assert kinds["amrfinderplus"]["database_kinds"] == {"": "amrfinderplus"}
+    assert kinds["species"]["database_kinds"]["skani"] == "reference_genomes"
+    assert kinds["mobile_elements"]["database_kinds"]["mobsuite"] == "mobsuite"
+    assert kinds["mobile_elements"]["database_kinds"]["isescan"] is None
+    assert kinds["staph_typing"]["database_kinds"] == {"sccmec": None, "spa": "spa_types", "agr": None}
+    assert kinds["mlst"]["database_kinds"] is None and kinds["virulence"]["database_kinds"] is None
+    for k in kinds.values():
+        if k["database_kinds"]:
+            assert "database_id" in k["params_schema"]["properties"]
+            assert set(k["database_kinds"]) == set(k["tools"])
     templates = {t["key"]: t for t in cat["templates"]}
     assert len(templates) == 13
     assert {p["params"]["field"] for p in templates["nanopore_assembly"]["needs_parameters"]} == {"params.read_type"}

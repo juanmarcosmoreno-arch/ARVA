@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, CheckCircle2, Info, Loader2, MinusCircle, Play, XCircle } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Info, Laptop, Loader2, MemoryStick, MinusCircle, Play, XCircle } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { Explain } from "@/components/guide/Explain";
@@ -8,13 +8,14 @@ import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { Field, Input, Select } from "@/components/ui/form";
 import { ErrorNote } from "@/components/ui/misc";
-import { useT } from "@/i18n";
+import { dictionaries, type TranslationKey, useT } from "@/i18n";
 import {
   type AnnotationForm,
   annotationProblems,
   assemblyOptions,
   baktaBody,
   initialForm,
+  nativeChosen,
   prokkaBody,
   stepLabel,
   stepReason,
@@ -22,9 +23,9 @@ import {
 } from "@/lib/annotation";
 import { api } from "@/lib/api";
 import { assemblyOptionLabel } from "@/lib/assembly";
-import { fmtDate, fmtInt } from "@/lib/format";
+import { fmtDate, fmtInt, fmtNum } from "@/lib/format";
 import { toolMessage } from "@/lib/messages";
-import type { AnnotationPlan, Assembly, TranslationTable } from "@/lib/types";
+import type { AnnotationPlan, Assembly, BaktaMemory, BaktaNativeOffer, TranslationTable } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 const CHECK = "mt-0.5 h-4 w-4 shrink-0 accent-[#00B4A6]";
@@ -62,10 +63,11 @@ export function AnnotationDialog({
   const set = <K extends keyof AnnotationForm>(key: K, value: AnnotationForm[K]) => setForm((f) => ({ ...f, [key]: value, confirmed: key === "confirmed" ? (value as boolean) : false }));
   const bakta = form.annotator === "bakta";
   const plan = useQuery({
-    queryKey: ["annotationPlan", form.annotator, form.assemblyId, form.databaseId, form.skipPlot, form.rfam, form.useGenus, genus, form.rename],
+    queryKey: ["annotationPlan", form.annotator, form.assemblyId, form.databaseId, form.skipPlot, form.rfam, form.useGenus, genus, form.rename, form.native],
     queryFn: () =>
       bakta
-        ? api.baktaPreview(form.assemblyId, { database_id: form.databaseId || null, skip_plot: form.skipPlot })
+        ? // A native run's steps are those ARVA.app found with the programs of its Bakta on this Mac.
+          api.baktaPreview(form.assemblyId, { database_id: form.databaseId || null, skip_plot: form.skipPlot, ...(form.native ? { execution: "mac_native" as const } : {}) })
         : api.prokkaPreview(form.assemblyId, { rfam: form.rfam, use_genus: form.useGenus, genus: genus || null, rename_contigs: form.rename }),
     enabled: open && Boolean(form.assemblyId),
     retry: false,
@@ -81,6 +83,8 @@ export function AnnotationDialog({
       locusTag: f.locusTag || p.suggestions.locus_tag,
       databaseId: f.databaseId || p.database_id || "",
       rename: f.rename || Boolean(p.assembly.prokka_name_problem && p.annotator === "prokka"),
+      // Not offered for this database (or no longer): back to Docker.
+      native: f.native && Boolean(p.native?.offered),
     }));
   }, [p]);
 
@@ -133,6 +137,13 @@ export function AnnotationDialog({
         <ErrorNote error={plan.error} />
         {p && <ToolLine plan={p} />}
         {p && <DatabaseSection plan={p} value={form.databaseId} onChange={(v) => set("databaseId", v)} />}
+        {bakta && p?.memory && (
+          <BaktaMemoryNote
+            memory={p.memory}
+            onUseLight={(id) => setForm((f) => ({ ...f, databaseId: id, native: false, confirmed: false }))}
+          />
+        )}
+        {bakta && p?.native?.offered && <BaktaNativeOption offer={p.native} memory={p.memory ?? null} chosen={nativeChosen(form, p)} onChange={(v) => set("native", v)} />}
         {p && Object.keys(p.steps).length > 0 && <StepsSection plan={p} />}
 
         <Section title={t("annotation.options")}>
@@ -171,7 +182,10 @@ export function AnnotationDialog({
         {p && (
           <p className="flex gap-1.5 rounded-lg bg-muted p-3 text-xs text-muted-foreground">
             <Info className="h-3.5 w-3.5 shrink-0" aria-hidden />
-            <span>{summaryText(t, form, p)}</span>
+            <span>
+              {summaryText(t, form, p)}
+              {nativeChosen(form, p) && ` ${t("annotation.native.summary")}`}
+            </span>
           </p>
         )}
         <label className="flex items-start gap-2 text-xs">
@@ -206,6 +220,71 @@ export function AnnotationDialog({
 }
 
 type T = ReturnType<typeof useT>;
+
+/** ARVA's estimate of DIAMOND's memory with the chosen database (Bakta fixes its block size: log item 49), shown when
+ * it may not fit the memory ARVA has, with the light database to use instead when there is one. */
+export function BaktaMemoryNote({ memory: m, onUseLight }: { memory: BaktaMemory; onUseLight: (id: string) => void }) {
+  const t = useT();
+  if (m.verdict !== "may_not_fit" && m.verdict !== "tight") return null;
+  const alt = m.light_alternative;
+  return (
+    <section aria-label={t("annotation.memory.title")} className="space-y-1.5 rounded-lg border border-warning/40 bg-warning/5 p-2.5 text-xs">
+      <p className="flex gap-1.5 font-medium">
+        <MemoryStick className="h-3.5 w-3.5 shrink-0 text-warning" aria-hidden />
+        {t(m.verdict === "tight" ? "annotation.memory.tight" : "annotation.memory.short", {
+          estimate: fmtNum(m.estimate_gb ?? 0, 1),
+          memory: fmtNum(m.container_gb ?? 0, 1),
+        })}
+      </p>
+      <p className="text-muted-foreground">
+        {t("annotation.memory.why", { file: m.largest ?? "?", letters: fmtNum((m.block_letters ?? 0) / 1e9, 2), block: m.block_size })}
+      </p>
+      {alt ? (
+        <p className="flex flex-wrap items-center gap-2">
+          <span>{t("annotation.memory.light", { name: alt.name, version: alt.version ?? "?", estimate: fmtNum(alt.estimate_gb ?? 0, 1) })}</span>
+          <Button size="sm" variant="outline" onClick={() => onUseLight(alt.id)}>
+            {t("annotation.memory.useLight")}
+          </Button>
+        </p>
+      ) : (
+        <p className="text-muted-foreground">{t("annotation.memory.noLight")}</p>
+      )}
+    </section>
+  );
+}
+
+/** "Run on this Mac (native)" for Bakta: ARVA.app runs the same Bakta release directly on macOS, which compresses and
+ * swaps memory, when DIAMOND's block with this database may not fit Docker. Offered only then; usable only while
+ * ARVA.app is open, has ARVA's osx-arm64 Bakta and can read this database (a folder of the Mac). */
+export function BaktaNativeOption({ offer, memory, chosen, onChange }: { offer: BaktaNativeOffer; memory: BaktaMemory | null; chosen: boolean; onChange: (v: boolean) => void }) {
+  const t = useT();
+  const code = offer.reason ?? "";
+  const own = `annotation.native.reason.${code}`;
+  const shared = `native.reason.${code}`;
+  const reason = own in dictionaries.en ? t(own as TranslationKey) : shared in dictionaries.en ? t(shared as TranslationKey) : code;
+  return (
+    <section aria-label={t("native.option")} className="space-y-1.5 rounded-lg border border-arva-teal/40 bg-arva-teal/5 p-2.5 text-xs">
+      <label className={cn("flex items-start gap-2 font-medium", !offer.ready && "opacity-80")}>
+        <input type="checkbox" className={CHECK} checked={chosen} onChange={(e) => onChange(e.target.checked)} />
+        <span>
+          <Laptop className="mr-1 inline h-3.5 w-3.5 text-arva-teal" aria-hidden />
+          {t("native.option")}
+          <span className="block font-normal text-muted-foreground">
+            {t("annotation.native.explain", { estimate: fmtNum(memory?.estimate_gb ?? 0, 1), memory: fmtNum(memory?.container_gb ?? 0, 1) })}
+          </span>
+        </span>
+      </label>
+      {offer.bakta && <p className="pl-6 text-muted-foreground">{t("annotation.native.bakta", { version: offer.bakta.version ?? "?", build: offer.bakta.build ?? "?" })}</p>}
+      {offer.database && <p className="pl-6 text-muted-foreground">{t("annotation.native.database", { path: `${offer.database.root}/${offer.database.rel}` })}</p>}
+      {!offer.ready && (
+        <p role={chosen ? "alert" : undefined} className="flex gap-1.5 pl-6 text-danger">
+          <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden />
+          {code === "app_not_open" ? t("native.notOpen", { tool: "Bakta" }) : t("annotation.native.notReady", { reason })}
+        </p>
+      )}
+    </section>
+  );
+}
 
 function problemText(t: T, x: { code: string; message: string; params?: Record<string, string> }) {
   const known = ["no_database", "database_unavailable", "tool_unavailable", "nothing_to_annotate", "contig_names", "programs_missing"];

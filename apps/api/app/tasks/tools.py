@@ -19,6 +19,7 @@ import subprocess
 import time
 from collections import defaultdict
 from collections.abc import Callable, Mapping
+from dataclasses import dataclass
 from pathlib import Path
 
 from arva_core.assembly_stats import AssemblyFormatError, ContigAnnotation, min_length_summary
@@ -38,17 +39,21 @@ from arva_tools.fastqc import DATA_JSON as FASTQC_DATA_JSON
 from arva_tools.fastqc import FastqcAdapter
 from arva_tools.filtlong import ENVIRONMENT as FILTLONG_ENVIRONMENT
 from arva_tools.filtlong import FiltlongAdapter, FiltlongParams, plain_counts
-from arva_tools.flye import OUTPUTS as FLYE_OUTPUTS
 from arva_tools.flye import (
+    NATIVE_STDERR_LOG,
     SAMTOOLS_HELPER,
     STAGE_DIRS,
     FlyeAdapter,
     FlyeParams,
+    NativeRefusal,
     helper_version,
+    native_expected_argv,
+    native_relative,
     read_checkpoint,
     read_link_name,
     samtools_helper,
 )
+from arva_tools.flye import OUTPUTS as FLYE_OUTPUTS
 from arva_tools.multiqc import (
     DATA_DIR,
     DATA_JSON,
@@ -112,6 +117,8 @@ from app.tasks.common import JobCancelled, JobContext, JobFailure, now, run_job
 
 # How often a running tool's log is read and the job's progress saved.
 MONITOR_SECONDS = 5.0
+# How often a native run's lease, report and cancellation are checked while ARVA.app runs Flye on the Mac.
+NATIVE_POLL_SECONDS = 2.0
 
 
 def _resolve_tool(ctx: JobContext, tool_id: str) -> str:
@@ -595,6 +602,8 @@ class _StageMonitor:
         # `done`: stages completed by an earlier run this one resumes.
         self.offset, self.partial, self.seen = 0, b"", list(done)
         self.started, self.started_at, self.stage_started_at = time.monotonic(), now(), None
+        # More progress fields (a native run's state: waiting for ARVA.app, running on this Mac).
+        self.extra: Callable[[], dict] | None = None
 
     def _read_plan(self) -> None:
         if self.plan is None:
@@ -638,6 +647,7 @@ class _StageMonitor:
             "elapsed_seconds": round(time.monotonic() - self.started, 1),
             "finished": finished,
             "log": _rel(self.ctx, self.log_path),
+            **(self.extra() if self.extra is not None else {}),
         }
         self.ctx.log.flush()
 
@@ -707,6 +717,9 @@ def _keep_flye_checkpoint(ctx: JobContext, out_dir: Path, stages: tuple[str, ...
         reason = "cancelled"
     elif isinstance(exc, ToolTimeoutError):
         reason = "time_limit"
+    elif stopped.get("native_lost"):
+        # ARVA.app's lease expired or it stopped Flye when it was closed: a stop from outside, not Flye's error.
+        reason = "native_stopped"
     elif stopped.get("returncode") is not None and FlyeAdapter.resumable_failure(stopped.get("log", ""),
                                                                                stopped["returncode"]):
         reason = "stopped"
@@ -730,8 +743,11 @@ def _keep_flye_checkpoint(ctx: JobContext, out_dir: Path, stages: tuple[str, ...
         ctx.log(f"Flye's work folder could not be kept for resuming: {err}")
         return
     size = _kept_bytes(target)
+    native_build = ((ctx.job.parameters or {}).get("native_executor") or {}).get("build")
     ctx.job.checkpoint = {
         "tool": "Flye", "tool_version": ctx.job.tool_version, "path": _rel(ctx, target), "reason": reason,
+        "execution": (ctx.job.parameters or {}).get("execution", "docker"),
+        **({"build": native_build} if native_build else {}),
         "resume_stage": found["resume_stage"], "completed_stages": found["completed_stages"],
         "stages": list(stages), "size_bytes": size, "kept_at": now().isoformat(timespec="seconds"),
     }
@@ -750,12 +766,41 @@ def flye_genome_size_basis_text(params) -> str:
     return {"entered": "entered by the user", "expected_genome_size": "the sample's expected genome size"}.get(basis, basis)
 
 
-def _flye_body(ctx: JobContext) -> None:
-    exe = _resolve_tool(ctx, "flye")
+@dataclass
+class _FlyeRun:
+    """What the prepare step of a Flye job decided, for the run and post-process steps."""
+    params: FlyeParams
+    resume: dict | None
+    results: Path
+    links: Path
+    out_dir: Path
+    argv: list[str]
+    env: dict[str, str] | None
+    helper: dict
+    stages: tuple[str, ...]
+    stopped: dict
+    reads: list[Path]
+    done: tuple[str, ...] = ()
+    native: dict | None = None
+
+
+def _flye_prepare(ctx: JobContext) -> _FlyeRun:
+    """Inputs (read links with the names Flye needs), the argument vector, the checkpoint of a resumed run. For a
+    native run (parameters.execution "mac_native"), the Flye is ARVA.app's on the Mac: the read links are relative,
+    so they resolve in the container and on the Mac, and the argument vector has the Mac's paths."""
+    from app.services import native as native_service
+
+    parameters = ctx.job.parameters or {}
+    is_native = parameters.get("execution") == native_service.MAC_NATIVE
+    if is_native:
+        record, facts = _native_executor(ctx)
+        exe = facts["executable"]
+    else:
+        exe = _resolve_tool(ctx, "flye")
     files = ctx.input_files()
     _log_inputs(ctx, files)
-    params = FlyeParams.from_dict(ctx.job.parameters or {})
-    resume = (ctx.job.parameters or {}).get("resume")
+    params = FlyeParams.from_dict(parameters)
+    resume = parameters.get("resume")
     results = ctx.path(ctx.results_rel)
     links, out_dir = results / "input", results / "flye"
     links.mkdir(parents=True)
@@ -765,15 +810,31 @@ def _flye_body(ctx: JobContext) -> None:
             raise JobFailure(f"{f.original_filename} is not a FASTQ file", "not_fastq", file=f.original_filename)
         # Flye reads the format from the file name and refuses paths with spaces.
         link = links / read_link_name(n, f.original_filename, f.file_format is FileFormat.fastq_gz)
-        link.symlink_to(ctx.path(f.stored_path))
+        target = ctx.path(f.stored_path)
+        link.symlink_to(os.path.relpath(target, links) if is_native else target)
         reads.append(link)
-    env, helper = _flye_samtools(ctx, exe, results)
+    native_run = None
+    if is_native:
+        env, helper = None, {"name": SAMTOOLS_HELPER, "provided_by": "installation",
+                             "executable": str(Path(exe).parent / SAMTOOLS_HELPER), "samtools_version": None,
+                             "native": True}
+        supported = frozenset(facts["help_options"])
+        native_run = {"record": record, "facts": facts, "provenance": native_service.provenance(record, facts)}
+    else:
+        env, helper = _flye_samtools(ctx, exe, results)
     try:
-        supported = FlyeAdapter.help_options(exe)
-        argv = FlyeAdapter.argv(exe, params, reads, out_dir, supported, resume=resume is not None)
+        if is_native:
+            argv = native_expected_argv(params, record["data_dir"], exe, [_rel(ctx, r) for r in reads],
+                                        _rel(ctx, out_dir), supported, resume is not None)
+        else:
+            supported = FlyeAdapter.help_options(exe)
+            argv = FlyeAdapter.argv(exe, params, reads, out_dir, supported, resume=resume is not None)
     except (OSError, RuntimeError, subprocess.TimeoutExpired) as exc:
         raise JobFailure(f"Flye's --help could not be read to check its options: {exc}",
                          "help_unreadable", tool="Flye", detail=str(exc)) from exc
+    except NativeRefusal as exc:
+        raise JobFailure(f"Flye cannot run on this Mac with these paths: {exc}", "native_refused", reason=exc.code,
+                         detail=str(exc)) from exc
     except ValueError as exc:
         raise JobFailure(f"Flye cannot run with these settings: {exc}",
                          "settings_rejected", tool="Flye", detail=str(exc)) from exc
@@ -783,30 +844,226 @@ def _flye_body(ctx: JobContext) -> None:
         ctx.log(f"Flye runs with {params.threads} threads; its output can differ between runs and thread counts")
 
     stages = params.stages()
-    stopped: dict = {}
-    ctx.before_cleanup.append(lambda exc: _keep_flye_checkpoint(ctx, out_dir, stages, exc, stopped))
-    done = tuple(_take_flye_checkpoint(ctx, resume, out_dir, stages)["completed_stages"]) if resume else ()
-    stderr_log = results / "flye.stderr.log"
-    monitor = _StageMonitor(ctx, "Flye", stderr_log, stages, FlyeAdapter.stage, done=done)
-    monitor()
+    run = _FlyeRun(params, resume, results, links, out_dir, argv, env, helper, stages, {}, reads, native=native_run)
+    ctx.before_cleanup.append(lambda exc: _keep_flye_checkpoint(ctx, out_dir, stages, exc, run.stopped))
+    run.done = tuple(_take_flye_checkpoint(ctx, resume, out_dir, stages)["completed_stages"]) if resume else ()
+    return run
+
+
+def _flye_failed(ctx: JobContext, run: _FlyeRun, exc: ToolExecutionError, stderr_log: Path) -> None:
+    """A Flye run that stopped with an error: its own reason when Flye logged one (JobFailure), else the error."""
+    text = stderr_log.read_text(errors="replace") if stderr_log.is_file() else exc.stderr_tail
+    run.stopped.update(returncode=exc.returncode, log=text)
+    if isinstance(exc, ToolTimeoutError):
+        raise exc
+    found = FlyeAdapter.failure(text, exc.returncode)
+    if found is None:
+        raise exc
+    ctx.log("Flye output (last lines):\n" + exc.stderr_tail.strip())
+    reason, code, failure_params = found
+    raise JobFailure(reason, code, **failure_params) from None
+
+
+def _flye_run_docker(ctx: JobContext, run: _FlyeRun, monitor: _StageMonitor) -> None:
+    stderr_log = monitor.log_path
     try:
-        _run(ctx, argv, results, stderr_log.name, extra_env=env, monitor=monitor)
+        _run(ctx, run.argv, run.results, stderr_log.name, extra_env=run.env, monitor=monitor)
     except ToolExecutionError as exc:
         monitor(finished=True)
-        text = stderr_log.read_text(errors="replace") if stderr_log.is_file() else exc.stderr_tail
-        stopped.update(returncode=exc.returncode, log=text)
-        if isinstance(exc, ToolTimeoutError):
-            raise
-        found = FlyeAdapter.failure(text, exc.returncode)
-        if found is None:
-            raise
-        ctx.log("Flye output (last lines):\n" + exc.stderr_tail.strip())
-        reason, code, failure_params = found
-        raise JobFailure(reason, code, **failure_params) from None
+        _flye_failed(ctx, run, exc, stderr_log)
     finally:
-        shutil.rmtree(links, ignore_errors=True)
-    monitor(finished=True)
+        shutil.rmtree(run.links, ignore_errors=True)
 
+
+def _native_executor(ctx: JobContext, tool: str = "flye") -> tuple[dict, dict]:
+    """ARVA.app's last registration and its facts for `tool` (it may be closed now: the job then waits for it)."""
+    from app.services import native as native_service
+
+    try:
+        record, facts = native_service.ready_executor(tool, require_open=False)
+    except native_service.NativeError as exc:
+        raise JobFailure(str(exc), exc.code, **{k: str(v) for k, v in exc.params.items()}) from None
+    detected = native_service.detected_tool(facts, tool)
+    name = native_service.NAMES[tool]
+    if detected.version != ctx.job.tool_version:
+        ctx.log(f"Note: ARVA.app's {name} is now {detected.version} (was {ctx.job.tool_version} when queued)")
+        ctx.job.tool_version = detected.version or "unknown"
+    ctx.job.tool_path = detected.path
+    p = native_service.provenance(record, facts, tool)
+    ctx.log(f"Execution: natively on this Mac by ARVA.app {p['app_version']} (macOS {p['macos'] or '?'}, "
+            f"{p['chip'] or '?'}): {name} {p[f'{tool}_version']} build {p['build']} for {p['platform']}, installed "
+            f"from {p['lock']} (sha256 {p['lock_sha256']}); executable {p['executable']}")
+    return record, facts
+
+
+def _native_state(state: str, provenance: dict, held: dict | None, open_: bool) -> dict:
+    from app.services import native as native_service
+
+    p = provenance or {}
+    return {"native": {"state": state, "app_open": open_, "app_version": p.get("app_version"),
+                       "macos": p.get("macos"), "chip": p.get("chip"),
+                       "claimed_at": native_service._iso(held.get("claimed_at")) if held else None,
+                       "heartbeat_at": native_service._iso(held.get("heartbeat_at")) if held else None}}
+
+
+def _await_native(ctx: JobContext, name: str, work: dict, monitor: _StageMonitor, provenance: dict,
+                  on_lost: Callable[[], None], kept_note: str, code_prefix: str = "") -> tuple[dict, bool]:
+    """Publish the work record and wait for ARVA.app's report: it claims the job with a lease, runs the tool on the
+    Mac (writing into this job's results folder, which the monitor reads as for a Docker run) and reports. A lease
+    that expires (ARVA.app closed or crashed) fails the job (`on_lost` first: e.g. keep Flye's folder; `kept_note`
+    ends the message). A cancellation or the time limit is answered to ARVA.app's next heartbeat; its report then
+    ends the job (JobCancelled when cancelled before the claim, or when ARVA.app does not answer in time). Returns
+    (report, whether the time limit was reached). `code_prefix` goes before the failure codes (Bakta's: "bakta_", so
+    the interface names the tool and says what happens to the run)."""
+    from app.services import native as native_service
+
+    job_id = ctx.job.id
+    state = {"value": "waiting_for_app", "held": None}
+    monitor.extra = lambda: _native_state(state["value"], provenance, state["held"],
+                                          native_service.is_open(native_service.executor()))
+    native_service.publish(job_id, work)
+    ctx.log("Waiting for ARVA.app to take the job", flush=True)
+    deadline = time.monotonic() + get_settings().tool_timeout_seconds
+    last_seen = time.monotonic()
+    claimed = False
+    stop_asked: float | None = None
+    timed_out = False
+    while True:
+        report = native_service.result(job_id)
+        if report is not None:
+            return report, timed_out
+        held = native_service.lease(job_id)
+        if held is not None:
+            if not claimed:
+                claimed = True
+                ctx.log(f"ARVA.app took the job (executor {held.get('executor_id')}); {name} runs on this Mac")
+            state.update(value="running_on_mac", held=held)
+        elif claimed:
+            on_lost()
+            if ctx.cancel_requested():
+                # The user cancelled and ARVA.app stopped without a report (it was asked to stop before the tool
+                # started, or native.py ended without printing one): a cancellation, not a lost run.
+                raise JobCancelled()
+            raise JobFailure(f"ARVA.app stopped reporting on the {name} run for more than "
+                             f"{native_service.LEASE_SECONDS} s (it was closed, crashed, or the Mac slept)" + kept_note,
+                             f"{code_prefix}native_lease_expired", seconds=native_service.LEASE_SECONDS)
+        else:
+            if native_service.is_open(native_service.executor()):
+                last_seen = time.monotonic()
+            elif time.monotonic() - last_seen > native_service.WAIT_SECONDS:
+                raise JobFailure(f"ARVA.app is not open, so {name} could not start on this Mac. Open ARVA.app and "
+                                 "run the analysis again", f"{code_prefix}native_app_not_open",
+                                 minutes=native_service.WAIT_SECONDS // 60)
+        if ctx.cancel_requested() and not claimed:
+            raise JobCancelled()
+        if (ctx.cancel_requested() or time.monotonic() > deadline) and stop_asked is None:
+            stop_asked = time.monotonic()
+            timed_out = not ctx.cancel_requested()
+            native_service.request_stop(job_id)
+            ctx.log(f"Asked ARVA.app to stop {name} (" + ("time limit" if timed_out else "cancelled") + ")",
+                    flush=True)
+        if stop_asked is not None and time.monotonic() - stop_asked > native_service.STOP_GRACE_SECONDS:
+            if not timed_out:
+                raise JobCancelled()
+            return {"outcome": "stopped", "code": "tool_timeout", "missing_report": True}, True
+        monitor()
+        time.sleep(NATIVE_POLL_SECONDS)
+
+
+def _flye_run_native(ctx: JobContext, run: _FlyeRun, monitor: _StageMonitor) -> dict:
+    """Publish Flye's work record and wait for ARVA.app (_await_native). A lease that expires counts as a run stopped
+    from outside: the work folder is kept for resuming."""
+    from app.services import native as native_service
+
+    data_dir = run.native["record"]["data_dir"]
+    work = {"tool": "flye", "storage_id": run.native["record"]["storage_id"], "data_dir": data_dir,
+            "executable": run.native["facts"]["executable"], "params": run.params.as_dict(),
+            "reads": [_rel(ctx, p) for p in run.reads],
+            "out_dir": _rel(ctx, run.out_dir), "results_dir": _rel(ctx, run.results),
+            "stderr_log": NATIVE_STDERR_LOG, "resume": run.resume is not None, "argv": run.argv,
+            "timeout_seconds": get_settings().tool_timeout_seconds}
+    for rel in (*work["reads"], work["out_dir"], work["results_dir"]):
+        native_relative(rel)
+        ctx.path(rel)  # inside the data folder, or StoragePathError
+    ctx.job.commands = [*(ctx.job.commands or []), run.argv]
+    ctx.log("Command (to run on this Mac by ARVA.app, which builds it again with its own copy of the adapter and "
+            "runs it only if identical): " + shlex.join(run.argv), flush=True)
+
+    def lost() -> None:
+        run.stopped.update(native_lost=True, log=_read_text(monitor.log_path))
+
+    try:
+        report, timed_out = _await_native(ctx, "Flye", work, monitor, run.native["provenance"], lost,
+                                          "; Flye's work folder is kept so the run can resume")
+        if report.get("missing_report"):
+            raise _native_timeout(run, monitor)
+        return _native_outcome(ctx, run, monitor, report, timed_out)
+    finally:
+        native_service.withdraw(ctx.job.id)
+        shutil.rmtree(run.links, ignore_errors=True)
+
+
+def _read_text(path: Path) -> str:
+    return path.read_text(errors="replace") if path.is_file() else ""
+
+
+def _native_timeout(run: _FlyeRun, monitor: _StageMonitor) -> ToolTimeoutError:
+    run.stopped.update(returncode=None, log=_read_text(monitor.log_path))
+    return native_timeout_error("flye")
+
+
+def native_timeout_error(tool: str) -> ToolTimeoutError:
+    seconds = get_settings().tool_timeout_seconds
+    return ToolTimeoutError(f"{tool} exceeded the time limit of {seconds} s", None, "", "tool_timeout",
+                            {"tool": tool, "seconds": seconds})
+
+
+def _native_outcome(ctx: JobContext, run: _FlyeRun, monitor: _StageMonitor, report: dict, timed_out: bool) -> dict:
+    """The job's end from ARVA.app's report (already checked by the API: its argv is the one ARVA built)."""
+    monitor(finished=True)
+    outcome = report.get("outcome")
+    ctx.log(f"ARVA.app reported: {outcome}" + (f", exit code {report['exit_code']}" if report.get("exit_code")
+                                               is not None else "") +
+            (f" ({report.get('code')}: {report.get('detail')})" if report.get("code") else ""), flush=True)
+    if outcome in ("refused", "rejected", "not_started"):
+        if ctx.cancel_requested():
+            raise JobCancelled()
+        raise JobFailure(f"ARVA.app did not run Flye: {report.get('detail') or report.get('code')}", "native_refused",
+                         reason=report.get("code") or outcome, detail=report.get("detail") or "")
+    if outcome == "stopped":
+        if ctx.cancel_requested():
+            raise JobCancelled()
+        if timed_out:
+            raise _native_timeout(run, monitor)
+        run.stopped.update(native_lost=True, log=_read_text(monitor.log_path))
+        raise JobFailure("ARVA.app stopped Flye before it finished (ARVA.app was closed); Flye's work folder is kept "
+                         "so the run can resume", "native_stopped")
+    code = report.get("exit_code")
+    if code != 0:
+        text = _read_text(monitor.log_path)
+        exc = ToolExecutionError(f"flye exited with status {code}", code, text[-4000:], "tool_exit",
+                                 {"tool": "flye", "status": code if code is not None else "?"})
+        _flye_failed(ctx, run, exc, monitor.log_path)
+    ctx.log(f"flye finished on this Mac in {report.get('duration_seconds') or 0:.1f}s")
+    return report
+
+
+def _flye_body(ctx: JobContext) -> None:
+    run = _flye_prepare(ctx)
+    stderr_log = run.results / "flye.stderr.log"
+    monitor = _StageMonitor(ctx, "Flye", stderr_log, run.stages, FlyeAdapter.stage, done=run.done)
+    monitor()
+    report = None
+    if run.native is not None:
+        report = _flye_run_native(ctx, run, monitor)
+    else:
+        _flye_run_docker(ctx, run, monitor)
+    monitor(finished=True)
+    _flye_postprocess(ctx, run, stderr_log, report)
+
+
+def _flye_postprocess(ctx: JobContext, run: _FlyeRun, stderr_log: Path, report: dict | None) -> None:
+    results, out_dir, params, resume = run.results, run.out_dir, run.params, run.resume
     if missing := [n for n in FLYE_OUTPUTS if not (out_dir / n).is_file()]:
         raise JobFailure("Flye exited without an error but did not write " + ", ".join(missing),
                          "outputs_missing", tool="Flye", files=", ".join(missing))
@@ -838,6 +1095,12 @@ def _flye_body(ctx: JobContext) -> None:
         raise JobFailure("Flye's assembly_info.txt does not describe the contigs in assembly.fasta (names or lengths "
                          "differ); nothing was registered")
     ctx.db.flush()
+    native_summary = {}
+    if run.native is not None and report is not None:
+        native_summary = {"execution": "mac_native", "native": {
+            **run.native["provenance"], "argv": report.get("argv"), "exit_code": report.get("exit_code"),
+            "started_at": report.get("started_at"), "finished_at": report.get("finished_at"),
+            "duration_seconds": report.get("duration_seconds"), "reported_outputs": report.get("outputs") or []}}
     ctx.job.result_summary = {
         "flye_version": ctx.job.tool_version,
         "assembly_id": assembly.id,
@@ -846,9 +1109,10 @@ def _flye_body(ctx: JobContext) -> None:
         "contigs": rows[:MAX_CONTIG_ROWS],
         "contig_rows": {"stored": min(len(rows), MAX_CONTIG_ROWS), "total": len(rows),
                         "truncated": len(rows) > MAX_CONTIG_ROWS},
-        "helpers": [helper],
+        "helpers": [run.helper],
         **({"resumed": {"from_job_id": resume["of_job_id"], "stage": resume["stage"],
-                        "completed_stages": list(done)}} if resume else {}),
+                        "completed_stages": list(run.done)}} if resume else {}),
+        **native_summary,
     }
     ctx.job.output_paths = [_rel(ctx, results / n) for n in (*FLYE_OUTPUTS, stderr_log.name)]
 

@@ -1,6 +1,11 @@
 # ARVA.app, the native macOS app: build it with scripts/build-mac-app.sh on a GitHub-hosted Mac, check it (both
 # architectures, signature, Info.plist, bundled launcher files, the app's own --self-test under arm64 and, through
-# Rosetta, x86_64) and keep ARVA-mac.zip as this run's artifact for 30 days (Actions → this run → Artifacts).
+# Rosetta, x86_64, and its own installer of "Flye for this Mac") and keep ARVA-mac.zip as this run's artifact for 30
+# days (Actions → this run → Artifacts).
+# A second job checks native Flye on macOS itself (docs/plan-flye-nativo.md, section 3 "CI"): micromamba osx-arm64
+# with its pinned sha256, the environment created from docker/conda-locks/flye/osx-arm64.lock only, verify-env, flye
+# --version and --help against the fixture, and the synthetic genome assembled through ARVA's native entry
+# (arva_tools/native.py, as ARVA.app runs it), with its peak memory (macos-15: arm64, 3 CPUs, 7 GB of memory).
 name: Mac app
 
 on:
@@ -29,6 +34,24 @@ on:
       - docker/api-entrypoint.sh
       - docs/brand/arva-logo-1254.png
       - docs/guia-mac-app.md
+      # Flye for this Mac: what the app bundles (scripts/build-mac-app.sh, step 3b) and what the native job uses.
+      - docker/conda-locks/flye/**
+      - scripts/conda_locks.py
+      - scripts/install-micromamba.sh
+      - scripts/make_synthetic_genome.py
+      - workflows/tool-adapters/arva_tools/__init__.py
+      - workflows/tool-adapters/arva_tools/base.py
+      - workflows/tool-adapters/arva_tools/runner.py
+      - workflows/tool-adapters/arva_tools/flye.py
+      - workflows/tool-adapters/arva_tools/native.py
+      - workflows/tool-adapters/tests/fixtures/flye/help_2.9.6.txt
+      # Bakta for this Mac (the same mechanism; docs/plan-flye-nativo.md, "Bakta").
+      - docker/conda-locks/bakta/**
+      - workflows/tool-adapters/arva_tools/native_common.py
+      - workflows/tool-adapters/arva_tools/bakta.py
+      - workflows/tool-adapters/arva_tools/nanoplot.py
+      - workflows/tool-adapters/arva_tools/amrfinderplus.py
+      - workflows/tool-adapters/tests/fixtures/bakta/help_1.12.2.txt
   workflow_dispatch:
 
 permissions:
@@ -85,9 +108,18 @@ jobs:
           for f in ARVA.icns arva-logo.png en.lproj/InfoPlist.strings es.lproj/InfoPlist.strings \
             runtime/.arva-runtime-id runtime/docker-compose.yml runtime/scripts/start.sh runtime/scripts/stop.sh \
             runtime/scripts/metadata-backup.sh runtime/scripts/lib/arva-locations.sh runtime/scripts/lib/arva-firstrun.sh \
-            runtime/import/README.md runtime/apps/api/app/__init__.py runtime/ARVA.command "runtime/Detener ARVA.command"; do
+            runtime/import/README.md runtime/apps/api/app/__init__.py runtime/ARVA.command "runtime/Detener ARVA.command" \
+            native/arva_tools/__init__.py native/arva_tools/base.py native/arva_tools/runner.py native/arva_tools/flye.py \
+            native/arva_tools/native_common.py native/arva_tools/bakta.py native/arva_tools/nanoplot.py \
+            native/arva_tools/amrfinderplus.py \
+            native/arva_tools/native.py native/scripts/conda_locks.py native/scripts/install-micromamba.sh \
+            native/docker/conda-locks/flye/osx-arm64.lock native/docker/conda-locks/flye/native-platforms \
+            native/fixtures/flye/help_2.9.6.txt native/docker/conda-locks/bakta/osx-arm64.lock \
+            native/docker/conda-locks/bakta/native-platforms native/fixtures/bakta/help_1.12.2.txt; do
             test -s "$res/$f" || { echo "::error::$f is missing"; exit 1; }
           done
+          cmp docker/conda-locks/flye/osx-arm64.lock "$res/native/docker/conda-locks/flye/osx-arm64.lock"
+          cmp docker/conda-locks/bakta/osx-arm64.lock "$res/native/docker/conda-locks/bakta/osx-arm64.lock"
           file "$res/ARVA.icns"
           ls -l apps/mac/build/ARVA-mac.zip
 
@@ -108,6 +140,49 @@ jobs:
             echo "::notice::Rosetta is not installed on this runner; the x86_64 slice was built and checked with lipo only."
           fi
 
+      # The app's own installer, as ARVA → Flye for This Mac… runs it (without a window): micromamba with its pinned
+      # sha256, the environment from the bundled lock only, verify-env, then flye --version and --help compared with
+      # Flye 2.9.6's. Then removed again.
+      - name: Flye for this Mac, installed by ARVA.app
+        run: |
+          set -eu
+          bin=apps/mac/build/ARVA.app/Contents/MacOS/ARVA
+          ARVA_APP_LANG=en arch -arm64 "$bin" --install-native-flye
+          env_dir=$HOME/.arva-tools/conda/flye
+          "$env_dir/bin/flye" --version
+          cat "$env_dir/arva-native/install.json"
+          cmp docker/conda-locks/flye/osx-arm64.lock "$env_dir/arva-native/osx-arm64.lock"
+          arch -arm64 "$bin" --remove-native-flye
+          test ! -e "$env_dir"
+
+      # The same for Bakta (about 296 MB): the environment from the bundled lock only, verify-env, bakta --version and
+      # --help compared with Bakta 1.12.2's, then Bakta's own start-up checks with the environment's programs (every
+      # one must pass: they all come from the lock). No database is downloaded here, so no annotation is run: that,
+      # and the full database's memory under macOS, are checked on the user's Mac (docs/plan-flye-nativo.md, "Bakta").
+      - name: Bakta for this Mac, installed by ARVA.app
+        run: |
+          set -eu
+          bin=apps/mac/build/ARVA.app/Contents/MacOS/ARVA
+          ARVA_APP_LANG=en arch -arm64 "$bin" --install-native-bakta
+          env_dir=$HOME/.arva-tools/conda/bakta
+          "$env_dir/bin/bakta" --version
+          cat "$env_dir/arva-native/install.json"
+          cmp docker/conda-locks/bakta/osx-arm64.lock "$env_dir/arva-native/osx-arm64.lock"
+          "$env_dir/bin/python" -I -B workflows/tool-adapters/arva_tools/native.py bakta facts \
+            --executable "$env_dir/bin/bakta" --lock docker/conda-locks/bakta/osx-arm64.lock > "$RUNNER_TEMP/bakta-facts.json"
+          "$env_dir/bin/python" -I -B - "$RUNNER_TEMP/bakta-facts.json" <<'EOF'
+          import json, sys
+          with open(sys.argv[1], encoding="utf-8") as fh:
+              facts = json.load(fh)
+          print(json.dumps(facts, indent=1))
+          bad = [d for d in facts["dependencies"] if d["status"] != "ok"]
+          for d in bad:
+              print(f"::error::Bakta's start-up check of {d['name']}: {d['status']} (found {d.get('found')}, needs {d['minimum']})")
+          sys.exit(1 if bad or len(facts["dependencies"]) != 10 else 0)
+          EOF
+          arch -arm64 "$bin" --remove-native-bakta
+          test ! -e "$env_dir"
+
       - name: The zip unpacks to a valid app
         run: |
           set -eu
@@ -123,3 +198,203 @@ jobs:
           archive: false
           retention-days: 30
           if-no-files-found: error
+
+  native-flye:
+    if: ${{ !contains(github.event.head_commit.message, '(in progress)') }}
+    name: Native Flye on macOS (osx-arm64 lock, synthetic genome, peak memory)
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Runner
+        run: |
+          sw_vers
+          uname -m
+          sysctl -n machdep.cpu.brand_string hw.ncpu hw.memsize
+          sysctl vm.swapusage
+          python3 --version
+
+      - name: The lock is well-formed (every package with its sha256)
+        run: python3 scripts/conda_locks.py check flye
+
+      - name: micromamba for osx-arm64 (sha256 pinned in scripts/install-micromamba.sh)
+        run: scripts/install-micromamba.sh "$RUNNER_TEMP/micromamba"
+
+      # Created the way ARVA.app creates it: from the lock only, no .condarc, no link scripts, micromamba's root
+      # prefix, caches and HOME in a temporary folder, and no other environment variable.
+      - name: Flye's environment from docker/conda-locks/flye/osx-arm64.lock
+        run: |
+          set -eu
+          env_dir=$HOME/.arva-tools/conda/flye
+          root=$RUNNER_TEMP/mamba-root
+          mkdir -p "$root"
+          /usr/bin/env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin HOME="$root" MAMBA_ROOT_PREFIX="$root" \
+            XDG_CACHE_HOME="$root/cache" "$RUNNER_TEMP/micromamba/bin/micromamba" create --yes --no-rc \
+            --skip-run-link-scripts --prefix "$env_dir" --file docker/conda-locks/flye/osx-arm64.lock
+          rm -rf "$root"
+          du -sh "$env_dir"
+          echo "FLYE_ENV=$env_dir" >> "$GITHUB_ENV"
+
+      - name: verify-env (the installed packages are exactly the lock's, URL and sha256)
+        run: '"$FLYE_ENV/bin/python" -I -B scripts/conda_locks.py verify-env flye "$FLYE_ENV" --platform osx-arm64'
+
+      - name: flye --version, and --help compared with the fixture help_2.9.6.txt
+        run: |
+          set -eu
+          "$FLYE_ENV/bin/flye" --version
+          "$FLYE_ENV/bin/python" -I -B workflows/tool-adapters/arva_tools/native.py flye facts \
+            --executable "$FLYE_ENV/bin/flye" --lock docker/conda-locks/flye/osx-arm64.lock > "$RUNNER_TEMP/facts.json"
+          cat "$RUNNER_TEMP/facts.json"
+          "$FLYE_ENV/bin/python" -I -B - "$RUNNER_TEMP/facts.json" <<'EOF'
+          import json, sys
+          sys.path.insert(0, "workflows/tool-adapters")
+          from arva_tools.flye import _FLAG, NATIVE_LOCK, FlyeAdapter
+
+          with open(sys.argv[1], encoding="utf-8") as fh:
+              facts = json.load(fh)
+          with open("workflows/tool-adapters/tests/fixtures/flye/help_2.9.6.txt", encoding="utf-8") as fh:
+              fixture = set(_FLAG.findall(fh.read()))
+          found = set(facts["help_options"])
+          problems = []
+          if found != fixture:
+              problems.append(f"--help options differ from help_2.9.6.txt: only here {sorted(found - fixture)}, "
+                              f"only in the fixture {sorted(fixture - found)}")
+          version = FlyeAdapter.version_pattern.search(facts.get("version") or "")
+          if version is None or version.group(1) != NATIVE_LOCK["version"]:
+              problems.append(f"flye --version says {facts.get('version')!r}, not {NATIVE_LOCK['version']}")
+          package = facts.get("package") or {}
+          if package.get("build") != NATIVE_LOCK["build"] or package.get("sha256") != NATIVE_LOCK["package_sha256"]:
+              problems.append(f"the installed package {package} is not {NATIVE_LOCK['package']}")
+          if facts.get("lock_sha256") != NATIVE_LOCK["lock_sha256"]:
+              problems.append("the lock file's sha256 is not arva_tools.flye.NATIVE_LOCK's")
+          if not facts.get("samtools_helper"):
+              problems.append("flye-samtools is not beside flye")
+          if facts.get("platform") != NATIVE_LOCK["platform"]:
+              problems.append(f"platform {facts.get('platform')!r}")
+          for problem in problems:
+              print(f"::error::{problem}")
+          if not problems:
+              print(f"Flye {facts['version']} ({package['build']}): {len(found)} --help options, the same as help_2.9.6.txt")
+          sys.exit(1 if problems else 0)
+          EOF
+
+      # The synthetic genome of the Linux checks (docs/scientific-methods.md: 300 kb circular chromosome with two
+      # 5 kb repeat copies, 15 kb plasmid at two copies, ONT-like reads at 30x). numpy only for the generator, from
+      # PyPI in a virtual environment.
+      - name: Synthetic genome and reads
+        run: |
+          set -eu
+          python3 -m venv "$RUNNER_TEMP/venv"
+          "$RUNNER_TEMP/venv/bin/pip" install --quiet --only-binary :all: numpy==2.5.4
+          "$RUNNER_TEMP/venv/bin/python" scripts/make_synthetic_genome.py --ont-depth 30 "$RUNNER_TEMP/synthetic"
+          ls -l "$RUNNER_TEMP/synthetic"
+
+      # A data folder laid out as ARVA's (storage marker, stored reads, the job's folder with a relative read link),
+      # the work record the API would send (its argv built by the API's own native_expected_argv), then native.py
+      # flye run exactly as ARVA.app starts it. /usr/bin/time -l reports native.py's resource use; the sum of the
+      # resident memory of every process of Flye's environment is also sampled every second.
+      - name: Flye through ARVA's native entry, with its peak memory
+        run: |
+          set -eu
+          data=$RUNNER_TEMP/arva-data
+          scope=results/ci-project/ci-sample/ci-job
+          mkdir -p "$data/raw" "$data/$scope/input"
+          "$FLYE_ENV/bin/python" -I -c 'import json, uuid; print(json.dumps({"id": str(uuid.uuid4())}))' > "$data/.arva-storage"
+          cp "$RUNNER_TEMP/synthetic/ont.fastq.gz" "$data/raw/ont.fastq.gz"
+          ln -s ../../../../../raw/ont.fastq.gz "$data/$scope/input/01_ont.fastq.gz"
+          "$FLYE_ENV/bin/python" -I -B - "$data" "$FLYE_ENV/bin/flye" "$scope" > "$RUNNER_TEMP/work.json" <<'EOF'
+          import json, sys
+          sys.path.insert(0, "workflows/tool-adapters")
+          from arva_tools.flye import FlyeAdapter, FlyeParams, native_expected_argv
+
+          data, exe, scope = sys.argv[1:4]
+          with open(f"{data}/.arva-storage", encoding="utf-8") as fh:
+              storage = json.load(fh)["id"]
+          params = FlyeParams(read_type="nano-hq", threads=3, iterations=1)
+          reads, out_dir = [f"{scope}/input/01_ont.fastq.gz"], f"{scope}/flye"
+          argv = native_expected_argv(params, data, exe, reads, out_dir, FlyeAdapter.help_options(exe), False)
+          print(json.dumps({"tool": "flye", "storage_id": storage, "data_dir": data, "executable": exe,
+                            "params": params.as_dict(), "reads": reads, "out_dir": out_dir, "results_dir": scope,
+                            "stderr_log": "flye.stderr.log", "resume": False, "argv": argv, "timeout_seconds": 3600}))
+          EOF
+          cat "$RUNNER_TEMP/work.json"
+          echo "$data" > "$RUNNER_TEMP/data-dir"
+          echo "$scope" > "$RUNNER_TEMP/scope"
+          sysctl vm.swapusage
+          peak_file=$RUNNER_TEMP/peak-rss-kb
+          echo 0 > "$peak_file"
+          (
+            peak=0
+            while :; do
+              total=$(ps -A -o rss=,command= | FLYE_ENV_DIR="$FLYE_ENV/" awk 'index($0, ENVIRON["FLYE_ENV_DIR"]) { s += $1 } END { print s + 0 }')
+              if [ "$total" -gt "$peak" ]; then peak=$total; echo "$peak" > "$peak_file"; fi
+              sleep 1
+            done
+          ) &
+          sampler=$!
+          status=0
+          /usr/bin/time -l "$FLYE_ENV/bin/python" -I -B workflows/tool-adapters/arva_tools/native.py flye run \
+            --work "$RUNNER_TEMP/work.json" --data-dir "$data" --executable "$FLYE_ENV/bin/flye" \
+            > "$RUNNER_TEMP/report.json" 2> "$RUNNER_TEMP/time.txt" || status=$?
+          kill "$sampler" 2>/dev/null || true
+          cat "$RUNNER_TEMP/time.txt"
+          cat "$RUNNER_TEMP/report.json"
+          sysctl vm.swapusage
+          peak=$(cat "$peak_file")
+          echo "Peak resident memory of Flye's processes (sum, sampled every second): $((peak / 1024)) MiB"
+          echo "## Native Flye on macos-15: peak resident memory $((peak / 1024)) MiB (sampled)" >> "$GITHUB_STEP_SUMMARY"
+          grep -E 'maximum resident set size|peak memory footprint|real' "$RUNNER_TEMP/time.txt" >> "$GITHUB_STEP_SUMMARY" || true
+          tail -n 25 "$data/$scope/flye.stderr.log" || true
+          [ "$status" = 0 ] || { echo "::error::native.py exited with status $status"; exit 1; }
+
+      - name: The report and the assembly
+        run: |
+          set -eu
+          "$FLYE_ENV/bin/python" -I -B - "$RUNNER_TEMP/work.json" "$RUNNER_TEMP/report.json" "$(cat "$RUNNER_TEMP/data-dir")" <<'EOF'
+          import json, sys
+          sys.path.insert(0, "workflows/tool-adapters")
+          from arva_tools.flye import OUTPUTS
+
+          with open(sys.argv[1], encoding="utf-8") as fh:
+              work = json.load(fh)
+          with open(sys.argv[2], encoding="utf-8") as fh:
+              report = json.load(fh)
+          data = sys.argv[3]
+          problems = []
+          if (report["outcome"], report["exit_code"]) != ("exited", 0):
+              problems.append(f"outcome {report['outcome']}, exit code {report['exit_code']}: {report.get('detail')}")
+          if report["argv"] != work["argv"]:
+              problems.append("the argv that ran is not the one built for the work record")
+          if report["outputs"] != [f"{work['out_dir']}/{name}" for name in OUTPUTS]:
+              problems.append(f"outputs {report['outputs']}")
+          with open(f"{data}/{work['out_dir']}/assembly_info.txt", encoding="utf-8") as fh:
+              info = fh.read()
+          print(info)
+          rows = [line.split("\t") for line in info.splitlines() if line.strip() and not line.startswith("#")]
+          lengths = sorted((int(row[1]) for row in rows), reverse=True)
+          # The synthetic chromosome is 300,000 bp (the Linux build assembles it whole and circular).
+          if not lengths or not 290_000 <= lengths[0] <= 310_000:
+              problems.append(f"longest contig {lengths[:1]} bp, expected about 300,000")
+          print(f"{len(rows)} contigs, {sum(lengths)} bp in all, in {report['duration_seconds']} s")
+          for problem in problems:
+              print(f"::error::{problem}")
+          sys.exit(1 if problems else 0)
+          EOF
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: native-flye-macos-15
+          path: |
+            ${{ runner.temp }}/facts.json
+            ${{ runner.temp }}/work.json
+            ${{ runner.temp }}/report.json
+            ${{ runner.temp }}/time.txt
+            ${{ runner.temp }}/arva-data/results/ci-project/ci-sample/ci-job/flye.stderr.log
+            ${{ runner.temp }}/arva-data/results/ci-project/ci-sample/ci-job/flye/assembly_info.txt
+            ${{ runner.temp }}/arva-data/results/ci-project/ci-sample/ci-job/flye/flye.log
+          retention-days: 30
+          if-no-files-found: warn

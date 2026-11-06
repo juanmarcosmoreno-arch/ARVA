@@ -3,6 +3,12 @@
 lock files checked in under docker/conda-locks/<tool>/ (one per platform; ARVA runs these tools on Linux, inside
 the Docker image on a Mac).
 
+A tool may also have locks for optional native platforms, listed in docker/conda-locks/<tool>/native-platforms (only
+osx-arm64, only for Flye and Bakta: ARVA.app runs them natively on an Apple silicon Mac, docs/plan-flye-nativo.md). They
+are checked like the others when that file names them; the other tools need no lock or note for them. conda's
+solver needs the virtual package __osx to solve for macOS from Linux: `update` sets CONDA_OVERRIDE_OSX to
+OSX_OVERRIDE (11.0, the minimum that libcxx, libzlib and python declare; ARVA.app itself requires macOS 13).
+
 A lock file lists every package as its exact URL on conda-forge or Bioconda followed by #sha256:<checksum>, the
 value the channel's repodata gives for that file. micromamba refuses a download whose checksum differs and solves
 nothing when it installs from a lock, so an environment created from it has exactly these packages.
@@ -12,6 +18,9 @@ nothing when it installs from a lock, so an environment created from it has exac
     python3 scripts/conda_locks.py install mlst PREFIX    # create PREFIX from this machine's lock, then verify it
     python3 scripts/conda_locks.py verify-env mlst PREFIX # installed packages == the lock (URL and sha256)
     python3 scripts/conda_locks.py verify-micromamba      # pinned micromamba checksums == conda-forge's repodata
+    python3 scripts/conda_locks.py update flye --platform osx-arm64   # the optional native lock (see below)
+    <env>/bin/python -I scripts/conda_locks.py verify-env flye <env> --platform osx-arm64   # on the Mac, with the
+                                                          # environment's own Python (macOS has no python3 to count on)
 
 micromamba's package and repodata caches live in a temporary folder that is removed afterwards (micromamba's HOME
 points there too), so nothing is cached or recorded in the user's home.
@@ -33,15 +42,21 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 LOCKS = ROOT / "docker" / "conda-locks"
 PLATFORMS = ("linux-64", "linux-aarch64")
+# Optional platforms a tool's native-platforms file may name (never required of the other tools).
+NATIVE_PLATFORMS = ("osx-arm64",)
+NATIVE_FILE = "native-platforms"
+OSX_OVERRIDE = "11.0"
 CHANNELS = ("conda-forge", "bioconda")
-ALLOWED_URL = re.compile(r"https://conda\.anaconda\.org/(conda-forge|bioconda)/(linux-64|linux-aarch64|noarch)/"
-                         r"[A-Za-z0-9_.+-]+\.(conda|tar\.bz2)")
+ALLOWED_URL = re.compile(r"https://conda\.anaconda\.org/(conda-forge|bioconda)/"
+                         r"(linux-64|linux-aarch64|osx-arm64|noarch)/[A-Za-z0-9_.+-]+\.(conda|tar\.bz2)")
 LINE = re.compile(r"(?P<url>\S+)#sha256:(?P<sha256>[0-9a-f]{64})")
 INSTALLER = ROOT / "scripts" / "install-micromamba.sh"
 
 
 def machine_platform() -> str:
     machine = platform.machine().lower()
+    if sys.platform == "darwin" and machine == "arm64":
+        return "osx-arm64"
     if sys.platform != "linux" or machine not in ("x86_64", "amd64", "aarch64", "arm64"):
         raise SystemExit(f"ARVA's Bioconda environments are for Linux on x86_64 or aarch64 (this is {sys.platform} "
                          f"{machine}); on a Mac they are part of the Docker image")
@@ -56,12 +71,34 @@ def micromamba(explicit: str | None) -> str:
     raise SystemExit("micromamba not found: run scripts/install-micromamba.sh (or pass --micromamba)")
 
 
-def run(mm: str, args: list[str], root: Path) -> subprocess.CompletedProcess[str]:
+def run(mm: str, args: list[str], root: Path, extra_env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
     """micromamba with its root prefix, package cache, repodata cache (~/.cache/conda) and environment list
-    (~/.conda/environments.txt) all inside `root`, a temporary folder, and no conda or mamba settings of the user."""
+    (~/.conda/environments.txt) all inside `root`, a temporary folder, and no conda or mamba settings of the user
+    (`extra_env` only: CONDA_OVERRIDE_OSX when solving for macOS)."""
     env = {k: v for k, v in os.environ.items() if not k.startswith(("CONDA", "MAMBA"))}
-    env.update(MAMBA_ROOT_PREFIX=str(root), HOME=str(root), XDG_CACHE_HOME=str(root / "cache"))
+    env.update(MAMBA_ROOT_PREFIX=str(root), HOME=str(root), XDG_CACHE_HOME=str(root / "cache"), **(extra_env or {}))
     return subprocess.run([mm, *args], capture_output=True, text=True, env=env, stdin=subprocess.DEVNULL)
+
+
+def native_platforms(tool: str) -> tuple[str, ...]:
+    """The optional native platforms docker/conda-locks/<tool>/native-platforms names (empty without the file)."""
+    path = LOCKS / tool / NATIVE_FILE
+    if not path.is_file():
+        return ()
+    names = tuple(read_lines(path))
+    if unknown := [n for n in names if n not in NATIVE_PLATFORMS]:
+        raise ValueError(f"{tool}/{NATIVE_FILE}: unknown platform(s) {', '.join(unknown)} "
+                         f"(allowed: {', '.join(NATIVE_PLATFORMS)})")
+    return names
+
+
+def tool_platforms(tool: str) -> tuple[str, ...]:
+    """Every platform a tool must have a lock or a .unavailable note for."""
+    return (*PLATFORMS, *native_platforms(tool))
+
+
+def solver_env(plat: str) -> dict[str, str]:
+    return {"CONDA_OVERRIDE_OSX": OSX_OVERRIDE} if plat.startswith("osx-") else {}
 
 
 def read_spec(tool: str) -> list[str]:
@@ -104,6 +141,10 @@ def check_lock(path: Path, plat: str) -> list[dict[str, str]]:
 
 
 def cmd_update(args: argparse.Namespace) -> None:
+    allowed = tool_platforms(args.tool)
+    if refused := [p for p in args.platform or () if p not in allowed]:
+        raise SystemExit(f"{args.tool}: {', '.join(refused)} is not one of its platforms ({', '.join(allowed)}); an "
+                         f"optional platform must be listed in docker/conda-locks/{args.tool}/{NATIVE_FILE} first")
     mm = micromamba(args.micromamba)
     specs = read_spec(args.tool)
     version = run(mm, ["--version"], Path(tempfile.gettempdir())).stdout.strip()
@@ -113,7 +154,7 @@ def cmd_update(args: argparse.Namespace) -> None:
             unavailable = folder / f"{plat}.unavailable"
             proc = run(mm, ["create", "--name", "arva-lock", "--dry-run", "--json", "--no-rc", "--platform", plat,
                             "--override-channels", "--strict-channel-priority",
-                            *(a for c in CHANNELS for a in ("--channel", c)), *specs], Path(root))
+                            *(a for c in CHANNELS for a in ("--channel", c)), *specs], Path(root), solver_env(plat))
             try:
                 actions = json.loads(proc.stdout).get("actions") or {}
             except json.JSONDecodeError:
@@ -132,6 +173,8 @@ def cmd_update(args: argparse.Namespace) -> None:
                      f"micromamba {version} on {dt.date.today().isoformat()}",
                      f"# spec: {' '.join(specs)}",
                      f"# channels: {' '.join(CHANNELS)} (strict priority)",
+                     *([f"# solved with CONDA_OVERRIDE_OSX={OSX_OVERRIDE} (the __osx virtual package)"]
+                       if solver_env(plat) else []),
                      "@EXPLICIT"]
             lines += [f"{p['url']}#sha256:{p['sha256']}" for p in link]
             lock = folder / f"{plat}.lock"
@@ -144,7 +187,7 @@ def cmd_update(args: argparse.Namespace) -> None:
 def cmd_check(args: argparse.Namespace) -> None:
     tools = args.tool or sorted(p.name for p in LOCKS.iterdir() if (p / "spec.txt").is_file())
     for tool in tools:
-        for plat in PLATFORMS:
+        for plat in tool_platforms(tool):
             lock = LOCKS / tool / f"{plat}.lock"
             if lock.is_file():
                 print(f"{tool} {plat}: {len(check_lock(lock, plat))} packages, each with its sha256")
@@ -221,21 +264,24 @@ def cmd_install(args: argparse.Namespace) -> None:
 
 
 def cmd_verify_env(args: argparse.Namespace) -> None:
-    verify_env(args.tool, Path(args.prefix).resolve(), args.platform or machine_platform())
+    plat = args.platform or machine_platform()
+    if plat not in tool_platforms(args.tool):
+        raise SystemExit(f"{args.tool} has no {plat} lock (its platforms: {', '.join(tool_platforms(args.tool))})")
+    verify_env(args.tool, Path(args.prefix).resolve(), plat)
 
 
 def cmd_verify_micromamba(args: argparse.Namespace) -> None:
     text = INSTALLER.read_text()
     version = re.search(r'^VERSION="([^"]+)"', text, re.M)
     build = re.search(r'^BUILD="([^"]+)"', text, re.M)
-    pinned = dict(re.findall(r'SUBDIR="(linux-[\w]+)"; SHA256="([0-9a-f]{64})"', text))
-    if not (version and build and set(pinned) == set(PLATFORMS)):
+    pinned = dict(re.findall(r'SUBDIR="((?:linux|osx)-[\w]+)"; SHA256="([0-9a-f]{64})"', text))
+    if not (version and build and set(pinned) == {*PLATFORMS, *NATIVE_PLATFORMS}):
         raise SystemExit(f"{INSTALLER.name}: VERSION, BUILD or a platform's SHA256 not found")
     mm = micromamba(args.micromamba)
     with tempfile.TemporaryDirectory(prefix="arva-conda-search-") as root:
         for plat, sha in pinned.items():
             proc = run(mm, ["search", "--json", "--no-rc", "--override-channels", "--channel", "conda-forge",
-                            "--platform", plat, f"micromamba=={version[1]}={build[1]}"], Path(root))
+                            "--platform", plat, f"micromamba=={version[1]}={build[1]}"], Path(root), solver_env(plat))
             pkgs = (json.loads(proc.stdout or "{}").get("result") or {}).get("pkgs") or []
             listed = {p.get("sha256") for p in pkgs if p.get("subdir") == plat}
             if sha not in listed:
@@ -250,7 +296,8 @@ def main() -> None:
     sub = parser.add_subparsers(dest="command", required=True)
     p = sub.add_parser("update")
     p.add_argument("tool")
-    p.add_argument("--platform", action="append", choices=PLATFORMS)
+    p.add_argument("--platform", action="append", choices=(*PLATFORMS, *NATIVE_PLATFORMS),
+                   help="default: the Linux platforms; an optional one only when the tool's native-platforms names it")
     p.set_defaults(func=cmd_update)
     p = sub.add_parser("check")
     p.add_argument("tool", nargs="*")
@@ -262,7 +309,7 @@ def main() -> None:
     p = sub.add_parser("verify-env")
     p.add_argument("tool")
     p.add_argument("prefix")
-    p.add_argument("--platform", choices=PLATFORMS)
+    p.add_argument("--platform", choices=(*PLATFORMS, *NATIVE_PLATFORMS))
     p.set_defaults(func=cmd_verify_env)
     p = sub.add_parser("verify-micromamba")
     p.set_defaults(func=cmd_verify_micromamba)

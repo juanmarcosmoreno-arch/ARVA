@@ -1,0 +1,3 @@
+# Optional native platforms of Bakta (scripts/conda_locks.py, NATIVE_PLATFORMS): ARVA.app runs this Bakta directly on
+# an Apple silicon Mac when Docker has too little memory for DIAMOND with the full database (item 49, docs/plan-flye-nativo.md).
+osx-arm64

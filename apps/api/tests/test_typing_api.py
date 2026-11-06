@@ -7,6 +7,8 @@ and USA300_FPR3757 (workflows/tool-adapters/tests/fixtures/<tool>/README.md) for
 tests run the real sccmec, spaTyper and AgrVATE (skipped when absent) on ARVA's SYNTHETIC genome and on the
 CONSTRUCTED Ridom-format files and genome of fixtures/spatyper/constructed (no Ridom data).
 """
+import csv
+import io
 import shutil
 import uuid
 from pathlib import Path
@@ -299,6 +301,31 @@ def test_n315_summary_marks_disputed_and_unsearched_parts(client, storage_root, 
     mlst_result(sample, a, "5")
     card = client.get(f"{API}/samples/{sample['id']}/typing").json()["assemblies"][0]["summary"]
     assert card["shorthand"] == "ST5-MRSA-IIa, t002, agr II, PVL-" and card["uncertain"] == []
+
+
+def test_agr_with_several_groups_keeps_agrvates_majority_call(client, typing_tools):
+    # AgrVATE 1.0.2's real output on USA300 + N315 in one FASTA: gp2 15 hits, gp1 13 (fixtures/agrvate/multiple.*).
+    typing_tools("multiple")
+    sample = new_sample(client, "MIX")
+    a = assemble(client, sample, SYNTHETIC)
+    species_result(sample, a, "Staphylococcus aureus")
+    start(client, a, "agr")
+    (res,) = client.get(f"{API}/samples/{sample['id']}/typing").json()["results"]
+    assert (res["status"], res["call"]) == ("multiple", "II")
+    assert res["details"]["kmer_hits"] == {"I": {"hits": 13, "contigs": ["NC_007793.1"]},
+                                           "II": {"hits": 15, "contigs": ["NC_002745.2"]}}
+    (multi,) = [w for w in res["warnings"] if w["code"].startswith("agr_multiple")]
+    assert multi == {"code": "agr_multiple_majority", "params": {"group": "II", "score": 15,
+                                                                  "others": "I 13 (NC_007793.1)"}}
+    from app.services.staph_typing import warning_text
+    assert warning_text(multi).startswith("agr II (most k-mer hits: 15); hits of other agr groups were also found: "
+                                          "I 13 (NC_007793.1).")
+    card = client.get(f"{API}/samples/{sample['id']}/typing").json()["assemblies"][0]["summary"]
+    assert "agr II?" in card["shorthand"]
+    assert {"part": "agr", "reason": "agr_multiple", "params": {"counts": "II 15, I 13"}} in card["uncertain"]
+    rows = list(csv.DictReader(io.StringIO(client.get(f"{API}/projects/{sample['project_id']}/report?format=csv")
+                                           .text)))
+    assert "agr=II (multiple: II 15, I 13)" in rows[0]["typing"].split(";")
 
 
 def test_a_module_the_evidence_contradicts_runs_only_with_an_override(client, typing_tools):

@@ -60,6 +60,11 @@ class Settings(BaseSettings):
     tool_memory_gb: int | None = Field(default=None, ge=1)
     tool_timeout_seconds: int = 12 * 3600
 
+    # The token ARVA.app writes (0600) for its native executor (app.services.native): ARVA.app runs Flye on the Mac
+    # when Docker has too little memory. The launcher mounts ~/.config/arva/host read-only at /run/arva-host; the
+    # executor endpoints (/native/...) refuse every request without this token.
+    native_token_file: Path = Path("/run/arva-host/native-executor.token")
+
     # At API start-up, look in the background for tools that are installed but unusable, databases whose folder is
     # missing and pending migrations, and keep what is found in the error log (app.services.startup).
     startup_checks: bool = True

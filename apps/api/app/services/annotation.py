@@ -205,10 +205,14 @@ def _tool(tool_id: str, res: Resources) -> dict[str, Any]:
             "max_threads": res.max_threads, "default_threads": res.threads}
 
 
-def bakta_plan(db: Session, sample: Sample, a: Assembly, database_id: str | None, skip_plot: bool) -> dict[str, Any]:
+def bakta_plan(db: Session, sample: Sample, a: Assembly, database_id: str | None, skip_plot: bool,
+               execution: str = "docker") -> dict[str, Any]:
     """What a Bakta run of this assembly would do here: Bakta and each program it checks, the database, every step
-    (run or skipped and why), the assembly's facts and ARVA's suggestions. Nothing is run except version checks."""
-    tool = _tool("bakta", effective_resources(db))
+    (run or skipped and why), the assembly's facts and ARVA's suggestions, ARVA's memory estimate for DIAMOND with
+    this database (log item 49) and whether ARVA.app can run Bakta natively on this Mac. Nothing is run except
+    version checks. execution "mac_native": the programs and steps are those ARVA.app found on the Mac."""
+    res = effective_resources(db)
+    tool = _tool("bakta", res)
     facts = assembly_facts(db, a)
     databases = bakta_databases(db)
     record = None
@@ -219,15 +223,25 @@ def bakta_plan(db: Session, sample: Sample, a: Assembly, database_id: str | None
         code = "database_unavailable" if isinstance(exc, DatabaseNotConnected) else "no_database"
         problems.append({"code": code, "message": str(exc)})
     dependencies, steps, amr_data = [], {}, None
+    db_path = Path(record.path) if record and record.path else None
     if tool["status"] == ToolStatus.available.value and tool["path"]:
-        db_path = Path(record.path) if record and record.path else None
         amr_data = bakta_amr_data(db, db_path, tool["path"]) if db_path else None
         replacement = Path(amr_data["replacement"]["path"]) if amr_data and amr_data["used"] == "replacement" else None
         dependencies = bakta_tool.check_dependencies(tool["path"], db_path, replacement)
-        steps = bakta_tool.plan_steps(dependencies, _db_type(record) if record else None, skip_plot)
     else:
         problems.append({"code": "tool_unavailable", "message": f"Bakta is not available ({tool['status']}): "
                                                                 f"{tool['message']}"})
+    memory = bakta_memory(db_path, res, databases, record)
+    native = bakta_native_offer(memory, record)
+    if execution == "mac_native":
+        native_deps = native_dependencies(native.pop("dependencies", []), dependencies)
+        if not native_deps:
+            problems.append({"code": "native_unavailable", "message": "ARVA.app has not reported a Bakta for this Mac"})
+        dependencies = native_deps
+    else:
+        native.pop("dependencies", None)
+    if dependencies:
+        steps = bakta_tool.plan_steps(dependencies, _db_type(record) if record else None, skip_plot)
     if steps and not any(v["run"] for k, v in steps.items() if k not in ("gap", "plot")):
         problems.append({"code": "nothing_to_annotate", "message": "Every annotation step would be skipped here"})
     return {"annotator": "bakta", "tool": tool, "dependencies": dependencies, "steps": steps, "amr_data": amr_data,
@@ -235,7 +249,79 @@ def bakta_plan(db: Session, sample: Sample, a: Assembly, database_id: str | None
             "database_id": record.id if record else None, "assembly": facts,
             "suggestions": {"locus_tag": suggested_locus_tag(sample), "complete": facts["all_circular"],
                             "translation_table": 11},
-            "translation_tables": list(bakta_tool.TRANSLATION_TABLES), "problems": problems}
+            "translation_tables": list(bakta_tool.TRANSLATION_TABLES), "problems": problems,
+            "memory": memory, "native": native, "execution": execution}
+
+
+def bakta_memory(db_path: Path | None, res: Resources, databases: list[dict[str, Any]],
+                 record: ReferenceDatabase | None) -> dict[str, Any]:
+    """ARVA's estimate of whether Bakta's DIAMOND searches with this database fit the memory the container has
+    (arva_tools.bakta.memory_estimate), and, when they may not, the light database to use instead (a usable one ARVA
+    knows, with its own estimate)."""
+    from app.services.flye import container_memory_gb
+
+    container = container_memory_gb(res)
+    out = bakta_tool.memory_estimate(db_path, container)
+    out["in_container"] = res.in_container
+    out["light_alternative"] = None
+    if out["verdict"] in ("may_not_fit", "tight") and record is not None:
+        for d in databases:
+            if d["usable"] and d["type"] == "light" and d["id"] != record.id and d["path"]:
+                estimate = bakta_tool.memory_estimate(Path(d["path"]), container)
+                out["light_alternative"] = {"id": d["id"], "name": d["name"], "version": d["version"],
+                                            "estimate_gb": estimate["estimate_gb"], "verdict": estimate["verdict"]}
+                break
+    return out
+
+
+# The memory verdicts (arva_tools.bakta.memory_estimate) for which Docker may have too little memory for DIAMOND with
+# this database: only then is running Bakta natively on the Mac offered.
+NATIVE_WHEN = ("may_not_fit", "tight")
+
+
+def bakta_native_offer(memory: dict[str, Any], record: ReferenceDatabase | None) -> dict[str, Any]:
+    """Whether the dialog offers "Run on this Mac (native)": when the memory estimate says Docker may be short and
+    ARVA.app's executor is known with a Bakta; ready when it is open, can run it now and can read this database (a
+    folder of the Mac it named), else `reason` (app_not_open, not_installed, native_database_not_on_mac, …).
+    `dependencies`: Bakta's start-up checks as ARVA.app found them on the Mac (bakta_plan takes them out)."""
+    from app.services import native
+
+    st = native.status()
+    tool = st["tools"].get("bakta")
+    short = memory.get("verdict") in NATIVE_WHEN
+    reason = tool["reason"] if tool else ("app_not_open" if st["known"] and not st["open"] else
+                                          "not_installed" if st["known"] else "not_known")
+    database = None
+    if tool and tool["ready"] and record is not None:
+        try:
+            database = native.database_ref(record.path, native.executor() or {})
+        except native.NativeError as exc:
+            reason = exc.code
+    ready = bool(tool and tool["ready"]) and database is not None
+    facts = ((native.executor() or {}).get("tools") or {}).get("bakta") or {}
+    return {"memory_short": short, "offered": short and tool is not None, "ready": ready, "app_open": st["open"],
+            "reason": None if ready else reason, "database": database,
+            "bakta": {k: tool[k] for k in ("version", "build", "lock_matches")} if tool else None,
+            "mac_memory_bytes": st["memory_bytes"], "chip": st["chip"],
+            "dependencies": facts.get("dependencies") or []}
+
+
+def native_dependencies(mac: list[dict[str, Any]], docker: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Bakta's start-up checks for a native run: the programs as ARVA.app found them on the Mac (its own Bakta
+    environment, from the osx-arm64 lock), with the AMRFinderPlus database check that ARVA made here with the same
+    AMRFinderPlus release (the Mac checks it again before running and refuses if the steps differ)."""
+    by_name = {d["name"]: d for d in docker}
+    out = []
+    for d in mac:
+        entry = {"name": d.get("name"), "status": d.get("status"), "found": d.get("found"),
+                 "minimum": d.get("minimum"), "steps": list(d.get("steps") or []), "on_mac": True}
+        here = by_name.get(entry["name"]) or {}
+        if entry["name"] == "AMRFinderPlus" and entry["status"] == "ok" and here.get("database"):
+            entry["database"] = here["database"]
+            if here["database"].get("status") != "ok":
+                entry["status"] = here["database"]["status"]
+        out.append(entry)
+    return out
 
 
 def bakta_amr_data(db: Session, db_path: Path, executable: str) -> dict[str, Any]:

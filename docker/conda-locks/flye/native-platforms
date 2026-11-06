@@ -1,0 +1,3 @@
+# Optional native platforms of Flye (scripts/conda_locks.py, NATIVE_PLATFORMS): ARVA.app runs this Flye directly on
+# an Apple silicon Mac when Docker has too little memory for its fixed 8 GiB k-mer table (docs/plan-flye-nativo.md).
+osx-arm64

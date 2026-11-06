@@ -86,7 +86,7 @@ def preview_bakta(assembly_id: str, payload: BaktaPreviewRequest, db: Session = 
     step (run, or skipped and why), the installed databases, the assembly's facts and ARVA's suggestions (locus-tag
     prefix; --complete when every contig is circular). Only version checks are run."""
     sample, a = _assembly(db, assembly_id)
-    return _plan_or_400(svc.bakta_plan, db, sample, a, payload.database_id, payload.skip_plot)
+    return _plan_or_400(svc.bakta_plan, db, sample, a, payload.database_id, payload.skip_plot, payload.execution)
 
 
 def _refused(code_status: int, code: str, detail: str, **params: str) -> JSONResponse:
@@ -107,7 +107,7 @@ def start_bakta(assembly_id: str, payload: BaktaRequest, db: Session = Depends(g
     if values["species"] and not values["genus"]:
         return _refused(status.HTTP_422_UNPROCESSABLE_CONTENT, "annotation_species_needs_genus",
                         "a species needs a genus")
-    plan = _plan_or_400(svc.bakta_plan, db, sample, a, payload.database_id, values["skip_plot"])
+    plan = _plan_or_400(svc.bakta_plan, db, sample, a, payload.database_id, values["skip_plot"], payload.execution)
     _blocking(plan)
     if plan["skip_options"] != payload.skip_options:
         skips = ", ".join(plan["skip_options"]) or "-"
@@ -116,7 +116,7 @@ def start_bakta(assembly_id: str, payload: BaktaRequest, db: Session = Depends(g
     record = svc.bakta_database(db, plan["database_id"])
     params = BaktaParams(**values, threads=payload.threads or effective_resources(db).threads)
     return _tool_call(create_bakta_job, db, sample, a, params, record, plan,
-                      {**_provenance(plan), "complete_confirmed": payload.complete_confirmed})
+                      {**_provenance(plan), "complete_confirmed": payload.complete_confirmed}, payload.execution)
 
 
 @router.post("/assemblies/{assembly_id}/annotate/prokka/preview", response_model=AnnotationPlanRead)

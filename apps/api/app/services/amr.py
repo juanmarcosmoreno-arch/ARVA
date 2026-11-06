@@ -71,6 +71,9 @@ WARNINGS = {
     "curated_thresholds_overridden": "The minimum identity was set to {ident_min}, overriding AMRFinderPlus's curated "
                                      "thresholds.",
     "synthetic_input": "SYNTHETIC input ({evidence}): this result describes the tools on test data, not biology.",
+    "hmm_not_searched": "Nucleotide search only (no annotation's proteins): AMRFinderPlus runs its HMMs only on "
+                        "proteins, so a gene that differs more from its reference proteins than the BLAST identity "
+                        "threshold is found only by the combined search with an annotation (e.g. Bakta's).",
 }
 
 

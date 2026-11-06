@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, ChevronRight, CornerDownRight, Info, Lightbulb, RotateCcw } from "lucide-react";
+import { AlertTriangle, ChevronRight, CornerDownRight, Info, Laptop, Lightbulb, RotateCcw } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Explain } from "@/components/guide/Explain";
 import { Badge } from "@/components/ui/badge";
@@ -29,7 +29,7 @@ import {
 import { lineageOrder } from "@/lib/filters";
 import { fmtBases, fmtBp, fmtDate, fmtInt, fmtNum, technologyLabel } from "@/lib/format";
 import { jobError, toolMessage } from "@/lib/messages";
-import type { AnalysisJobDetail, FlyePlan, FlyeReadType, RawFile } from "@/lib/types";
+import type { AnalysisJobDetail, FlyeNativeOffer, FlyePlan, FlyeReadType, RawFile } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 export const CHECK = "mt-0.5 h-4 w-4 shrink-0 accent-[#00B4A6]";
@@ -67,6 +67,7 @@ export function FlyePanel({
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [form, setForm] = useState<FlyeForm>(FLYE_FORM_DEFAULTS);
   const [confirmed, setConfirmed] = useState(false);
+  const [native, setNative] = useState(false);
   const [depth, setDepth] = useState<number | null>(null);
   const hydrated = useRef(false);
   useEffect(() => {
@@ -76,6 +77,7 @@ export function FlyePanel({
     setSelected(new Set(init.selected));
     setForm(init.form);
     setConfirmed(init.confirmed);
+    setNative(false);
     // Only when the dialog opens: the user's choices are never replaced while it is open.
   }, [open]);
   useEffect(() => {
@@ -105,10 +107,16 @@ export function FlyePanel({
   const sent = offeredFlyeForm(form, p);
   const keys = flyeProblems(sent, p, ids.length, confirmed);
   if (selectedTwice(files, selected).length) keys.push("flye.problem.twice");
-  if (ids.length && (plan.isError || (p && p.tool.status !== "available"))) keys.push("assembly.problem.tool");
+  // Running natively on this Mac (ARVA.app) is offered only when Docker is short of memory for this run.
+  const nativeChosen = native && !!p?.native?.offered;
+  // The Docker Flye's own status does not matter for a native run (ARVA.app's Flye runs it).
+  if (ids.length && (plan.isError || (p && p.tool.status !== "available" && !nativeChosen))) keys.push("assembly.problem.tool");
   else if (ids.length && !p) keys.push("assembly.problem.checking");
+  if (nativeChosen && !p?.native?.ready) keys.push("native.problem");
   const problems = keys.map((k) => t(k, { max: p?.tool.max_threads ?? "?", tool: "Flye" }));
-  const request = problems.length ? null : { raw_file_ids: ids, params: flyeRequestParams(sent, p), long_reads_confirmed: confirmed };
+  const request = problems.length
+    ? null
+    : { raw_file_ids: ids, params: flyeRequestParams(sent, p), long_reads_confirmed: confirmed, ...(nativeChosen ? { execution: "mac_native" as const } : {}) };
   const stateKey = JSON.stringify({ problems, request });
   useEffect(() => report("flye", { problems, request }), [stateKey]);
 
@@ -253,7 +261,9 @@ export function FlyePanel({
 
       {!(retry && memoryFailure(retry)) && <MemoryNote form={sent} plan={p} setForm={setForm} />}
 
-      <RunSummary form={sent} plan={p} files={files} ids={ids} advanced={advanced} />
+      {p?.native?.offered && <NativeOption offer={p.native} chosen={nativeChosen} onChange={setNative} />}
+
+      <RunSummary form={sent} plan={p} files={files} ids={ids} advanced={advanced} native={nativeChosen} />
     </div>
   );
 }
@@ -311,6 +321,34 @@ function MemoryNote({ form, plan, setForm }: { form: FlyeForm; plan: FlyePlan | 
   );
 }
 
+/** "Run on this Mac (native)": ARVA.app runs the same Flye release directly on macOS when Docker has too little
+ * memory (Flye 2.9.6's fixed 8 GiB k-mer table). Offered only then; usable only while ARVA.app is open and its Flye
+ * is ARVA's osx-arm64 build. */
+export function NativeOption({ offer, chosen, onChange }: { offer: FlyeNativeOffer; chosen: boolean; onChange: (v: boolean) => void }) {
+  const t = useT();
+  const reasonKey = `native.reason.${offer.reason}`;
+  const reason = offer.reason && reasonKey in dictionaries.en ? t(reasonKey as TranslationKey) : (offer.reason ?? "");
+  return (
+    <section aria-label={t("native.option")} className="space-y-1.5 rounded-lg border border-arva-teal/40 bg-arva-teal/5 p-2.5 text-xs">
+      <label className={cn("flex items-start gap-2 font-medium", !offer.ready && "opacity-80")}>
+        <input type="checkbox" className={CHECK} checked={chosen} onChange={(e) => onChange(e.target.checked)} />
+        <span>
+          <Laptop className="mr-1 inline h-3.5 w-3.5 text-arva-teal" aria-hidden />
+          {t("native.option")}
+          <span className="block font-normal text-muted-foreground">{t("native.explain")}</span>
+        </span>
+      </label>
+      {offer.flye && <p className="pl-6 text-muted-foreground">{t("native.flye", { version: offer.flye.version ?? "?", build: offer.flye.build ?? "?" })}</p>}
+      {!offer.ready && (
+        <p role={chosen ? "alert" : undefined} className="flex gap-1.5 pl-6 text-danger">
+          <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden />
+          {offer.reason === "app_not_open" ? t("native.notOpen", { tool: "Flye" }) : t("native.notReady", { reason })}
+        </p>
+      )}
+    </section>
+  );
+}
+
 /** "Original" or "filtered with <tool>" for a read file. */
 export function OriginBadge({ file: f, producedBy }: { file: RawFile; producedBy: Map<string, string> }) {
   const t = useT();
@@ -359,7 +397,7 @@ function RetryNote({ job, form, plan, setForm }: { job: AnalysisJobDetail; form:
 }
 
 /** "What this run will do", from the current form: nothing here is decided by ARVA. */
-function RunSummary({ form, plan, files, ids, advanced }: { form: FlyeForm; plan: FlyePlan | undefined; files: RawFile[]; ids: string[]; advanced: string[] }) {
+function RunSummary({ form, plan, files, ids, advanced, native = false }: { form: FlyeForm; plan: FlyePlan | undefined; files: RawFile[]; ids: string[]; advanced: string[]; native?: boolean }) {
   const t = useT();
   const chosen = files.filter((f) => ids.includes(f.id));
   const evidence = plan?.files.filter((e) => ids.includes(e.file_id)) ?? [];
@@ -380,6 +418,7 @@ function RunSummary({ form, plan, files, ids, advanced }: { form: FlyeForm; plan
     Number.isInteger(iterations) && iterations > 0 ? t("assembly.summary.polishing", { count: iterations }) : t("assembly.summary.polishingNone"),
     t("assembly.summary.threads", { threads }),
     advanced.length ? t("assembly.summary.advanced", { options: advanced.join(" ") }) : t("assembly.summary.advancedNone"),
+    ...(native ? [t("native.summary")] : []),
     t("assembly.summary.outputs"),
   ];
   return (

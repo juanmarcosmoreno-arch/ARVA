@@ -601,6 +601,29 @@ def normalise(kind: str, params: dict[str, Any]) -> tuple[dict[str, Any], list[d
     return {k: v for k, v in full.items() if k not in spec.bound}, []
 
 
+def database_kinds(kind: str) -> dict[str, str | None] | None:
+    """The kind of registered database a node's database_id names, keyed like the node's tools (by the value of its
+    tool parameter, "" for a node with one set of tools); a key mapped to None uses no registered database. None when
+    the node takes no database_id. The editor lists the databases of that kind; an unset id is the kind's default."""
+    if "database_id" not in KINDS[kind].model.model_fields:
+        return None
+    if kind == "bakta":
+        return {"": "bakta"}
+    if kind == "amrfinderplus":
+        from app.services import amrfinder_db
+        return {"": amrfinder_db.KIND}
+    if kind == "species":
+        from app.services import species
+        return {m: spec["kind"] for m, spec in species.METHODS.items()}
+    if kind == "mobile_elements":
+        from app.services import mobile_elements
+        return {m: spec["kind"] for m, spec in mobile_elements.METHODS.items()}
+    if kind == "staph_typing":
+        from app.services import staph_typing
+        return {step.key: step.database_kind for step in staph_typing.MODULE.steps}
+    raise KeyError(f"no database kind recorded for node kind {kind!r}")
+
+
 def param_schema(kind: str) -> dict[str, Any]:
     spec = KINDS[kind]
     schema = spec.model.model_json_schema()

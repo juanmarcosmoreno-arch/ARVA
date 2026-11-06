@@ -166,6 +166,25 @@ ejemplo, otro disco), menú **ARVA → Volver a configurar…**; para cambiar so
   (macOS no lo evita); para lotes largos, dejarla abierta y conectada a la corriente. Si se sale con **Salir sin
   detener**, los análisis siguen pero ARVA.app ya no evita el reposo. Para comprobarlo en Terminal:
   `pmset -g assertions` lista «ARVA: analyses running or waiting» mientras está activo.
+- **Flye para esta Mac** (solo Mac con Apple silicon; `docs/plan-flye-nativo.md`): Flye 2.9.6 reserva una tabla fija
+  de 8 GiB y en una Mac de 8 GB no entra en Docker. Menú **ARVA → Flye para esta Mac… → Instalar…** descarga de
+  conda.anaconda.org micromamba (con su suma de verificación fijada) y Flye 2.9.6 con sus dependencias (unos 48 MB),
+  solo desde el lock de ARVA, en `~/.arva-tools/conda/flye`, y comprueba cada paquete, la versión y las opciones de
+  Flye. Solo se descargan paquetes; las lecturas no salen de la Mac. Requisitos: que la carpeta de datos de ARVA sea
+  una carpeta de la Mac (no un volumen de Docker) y que su ruta no tenga espacios. Con eso, el diálogo de Flye en
+  ARVA ofrece «Ejecutar en esta Mac (nativo)» cuando la memoria de Docker no alcanza; ARVA.app debe quedar abierta
+  mientras corre (en el menú **ARVA** aparece «Flye se está ejecutando en esta Mac (nativo)»). Al salir de ARVA.app
+  Flye se detiene y su carpeta se guarda para reanudar. El mismo menú muestra el estado y permite **Quitar…**. Lo
+  que pasó en la instalación queda en `~/Library/Application Support/ARVA/logs/native/`.
+- **Bakta para esta Mac** (igual que Flye; `docs/plan-flye-nativo.md`, «Bakta nativo»): Bakta 1.12.2 fija el tamaño
+  de bloque de DIAMOND y, con la base completa, la búsqueda de proteínas no entra en la memoria de Docker de una Mac
+  de 8 GB (punto 49 del registro). El diálogo de Bakta estima esa memoria antes de lanzar y, si no alcanza, ofrece
+  la base light y, con **ARVA → Bakta para esta Mac… → Instalar…** (unos 296 MB desde el lock de ARVA, en
+  `~/.arva-tools/conda/bakta`), «Ejecutar en esta Mac (nativo)». Requisito adicional: la base de Bakta tiene que
+  estar en una carpeta de la Mac nombrada en `arva.conf` (`ARVA_DATABASES_DIR` o `ARVA_ADD_DATABASES`), no en un
+  volumen de Docker. Antes de empezar, ARVA.app vuelve a comprobar los programas de Bakta; si los pasos que se
+  pueden correr no son los confirmados, no corre. Una anotación detenida (por ejemplo, al salir de ARVA.app) se
+  vuelve a lanzar desde el principio.
 
 ## Salir: qué hace el aviso «¿Detener ARVA?»
 

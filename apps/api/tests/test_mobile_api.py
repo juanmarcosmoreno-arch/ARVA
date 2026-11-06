@@ -9,6 +9,7 @@ N315 and E. coli plasmid R388 (workflows/tool-adapters/tests/fixtures/<tool>/REA
 sequences of the records' lengths under their accessions, so that those outputs fit it (not biology). The end-to-end
 tests run the real ABRicate, IntegronFinder and MOB-suite (skipped when absent) on ARVA's SYNTHETIC genome.
 """
+import csv
 import io
 import json
 import os
@@ -27,6 +28,7 @@ from arva_tools import registry
 from arva_tools.registry import detect
 from test_amr_api import _Listing
 from test_annotation_api import assemble, new_sample
+from test_typing_api import amr_result
 
 from app.core.config import get_settings
 from app.db.session import SessionLocal
@@ -298,6 +300,58 @@ def test_stand_in_runs_contig_table_virulence_overview_and_reports(client, mobil
     assert len(data["mobile"]["runs"]) == 3 and len(data["virulence"]["runs"]) == 1
     report_csv = client.get(f"{API}/samples/{sample['id']}/report?format=csv").text
     assert report_csv.count(",mobile,") > 20 and report_csv.count(",virulence,") == 86
+
+    # What each search found, as a batch step's metrics show it (the consolidated table), and the VFDB cross-check
+    # with AMRFinderPlus: ABRicate's real N315 lukF-PV hit (82.37 %) lies on the region where AMRFinderPlus's real N315
+    # report has lukD (94.19 %), so it is listed apart in the metrics and in the project report, never dropped.
+    from app.services.batches import _found_metrics, _metrics
+
+    with SessionLocal() as db:
+        before = _found_metrics(db, db.get(AnalysisJob, vf_job["id"]))
+    assert "lukF-PV" in before["vfdb.genes"].split(";") and before["vfdb.cross_hits"] == ""
+    amr_result(sample, a, "n315")
+    with SessionLocal() as db:
+        found = {k: _found_metrics(db, db.get(AnalysisJob, j["id"])) for k, j in
+                 (("vfdb", vf_job), ("mob", mob_job), ("pf", pf_job), ("if", if_job))}
+        amr_job = db.query(AnalysisJob).filter(AnalysisJob.sample_id == sample["id"],
+                                               AnalysisJob.job_type == "amr_detection").one()
+        found["amr"] = _found_metrics(db, amr_job)
+        # The consolidated table's metrics column of the step carries them next to the job's own numbers.
+        assert _metrics(db, None, db.get(AnalysisJob, vf_job["id"]))["vfdb.hits"] == 86
+    vfdb = found["vfdb"]
+    assert "lukF-PV" not in vfdb["vfdb.genes"].split(";") and vfdb["vfdb.hits"] == 86
+    # The same verdict as the combined view's probable_other_gene flag: N315's real VFDB sea and sec hits lie on
+    # AMRFinderPlus's better sep and sec3 hits, and are listed apart too.
+    assert vfdb["vfdb.cross_hits"] == ("lukF-PV (probably lukD, AMRFinderPlus);sea (probably sep, AMRFinderPlus);"
+                                       "sec (probably sec3, AMRFinderPlus)")
+    assert vfdb["vfdb.genes_count"] == len(vfdb["vfdb.genes"].split(";"))
+    assert found["amr"]["amr.genes"] == "aadD1;ant(9)-Ia;blaI;blaR1;blaZ;bleO;erm(A);fosB;mecA;mecI;mecR1;mepA;tet(38)"
+    assert found["amr"]["amr.genes_count"] == 13 and found["amr"]["amr.search"] == "nucleotide"
+    assert found["amr"]["amr.organism"] == "none"
+    assert found["mob"] == {"mobsuite.clusters": "AA409", "mobsuite.plasmids": 1, "mobsuite.plasmid_contigs": 1,
+                            "mobsuite.replicons": "rep_cluster_1017;rep_cluster_1733;rep_cluster_2214"}
+    assert found["pf"] == {"plasmidfinder.hits": 4, "plasmidfinder.replicons": (
+        "rep16_2_CDS6(pSJH101);rep19_12_rep(pN315);rep22_1b_repB(pAMalpha1);rep5a_1_repSAP001(pN315)")}
+    assert found["if"] == {}
+
+    project = sample["project_id"]
+    rep = client.get(f"{API}/projects/{project}/report?format=json").json()
+    mine = next(r for r in rep["samples"] if r["code"] == "MOB-1")
+    cross = mine["virulence"]["cross_hits"][0]
+    assert [c["gene"] for c in mine["virulence"]["cross_hits"]] == ["lukF-PV", "sea", "sec"]
+    assert (cross["gene"], cross["probable_gene"], cross["identity"], cross["other_identity"]) == \
+        ("lukF-PV", "lukD", 82.37, 94.19)
+    assert "lukF-PV" not in mine["virulence"]["genes"]
+    assert (mine["amr"]["mode"], mine["amr"]["organism"]) == ("nucleotide", None)
+    rows = list(csv.DictReader(io.StringIO(client.get(f"{API}/projects/{project}/report?format=csv").text)))
+    row = next(r for r in rows if r["sample"] == "MOB-1")
+    assert row["virulence_cross_hits"].startswith("lukF-PV (probably lukD, AMRFinderPlus);")
+    assert "lukF-PV" not in row["virulence_genes"].split(";")
+    assert row["amr_tool"].endswith("(nucleotide search, organism none)")
+    html = client.get(f"{API}/projects/{project}/report?format=html&lang=es").text
+    assert "Aciertos cruzados, no contados arriba: lukF-PV en la región de lukD (AMRFinderPlus, 94.19 % frente a " \
+           "82.37 %)" in html
+    assert "búsqueda de nucleótidos (sin HMM); organismo: ninguno (no se buscaron mutaciones puntuales)" in html
 
 
 def _vrow(source, gene, start, end, identity, coverage=100.0, contig="contig_1", **extra):

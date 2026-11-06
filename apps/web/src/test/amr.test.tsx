@@ -91,7 +91,7 @@ describe("AMR result", () => {
     expect(sections(hits).map((s) => [s.key, s.hits.length])).toEqual([["amr", 3], ["point", 1], ["virulence", 1]]);
     const t = (k: string, vars?: Record<string, string | number>) => dictionaries.es[k as keyof typeof dictionaries.es]?.replace("{genes}", String(vars?.genes ?? "")) ?? k;
     expect(warningText(t as never, { code: "hits_internal_stop", params: { count: 1, genes: "blaZ" } })).toContain("blaZ");
-    for (const code of ["genotype_not_phenotype", "hits_partial", "hits_contig_end", "hits_internal_stop", "hits_hmm", "point_mutations_not_searched", "point_mutation_genes_not_found", "plus_not_searched", "curated_thresholds_overridden", "synthetic_input"])
+    for (const code of ["genotype_not_phenotype", "hits_partial", "hits_contig_end", "hits_internal_stop", "hits_hmm", "point_mutations_not_searched", "point_mutation_genes_not_found", "plus_not_searched", "curated_thresholds_overridden", "synthetic_input", "hmm_not_searched"])
       for (const lang of ["en", "es"] as const) expect(dictionaries[lang][`amr.warning.${code}` as keyof typeof dictionaries.en]).toBeTruthy();
     for (const id of ["amr", "amr_methods", "point_mutation", "genotype_phenotype"] as const) expect(GUIDE_BY_ID[id].es.title).toBeTruthy();
   });

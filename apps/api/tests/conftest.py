@@ -168,6 +168,19 @@ def hidden_mobile_tools(monkeypatch, request):
         registry._CACHE.pop(tool, None)
 
 
+@pytest.fixture(autouse=True)
+def native_state(monkeypatch, tmp_path):
+    """The native executor's Redis state (app.services.native) in memory for each test, and its token file in the
+    test's own folder (absent unless a test writes it)."""
+    from app.core.config import get_settings
+    from app.services import native
+
+    redis = FakeRedis(decode_responses=True)
+    monkeypatch.setattr(native, "get_redis", lambda: redis)
+    monkeypatch.setattr(get_settings(), "native_token_file", tmp_path / "native-executor.token")
+    return redis
+
+
 @pytest.fixture
 def held_queue(monkeypatch):
     """A task queue whose jobs wait, as when no worker is free: tests run them by calling the worker task."""

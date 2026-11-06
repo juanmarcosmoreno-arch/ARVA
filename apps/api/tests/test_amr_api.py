@@ -253,7 +253,8 @@ def test_stand_in_run_results_matrix_track_and_reports(client, fake_amr, storage
                                        "locus_tag": "SYNT_00002", "gene": None, "product": "hypothetical protein",
                                        "how": "overlap", "overlap": 1.0}
     assert [w["code"] for w in run["warnings"]] == ["genotype_not_phenotype", "hits_contig_end",
-                                                   "point_mutation_genes_not_found", "synthetic_input"]
+                                                   "point_mutation_genes_not_found", "hmm_not_searched",
+                                                   "synthetic_input"]
     assert run["by_class"] == [{"class": "BETA-LACTAM", "elements": ["blaZ"], "count": 1},
                                {"class": "QUINOLONE", "elements": ["gyrA_S84L"], "count": 1}]
     assert set(run["files"]) == {"report", "mutation_all", "nucleotide_hits", "log"}
@@ -269,6 +270,7 @@ def test_stand_in_run_results_matrix_track_and_reports(client, fake_amr, storage
     blaz = next(h for h in newest["hits"] if h["element_symbol"] == "blaZ")
     assert (blaz["protein_id"], blaz["feature"]["how"], blaz["method"]) == ("SYNT_00002", "protein_id", "EXACTP")
     assert "point_mutations_not_searched" in [w["code"] for w in newest["warnings"]]
+    assert "hmm_not_searched" not in [w["code"] for w in newest["warnings"]]
 
     track = client.get(f"{API}/annotations/{ann_id}/amr").json()
     assert track["run"]["job_id"] == combined["id"] and {h["contig"] for h in track["hits"]} == {CHROM}

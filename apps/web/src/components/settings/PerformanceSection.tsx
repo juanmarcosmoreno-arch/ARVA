@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardBody, CardHeader } from "@/components/ui/card";
 import { Field, Input } from "@/components/ui/form";
 import { ErrorNote, Skeleton } from "@/components/ui/misc";
-import { useT, type TranslationKey } from "@/i18n";
+import { dictionaries, useT, type TranslationKey } from "@/i18n";
 import { api } from "@/lib/api";
 import {
   PROFILE_CHOICES,
@@ -19,7 +19,8 @@ import {
   profileRequest,
   type ProfileForm,
 } from "@/lib/performance";
-import type { PerformanceOverview } from "@/lib/types";
+import type { NativeExecutorStatus, PerformanceOverview } from "@/lib/types";
+import { fmtDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 export function PerformanceSection() {
@@ -56,6 +57,7 @@ function Performance({ p }: { p: PerformanceOverview }) {
         <InUse p={p} />
         <Docker p={p} />
         <ImageArchitecture p={p} />
+        <NativeFlye />
       </div>
       <Notes />
     </div>
@@ -318,6 +320,71 @@ function ImageArchitecture({ p }: { p: PerformanceOverview }) {
       </p>
       {apple && i.rosetta !== "on" && <p className="text-[11px] text-muted-foreground">{t("perf.image.rosettaHint")}</p>}
     </section>
+  );
+}
+
+/** "Flye for this Mac": ARVA.app's native executor (open or not) and the Flye it installed (version, build, lock). */
+export function NativeFlye() {
+  const t = useT();
+  const query = useQuery({ queryKey: ["nativeExecutor"], queryFn: api.nativeExecutor, refetchInterval: 30_000 });
+  const n = query.data;
+  const flye = n?.tools.flye;
+  const reasonKey = `native.reason.${flye?.reason}`;
+  const reason = flye?.reason && reasonKey in dictionaries.en ? t(reasonKey as TranslationKey) : (flye?.reason ?? "");
+  return (
+    <section aria-labelledby="perf-native" className="space-y-1.5">
+      <h3 id="perf-native" className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{t("native.settings.title")}</h3>
+      <ErrorNote error={query.error} />
+      {n && !n.known && <p className="text-xs text-muted-foreground">{t("native.settings.unknown")}</p>}
+      {n?.known && (
+        <>
+          <p className={cn("text-xs", !n.open && "text-amber-700 dark:text-warning")}>
+            {t(n.open ? "native.settings.open" : "native.settings.closed", { version: n.app_version ?? "?", time: n.seen_at ? fmtDate(n.seen_at) : "?" })}
+          </p>
+          {(n.macos || n.chip) && <p className="text-xs text-muted-foreground">{t("native.settings.mac", { macos: n.macos ?? "?", chip: n.chip ?? "?" })}</p>}
+          {flye ? (
+            <>
+              <p className="text-xs">{t("native.settings.installed", { version: flye.version ?? "?", build: flye.build ?? "?", platform: n.platform ?? "?" })}</p>
+              <p className={cn("text-[11px]", flye.lock_matches ? "text-muted-foreground" : "text-danger")}>
+                {flye.lock_matches
+                  ? t("native.settings.lockOk", { sha: (flye.lock_sha256 ?? "").slice(0, 12) })
+                  : t("native.settings.lockOther", { sha: n.expected.flye.lock_sha256.slice(0, 12) })}
+              </p>
+              <p className={cn("text-xs", flye.ready ? "text-success" : "text-amber-700 dark:text-warning")}>
+                {flye.ready ? t("native.settings.ready") : t("native.settings.notReady", { reason })}
+              </p>
+            </>
+          ) : (
+            <p className="text-xs text-muted-foreground">{t("native.settings.notInstalled")}</p>
+          )}
+          <NativeBakta n={n} />
+        </>
+      )}
+    </section>
+  );
+}
+
+/** "Bakta for this Mac" (ARVA.app runs Bakta natively when DIAMOND's block with the full database does not fit
+ * Docker): installed version and build, whether it came from ARVA's lock, and whether ARVA can run it now. */
+function NativeBakta({ n }: { n: NativeExecutorStatus }) {
+  const t = useT();
+  const bakta = n.tools.bakta;
+  if (!bakta) return <p className="text-xs text-muted-foreground">{t("native.settings.bakta.notInstalled")}</p>;
+  const own = `annotation.native.reason.${bakta.reason}`;
+  const shared = `native.reason.${bakta.reason}`;
+  const reason = own in dictionaries.en ? t(own as TranslationKey) : shared in dictionaries.en ? t(shared as TranslationKey) : (bakta.reason ?? "");
+  return (
+    <div className="space-y-0.5 border-t pt-1.5">
+      <p className="text-xs">{t("native.settings.bakta.installed", { version: bakta.version ?? "?", build: bakta.build ?? "?", platform: n.platform ?? "?" })}</p>
+      <p className={cn("text-[11px]", bakta.lock_matches ? "text-muted-foreground" : "text-danger")}>
+        {bakta.lock_matches
+          ? t("native.settings.lockOk", { sha: (bakta.lock_sha256 ?? "").slice(0, 12) })
+          : t("native.settings.bakta.lockOther", { sha: n.expected.bakta.lock_sha256.slice(0, 12) })}
+      </p>
+      <p className={cn("text-xs", bakta.ready ? "text-success" : "text-amber-700 dark:text-warning")}>
+        {bakta.ready ? t("native.settings.bakta.ready") : t("native.settings.notReady", { reason })}
+      </p>
+    </div>
   );
 }
 

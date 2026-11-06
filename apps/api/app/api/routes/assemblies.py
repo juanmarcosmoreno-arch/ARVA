@@ -186,7 +186,7 @@ def start_flye(sample_id: str, payload: FlyeRequest, db: Session = Depends(get_d
         "memory_estimate": {k: v for k, v in flye.memory(db, sample, ev, params).items()
                             if k not in ("reference", "reference_bases")},
     }
-    return _tool_call(create_flye_job, db, sample, files, params, provenance)
+    return _tool_call(create_flye_job, db, sample, files, params, provenance, payload.execution)
 
 
 def _short_hybrid_inputs(db: Session, sample: Sample, roles: dict[str, str | None], tool: str, confirmed: bool,

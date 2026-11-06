@@ -33,6 +33,7 @@ from app.api.routes import (
     metadata,
     mlst,
     mobile_elements,
+    native,
     overview,
     pangenome,
     phylogeny,
@@ -54,6 +55,7 @@ from app.core.config import get_settings
 from app.services import assist as assist_service
 from app.services import auth as auth_service
 from app.services import locations, startup
+from app.services import native as native_service
 from app.services.capacity import InsufficientStorageError
 from app.services.import_roots import ImportPathError
 from app.storage.local import StoragePathError
@@ -141,6 +143,10 @@ def create_app() -> FastAPI:
         return JSONResponse(status_code=exc.status, content={"detail": assist_service.message(exc), "code": exc.code,
                                                              "params": exc.params})
 
+    @app.exception_handler(native_service.NativeError)
+    async def native_error(request: Request, exc: native_service.NativeError):
+        return native.native_error_response(request, exc)
+
     @app.exception_handler(StoragePathError)
     @app.exception_handler(ImportPathError)
     async def storage_path_error(_: Request, exc: ValueError):
@@ -173,6 +179,9 @@ def create_app() -> FastAPI:
                    diagnostics, typing, comparative, regions, pangenome, phylogeny, variants, workflows, auth, discover,
                    assist, sanger):
         app.include_router(module.router, prefix=settings.api_v1_prefix, dependencies=[Depends(access.guard)])
+    app.include_router(native.status_router, prefix=settings.api_v1_prefix, dependencies=[Depends(access.guard)])
+    # ARVA.app's native executor: its own token instead of a session (app.api.routes.native).
+    app.include_router(native.router, prefix=settings.api_v1_prefix)
     return app
 
 

@@ -792,8 +792,12 @@ export interface JobCheckpoint {
   /** The Flye version that wrote the folder; resuming needs the same one. */
   tool_version: string;
   path: string;
-  /** Cancelled by the user, stopped by the time limit, or killed from outside (signal, out of memory). */
-  reason: "cancelled" | "time_limit" | "stopped";
+  /** Cancelled by the user, stopped by the time limit, killed from outside (signal, out of memory), or ARVA.app
+   * stopped (or stopped reporting on) a native run. */
+  reason: "cancelled" | "time_limit" | "stopped" | "native_stopped";
+  /** Where the run ran; a native run resumes natively only, with the same build. */
+  execution?: "docker" | "mac_native";
+  build?: string | null;
   /** The stage Flye reruns (its folder from the interrupted run was removed). */
   resume_stage: string;
   completed_stages: string[];
@@ -850,6 +854,16 @@ export interface JobProgress {
   updated_at: string | null;
   elapsed_seconds: number | null;
   finished: boolean;
+  /** A native run: ARVA.app runs the tool on this Mac. */
+  native?: {
+    state: "waiting_for_app" | "running_on_mac";
+    app_open: boolean;
+    app_version: string | null;
+    macos: string | null;
+    chip: string | null;
+    claimed_at: string | null;
+    heartbeat_at: string | null;
+  } | null;
 }
 
 export interface AnalysisJobDetail extends AnalysisJob {
@@ -1120,6 +1134,47 @@ export interface FlyeRequest {
   raw_file_ids: string[];
   params: FlyeParams;
   long_reads_confirmed: boolean;
+  /** docker (default): the worker runs Flye in ARVA's image; mac_native: ARVA.app runs it on this Mac. */
+  execution?: "docker" | "mac_native";
+}
+
+/** Running Flye natively on this Mac (ARVA.app), as the preview offers it. */
+export interface FlyeNativeOffer {
+  /** ARVA's memory estimate says Docker has too little memory for this run. */
+  memory_short: boolean;
+  /** The dialog shows the option: memory is short and ARVA.app has registered a Flye. */
+  offered: boolean;
+  /** ARVA.app is open and can run ARVA's osx-arm64 Flye now. */
+  ready: boolean;
+  app_open: boolean;
+  /** Why it cannot run now: app_not_open, not_known, not_installed, lock_mismatch, storage_mismatch, ... */
+  reason: string | null;
+  flye: { version: string | null; build: string | null; lock_matches: boolean } | null;
+  mac_memory_bytes: number | null;
+  chip: string | null;
+}
+
+/** ARVA.app's native executor (Settings → Performance). */
+export interface NativeExecutorStatus {
+  known: boolean;
+  open: boolean;
+  seen_at: string | null;
+  app_version: string | null;
+  platform: string | null;
+  macos: string | null;
+  chip: string | null;
+  memory_bytes: number | null;
+  expected: Record<"flye" | "bakta", { platform: string; version: string; build: string; lock_sha256: string }>;
+  tools: Partial<Record<"flye" | "bakta", {
+    installed: boolean;
+    version: string | null;
+    version_text: string | null;
+    build: string | null;
+    lock_sha256: string | null;
+    lock_matches: boolean;
+    ready: boolean;
+    reason: string | null;
+  }>>;
 }
 
 export interface FlyeFileEvidence {
@@ -1184,6 +1239,8 @@ export interface FlyePlan {
   memory?: FlyeMemory;
   sample_technology: SequencingTechnology;
   long_reads_confirmation_required: boolean;
+  /** Running Flye natively on this Mac (ARVA.app); absent from older servers. */
+  native?: FlyeNativeOffer;
 }
 
 /** ARVA's estimate of whether a Flye run fits the memory ARVA can use: Flye's documented RAM for E. coli at 50x
@@ -2067,6 +2124,8 @@ export interface AnnotationDependency {
   returncode?: number | null;
   steps?: string[];
   command?: string[];
+  /** Checked by ARVA.app with the programs of its Bakta on this Mac (a native run). */
+  on_mac?: boolean;
 }
 
 export interface AnnotationStep {
@@ -2166,6 +2225,42 @@ export interface AnnotationPlan {
   database_id: string | null;
   database: ProkkaDatabase | null;
   programs: Record<string, string | null>;
+  /** Bakta: ARVA's estimate of DIAMOND's memory with this database (its largest reference block; Bakta fixes
+   * --block-size 3) against the container's, and a light database to use instead when it may not fit. */
+  memory?: BaktaMemory | null;
+  /** Bakta: running it natively on this Mac (ARVA.app), offered when Docker may be short of memory. */
+  native?: BaktaNativeOffer | null;
+  execution?: "docker" | "mac_native";
+}
+
+/** ARVA's estimate of the memory DIAMOND needs with a Bakta database (arva_tools.bakta.memory_estimate). */
+export interface BaktaMemory {
+  databases: { file: string; sequences: number; letters: number; block_letters: number }[];
+  /** DIAMOND's block size Bakta sets, in billions of letters. */
+  block_size: number;
+  block_letters: number | null;
+  largest: string | null;
+  bytes_per_letter: number;
+  headroom_gb: number;
+  estimate_gb: number | null;
+  container_gb: number | null;
+  verdict: "fits" | "tight" | "may_not_fit" | "unknown";
+  in_container?: boolean;
+  light_alternative: { id: string; name: string; version: string | null; estimate_gb: number | null; verdict: string } | null;
+}
+
+export interface BaktaNativeOffer {
+  memory_short: boolean;
+  /** The dialog shows the option: memory may be short and ARVA.app has registered a Bakta. */
+  offered: boolean;
+  /** ARVA.app is open, has ARVA's osx-arm64 Bakta and can read this database. */
+  ready: boolean;
+  app_open: boolean;
+  reason: string | null;
+  database: { root: string; rel: string } | null;
+  bakta: { version: string | null; build: string | null; lock_matches: boolean } | null;
+  mac_memory_bytes: number | null;
+  chip: string | null;
 }
 
 export interface AnnotationOrganism {
@@ -2198,6 +2293,7 @@ export interface BaktaRequest {
   skip_options: string[];
   complete_confirmed: boolean;
   confirmed: boolean;
+  execution?: "docker" | "mac_native";
 }
 
 export interface ProkkaRequest {

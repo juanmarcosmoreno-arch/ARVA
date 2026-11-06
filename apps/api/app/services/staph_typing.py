@@ -85,8 +85,15 @@ WARNINGS = {
     "agr_operon_partial": "Only {percent} % of AgrVATE's group-I reference operon aligned to this assembly; "
                           "variants were called on the extracted fragments only.",
     "agr_low_confidence": "AgrVATE's match score is {score} (4 or less is its 'low confidence' typing).",
-    "agr_multiple": "k-mers of several agr groups were found (several S. aureus sequences?); no agr group is "
-                    "reported.",
+    "agr_multiple": "k-mers of several agr groups were found (several S. aureus sequences?). This result was read "
+                    "without AgrVATE's k-mer counts, so no agr group is shown; the group AgrVATE reported for the most "
+                    "k-mers is in the step's details (agr_group). Run agr typing again to read it with the counts.",
+    "agr_multiple_majority": "agr {group} (most k-mer hits: {score}); hits of other agr groups were also found: "
+                             "{others}. AgrVATE reports the majority group; several groups usually mean several S. "
+                             "aureus sequences in the file (a mixture, contamination or a duplicated region).",
+    "agr_multiple_unresolved": "k-mers of several agr groups were found ({counts}) and none is a clear majority (a "
+                               "tie, or {score} hits or fewer for the top group): AgrVATE's choice ({group}) is not "
+                               "reported as the agr group.",
     "agr_untypeable": "No agr typing k-mer was found; the agr group is not determined.",
     "agr_non_canonical_agrD": "AgrVATE's nhmmer search found a possibly non-canonical agrD.",
     "agr_frameshifts_not_determined": "Frameshifts were not determined (no agr group, no operon extracted, or snippy "
@@ -327,10 +334,14 @@ def summary(db: Session, a: Assembly) -> dict[str, Any]:
     agr = calls.get("agr")
     if agr and agr["call"]:
         low = agr["status"] == "low_confidence"
-        shorthand.append(f"agr {agr['call']}" + ("?" if low else ""))
+        multiple = agr["status"] == "multiple"
+        shorthand.append(f"agr {agr['call']}" + ("?" if low or multiple else ""))
         if low:
             uncertain.append({"part": "agr", "reason": "agr_low_confidence",
                               "params": {"score": agr["details"].get("match_score")}})
+        if multiple:
+            uncertain.append({"part": "agr", "reason": "agr_multiple",
+                              "params": {"counts": agr_counts_text(agr["details"])}})
     if amr is not None and amr["pvl"] is not None:
         symbols = {g["symbol"] for g in amr["pvl"]}
         if symbols >= set(PVL_SYMBOLS) and _complete([g for g in amr["pvl"] if g["symbol"] == "lukS-PV"]) \
@@ -381,6 +392,12 @@ def project_overview(db: Session, project: Project) -> dict[str, Any]:
         rows.append({"sample_id": s.id, "sample_code": s.sample_code, "summary": summary(db, a) if a else None})
     return {"project_id": project.id, "project_name": project.name, "is_demo": project.is_demo,
             "module": MODULE.key, "samples": rows, "typed": sum(1 for r in rows if r["summary"])}
+
+
+def agr_counts_text(details: dict[str, Any]) -> str:
+    """AgrVATE's k-mer hits per agr group, most first ("I 15, II 13"); "" when the result has no k-mer table."""
+    kmers = details.get("kmer_hits") or {}
+    return ", ".join(f"{g} {k['hits']}" for g, k in sorted(kmers.items(), key=lambda kv: (-kv[1]["hits"], kv[0])))
 
 
 def genes_text(items: list[dict[str, Any]] | None) -> str:

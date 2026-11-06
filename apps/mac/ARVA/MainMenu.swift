@@ -19,6 +19,8 @@ enum MainMenu {
 
     /// The app menu's status line shown while the Mac is kept awake (SleepGuard); hidden otherwise.
     static let sleepStatusTag = 4801
+    /// The app menu's status line shown while Flye runs on this Mac (NativeExecutor); hidden otherwise.
+    static let nativeStatusTag = 4802
 
     static func build() -> NSMenu {
         let bar = NSMenu()
@@ -27,13 +29,20 @@ enum MainMenu {
         sleepStatus.tag = sleepStatusTag
         sleepStatus.isEnabled = false
         sleepStatus.isHidden = true
+        let nativeStatus = item("", nil)
+        nativeStatus.tag = nativeStatusTag
+        nativeStatus.isEnabled = false
+        nativeStatus.isHidden = true
         let app = submenu("ARVA", [
             item(L("About ARVA", "Acerca de ARVA"), #selector(NSApplication.orderFrontStandardAboutPanel(_:))),
             sleepStatus,
+            nativeStatus,
             .separator(),
             item(L("Set Up Again…", "Volver a configurar…"), #selector(AppDelegate.arvaSetupAgain(_:))),
             item(L("Choose Import Folder…", "Elegir carpeta de importación…"), #selector(AppDelegate.arvaChooseImportFolder(_:))),
             item(L("Notify When Analyses End", "Avisar cuando terminen los análisis"), #selector(AppDelegate.arvaToggleNotifications(_:))),
+            item(NativeFlyeUI.menuTitle, #selector(AppDelegate.arvaNativeFlye(_:))),
+            item(NativeFlyeUI.baktaMenuTitle, #selector(AppDelegate.arvaNativeBakta(_:))),
             .separator(),
             item(L("Hide ARVA", "Ocultar ARVA"), #selector(NSApplication.hide(_:)), "h"),
             item(L("Hide Others", "Ocultar otros"), #selector(NSApplication.hideOtherApplications(_:)), "h", [.command, .option]),
@@ -94,7 +103,16 @@ enum MainMenu {
 
     /// Shows the status line (nil hides it).
     static func setSleepStatus(_ text: String?) {
-        guard let item = NSApp.mainMenu?.items.first?.submenu?.item(withTag: sleepStatusTag) else { return }
+        setStatus(text, tag: sleepStatusTag)
+    }
+
+    /// Shows the native Flye status line (nil hides it).
+    static func setNativeStatus(_ text: String?) {
+        setStatus(text, tag: nativeStatusTag)
+    }
+
+    private static func setStatus(_ text: String?, tag: Int) {
+        guard let item = NSApp.mainMenu?.items.first?.submenu?.item(withTag: tag) else { return }
         if let text { item.title = text }
         item.isHidden = text == nil
     }

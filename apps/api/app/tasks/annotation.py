@@ -9,8 +9,10 @@ ARVA writes its feature index (features.jsonl) beside them.
 from __future__ import annotations
 
 import json
+import shlex
 import shutil
 import subprocess
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -19,13 +21,24 @@ from arva_tools import ToolExecutionError, ToolTimeoutError
 from arva_tools import bakta as bakta_tool
 from arva_tools import prokka as prokka_tool
 from arva_tools.bakta import BaktaAdapter, BaktaParams
+from arva_tools.native_common import NativeRefusal, native_relative
 from arva_tools.prokka import ProkkaAdapter, ProkkaParams
 
+from app.core.config import get_settings
 from app.models import Annotation, Assembly, DatabaseStatus, ReferenceDatabase
 from app.services import annotation as svc
 from app.services.databases import DatabaseError, check_bakta_dir
-from app.tasks.common import JobContext, JobFailure, run_job
-from app.tasks.tools import _rel, _resolve_tool, _run, _sha256, _StageMonitor
+from app.tasks.common import JobCancelled, JobContext, JobFailure, run_job
+from app.tasks.tools import (
+    _await_native,
+    _native_executor,
+    _rel,
+    _resolve_tool,
+    _run,
+    _sha256,
+    _StageMonitor,
+    native_timeout_error,
+)
 
 INPUT_NAME = "genome.fna"
 FEATURES_FILE = "features.jsonl"
@@ -134,73 +147,212 @@ def _bakta_amr_data(ctx: JobContext, planned: dict | None) -> Path | None:
     return Path(r.path or "")
 
 
-def _bakta_body(ctx: JobContext) -> None:
-    exe = _resolve_tool(ctx, "bakta")
+@dataclass
+class _BaktaRun:
+    """What the prepare step of a Bakta job decided, for the run and post-process steps."""
+    exe: str
+    params: BaktaParams
+    assembly: Assembly
+    steps: dict
+    skips: list[str]
+    dependencies: list[dict]
+    results: Path
+    staged: dict
+    out: Path
+    tmp: Path
+    console: Path
+    argv: list[str]
+    native: dict | None = None
+
+
+def _bakta_prepare(ctx: JobContext) -> _BaktaRun:
+    """The database, assembly and programs checked again, the genome staged and the argument vector. For a native run
+    (parameters.execution "mac_native") the Bakta is ARVA.app's on the Mac: its programs are checked there (ARVA.app
+    refuses to run when the steps differ from the confirmed ones), the database is read from the Mac's folder, and
+    the AMRFinderPlus view of the database is made on the Mac."""
+    from app.services import native as native_service
+
     p = ctx.job.parameters or {}
+    is_native = p.get("execution") == native_service.MAC_NATIVE
+    if is_native:
+        executor, facts = _native_executor(ctx, "bakta")
+        exe = facts["executable"]
+    else:
+        exe = _resolve_tool(ctx, "bakta")
     params = BaktaParams(**{k: p[k] for k in BaktaParams.__dataclass_fields__})
     record, db_type = _bakta_database(ctx)
     a = _assembly(ctx)
     amr_data = _bakta_amr_data(ctx, p.get("amr_data"))
-    try:
-        dependencies = bakta_tool.check_dependencies(exe, Path(record.path), amr_data)
-    except RuntimeError as exc:
-        raise JobFailure(str(exc)) from exc
-    steps = bakta_tool.plan_steps(dependencies, db_type, params.skip_plot)
-    skips = bakta_tool.skip_options(steps)
+    if is_native:
+        dependencies = list(p.get("dependencies") or [])
+        steps = bakta_tool.plan_steps(dependencies, db_type, params.skip_plot)
+        skips = bakta_tool.skip_options(steps)
+        ctx.log("Dependencies: checked by ARVA.app on this Mac before Bakta starts (confirmed: "
+                + ", ".join(f"{d['name']} {d['status']}" + (f" {d['found']}" if d.get("found") else "")
+                            for d in dependencies) + ")")
+    else:
+        try:
+            dependencies = bakta_tool.check_dependencies(exe, Path(record.path), amr_data)
+        except RuntimeError as exc:
+            raise JobFailure(str(exc)) from exc
+        steps = bakta_tool.plan_steps(dependencies, db_type, params.skip_plot)
+        skips = bakta_tool.skip_options(steps)
+        for d in dependencies:
+            ctx.log(f"Dependency {d['name']}: {d['status']}" + (f", version {d['found']}" if d["found"] else "")
+                    + f" (Bakta needs {d['minimum']} or later)")
     if skips != p["skip_options"]:
         raise JobFailure(f"The programs Bakta needs changed since the run was confirmed: it would now skip "
                          f"{', '.join(skips) or 'nothing'} instead of {', '.join(p['skip_options']) or 'nothing'}. "
                          "Open the annotation dialog again", "programs_changed", tool="Bakta")
-    for d in dependencies:
-        ctx.log(f"Dependency {d['name']}: {d['status']}" + (f", version {d['found']}" if d["found"] else "")
-                + f" (Bakta needs {d['minimum']} or later)")
     results = ctx.path(ctx.results_rel)
     staged = _stage(ctx, a, results, rename=False)
     out, tmp = results / bakta_tool.OUT_DIR, results / bakta_tool.TMP_DIR
     tmp.mkdir()
+    console = results / bakta_tool.CONSOLE_LOG
+    native = None
     db_dir = Path(record.path)
-    if amr_data is not None:
+    if amr_data is not None and not is_native:
         db_dir = bakta_tool.compose_database(Path(record.path), amr_data, tmp / "database")
         ctx.log(f"Bakta reads the database through {db_dir.relative_to(results)}: links to every file of "
                 f"{record.path}, with amrfinderplus-db/latest -> {amr_data} (the copy inside the Bakta database is not "
                 "read by this AMRFinderPlus); neither database is changed")
     try:
-        argv = BaktaAdapter.argv(exe, params, results / "input" / INPUT_NAME, db_dir, out, tmp, skips,
-                                 BaktaAdapter.help_options(exe))
+        if is_native:
+            try:
+                database = native_service.database_ref(record.path, executor)
+                amr_ref = native_service.database_ref(str(amr_data), executor) if amr_data is not None else None
+            except native_service.NativeError as exc:
+                raise JobFailure(str(exc), exc.code, **{k: str(v) for k, v in exc.params.items()}) from None
+            supported = frozenset(facts["help_options"])
+            argv = bakta_tool.native_expected_argv(params, executor["data_dir"], exe, _rel(ctx, results / "input" /
+                                                   INPUT_NAME), database, amr_ref, _rel(ctx, out), _rel(ctx, tmp),
+                                                   skips, supported)
+            native = {"record": executor, "facts": facts, "database": database, "amr_data": amr_ref,
+                      "db_type": db_type, "provenance": native_service.provenance(executor, facts, "bakta")}
+            if amr_data is not None:
+                ctx.log(f"Bakta reads the database through {_rel(ctx, tmp)}/{bakta_tool.COMPOSED_DB}, made by ARVA.app "
+                        f"on this Mac: links to every file of {database['root']}/{database['rel']}, with "
+                        f"amrfinderplus-db/latest -> {amr_ref['root']}/{amr_ref['rel']}; neither database is changed")
+        else:
+            argv = BaktaAdapter.argv(exe, params, results / "input" / INPUT_NAME, db_dir, out, tmp, skips,
+                                     BaktaAdapter.help_options(exe))
     except (OSError, RuntimeError, subprocess.TimeoutExpired) as exc:
         raise JobFailure(f"Bakta's --help could not be read to check its options: {exc}",
                          "help_unreadable", tool="Bakta", detail=str(exc)) from exc
+    except NativeRefusal as exc:
+        raise JobFailure(f"Bakta cannot run on this Mac with these paths: {exc}", "bakta_native_refused",
+                         reason=exc.code, detail=str(exc)) from exc
     except ValueError as exc:
         raise JobFailure(f"Bakta cannot run with these settings: {exc}",
                          "settings_rejected", tool="Bakta", detail=str(exc)) from exc
-    console = results / bakta_tool.CONSOLE_LOG
-    monitor = _StageMonitor(ctx, "Bakta", console, bakta_tool.STAGES, BaktaAdapter.stage)
-    monitor()
+    return _BaktaRun(exe, params, a, steps, skips, dependencies, results, staged, out, tmp, console, argv, native)
+
+
+def _bakta_failed(ctx: JobContext, run: _BaktaRun, exc: ToolExecutionError) -> None:
+    """A Bakta run that stopped with an error: Bakta's own reason when its console says one (JobFailure, with
+    bakta_out_of_memory when DIAMOND or Bakta was killed for memory), else the error."""
+    if isinstance(exc, ToolTimeoutError):
+        raise exc
+    console_text = run.console.read_text(errors="replace") if run.console.is_file() else ""
+    reason = BaktaAdapter.failure_reason(console_text, exc.returncode, native=run.native is not None)
+    if reason is None:
+        raise exc
+    ctx.log("Bakta output (last lines):\n" + exc.stderr_tail.strip())
+    if BaktaAdapter.out_of_memory(console_text + exc.stderr_tail, exc.returncode):
+        raise JobFailure(reason, "bakta_out_of_memory_native" if run.native is not None else "bakta_out_of_memory"
+                         ) from None
+    raise JobFailure(reason) from None
+
+
+def _bakta_run_docker(ctx: JobContext, run: _BaktaRun, monitor: _StageMonitor) -> None:
     try:
-        _run(ctx, argv, results, console.name, extra_env={**bakta_tool.ENVIRONMENT, **bakta_tool.env_for(exe)},
-             monitor=monitor)
+        _run(ctx, run.argv, run.results, run.console.name,
+             extra_env={**bakta_tool.ENVIRONMENT, **bakta_tool.env_for(run.exe)}, monitor=monitor)
     except ToolExecutionError as exc:
         monitor(finished=True)
-        if isinstance(exc, ToolTimeoutError):
-            raise
-        reason = BaktaAdapter.failure_reason(console.read_text(errors="replace") if console.is_file() else "",
-                                             exc.returncode)
-        if reason is None:
-            raise
-        ctx.log("Bakta output (last lines):\n" + exc.stderr_tail.strip())
-        console_text = console.read_text(errors="replace") if console.is_file() else ""
-        if BaktaAdapter.out_of_memory(console_text + exc.stderr_tail, exc.returncode):
-            raise JobFailure(reason, "bakta_out_of_memory") from None
-        raise JobFailure(reason) from None
-    monitor(finished=True)
-    shutil.rmtree(tmp, ignore_errors=True)
+        _bakta_failed(ctx, run, exc)
 
-    run = BaktaAdapter.parse_console(console.read_text(errors="replace"))
+
+def _bakta_run_native(ctx: JobContext, run: _BaktaRun, monitor: _StageMonitor) -> dict:
+    """Publish Bakta's work record and wait for ARVA.app (app.tasks.tools._await_native); its report ends the run.
+    Bakta has no checkpoint: a run stopped from outside fails and starts again from the beginning."""
+    from app.services import native as native_service
+
+    n = run.native
+    work = {"tool": "bakta", "storage_id": n["record"]["storage_id"], "data_dir": n["record"]["data_dir"],
+            "executable": n["facts"]["executable"], "params": run.params.as_dict(),
+            "genome": _rel(ctx, run.results / "input" / INPUT_NAME), "out_dir": _rel(ctx, run.out),
+            "tmp_dir": _rel(ctx, run.tmp), "results_dir": _rel(ctx, run.results), "console_log": run.console.name,
+            "database": n["database"], "amr_data": n["amr_data"], "database_type": n["db_type"],
+            "skip_options": run.skips, "argv": run.argv, "timeout_seconds": get_settings().tool_timeout_seconds}
+    for key in ("genome", "out_dir", "tmp_dir", "results_dir"):
+        native_relative(work[key])
+        ctx.path(work[key])  # inside the data folder, or StoragePathError
+    ctx.job.commands = [*(ctx.job.commands or []), run.argv]
+    ctx.log("Command (to run on this Mac by ARVA.app, which checks Bakta's programs again, builds it with its own "
+            "copy of the adapter and runs it only if identical): " + shlex.join(run.argv), flush=True)
+    try:
+        report, timed_out = _await_native(ctx, "Bakta", work, monitor, n["provenance"], lambda: None,
+                                          "; start the annotation again", code_prefix="bakta_")
+        monitor(finished=True)
+        if report.get("missing_report"):
+            raise native_timeout_error("bakta")
+        outcome = report.get("outcome")
+        ctx.log(f"ARVA.app reported: {outcome}" + (f", exit code {report['exit_code']}" if report.get("exit_code")
+                                                   is not None else "")
+                + (f" ({report.get('code')}: {report.get('detail')})" if report.get("code") else ""), flush=True)
+        for d in report.get("dependencies") or []:
+            ctx.log(f"Dependency on this Mac {d['name']}: {d['status']}" + (f", version {d['found']}" if d.get("found")
+                                                                           else ""))
+        if outcome in ("refused", "rejected", "not_started"):
+            if ctx.cancel_requested():
+                raise JobCancelled()
+            raise JobFailure(f"ARVA.app did not run Bakta: {report.get('detail') or report.get('code')}",
+                             "bakta_native_refused", reason=report.get("code") or outcome,
+                             detail=report.get("detail") or "")
+        if outcome == "stopped":
+            if ctx.cancel_requested():
+                raise JobCancelled()
+            if timed_out:
+                raise native_timeout_error("bakta")
+            raise JobFailure("ARVA.app stopped Bakta before it finished (ARVA.app was closed); start the annotation "
+                             "again", "bakta_native_stopped")
+        code = report.get("exit_code")
+        if code != 0:
+            text = run.console.read_text(errors="replace") if run.console.is_file() else ""
+            _bakta_failed(ctx, run, ToolExecutionError(f"bakta exited with status {code}", code, text[-4000:],
+                                                       "tool_exit", {"tool": "bakta",
+                                                                     "status": code if code is not None else "?"}))
+        if report.get("dependencies"):
+            run.dependencies = [{**d, "on_mac": True} for d in report["dependencies"]]
+        ctx.log(f"bakta finished on this Mac in {report.get('duration_seconds') or 0:.1f}s")
+        return report
+    finally:
+        native_service.withdraw(ctx.job.id)
+
+
+def _bakta_body(ctx: JobContext) -> None:
+    run = _bakta_prepare(ctx)
+    monitor = _StageMonitor(ctx, "Bakta", run.console, bakta_tool.STAGES, BaktaAdapter.stage)
+    monitor()
+    report = None
+    if run.native is not None:
+        report = _bakta_run_native(ctx, run, monitor)
+    else:
+        _bakta_run_docker(ctx, run, monitor)
+    monitor(finished=True)
+    shutil.rmtree(run.tmp, ignore_errors=True)
+    _bakta_postprocess(ctx, run, report)
+
+
+def _bakta_postprocess(ctx: JobContext, run: _BaktaRun, report: dict | None) -> None:
+    out, console = run.out, run.console
+    parsed = BaktaAdapter.parse_console(console.read_text(errors="replace"))
     outputs = {k: out / f"{bakta_tool.PREFIX}.{s}" for k, s in bakta_tool.OUTPUTS.items()}
     if missing := [k for k in bakta_tool.REQUIRED_OUTPUTS if not outputs[k].is_file()]:
         raise JobFailure("Bakta exited without an error but did not write " + ", ".join(missing),
                          "outputs_missing", tool="Bakta", files=", ".join(missing))
-    for warning in run["warnings"]:
+    for warning in parsed["warnings"]:
         ctx.log(f"Bakta warning: {warning}")
     try:
         sequences, features, meta = BaktaAdapter.parse_json(json.loads(outputs["json"].read_text(errors="replace")))
@@ -209,13 +361,21 @@ def _bakta_body(ctx: JobContext) -> None:
                          "output_unreadable", tool="Bakta", detail=str(exc)) from exc
     if (meta.get("version") or {}).get("bakta") not in (None, ctx.job.tool_version):
         ctx.log(f"WARNING: Bakta's JSON says version {meta['version']['bakta']}; detected {ctx.job.tool_version}")
-    sequences = _mapped(sequences, staged)
-    outcome = svc.bakta_outcome(steps, run, outputs["plot_png"].is_file())
-    _finish(ctx, a, "Bakta", outcome, features, sequences, staged, out, bakta_tool.OUTPUTS, bakta_tool.PREFIX,
+    sequences = _mapped(sequences, run.staged)
+    outcome = svc.bakta_outcome(run.steps, parsed, outputs["plot_png"].is_file())
+    _finish(ctx, run.assembly, "Bakta", outcome, features, sequences, run.staged, out, bakta_tool.OUTPUTS,
+            bakta_tool.PREFIX,
             tool_reported={"stats": meta.get("stats"), "genome": meta.get("genome"), "version": meta.get("version"),
-                           "found": run["found"]},
-            programs=[{k: d.get(k) for k in ("name", "status", "found", "minimum")} for d in dependencies],
+                           "found": parsed["found"]},
+            programs=[{k: d.get(k) for k in ("name", "status", "found", "minimum", "on_mac") if k in d}
+                      for d in run.dependencies],
             extra_outputs=[console])
+    if run.native is not None and report is not None:
+        ctx.job.result_summary = {**ctx.job.result_summary, "execution": "mac_native", "native": {
+            **run.native["provenance"], "argv": report.get("argv"), "exit_code": report.get("exit_code"),
+            "started_at": report.get("started_at"), "finished_at": report.get("finished_at"),
+            "duration_seconds": report.get("duration_seconds"), "reported_outputs": report.get("outputs") or [],
+            "database": run.native["database"], "amr_data": run.native["amr_data"]}}
 
 
 def run_bakta_job(job_id: str) -> str:

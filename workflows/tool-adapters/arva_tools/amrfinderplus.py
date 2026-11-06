@@ -333,6 +333,11 @@ def warnings(params: AmrParams, rows: list[dict[str, Any]], screen: dict[str, An
         out.append({"code": "plus_not_searched", "params": {}})
     if params.ident_min != -1:
         out.append({"code": "curated_thresholds_overridden", "params": {"ident_min": f"{params.ident_min:g}"}})
+    if params.mode == "nucleotide":
+        # AMRFinderPlus runs its HMMs on proteins only: a nucleotide search (translated BLASTX of the contigs) finds a
+        # gene only when it reaches the BLAST identity threshold to a reference protein (N315 fixtures: the combined
+        # search adds an arsB found by HMM at 81.35 % that the nucleotide search does not report).
+        out.append({"code": "hmm_not_searched", "params": {}})
     return out
 
 

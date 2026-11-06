@@ -154,7 +154,7 @@ export function StaphSummaryCard({ summary }: { summary: StaphSummary }) {
         {summary.uncertain.length > 0 && (
           <ul className="list-disc space-y-0.5 pl-5 text-xs text-amber-700 dark:text-warning">
             {summary.uncertain.map((u) => (
-              <li key={`${u.part}-${u.reason}`}>{t(`typing.uncertain.${u.reason}` as TranslationKey, { status: "?", score: "?", genes: "", ...u.params })}</li>
+              <li key={`${u.part}-${u.reason}`}>{t(`typing.uncertain.${u.reason}` as TranslationKey, { status: "?", score: "?", genes: "", counts: "?", ...u.params })}</li>
             ))}
           </ul>
         )}

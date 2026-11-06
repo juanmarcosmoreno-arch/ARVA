@@ -55,7 +55,7 @@ describe("S. aureus typing", () => {
   it("has a text in both languages for every code the API sends and bilingual Guide entries", () => {
     const warnings = ["applicability_overridden", "tool_not_validated", "synthetic_input", "uppercased_input", "sccmec_mecA_includes_mecC", "sccmec_type_only",
       "sccmec_mec_without_type", "sccmec_multiple", "spa_new_repeat_succession", "spa_unknown_repeat", "spa_multiple", "spa_not_found", "spa_files_version",
-      "agr_mummer_mode", "agr_operon_partial", "agr_low_confidence", "agr_multiple", "agr_untypeable", "agr_non_canonical_agrD", "agr_frameshifts_not_determined",
+      "agr_mummer_mode", "agr_operon_partial", "agr_low_confidence", "agr_multiple", "agr_multiple_majority", "agr_multiple_unresolved", "agr_untypeable", "agr_non_canonical_agrD", "agr_frameshifts_not_determined",
       "agr_exit_status", "agr_snippy_threads"];
     const statuses = ["typed", "type_only", "multiple", "mec_without_type", "not_typeable", "new_repeat_succession", "unknown_repeat", "not_found", "low_confidence", "untypeable"];
     const keys = [...warnings.map((c) => `typing.warning.${c}`), ...statuses.map((c) => `typing.status.${c}`),

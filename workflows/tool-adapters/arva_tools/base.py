@@ -80,8 +80,11 @@ def read_help(executable: str, args: tuple[str, ...] = ("--help",), extra_env: d
 
 
 def conda_platform() -> str | None:
-    """This machine's platform in Bioconda's naming, for the platforms ARVA has locks for."""
+    """This machine's platform in Bioconda's naming, for the platforms ARVA has locks for (osx-arm64: only the
+    optional native locks of Flye and Bakta, run by ARVA.app)."""
     machine = platform.machine().lower()
+    if sys.platform == "darwin":
+        return "osx-arm64" if machine == "arm64" else None
     if sys.platform != "linux":
         return None
     return {"x86_64": "linux-64", "amd64": "linux-64", "aarch64": "linux-aarch64", "arm64": "linux-aarch64"}.get(machine)

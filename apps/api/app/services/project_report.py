@@ -28,12 +28,12 @@ from app.models import (
     Sample,
     SpeciesResult,
     TypingResult,
-    VirulenceResult,
 )
 from app.services import comparative as comparative_svc
 from app.services.comparative_report import ANALYSIS_TITLES, METHOD_NAMES
 from app.services.jobs import AMR_JOB, MOBILE_JOB, VIRULENCE_JOB
 from app.services.qc_overview import build_overview
+from app.services.virulence import cross_hit_text, vfdb_genes
 
 LANGS = ("en", "es")
 LABELS: dict[str, dict[str, str]] = {
@@ -48,6 +48,10 @@ LABELS: dict[str, dict[str, str]] = {
         "n50": "N50 (bp)", "typing": "Species and typing", "species": "Species", "st": "MLST",
         "other_typing": "Other typing", "amr": "Antimicrobial resistance genes", "amr_matrix": "AMR genes by sample",
         "virulence": "Virulence factors (VFDB)", "replicons": "Plasmid replicons (PlasmidFinder)",
+        "cross_hits": "Cross-hits, not counted above",
+        "cross_hit": "{gene} on the region of {probable_gene} ({source}, {other_identity:.2f} % vs {identity:.2f} %)",
+        "amr_options": "{mode}; organism: {organism}", "mode_nucleotide": "nucleotide search (no HMMs)",
+        "mode_combined": "combined search (proteins and contigs)", "no_organism": "none (point mutations not searched)",
         "comparative": "Comparative genomics, pangenome and phylogeny", "set": "Comparison set",
         "genomes": "Genomes", "analysis": "Analysis", "method": "Method", "tool": "Tool", "date_run": "Date",
         "full_report": "Full report", "methods": "Methods", "versions": "Versions", "databases": "Databases",
@@ -75,6 +79,11 @@ LABELS: dict[str, dict[str, str]] = {
         "other_typing": "Otra tipificación", "amr": "Genes de resistencia a antimicrobianos",
         "amr_matrix": "Genes de resistencia por muestra", "virulence": "Factores de virulencia (VFDB)",
         "replicons": "Replicones plasmídicos (PlasmidFinder)",
+        "cross_hits": "Aciertos cruzados, no contados arriba",
+        "cross_hit": "{gene} en la región de {probable_gene} ({source}, {other_identity:.2f} % frente a {identity:.2f} %)",
+        "amr_options": "{mode}; organismo: {organism}", "mode_nucleotide": "búsqueda de nucleótidos (sin HMM)",
+        "mode_combined": "búsqueda combinada (proteínas y contigs)",
+        "no_organism": "ninguno (no se buscaron mutaciones puntuales)",
         "comparative": "Genómica comparativa, pangenoma y filogenia", "set": "Conjunto de comparación",
         "genomes": "Genomas", "analysis": "Análisis", "method": "Método", "tool": "Herramienta", "date_run": "Fecha",
         "full_report": "Informe completo", "methods": "Métodos", "versions": "Versiones", "databases": "Bases de datos",
@@ -118,7 +127,8 @@ LIMITATIONS = {
 CSV_COLUMNS = ["sample", "organism", "host", "origin", "collection_date", "sample_type", "technology", "reads",
                "bases", "read_n50", "mean_read_quality", "q30_percent", "assembler", "assembler_version",
                "assembly_kind", "contigs", "total_length", "n50", "gc_percent", "species", "species_tool", "mlst",
-               "mlst_tool", "amr_genes", "amr_tool", "virulence_genes", "replicons", "typing", "assembly_id",
+               "mlst_tool", "amr_genes", "amr_tool", "virulence_genes", "virulence_cross_hits", "replicons", "typing",
+               "assembly_id",
                "mixed_assemblies"]
 
 
@@ -158,15 +168,20 @@ def _sample(db: Session, s: Sample, qc: dict[str, Any] | None) -> dict[str, Any]
     for t in db.scalars(select(TypingResult).where(TypingResult.sample_id == s.id)
                         .order_by(TypingResult.created_at.desc())):
         typing.setdefault(t.method, {"module": t.module, "method": t.method, "status": t.status, "call": t.call,
-                                     "tool": t.tool, "tool_version": t.tool_version, "assembly_id": t.assembly_id})
+                                     "tool": t.tool, "tool_version": t.tool_version, "assembly_id": t.assembly_id,
+                                     **_typing_extra(t)})
     st = a.stats if a else {}
     amr = None
     if amr_job is not None:
         rows = db.scalars(select(AmrResult).where(AmrResult.job_id == amr_job.id, AmrResult.type == "AMR")
                           .order_by(AmrResult.element_symbol)).all()
+        p = amr_job.parameters or {}
         amr = {**_versions(amr_job), "assembly_id": _assembly_of(amr_job),
                "genes": sorted({r.element_symbol for r in rows}),
-               "classes": sorted({r.amr_class for r in rows if r.amr_class})}
+               "classes": sorted({r.amr_class for r in rows if r.amr_class}),
+               # The options that decide what can be found: a nucleotide-only search runs no HMMs, and point
+               # mutations are searched only with an organism.
+               "mode": p.get("mode") or "nucleotide", "organism": p.get("organism"), "plus": bool(p.get("plus"))}
     used = {x for x in (_assembly_of(amr_job), _assembly_of(vf_job), _assembly_of(rep_job),
                         sp.assembly_id if sp else None, m.assembly_id if m else None,
                         *(t["assembly_id"] for t in typing.values())) if x}
@@ -192,14 +207,45 @@ def _sample(db: Session, s: Sample, qc: dict[str, Any] | None) -> dict[str, Any]
                                         "clonal_complex": (m.clonal_complex or {}).get("value")},
         "amr": amr,
         "virulence": None if vf_job is None else {**_versions(vf_job), "assembly_id": _assembly_of(vf_job),
-                                                  "genes": sorted(set(db.scalars(
-            select(VirulenceResult.gene).where(VirulenceResult.job_id == vf_job.id))))},
+                                                  **_vfdb(db, vf_job)},
         "replicons": None if rep_job is None else {**_versions(rep_job), "assembly_id": _assembly_of(rep_job),
                                                    "replicons": sorted(set(db.scalars(
             select(MobileElementResult.element).where(MobileElementResult.job_id == rep_job.id,
                                                       MobileElementResult.category == "replicon"))))},
         "typing": list(typing.values()),
     }
+
+
+def _vfdb(db: Session, vf_job: AnalysisJob) -> dict[str, Any]:
+    """The screen's genes, with the hits the combined virulence view flags as probably another gene (VFDB lukF-PV on
+    AMRFinderPlus's lukD region) listed apart as cross-hits."""
+    found = vfdb_genes(db, vf_job)
+    return {"genes": found["genes"], "cross_hits": found["cross_hits"]}
+
+
+def _typing_extra(t: TypingResult) -> dict[str, Any]:
+    """agr with k-mers of several groups: each group's k-mer hits (AgrVATE's majority group is the call, if any)."""
+    if t.method != "agr" or t.status != "multiple":
+        return {}
+    from app.services.staph_typing import agr_counts_text
+
+    return {"kmer_counts": agr_counts_text(t.details or {}) or None,
+            "agrvate_group": (t.details or {}).get("agr_group")}
+
+
+def typing_text(t: dict[str, Any]) -> str:
+    """A typing step's result as the report prints it: the call, or the status; agr with several groups also gives
+    each group's k-mer hits ("I (multiple: I 15, II 13)")."""
+    if t.get("method") == "agr" and t.get("status") == "multiple":
+        if t.get("kmer_counts"):
+            return f"{t['call'] or 'not determined'} (multiple: {t['kmer_counts']})"
+        return f"multiple (AgrVATE: {t.get('agrvate_group') or '?'}; k-mer counts not read)"
+    return t["call"] or t["status"]
+
+
+def amr_options_text(amr: dict[str, Any]) -> str:
+    """The AMRFinderPlus options a reader needs to compare results: the search and the organism."""
+    return f"{amr.get('mode') or 'nucleotide'} search, organism {(amr.get('organism') or 'none').replace('_', ' ')}"
 
 
 def _citations() -> dict[str, dict[str, str]]:
@@ -346,7 +392,7 @@ def render_html(data: dict[str, Any], lang: str = "en") -> str:
             else f"<span class='muted'>{L['not_run']}</span>") + "</td><td>" + (
             f"{_cell(r['mlst']['scheme'])} ST{_cell(r['mlst']['st'])} <span class='muted'>({_cell(r['mlst']['tool'])} "
             f"{_cell(r['mlst']['tool_version'])})</span>" if r["mlst"] else f"<span class='muted'>{L['not_run']}</span>")
-        + "</td><td>" + (escape("; ".join(f"{t['method']}: {t['call'] or t['status']}" for t in r["typing"]))
+        + "</td><td>" + (escape("; ".join(f"{t['method']}: {typing_text(t)}" for t in r["typing"]))
                          or "–") + "</td></tr>" for r in rows)
     genes = sorted({g for r in rows for g in (r["amr"] or {}).get("genes", [])})
     head = "".join(f"<th class='rot'><span>{escape(g)}</span></th>" for g in genes)
@@ -356,9 +402,23 @@ def render_html(data: dict[str, Any], lang: str = "en") -> str:
             f"{'●' if g in r['amr']['genes'] else ''}</td>" for g in genes)
             if r["amr"] is not None else f"<td colspan='{max(1, len(genes))}' class='muted'>{L['not_searched']}</td>")
         + "</tr>" for r in rows)
+    def virulence(section: dict[str, Any] | None) -> str:
+        if section is None or not section.get("cross_hits"):
+            return status(section, (section or {}).get("genes", []))
+        crossed = "; ".join(L["cross_hit"].format(**c) for c in section["cross_hits"])
+        genes = escape(", ".join(section["genes"])) if section["genes"] else ""
+        return f"{genes}{'<br>' if genes else ''}<span class='muted'>{escape(L['cross_hits'])}: {escape(crossed)}</span>"
+
+    def amr_cell(section: dict[str, Any] | None) -> str:
+        if section is None:
+            return status(None, [])
+        options = L["amr_options"].format(mode=L["mode_" + (section.get("mode") or "nucleotide")],
+                                          organism=(section.get("organism") or L["no_organism"]).replace("_", " "))
+        return f"{status(section, section.get('genes', []))}<br><span class='muted'>{escape(options)}</span>"
+
     genetics = "".join(
-        f"<tr><td>{_cell(r['code'])}</td><td>{status(r['amr'], (r['amr'] or {}).get('genes', []))}</td>"
-        f"<td>{status(r['virulence'], (r['virulence'] or {}).get('genes', []))}</td>"
+        f"<tr><td>{_cell(r['code'])}</td><td>{amr_cell(r['amr'])}</td>"
+        f"<td>{virulence(r['virulence'])}</td>"
         f"<td>{status(r['replicons'], (r['replicons'] or {}).get('replicons', []))}</td></tr>" for r in rows)
     sets = []
     for c in data["comparisons"]:
@@ -459,11 +519,13 @@ def render_csv(data: dict[str, Any]) -> str:
             "mlst": f"{m['scheme']}:{m['st']}" if m and m.get("st") else (m.get("status") if m else None),
             "mlst_tool": f"{m['tool']} {m['tool_version']}" if m else None,
             "amr_genes": "not searched" if r["amr"] is None else ";".join(r["amr"]["genes"]),
-            "amr_tool": f"{r['amr']['tool']} {r['amr']['tool_version']} / {r['amr']['database_version']}"
-            if r["amr"] else None,
+            "amr_tool": f"{r['amr']['tool']} {r['amr']['tool_version']} / {r['amr']['database_version']} "
+                        f"({amr_options_text(r['amr'])})" if r["amr"] else None,
             "virulence_genes": "not searched" if r["virulence"] is None else ";".join(r["virulence"]["genes"]),
+            "virulence_cross_hits": None if r["virulence"] is None else ";".join(
+                cross_hit_text(c) for c in r["virulence"]["cross_hits"]),
             "replicons": "not searched" if r["replicons"] is None else ";".join(r["replicons"]["replicons"]),
-            "typing": ";".join(f"{t['method']}={t['call'] or t['status']}" for t in r["typing"]),
+            "typing": ";".join(f"{t['method']}={typing_text(t)}" for t in r["typing"]),
             "assembly_id": a.get("id"), "mixed_assemblies": "yes" if r.get("mixed_assemblies") else "no",
         }
         w.writerow({k: safe(v) for k, v in row.items()})

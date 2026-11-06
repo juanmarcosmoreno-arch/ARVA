@@ -24,7 +24,7 @@ def test_there_are_locks():
 
 @pytest.mark.parametrize("tool", TOOLS)
 def test_each_platform_has_a_valid_lock_or_a_note(tool):
-    for plat in conda_locks.PLATFORMS:
+    for plat in conda_locks.tool_platforms(tool):
         lock = conda_locks.LOCKS / tool / f"{plat}.lock"
         note = conda_locks.LOCKS / tool / f"{plat}.unavailable"
         assert lock.is_file() != note.is_file(), f"{tool} {plat}: exactly one of .lock and .unavailable"
@@ -40,8 +40,35 @@ def test_each_platform_has_a_valid_lock_or_a_note(tool):
 
 @pytest.mark.parametrize("tool", TOOLS)
 def test_adapter_platforms_match_the_locks(tool):
-    platforms = tuple(p for p in conda_locks.PLATFORMS if (conda_locks.LOCKS / tool / f"{p}.lock").is_file())
+    platforms = tuple(p for p in conda_locks.tool_platforms(tool) if (conda_locks.LOCKS / tool / f"{p}.lock").is_file())
     assert ADAPTERS[tool].info.conda_platforms == platforms
+
+
+def test_only_flye_and_bakta_have_an_optional_native_platform():
+    """osx-arm64 is optional (ARVA.app's native Flye and Bakta): only tools whose native-platforms file names it need
+    a lock or a note for it, and only Flye and Bakta have one."""
+    assert {t: conda_locks.native_platforms(t) for t in TOOLS if conda_locks.native_platforms(t)} == \
+        {"flye": ("osx-arm64",), "bakta": ("osx-arm64",)}
+    assert conda_locks.tool_platforms("mlst") == conda_locks.PLATFORMS
+    for tool in ("flye", "bakta"):
+        packages = conda_locks.check_lock(conda_locks.LOCKS / tool / "osx-arm64.lock", "osx-arm64")
+        assert {p["url"].split("/")[4] for p in packages} == {"osx-arm64", "noarch"}
+        assert "# solved with CONDA_OVERRIDE_OSX=11.0" in (conda_locks.LOCKS / tool / "osx-arm64.lock").read_text()
+    # Solving for macOS from Linux needs the __osx virtual package; Linux platforms get no override.
+    assert conda_locks.solver_env("osx-arm64") == {"CONDA_OVERRIDE_OSX": "11.0"}
+    assert conda_locks.solver_env("linux-64") == {}
+
+
+def test_an_optional_platform_is_refused_for_a_tool_that_does_not_list_it(monkeypatch):
+    monkeypatch.setattr(conda_locks, "micromamba", lambda _explicit: "/nonexistent/micromamba")
+    with pytest.raises(SystemExit, match="not one of its platforms"):
+        conda_locks.cmd_update(type("Args", (), {"micromamba": None, "tool": "mlst", "platform": ["osx-arm64"]})())
+
+
+def test_the_installer_pins_micromamba_for_apple_silicon_and_checks_it_with_shasum():
+    text = conda_locks.INSTALLER.read_text()
+    assert 'SUBDIR="osx-arm64"; SHA256="500f5074feb8d02c4296ef9921c3650ed2874171805a9fbb8fbb53896433646b"' in text
+    assert "shasum -a 256 -c" in text and "sha256sum -c" in text
 
 
 def test_lock_lines_are_refused_unless_pinned(tmp_path):
@@ -95,6 +122,7 @@ def test_script_check_command():
     out = subprocess.run(["python3", "-I", str(ROOT / "scripts" / "conda_locks.py"), "check"], capture_output=True,
                          text=True, check=True).stdout
     assert "mlst linux-64:" in out and "mlst linux-aarch64:" in out
+    assert "flye osx-arm64: 19 packages" in out and "mlst osx-arm64" not in out
 
 
 def test_ridom_copies_bundled_by_spatyper_are_removed_after_install(tmp_path, capsys):

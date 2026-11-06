@@ -168,9 +168,12 @@ def _agr(ctx: JobContext, exe: str, params: ag.AgrParams, contigs: Path, results
     report = _read("agr", out["error_report"], ag.parse_error_report) if out["error_report"].is_file() else {}
     variants = _read("agr", out["variants"], ag.parse_variants) if out["variants"].is_file() else []
     alignment = _read("agr", out["coords"], ag.parse_coords) if out["coords"].is_file() else None
-    call = ag.interpret(summary)
+    kmers = _read("agr", out["kmers"], ag.parse_kmer_hits) if out["kmers"].is_file() else None
+    call = ag.interpret(summary, kmers)
     warnings = [{"code": "agr_mummer_mode", "params": {}}, {"code": "agr_snippy_threads", "params": {}}]
-    if call["status"] in ("low_confidence", "multiple", "untypeable"):
+    if call["status"] == "multiple":
+        warnings.append(_agr_multiple_warning(summary, kmers, call["call"]))
+    elif call["status"] in ("low_confidence", "untypeable"):
         warnings.append({"code": f"agr_{call['status']}", "params": {"score": summary["match_score"]}})
     if summary["canonical_agrD"] == "possible_non_canonical":
         warnings.append({"code": "agr_non_canonical_agrD", "params": {}})
@@ -183,9 +186,24 @@ def _agr(ctx: JobContext, exe: str, params: ag.AgrParams, contigs: Path, results
         failed = ", ".join(k for k, v in report.items() if v == "fail") or "?"
         warnings.append({"code": "agr_exit_status", "params": {"status": error.returncode or "?", "check": failed}})
     details = {**summary, "variants": variants, "operon_alignment": alignment, "checks": report, "mode": params.mode,
-               "bundled": {k: data[k] for k in ("name", "checksum")}}
+               "kmer_hits": kmers, "bundled": {k: data[k] for k in ("name", "checksum")}}
     return {**call, "details": details, "warnings": warnings,
             "files": [*out.values(), work / ag.LOG, work / "agrvate.stdout.log"]}
+
+
+def _agr_multiple_warning(summary: dict[str, Any], kmers: dict[str, dict[str, Any]] | None,
+                          call: str | None) -> dict[str, Any]:
+    """k-mers of several agr groups: the group AgrVATE reported (the most hits) with the other groups' hits and
+    contigs, or, when no group is a clear majority (a tie, 4 hits or fewer, no k-mer table), every group's count."""
+    groups = sorted((kmers or {}).items(), key=lambda kv: (-kv[1]["hits"], kv[0]))
+    text = lambda items: "; ".join(f"{g} {k['hits']} ({', '.join(k['contigs'])})" for g, k in items)  # noqa: E731
+    if call is not None:
+        return {"code": "agr_multiple_majority",
+                "params": {"group": call, "score": (kmers or {})[call]["hits"],
+                           "others": text([(g, k) for g, k in groups if g != call])}}
+    return {"code": "agr_multiple_unresolved", "params": {"group": summary["agr_group"] or "?",
+                                                          "score": summary["match_score"],
+                                                          "counts": text(groups) or "?"}}
 
 
 def _body(ctx: JobContext) -> None:

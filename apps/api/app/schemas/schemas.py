@@ -197,6 +197,16 @@ class QCResultRead(ORMModel):
     created_at: dt.datetime
 
 
+class NativeProgress(BaseModel):
+    state: Literal["waiting_for_app", "running_on_mac"]
+    app_open: bool = Field(description="ARVA.app registered within the last minute")
+    app_version: str | None = None
+    macos: str | None = None
+    chip: str | None = None
+    claimed_at: dt.datetime | None = None
+    heartbeat_at: dt.datetime | None = None
+
+
 class JobProgress(BaseModel):
     tool: str
     stage: str | None = Field(description="The tool's own name for the stage it last announced")
@@ -208,6 +218,8 @@ class JobProgress(BaseModel):
     updated_at: dt.datetime | None
     elapsed_seconds: float | None = Field(description="Seconds since the tool started, at updated_at")
     finished: bool = Field(default=False, description="True once the tool has exited")
+    native: NativeProgress | None = Field(default=None, description="A native run (ARVA.app runs the tool on this "
+                                            "Mac): waiting for ARVA.app, or running on this Mac")
 
 
 class JobCheckpoint(BaseModel):
@@ -215,9 +227,12 @@ class JobCheckpoint(BaseModel):
     tool: str
     tool_version: str = Field(description="The version that wrote the folder; resuming needs the same one")
     path: str = Field(description="Storage-relative folder")
-    reason: Literal["cancelled", "time_limit", "stopped"] = Field(
-        description="Why the run stopped: cancelled by the user, the time limit, or killed from outside (a signal, "
-                    "the system running out of memory)")
+    reason: Literal["cancelled", "time_limit", "stopped", "native_stopped"] = Field(
+        description="Why the run stopped: cancelled by the user, the time limit, killed from outside (a signal, "
+                    "the system running out of memory), or ARVA.app stopped or stopped reporting on a native run")
+    execution: Literal["docker", "mac_native"] = Field(default="docker", description="Where the run ran; a native "
+                                                       "run resumes natively only")
+    build: str | None = Field(default=None, description="The osx-arm64 Flye build of a native run")
     resume_stage: str = Field(description="The stage Flye reruns (its folder from the interrupted run was removed)")
     completed_stages: list[str]
     stages: list[str] = Field(description="Every stage of the run")
@@ -488,6 +503,12 @@ class FlyeRequest(BaseModel):
         default=False,
         description="The user confirms that the files hold long reads; required unless the sample's sequencing "
         "technology is nanopore, pacbio or hybrid",
+    )
+    execution: Literal["docker", "mac_native"] = Field(
+        default="docker",
+        description="docker: the worker runs Flye in ARVA's image. mac_native: ARVA.app runs the same Flye release "
+        "natively on this Mac (osx-arm64 lock), for when Docker has too little memory; refused unless ARVA.app is "
+        "open and can run it",
     )
 
 
@@ -1548,6 +1569,9 @@ class FlyePlanRead(BaseModel):
                                    "less (--asm-coverage with --genome-size), never offered below the floor")
     sample_technology: SequencingTechnology
     long_reads_confirmation_required: bool
+    native: dict[str, Any] = Field(default={}, description="Running Flye natively on this Mac (ARVA.app): offered "
+                                   "when ARVA's memory estimate says Docker has too little memory, ready when ARVA.app "
+                                   "is open and its Flye is ARVA's osx-arm64 build")
 
 
 class AssemblyToolRead(BaseModel):
@@ -2174,12 +2198,18 @@ class ProkkaSettingsIn(AnnotationOrganismIn):
                                  "name is longer than 37 characters); ARVA keeps the mapping")
 
 
+_BAKTA_EXECUTION = ("docker: the worker runs Bakta in ARVA's image. mac_native: ARVA.app runs the same Bakta release "
+                    "natively on this Mac (osx-arm64 lock), for when Docker has too little memory for DIAMOND with "
+                    "this database; the programs and steps are those ARVA.app found on the Mac")
+
+
 class BaktaPreviewRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     database_id: str | None = Field(default=None, description="An installed Bakta database; default: the most "
                                     "recently verified")
     skip_plot: bool = False
+    execution: Literal["docker", "mac_native"] = Field(default="docker", description=_BAKTA_EXECUTION)
 
 
 class BaktaRequest(BaseModel):
@@ -2192,6 +2222,8 @@ class BaktaRequest(BaseModel):
                                     "programs available now imply others")
     complete_confirmed: bool = Field(default=False, description="Required with settings.complete")
     confirmed: bool = Field(description="The user confirmed the summary of the run")
+    execution: Literal["docker", "mac_native"] = Field(default="docker", description=_BAKTA_EXECUTION + "; refused "
+                                                       "unless ARVA.app is open and can run it with this database")
 
 
 class ProkkaPreviewRequest(BaseModel):
@@ -2221,6 +2253,8 @@ class AnnotationDependencyRead(BaseModel):
     steps: list[str] = []
     command: list[str] = []
     database: dict[str, Any] | None = Field(default=None, description="AMRFinderPlus: the data checked and the result")
+    on_mac: bool = Field(default=False, description="Checked by ARVA.app with the programs of its Bakta on this Mac "
+                         "(a native run)")
 
 
 class AnnotationStepRead(BaseModel):
@@ -2325,6 +2359,15 @@ class AnnotationPlanRead(BaseModel):
     amr_data: dict[str, Any] | None = Field(default=None, description="Bakta: the AMRFinderPlus data its AMR expert "
                                             "system reads (the database's own copy, or an ARVA AMRFinderPlus database "
                                             "in its place when AMRFinderPlus refuses the copy)")
+    memory: dict[str, Any] | None = Field(default=None, description="Bakta: ARVA's estimate of the memory DIAMOND "
+                                          "needs with this database (its largest reference block; Bakta fixes "
+                                          "--block-size 3) against the container's, and a light database to use "
+                                          "instead when it may not fit")
+    native: dict[str, Any] | None = Field(default=None, description="Bakta: running it natively on this Mac "
+                                          "(ARVA.app): offered when the memory estimate says Docker may be short, "
+                                          "ready when ARVA.app is open, has ARVA's osx-arm64 Bakta and can read this "
+                                          "database")
+    execution: Literal["docker", "mac_native"] = "docker"
 
 
 class AnnotationFileRead(BaseModel):
@@ -4440,3 +4483,123 @@ class Ncbi16sStartRequest(Ncbi16sPlanRequest):
     confirm_version: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$", description="The build date the plan showed")
     confirm_bytes: int = Field(ge=0, description="The archive size the plan showed (NCBI's metadata)")
     accept_terms: bool
+
+
+# --- Native executor (ARVA.app runs Flye or Bakta on the Mac; app.services.native, docs/plan-flye-nativo.md) -------
+
+_NATIVE_TEXT = r"^[^\x00-\x1f\x7f]*$"
+_HEX64 = r"^[0-9a-f]{64}$"
+
+
+class NativePackageIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    version: str | None = Field(default=None, max_length=64, pattern=r"^[A-Za-z0-9._+-]*$")
+    build: str | None = Field(default=None, max_length=64, pattern=r"^[A-Za-z0-9._+-]*$")
+    sha256: str | None = Field(default=None, pattern=_HEX64)
+    url: str | None = Field(default=None, max_length=512, pattern=r"^https://conda\.anaconda\.org/[A-Za-z0-9_./+-]+$")
+
+
+NativeTool = Literal["flye", "bakta"]
+
+
+class NativeDependencyIn(BaseModel):
+    """One of Bakta's start-up checks as run on the Mac (arva_tools.bakta.check_dependencies)."""
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(max_length=64, pattern=_NATIVE_TEXT)
+    status: str = Field(max_length=32, pattern=r"^[a-z_]+$")
+    found: str | None = Field(default=None, max_length=32, pattern=r"^[0-9.]*$")
+    minimum: str | None = Field(default=None, max_length=32, pattern=r"^[0-9.]*$")
+    steps: list[Annotated[str, Field(max_length=32, pattern=r"^[a-z_]+$")]] = Field(default=[], max_length=16)
+
+
+class NativeToolFactsIn(BaseModel):
+    """What arva_tools/native.py `<tool> facts` prints, sent as is."""
+    model_config = ConfigDict(extra="forbid")
+
+    tool: NativeTool | None = None
+    executable: str = Field(max_length=1024, pattern=_NATIVE_TEXT)
+    version: str | None = Field(default=None, max_length=128, pattern=_NATIVE_TEXT)
+    package: NativePackageIn | None = None
+    lock_sha256: str | None = Field(default=None, pattern=_HEX64)
+    help_options: list[Annotated[str, Field(pattern=r"^--?[A-Za-z0-9][\w-]{0,63}$")]] = Field(max_length=300)
+    samtools_helper: bool = False
+    dependencies: list[NativeDependencyIn] = Field(default=[], max_length=20,
+                                                   description="Bakta: its start-up checks with the Mac's programs")
+    # Repeated from the facts output; the registration's own fields are the ones used.
+    platform: str | None = Field(default=None, max_length=32, pattern=_NATIVE_TEXT)
+    macos: str | None = Field(default=None, max_length=64, pattern=_NATIVE_TEXT)
+    chip: str | None = Field(default=None, max_length=128, pattern=_NATIVE_TEXT)
+    memory_bytes: int | None = Field(default=None, ge=0)
+
+
+class NativeExecutorRegister(BaseModel):
+    """ARVA.app's registration, repeated every register_seconds as its heartbeat."""
+    model_config = ConfigDict(extra="forbid")
+
+    executor_id: str = Field(pattern=r"^[A-Za-z0-9-]{8,64}$", description="Generated once by ARVA.app (a UUID)")
+    app_version: str = Field(max_length=64, pattern=r"^[A-Za-z0-9._+-]+$")
+    platform: Literal["osx-arm64"]
+    macos: str | None = Field(default=None, max_length=64, pattern=_NATIVE_TEXT)
+    chip: str | None = Field(default=None, max_length=128, pattern=_NATIVE_TEXT)
+    memory_bytes: int | None = Field(default=None, ge=0)
+    data_dir: str = Field(max_length=1024, pattern=_NATIVE_TEXT,
+                          description="ARVA's data folder on the Mac (ARVA_DATA_DIR of arva.conf)")
+    storage_id: str = Field(pattern=r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+                            description="The id in <data_dir>/.arva-storage as ARVA.app read it")
+    database_dirs: list[Annotated[str, Field(max_length=1024, pattern=_NATIVE_TEXT)]] = Field(
+        default=[], max_length=16, description="The database folders of arva.conf on the Mac (ARVA_DATABASES_DIR, "
+        "each ARVA_ADD_DATABASES folder): the only roots a native Bakta run reads databases from")
+    tools: dict[NativeTool, NativeToolFactsIn] = Field(max_length=4)
+
+
+class NativeClaimRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    executor_id: str = Field(pattern=r"^[A-Za-z0-9-]{8,64}$")
+    tools: list[NativeTool] = Field(min_length=1, max_length=4)
+
+
+class NativeHeartbeatRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    executor_id: str = Field(pattern=r"^[A-Za-z0-9-]{8,64}$")
+    lease_id: str = Field(max_length=64, pattern=r"^[0-9a-f-]{36}$")
+    pid: int | None = Field(default=None, ge=1, le=2**31 - 1, description="The native entry's process id on the Mac")
+
+
+class NativeReportDependencyIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(max_length=64, pattern=_NATIVE_TEXT)
+    status: str = Field(max_length=32, pattern=r"^[a-z_]+$")
+    found: str | None = Field(default=None, max_length=32, pattern=r"^[0-9.]*$")
+    minimum: str | None = Field(default=None, max_length=32, pattern=r"^[0-9.]*$")
+
+
+class NativeReportIn(BaseModel):
+    """What arva_tools/native.py `<tool> run` prints."""
+    model_config = ConfigDict(extra="forbid")
+
+    tool: NativeTool
+    outcome: Literal["exited", "refused", "stopped", "not_started"]
+    exit_code: int | None = Field(default=None, ge=-255, le=255)
+    argv: list[Annotated[str, Field(max_length=4096)]] | None = Field(default=None, max_length=300)
+    executable: str = Field(max_length=1024, pattern=_NATIVE_TEXT)
+    outputs: list[Annotated[str, Field(max_length=1024)]] = Field(default=[], max_length=20)
+    started_at: str | None = Field(default=None, max_length=40, pattern=_NATIVE_TEXT)
+    finished_at: str | None = Field(default=None, max_length=40, pattern=_NATIVE_TEXT)
+    duration_seconds: float | None = Field(default=None, ge=0)
+    code: str | None = Field(default=None, max_length=64, pattern=r"^[a-z_]+$")
+    detail: str | None = Field(default=None, max_length=2000)
+    dependencies: list[NativeReportDependencyIn] = Field(default=[], max_length=20, description="Bakta: its start-up "
+                                                         "checks as found on the Mac before the run")
+
+
+class NativeFinishRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    executor_id: str = Field(pattern=r"^[A-Za-z0-9-]{8,64}$")
+    lease_id: str = Field(max_length=64, pattern=r"^[0-9a-f-]{36}$")
+    report: NativeReportIn

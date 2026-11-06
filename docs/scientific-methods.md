@@ -1290,6 +1290,22 @@ Manager, whose status and content checksum ARVA re-checks, together with Bakta's
   AMRFinderPlus database with `latest` → `<version>`. Neither database changes; the job records the Bakta database
   and the AMRFinderPlus database used (name, version, checksum, path) and why. Without one, the CDS step is
   skipped (status `database_refused`) and the dialog says how to fix it.
+- **Memory of the protein search (DIAMOND).** Bakta 1.12.2 runs DIAMOND itself with `--block-size 3`
+  (`bakta/psc.py`, `pscc.py`, `features/s_orf.py`) and has no option to change it. DIAMOND processes the reference in
+  blocks of up to that many billion letters (DIAMOND wiki, "3. Command line options"), so one search needs memory for
+  one block: the whole database when it has fewer than 3 billion letters. Before a run ARVA reads the letters of each
+  `.dmnd` file Bakta searches from its header (`psc.dmnd` of the full database, `pscc.dmnd`, `sorf.dmnd`,
+  `expert-protein-sequences.dmnd`), takes the largest block and multiplies it by 2.41 bytes per letter, a factor ARVA
+  measured, not a documented one: DIAMOND 2.2.8 with Bakta's exact pscc arguments on the light database 6.0
+  (1,245,018,838 letters) and the 2,646 proteins of *S. aureus* N315 peaked at 2.93 GB of resident memory with 2 and
+  with 4 threads. The estimate (light 6.0: about 2.8 GB; a full block of 3 billion letters: about 6.7 GB, in GB of
+  1024³ bytes) is compared with the memory the container has: *fits* (with 1 GB to spare for Bakta itself, an
+  allowance), *tight*, or *may not fit*; on the user's 8 GB Mac (Docker with 5.9 GB) the light database ran and the
+  full one had DIAMOND killed, as the estimate says. When it may not fit, the dialog offers the light database (with
+  its own estimate) and, on a Mac where ARVA.app has "Bakta for this Mac", running the same Bakta release natively,
+  where macOS compresses and swaps memory (docs/plan-flye-nativo.md, "Bakta nativo"). A native run is recorded as
+  such (platform, build, lock and package checksums, the Mac's programs) and its steps are checked again with the
+  Mac's programs before it starts.
 - **Options.** Always passed: `--db`, `--output`, `--prefix annotation`, `--tmp-dir` (inside the job folder),
   `--threads`, `--min-contig-length`, `--translation-table` (11, 4 or 25, the tables Bakta offers),
   `--locus-tag` (suggested from the sample code, editable; 3–12 capital letters and digits, starting with a
@@ -1744,7 +1760,12 @@ organisms*):
   blastx, and blastn for nucleotide point mutations). *Combined*: the contigs, proteins and GFF3 of one of the
   assembly's Bakta or Prokka annotations (`--nucleotide --protein --gff --annotation_format bakta|prokka`), checked
   unchanged by their recorded SHA-256; hits then carry the annotated protein's id. AMRFinderPlus requires the GFF
-  whenever both sequence files are given.
+  whenever both sequence files are given. AMRFinderPlus runs its HMMs on proteins only, so a nucleotide search finds a
+  gene only when it reaches the BLAST identity threshold to a reference protein; ARVA warns (`hmm_not_searched`) and
+  states the search and the organism in the project report's `amr_tool` column and in a batch step's metrics (on
+  N315, the combined search with Bakta adds a chromosomal arsB found by HMM at 81.35 % that the nucleotide search does
+  not report). The template "assembled genomes, characterisation" searches the assembly alone (nucleotide), without
+  an organism.
 - **Options, all passed explicitly**: `--ident_min -1` (the curated identity threshold of each family, 0.9 where
   none is curated; a value overrides them all and ARVA warns), `--coverage_min 0.5`, `--translation_table 11`,
   `--plus` (stress response and virulence genes; on by default), `--threads`, `--database <release folder>`,
@@ -1857,7 +1878,12 @@ defaults stated by the installed `--help` are recorded and compared with ARVA's.
   settings and that database. A contig's size is never taken as evidence that it is a plasmid.
 - **Virulence from two sources.** VFDB hits (ABRicate) and AMRFinderPlus's virulence genes (`--plus`) are shown side
   by side, each row with its source and that source's own method, never merged into one call; a row found by both
-  names the other source. A source that did not run (or AMRFinderPlus without `--plus`) is *not searched*.
+  names the other source. A source that did not run (or AMRFinderPlus without `--plus`) is *not searched*. A VFDB hit
+  on the region (at least half of the shorter hit) where AMRFinderPlus found a different gene with a higher identity
+  is flagged as probably that gene (real N315 case: VFDB lukF-PV at 82.37 % on AMRFinderPlus's lukD at 94.19 %, and
+  N315 has no lukS-PV). The project report (CSV `virulence_cross_hits`, JSON `virulence.cross_hits`, HTML) and a batch
+  run's consolidated table (`vfdb.cross_hits`) list such a gene apart as a cross-hit with the gene it probably is,
+  instead of among the VFDB genes; nothing is dropped.
 - **Views.** The sample's Genomic analysis tab (a contig table with MOB-suite's call, replicons, relaxase, mobility,
   PlasmidFinder's replicons with identity and coverage, integrons, IS elements and viruses, and the assembler's
   circularity side by side; each run's calls by category; the virulence card), the project's columns, the circular
@@ -1917,8 +1943,13 @@ checksums) and the SHA-256 of the input and of every output are recorded.
   Harmsen et al. 2003; Ridom SpaServer policy: non-commercial use, acknowledgement and citation.
 - **agr: AgrVATE 1.0.2** (Raghuram et al. 2022; MIT). The agr group is the group of the k-mers
   (`gp1234_all_motifs.fna`) found with blastn at 100 % identity and 100 % query coverage; the number found is the
-  match score: 0 is untypeable (nhmmer then looks for a non-canonical agrD), 1–4 is AgrVATE's "low confidence", and
-  k-mers of several groups are reported as several. The operon is then extracted and its variants called with snippy
+  match score: 0 is untypeable (nhmmer then looks for a non-canonical agrD), 1–4 is AgrVATE's "low confidence". With
+  k-mers of several groups AgrVATE reports the group with the most hits ("multiple"; its README: "the displayed agr
+  group is the majority/highest confidence") and types the operon against that group. ARVA reads `<name>-agr_gp.tab`
+  (one blastn hit per k-mer and contig; the k-mers are named after their group, so these count hits) and keeps that
+  call, shown with "?" and each group's hits and contigs; it reports no group when the two largest counts tie
+  (AgrVATE then picks by `sort` order) or the top count is 4 or less (AgrVATE's own stop). Real run: USA300_FPR3757 and
+  N315 in one FASTA give agr II, 15 hits on the N315 chromosome and 13 agr-I hits on the USA300 one. The operon is then extracted and its variants called with snippy
   (`--minqual 1 --mincov 2`) against the group's reference GenBank file; AgrVATE keeps the CDS variants that its
   filter does not remove (frameshifts and some other effects). AgrVATE's default extraction is an in-silico PCR with
   `usearch11.0.667_i86linux32`, a 32-bit binary not distributed with it; ARVA runs the documented MUMmer mode (`-m`):
@@ -1934,7 +1965,8 @@ checksums) and the SHA-256 of the input and of every output are recorded.
   only when AMRFinderPlus searched and found neither; the SCCmec type or subtype after MRSA; the spa type; agr I–IV;
   PVL+ when both PVL genes are found complete, PVL- when the `--plus` run found neither. A part whose evidence is
   partial or disputed carries "?" and is listed with the reason (an mlst status other than PERFECT, a type without
-  subtype, a disagreement on mecA/mecC, a mec gene found only in part, a low-confidence agr call, one PVL gene only or
+  subtype, a disagreement on mecA/mecC, a mec gene found only in part, a low-confidence agr call or one with k-mers of several
+  groups, one PVL gene only or
   a partial one). MRSA and MSSA name the genotype, not a susceptibility test.
 
 **Validation.** Real runs on NCBI genomes, downloaded from E-utilities and deleted afterwards (accessions and

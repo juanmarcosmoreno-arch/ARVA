@@ -441,6 +441,9 @@ enum SelfTest {
         check("icon: a fully transparent image has no visible part",
               makeImage([UInt8](repeating: 0, count: 6 * 5 * 4)).flatMap { IconRenderer.visibleBounds($0) } == nil)
 
+        // Flye for this Mac: bundled files, the lease rules against a stand-in API, paths, token, processes.
+        NativeSelfTest.run { name, ok, detail in SelfTest.check(name, ok, detail) }
+
         print(failures == 0 ? "self-test passed" : "self-test FAILED: \(failures) check(s)")
         return failures == 0 ? 0 : 1
     }

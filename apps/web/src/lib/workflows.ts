@@ -60,6 +60,17 @@ export interface NodeKind {
   outputs: PortOut[];
   params_schema: JsonSchema;
   defaults: Record<string, unknown>;
+  /** The kind of registered database the node's database_id names, keyed like `tools` (by the value of
+   * `tool_param`, "" for a single set); null for a key that uses no registered database. Absent: no database_id. */
+  database_kinds?: Record<string, string | null> | null;
+}
+
+/** The database kind the node's database_id names with these parameters: undefined when the node takes no
+ * database_id, null when the chosen method uses no registered database. */
+export function nodeDatabaseKind(kind: NodeKind, params: Record<string, unknown>): string | null | undefined {
+  if (!kind.database_kinds) return undefined;
+  const key = kind.tool_param ? String(getPath(params, kind.tool_param) ?? "") : "";
+  return kind.database_kinds[key] ?? null;
 }
 
 export interface Problem {

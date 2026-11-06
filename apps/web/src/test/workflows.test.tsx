@@ -122,6 +122,47 @@ describe("parameter fields from the analysis's request model", () => {
     fireEvent.change(screen.getByDisplayValue("15"), { target: { value: "120" } });
     expect(onChange).toHaveBeenCalledWith({ params: { qualified_quality_phred: 120 }, strategy: "racon" });
   });
+
+  // A database record as GET /databases sends it (only the fields the selector reads differ between records).
+  const record = (id: string, k: string, name: string, version: string | null, extra: Record<string, unknown> = {}) => ({
+    id, key: id, kind: k, name, version, version_source: null, path: null, source_url: null, licence: null, size_bytes: null, checksum: null,
+    archive_checksum: null, status: "installed", origin: "download", is_default: false, verification_level: null, installed_at: null,
+    verified_at: null, notes: null, error_message: null, progress: null, cancel_requested_at: null, created_at: "", updated_at: "",
+    version_json: null, version_file: null, variant: null, collection: null, files: null, published_md5_checked: null, amrfinderplus_db: null,
+    archive: null, catalogue_version: null, compatibility: null, jobs_using: 0, available: true, ...extra,
+  }) as Awaited<ReturnType<typeof api.databases>>[number];
+
+  it("offers database_id as the registered databases of the node's kind, empty meaning the default", async () => {
+    vi.spyOn(api, "databases").mockResolvedValue([
+      record("db-full", "bakta", "Bakta full", "6.0", { is_default: true }),
+      record("db-light", "bakta", "Bakta light", "6.0"),
+      record("db-amr", "amrfinderplus", "AMRFinderPlus", "2026-08-07.1"),
+    ]);
+    const onChange = vi.fn();
+    const schema = { properties: { database_id: { anyOf: [{ type: "string", maxLength: 36 }, { type: "null" }], default: null } } };
+    renderWith(<ParamPanel kind={kind({ kind: "bakta", params_schema: schema, database_kinds: { "": "bakta" } })} params={{ database_id: null }}
+      problems={[]} onChange={onChange} />);
+    await screen.findByRole("option", { name: "Bakta light · 6.0" });
+    expect(screen.getByRole("option", { name: "Bakta full · 6.0 · predeterminada" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "La base predeterminada de este tipo" })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: /AMRFinderPlus/ })).toBeNull();
+    fireEvent.change(screen.getByRole("combobox"), { target: { value: "db-light" } });
+    expect(onChange).toHaveBeenLastCalledWith({ database_id: "db-light" });
+    fireEvent.change(screen.getByRole("combobox"), { target: { value: "" } });
+    expect(onChange).toHaveBeenLastCalledWith({ database_id: null });
+  });
+
+  it("follows the method for the database kind and keeps an id it does not know", async () => {
+    vi.spyOn(api, "databases").mockResolvedValue([record("db-mob", "mobsuite", "MOB-suite", "3.1.8")]);
+    const schema = { properties: { method: { enum: ["mobsuite", "isescan"], type: "string" }, database_id: { anyOf: [{ type: "string" }, { type: "null" }], default: null } }, required: ["method"] };
+    const k = kind({ kind: "mobile_elements", tool_param: "method", params_schema: schema, database_kinds: { mobsuite: "mobsuite", isescan: null } });
+    const { unmount } = renderWith(<ParamPanel kind={k} params={{ method: "mobsuite", database_id: "gone-id" }} problems={[]} onChange={vi.fn()} />);
+    await screen.findByRole("option", { name: "MOB-suite · 3.1.8" });
+    expect(screen.getByRole("option", { name: "No es una base registrada de este tipo (gone-id)" })).toBeInTheDocument();
+    unmount();
+    renderWith(<ParamPanel kind={k} params={{ method: "isescan", database_id: null }} problems={[]} onChange={vi.fn()} />);
+    expect(screen.getByText("Este método no usa ninguna base registrada.")).toBeInTheDocument();
+  });
 });
 
 const item = (node: string, sample: string | null, status: RunItem["status"], extra: Partial<RunItem> = {}): RunItem => ({

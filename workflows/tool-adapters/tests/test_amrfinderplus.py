@@ -133,7 +133,10 @@ def test_edited_genome_point_mutation_contig_end_and_internal_stop():
     screen = point_mutation_screen(parse_report((FIXTURES / "n315_edited.mutation_all.tsv").read_text()))
     assert screen["mutations"] == 1
     codes = [w["code"] for w in warnings(AmrParams(organism="Staphylococcus_aureus"), rows("n315_edited"), screen)]
-    assert codes == ["genotype_not_phenotype", "hits_partial", "hits_contig_end", "hits_internal_stop"]
+    assert codes == ["genotype_not_phenotype", "hits_partial", "hits_contig_end", "hits_internal_stop",
+                     "hmm_not_searched"]
+    combined = AmrParams(mode="combined", organism="Staphylococcus_aureus", annotation_format="bakta")
+    assert "hmm_not_searched" not in [w["code"] for w in warnings(combined, rows("n315_edited"), screen)]
 
 
 def test_synthetic_genome_finds_nothing_and_says_what_was_not_searched():
@@ -143,7 +146,7 @@ def test_synthetic_genome_finds_nothing_and_says_what_was_not_searched():
     assert log["includes"] == ["-O ORGANISM, --organism ORGANISM option to add mutation searches and suppress common "
                                "proteins"]
     codes = [w["code"] for w in warnings(AmrParams(), [], None)]
-    assert codes == ["genotype_not_phenotype", "point_mutations_not_searched"]
+    assert codes == ["genotype_not_phenotype", "point_mutations_not_searched", "hmm_not_searched"]
 
 
 def test_constructed_rows_hmm_nucleotide_point_stx_and_protein_contig_end():

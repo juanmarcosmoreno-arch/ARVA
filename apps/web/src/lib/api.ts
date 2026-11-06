@@ -96,6 +96,7 @@ import type {
   ImportRoot,
   PerformanceOverview,
   PerformanceUpdate,
+  NativeExecutorStatus,
   Library,
   MetadataApplyResult,
   MetadataImportMode,
@@ -310,6 +311,8 @@ export const api = {
   requestBackup: () => request<MetadataBackups>("/system/backups", { method: "POST" }),
   performance: () => request<PerformanceOverview>("/system/performance"),
   setPerformance: (body: PerformanceUpdate) => request<PerformanceOverview>("/system/performance", json("PUT", body)),
+  /** ARVA.app's native executor: open or not, and the Flye it can run on this Mac. */
+  nativeExecutor: () => request<NativeExecutorStatus>("/system/native-executor"),
   importRoots: () => request<ImportRoot[]>("/imports/roots"),
   browseImport: (root: number, path: string) =>
     request<ImportListing>(`/imports/browse?${new URLSearchParams({ root: String(root), path })}`),
@@ -421,7 +424,7 @@ export const api = {
   assemblyGraph: (id: string, maxNodes: number, maxEdges: number) =>
     request<AssemblyGraph>(`/assemblies/${id}/graph?${new URLSearchParams({ max_nodes: String(maxNodes), max_edges: String(maxEdges) })}`),
   projectAssemblies: (projectId: string) => request<ProjectAssembly[]>(`/projects/${projectId}/assemblies`),
-  baktaPreview: (assemblyId: string, body: { database_id: string | null; skip_plot: boolean }) =>
+  baktaPreview: (assemblyId: string, body: { database_id: string | null; skip_plot: boolean; execution?: "docker" | "mac_native" }) =>
     request<AnnotationPlan>(`/assemblies/${assemblyId}/annotate/bakta/preview`, json("POST", body)),
   runBakta: (assemblyId: string, body: BaktaRequest) => request<AnalysisJob>(`/assemblies/${assemblyId}/annotate/bakta`, json("POST", body)),
   prokkaPreview: (assemblyId: string, body: { rfam: boolean; use_genus: boolean; genus: string | null; rename_contigs: boolean }) =>

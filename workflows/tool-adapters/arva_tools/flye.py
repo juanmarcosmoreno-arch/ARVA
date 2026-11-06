@@ -48,6 +48,7 @@ condition in polishing stage" (2.9.4: "Minor technical changes"; 2.9.5: "Python 
 from __future__ import annotations
 
 import csv
+import datetime as dt
 import io
 import json
 import math
@@ -55,12 +56,32 @@ import os
 import re
 import shutil
 import subprocess
+import time
 from dataclasses import asdict, dataclass, fields
 from pathlib import Path
 from typing import Any
 
-from arva_tools.base import DetectedTool, ToolAdapter, ToolInfo, ToolStatus, resolve_executable
-from arva_tools.runner import isolated_home, tool_environment
+from arva_tools.base import (
+    DetectedTool,
+    ToolAdapter,
+    ToolInfo,
+    ToolStatus,
+    conda_platform,
+    resolve_executable,
+)
+from arva_tools.native_common import (
+    NativeRefusal,
+    NativeStopped,
+    check_storage,
+    conda_package,
+    mac_facts,
+    native_folder,
+    native_path,
+    native_program,
+    native_relative,
+    sha256_file,
+)
+from arva_tools.runner import ToolExecutionError, isolated_home, run_command, tool_environment
 
 READ_TYPES = ("nano-raw", "nano-corr", "nano-hq", "pacbio-raw", "pacbio-corr", "pacbio-hifi")
 READ_ERROR_TYPES = frozenset({"nano-corr", "nano-hq", "pacbio-corr", "pacbio-hifi"})
@@ -216,7 +237,8 @@ class FlyeAdapter(ToolAdapter):
         install={"conda_lock": "python3 scripts/conda_locks.py install flye ~/.arva-tools/conda/flye  # then "
                                "ARVA_TOOL_FLYE=~/.arva-tools/conda/flye/bin/flye",
                  "apt": "flye samtools"},
-        conda_platforms=("linux-64", "linux-aarch64"),
+        # osx-arm64: the optional native lock ARVA.app installs (NATIVE_LOCK); Linux images use the other two.
+        conda_platforms=("linux-64", "linux-aarch64", "osx-arm64"),
     )
     # `flye --version` prints e.g. "2.9.3-b1797" (Ubuntu's 2.9.3), "2.9.6-b1802" (Bioconda's 2.9.6).
     version_pattern = re.compile(r"^\s*(\d+\.\d+(?:\.\d+)?)", re.M)
@@ -619,3 +641,163 @@ def memory_estimate(read_bases: int | None, available_gb: float | None, asm_cove
                              "genome_size_bp": genome_size_bp, "estimate_gb": reduced,
                              "coverage_x": round(read_bases / genome_size_bp, 1) if genome_size_bp else None}
     return out
+
+
+# --- Native run on the user's Mac (ARVA.app; docs/plan-flye-nativo.md, "Contrato implementado") -------------------
+#
+# Flye 2.9.6 fills an 8 GiB k-mer table whatever the reads (KMER_COUNTER_FLOOR), which does not fit Docker Desktop's
+# VM on an 8 GB Mac but runs natively, where macOS compresses the untouched pages. ARVA.app then runs this module
+# with the Python of the osx-arm64 Flye environment (created only from NATIVE_LOCK's lock file), through
+# arva_tools/native.py. It imports the standard library only. The API sends a "work" record: structured parameters,
+# paths relative to the data folder, and the argument vector the API built for the Mac; this module builds the
+# argument vector itself, with the same FlyeAdapter.argv as the Docker run, from the parameters, its own data folder
+# and executable and the Mac Flye's own --help, and refuses to run unless the two are identical. Nothing in the work
+# record is executed as given.
+
+# The lock ARVA.app installs from (scripts/conda_locks.py update flye --platform osx-arm64): its file's SHA-256 and
+# the Flye package it pins (the same 2.9.6 release as Linux, build _1 of 2026-04-13). A test checks both against
+# docker/conda-locks/flye/osx-arm64.lock.
+NATIVE_LOCK = {
+    "platform": "osx-arm64",
+    "lock": "docker/conda-locks/flye/osx-arm64.lock",
+    "lock_sha256": "54c2a42c2ee358b76f4776ab22bf3b7de38946f899ea2b039a8f3233fe8aa780",
+    "package": "flye-2.9.6-py313h05f0e27_1.conda",
+    "version": "2.9.6",
+    "build": "py313h05f0e27_1",
+    "package_sha256": "74a38467a2a1a6d6fa62aad6aef1c632055bd8ad5b24790db8526e7cad93b318",
+}
+NATIVE_STDERR_LOG = "flye.stderr.log"
+WORK_KEYS = ("tool", "storage_id", "data_dir", "executable", "params", "reads", "out_dir", "results_dir",
+             "stderr_log", "resume", "argv")
+
+
+def native_data_dir(path: Any) -> str:
+    """The data folder as given (absolute, normalised, without spaces: Flye refuses paths with spaces)."""
+    return native_folder(path, "Flye")
+
+
+def native_executable(path: Any) -> str:
+    """The Mac Flye's path as reported by ARVA.app: absolute, normalised, no spaces or control characters."""
+    return native_program(path, "flye")
+
+
+def native_argv(work: dict[str, Any], data_dir: str, executable: str, supported: frozenset[str]) -> list[str]:
+    """The argument vector of a native run: FlyeAdapter.argv, as for the Docker run, with the reads and out-dir under
+    this Mac's data folder. With the paths unchecked on disk (the API's side), use native_expected_argv."""
+    params = FlyeParams.from_dict(work["params"])
+    reads = [Path(native_path(data_dir, r)) for r in work["reads"]]
+    out_dir = Path(native_path(data_dir, work["out_dir"], must_exist=False))
+    try:
+        return FlyeAdapter.argv(executable, params, reads, out_dir, supported, resume=bool(work["resume"]))
+    except ValueError as exc:
+        raise NativeRefusal("settings_rejected", str(exc)) from exc
+
+
+def native_expected_argv(params: FlyeParams, data_dir: str, executable: str, reads: list[str], out_dir: str,
+                         supported: frozenset[str], resume: bool) -> list[str]:
+    """The same argument vector, built by the API for the work record (paths checked for form only: the API cannot
+    see the Mac's folders)."""
+    data_dir, executable = native_data_dir(data_dir), native_executable(executable)
+    paths = [Path(f"{data_dir}/{native_relative(r)}") for r in reads]
+    return FlyeAdapter.argv(executable, params, paths, Path(f"{data_dir}/{native_relative(out_dir)}"), supported,
+                            resume=resume)
+
+
+def native_facts(executable: str, lock: str | None = None) -> dict[str, Any]:
+    """What ARVA.app reports about its Flye when it registers: version (flye --version), the installed package's
+    build and SHA-256 (the environment's conda-meta record), the SHA-256 of the lock file it was created from, the
+    options of its --help, whether flye-samtools is beside it, and the Mac (platform, macOS version, chip, memory)."""
+    native_executable(executable)
+    with isolated_home() as home:
+        proc = subprocess.run([executable, "--version"], capture_output=True, text=True, errors="replace", timeout=60,
+                              env=tool_environment(home), cwd=home, stdin=subprocess.DEVNULL)
+    version = (proc.stdout + proc.stderr).strip().splitlines()[0] if proc.returncode == 0 and \
+        (proc.stdout + proc.stderr).strip() else None
+    helper = samtools_helper(executable)
+    return {
+        "tool": "flye",
+        "executable": executable,
+        "version": version,
+        "package": conda_package(executable, "flye"),
+        "lock_sha256": sha256_file(Path(lock)) if lock else None,
+        "help_options": sorted(FlyeAdapter.help_options(executable)),
+        "samtools_helper": helper["provided_by"] == "installation" and helper["path_prepend"] is not None,
+        **mac_facts(conda_platform()),
+    }
+
+
+def _check_work(work: Any, data_dir: str, executable: str) -> None:
+    if not isinstance(work, dict) or work.get("tool") != "flye":
+        raise NativeRefusal("not_flye_work", "the work record is not a Flye run")
+    if missing := [k for k in WORK_KEYS if k not in work]:
+        raise NativeRefusal("work_incomplete", f"the work record lacks {', '.join(missing)}")
+    if work["data_dir"] != data_dir:
+        raise NativeRefusal("other_data_dir", f"the work is for the data folder {work['data_dir']}, this Mac's "
+                                              f"ARVA uses {data_dir}")
+    if work["executable"] != executable:
+        raise NativeRefusal("other_executable", f"the work names {work['executable']}, this Mac's Flye is "
+                                                f"{executable}")
+    if not isinstance(work["reads"], list) or not isinstance(work["params"], dict) \
+            or not isinstance(work["argv"], list) or not isinstance(work["resume"], bool):
+        raise NativeRefusal("work_incomplete", "the work record's reads, params, argv or resume are malformed")
+    if work["stderr_log"] != NATIVE_STDERR_LOG:
+        raise NativeRefusal("unsafe_path", f"unexpected log name {work['stderr_log']!r}")
+    check_storage(data_dir, work["storage_id"])
+
+
+def prepare_native(work: Any, data_dir: str, executable: str) -> tuple[list[str], Path, dict[str, str]]:
+    """Every check before a native run, then (argv, results folder, extra environment). Raises NativeRefusal."""
+    data_dir, executable = native_data_dir(data_dir), native_executable(executable)
+    _check_work(work, data_dir, executable)
+    helper = samtools_helper(executable)
+    bindir = str(Path(executable).parent)
+    if helper["provided_by"] != "installation" or helper["path_prepend"] != bindir:
+        raise NativeRefusal("samtools_missing", f"{SAMTOOLS_HELPER} is not beside {executable}: this is not the "
+                                                "Bioconda environment ARVA installs")
+    try:
+        supported = FlyeAdapter.help_options(executable)
+    except (OSError, RuntimeError, subprocess.TimeoutExpired) as exc:
+        raise NativeRefusal("help_unreadable", f"flye --help could not be read: {exc}") from exc
+    argv = native_argv(work, data_dir, executable, supported)
+    if argv != work["argv"]:
+        raise NativeRefusal("argv_mismatch", "the argument vector built here differs from the API's; nothing was "
+                                             "run")
+    results = Path(native_path(data_dir, work["results_dir"]))
+    return argv, results, {"PATH": bindir + os.pathsep + os.environ.get("PATH", "")}
+
+
+def run_native(work: Any, data_dir: str, executable: str, timeout_seconds: float = 7 * 24 * 3600) -> dict[str, Any]:
+    """Check the work and run Flye as the Docker run does (no shell, its own process group, cleaned environment,
+    temporary HOME, stderr to <results>/flye.stderr.log, Flye's own bin/ first on PATH). Returns the report ARVA.app
+    sends to the API's finish endpoint: outcome "exited" (with Flye's exit code, negative for a signal), "refused"
+    (nothing was run, with a code), "stopped" (by ARVA.app, or the time limit) or "not_started"."""
+    report: dict[str, Any] = {"tool": "flye", "outcome": "refused", "exit_code": None, "argv": None,
+                              "executable": executable, "outputs": [], "started_at": None, "finished_at": None,
+                              "duration_seconds": None, "code": None, "detail": None}
+    try:
+        argv, results, env = prepare_native(work, data_dir, executable)
+    except NativeRefusal as exc:
+        report.update(code=exc.code, detail=str(exc))
+        return report
+    except NativeStopped:
+        # Stopped by ARVA.app while the checks ran: nothing was started.
+        report.update(outcome="not_started", code="stopped_by_app", detail="stopped before the run started")
+        return report
+    report.update(argv=argv, started_at=dt.datetime.now(dt.UTC).isoformat(timespec="seconds"))
+    start = time.monotonic()
+    try:
+        run_command(argv, cwd=results, stderr_path=results / NATIVE_STDERR_LOG, timeout_seconds=timeout_seconds,
+                    extra_env=env)
+        report.update(outcome="exited", exit_code=0)
+    except NativeStopped:
+        report.update(outcome="stopped", code="stopped_by_app")
+    except ToolExecutionError as exc:
+        # No exit code: the time limit (Flye's process group killed) or Flye could not be started at all.
+        outcome = "exited" if exc.returncode is not None else \
+            "stopped" if exc.code == "tool_timeout" else "not_started"
+        report.update(outcome=outcome, exit_code=exc.returncode, code=exc.code, detail=str(exc))
+    report.update(finished_at=dt.datetime.now(dt.UTC).isoformat(timespec="seconds"),
+                  duration_seconds=round(time.monotonic() - start, 1))
+    out_dir = work["out_dir"]
+    report["outputs"] = [f"{out_dir}/{n}" for n in OUTPUTS if os.path.isfile(f"{data_dir}/{out_dir}/{n}")]
+    return report
