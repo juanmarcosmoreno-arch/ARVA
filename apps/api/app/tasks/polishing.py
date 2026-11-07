@@ -19,6 +19,7 @@ import re
 import shutil
 import subprocess
 import time
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -37,6 +38,7 @@ from arva_tools.medaka import (
     MedakaParams,
     offered_models,
     read_catalogue,
+    unsafe_for_consensus,
 )
 from arva_tools.pilon import PilonAdapter, PilonParams, java_executable, java_version
 from arva_tools.racon import RaconAdapter, RaconParams
@@ -556,6 +558,9 @@ def _medaka_model(ctx: JobContext, exe: str, record: dict[str, Any]) -> tuple[li
     offered = offered_models(catalogue)
     shipped = {m["name"]: m for m in catalogue["bundled_models"]}
     model = record.get("model")
+    if record.get("model_source") == "registered":
+        _registered_model(ctx, catalogue, record)
+        return offered, catalogue
     if model not in offered or shipped[model]["sha256"] != record.get("sha256"):
         raise JobFailure(f"The Medaka model {model} is no longer the file recorded when the job was queued (sha256 "
                          f"{record.get('sha256')}); nothing was run")
@@ -566,6 +571,59 @@ def _medaka_model(ctx: JobContext, exe: str, record: dict[str, Any]) -> tuple[li
             + (f"; medaka's mapping gives {record['suggestion']['model']} for these reads, and the user confirmed "
                f"{model}" if record.get("mismatch_accepted") else ""))
     return offered, catalogue
+
+
+def _registered_model(ctx: JobContext, catalogue: dict[str, Any], record: dict[str, Any]) -> None:
+    """A model file from the Database Manager: still allowed by this medaka, still the file recorded when the job was
+    queued (SHA-256), and still passing ARVA's archive check (medaka unpickles it when it loads it)."""
+    from arva_tools import medaka_models as mm
+
+    model, path = record.get("model"), Path(record.get("path") or "")
+    if model not in (catalogue.get("allowed_models") or []):
+        raise JobFailure(f"Medaka {catalogue['version']} does not list the model {model}; nothing was run")
+    if not path.is_file():
+        raise JobFailure(f"The registered model file {path} is not there any more; nothing was run")
+    try:
+        facts = mm.check_file(path, model)
+    except mm.NotAModel as exc:
+        raise JobFailure(f"The registered model file {path.name} is not a Medaka model ARVA can use: {exc.detail}; "
+                         "nothing was run") from exc
+    if facts["sha256"] != record.get("sha256"):
+        raise JobFailure(f"The Medaka model {model} is no longer the file recorded when the job was queued (sha256 "
+                         f"{record.get('sha256')}); nothing was run")
+    ctx.log(f"Medaka model: {model} ({path.name}, registered in the Database Manager"
+            + (f", downloaded from {record['url']}" if record.get("url") else ", your own file")
+            + f"; SHA-256 {facts['sha256']}, the file medaka {mm.MEDAKA_TAG} publishes; "
+            f"{record.get('chemistry') or '?'}, trained for {record.get('basecaller') or '?'}); chosen by the user"
+            + (f"; medaka's mapping gives {record['suggestion']['model']} for these reads, and the user confirmed "
+               f"{model}" if record.get("mismatch_accepted") else ""))
+
+
+def _stage_registered_model(ctx: JobContext, params: MedakaParams, record: dict[str, Any],
+                            folder: Path) -> MedakaParams:
+    """A copy of the registered model file in the job's work folder, checked again by SHA-256, passed to -m instead of
+    the file where the user keeps it: bin/medaka_consensus expands -m unquoted (MODEL=$(medaka tools resolve_model
+    --model $OPTARG), --model $MODEL), so a path with spaces or glob characters (e.g. /Volumes/My Disk/...) would be
+    split or expanded into other files; the work folder is where the reads and the draft are linked as well. The copy
+    also means medaka loads exactly the bytes ARVA checked."""
+    from arva_tools import medaka_models as mm
+
+    source = Path(params.model_file or "")
+    if source != Path(record.get("path") or ""):
+        raise JobFailure(f"The Medaka model file {source} is not the registered file recorded with the job; nothing "
+                         "was run")
+    folder.mkdir(parents=True)
+    copy = folder / source.name
+    if unsafe_for_consensus(str(copy)):
+        raise JobFailure(f"The job's work folder {folder} contains spaces or the characters * ? [, which "
+                         "medaka_consensus would split or expand in -m; nothing was run")
+    shutil.copyfile(source, copy)
+    if (sha := mm.sha256_of(copy)) != record.get("sha256"):
+        raise JobFailure(f"The copy of the Medaka model {params.model} has SHA-256 {sha}, not the recorded "
+                         f"{record.get('sha256')}; nothing was run")
+    ctx.log(f"Medaka model file copied from {source} to the job's work folder (SHA-256 {sha}), so medaka_consensus "
+            "receives a path without spaces or glob characters")
+    return replace(params, model_file=str(copy))
 
 
 def _medaka_body(ctx: JobContext) -> None:
@@ -585,6 +643,8 @@ def _medaka_body(ctx: JobContext) -> None:
     long = reads["long"]
     # medaka_consensus writes the draft's .fai and .mmi next to it: it gets its own copy in the work folder.
     _copy_fasta(ctx.path(draft.contigs_path), work / "round0.fasta")
+    if params.model_file:
+        params = _stage_registered_model(ctx, params, record, work / "model")
     try:
         help_text = MedakaAdapter.help_text(exe)
         argv = MedakaAdapter.argv(exe, params, long, work / "round0.fasta", help_text, offered)
@@ -593,7 +653,7 @@ def _medaka_body(ctx: JobContext) -> None:
                          "help_unreadable", tool="Medaka", detail=str(exc)) from exc
     except ValueError as exc:
         raise JobFailure(f"Medaka cannot be run as recorded: {exc}") from exc
-    ctx.log(f"Medaka: medaka_consensus with -m {params.model}, -t {params.threads} (alignment, inference and "
+    ctx.log(f"Medaka: medaka_consensus with -m {params.model_file or params.model}, -t {params.threads} (alignment, inference and "
             f"stitching; medaka's README: inference may use threads + 4 and scales poorly beyond 2), -b "
             f"{params.batch_size} (batch size, controls memory use); gap filling from the draft (medaka's default)")
     if draft.declared_draft:
@@ -626,11 +686,13 @@ def _medaka_body(ctx: JobContext) -> None:
                          or f"medaka_consensus exited without an error but did not write {OUTPUT_DIR}/{CONSENSUS}",
                          "outputs_missing", tool="Medaka", files=f"{OUTPUT_DIR}/{CONSENSUS}")
     data_dir = Path(catalogue["data_dir"]).resolve()
-    expected = {(data_dir / f"{params.model}_model_pt.tar.gz")}
+    expected = {Path(params.model_file).resolve()} if params.model_file else \
+        {(data_dir / f"{params.model}_model_pt.tar.gz")}
     used = {Path(p).resolve() for p in parsed["model_files"]}
     if used != expected:
         raise JobFailure(f"Medaka used the model file(s) {', '.join(sorted(map(str, used))) or 'none logged'}, not "
-                         f"the package's {params.model}; nothing was registered")
+                         f"{'the registered file' if params.model_file else 'the package' + chr(39) + 's'} "
+                         f"{params.model}; nothing was registered")
     try:
         gaps = MedakaAdapter.parse_gaps(gaps_bed.read_text(errors="replace")) if gaps_bed.is_file() else {}
     except ValueError as exc:

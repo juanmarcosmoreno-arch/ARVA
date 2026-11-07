@@ -71,7 +71,10 @@ def _header(f: RawFile) -> tuple[str | None, str, list[str], list[str]]:
 
 
 def evidence(db: Session, files: list[RawFile]) -> list[dict[str, Any]]:
+    from app.services.imports import not_a_mate, sample_lone_mates
+
     stats = _latest_stats(db, [f.id for f in files])
+    lone, fastq_files = sample_lone_mates(db, {f.sample_id for f in files if f.read_mate})
     out = []
     for f in files:
         platform, confidence, models, pacbio = _header(f)
@@ -79,6 +82,8 @@ def evidence(db: Session, files: list[RawFile]) -> list[dict[str, Any]]:
         quality = (m or {}).get("quality") or {}
         out.append({
             "file_id": f.id, "name": f.original_filename, "origin": f.origin, "read_mate": f.read_mate,
+            "lone_mate": not_a_mate(f.id in lone, fastq_files.get(f.sample_id, 0), m["max_length"] if m else None,
+                                    platform, confidence),
             "header_platform": platform, "header_confidence": confidence, "basecall_models": models,
             "pacbio_read_types": pacbio, "stats_job_id": job_id,
             "read_count": m["read_count"] if m else None,
@@ -103,9 +108,12 @@ def check_files(sample: Sample, files: list[RawFile], ev: list[dict[str, Any]], 
                          "Nanopore or PacBio); correct the technology in the sample's metadata if the files hold "
                          "long reads.")
     for e in ev:
-        if e["read_mate"]:
+        # A lone mate (no file of the sample is its other half, e.g. ENA's <run>_1.fastq.gz of a single long-read
+        # run) is not half of a pair when it is the sample's only FASTQ file or holds long reads (imports.not_a_mate);
+        # the length and header checks below still apply.
+        if e["read_mate"] and not e.get("lone_mate"):
             raise InputError(f"{e['name']} is marked as read {e['read_mate']} of a pair: paired-end files hold short "
-                             "reads, which Flye does not assemble")
+                             "reads, which Flye does not assemble (if it holds long reads, set its mate role to none)")
         if e["header_platform"] == "illumina" and e["header_confidence"] in CONFIDENT:
             raise InputError(f"{e['name']}: its read headers identify Illumina reads ({e['header_confidence']} "
                              "confidence). Flye assembles long reads only")

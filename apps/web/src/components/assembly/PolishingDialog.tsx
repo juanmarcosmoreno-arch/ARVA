@@ -388,12 +388,15 @@ function Summary({ form, plan }: { form: PolishingForm; plan: PolishingPlan | un
 
 /** Medaka's model and batch size. The model is medaka's own choice for the reads' basecall model (medaka/options.py)
  * when ARVA read one from their headers and the package ships it; otherwise the user picks one of the shipped
- * models, and a choice that differs from medaka's mapping must be confirmed. ARVA never guesses one. */
+ * models or of the models registered in the Database Manager (R9.4.1 and others; passed as -m <file>), and a choice
+ * that differs from medaka's mapping must be confirmed. ARVA never guesses one, and never picks a registered one. */
 function MedakaSection({ form, set, plan }: { form: PolishingForm; set: <K extends keyof PolishingForm>(key: K, value: PolishingForm[K]) => void; plan: PolishingPlan | undefined }) {
   const t = useT();
   const m = plan?.medaka;
   const s = m?.suggestion ?? null;
   const mapped = s?.status === "mapped" ? s.model : null;
+  const registered = m?.registered ?? [];
+  const chosen = registered.find((r) => r.model === form.medakaModel);
   return (
     <Section title={t("polishing.medaka.title")} hint={t("polishing.medaka.hint")} action={<Explain id="medaka" compact />}>
       {m && !m.available && (
@@ -412,18 +415,34 @@ function MedakaSection({ form, set, plan }: { form: PolishingForm; set: <K exten
               {t("flye.suggestion.use")}
             </Button>
           )}
+          {s.status === "mapped_registered" && s.model && form.medakaModel !== s.model && (
+            <Button size="sm" variant="outline" onClick={() => set("medakaModel", s.model ?? "")}>
+              {t("polishing.medaka.chooseRegistered", { model: s.model })}
+            </Button>
+          )}
         </div>
       )}
       <div className="grid gap-3 sm:grid-cols-2">
         <Field label={t("polishing.medaka.model")} hint={t("polishing.medaka.modelHint")}>
           <Select value={form.medakaModel} onChange={(e) => set("medakaModel", e.target.value)} aria-label={t("polishing.medaka.model")}>
             <option value="">{mapped ? t("polishing.medaka.modelFromReads", { model: mapped }) : t("polishing.presetChoose")}</option>
-            {(m?.models ?? []).map((name) => (
-              <option key={name} value={name}>
-                {name}
-                {name === m?.default_model ? ` (${t("polishing.medaka.medakaDefault")})` : ""}
-              </option>
-            ))}
+            <optgroup label={t("polishing.medaka.shippedGroup")}>
+              {(m?.models ?? []).map((name) => (
+                <option key={name} value={name}>
+                  {name}
+                  {name === m?.default_model ? ` (${t("polishing.medaka.medakaDefault")})` : ""}
+                </option>
+              ))}
+            </optgroup>
+            {registered.length > 0 && (
+              <optgroup label={t("polishing.medaka.registeredGroup")}>
+                {registered.map((r) => (
+                  <option key={r.database_id} value={r.model}>
+                    {t("polishing.medaka.registeredOption", { model: r.model, chemistry: r.chemistry ?? "?", basecaller: r.basecaller ?? "?" })}
+                  </option>
+                ))}
+              </optgroup>
+            )}
           </Select>
         </Field>
         <Field label={t("polishing.medaka.batch")} hint={t("polishing.medaka.batchHint", { default: m?.default_batch_size ?? MEDAKA_BATCH_DEFAULT })}>
@@ -447,7 +466,18 @@ function MedakaSection({ form, set, plan }: { form: PolishingForm; set: <K exten
             : t("polishing.medaka.notFlye")}
         </p>
       )}
+      {chosen && (
+        <p className="text-xs text-muted-foreground" role="note">
+          {t("polishing.medaka.registeredChosen", { model: chosen.model, chemistry: chosen.chemistry ?? "?", basecaller: chosen.basecaller ?? "?", sha256: chosen.sha256.slice(0, 12) })}
+        </p>
+      )}
+      <p role="note" className="flex gap-1.5 rounded-lg bg-muted p-2.5 text-xs text-muted-foreground">
+        <Info className="h-3.5 w-3.5 shrink-0" aria-hidden /> {t("polishing.medaka.guidance")}
+      </p>
       <p className="text-xs text-muted-foreground">{t("polishing.medaka.models", { models: (m?.models ?? []).join(", ") || "—", version: m?.version ?? "?" })}</p>
+      <p className="text-xs text-muted-foreground">
+        {registered.length > 0 ? t("polishing.medaka.registeredModels", { models: registered.map((r) => r.model).join(", ") }) : t("polishing.medaka.noRegistered")}
+      </p>
       <p className="text-xs text-muted-foreground">{t("polishing.medaka.fixed")}</p>
     </Section>
   );

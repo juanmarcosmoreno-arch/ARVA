@@ -103,6 +103,16 @@ Implementation: `scientific-core/arva_core/header_meta.py` (schema `arva.header_
   `fastq-dump --readids` SRA names) and mate markers of the first 200 records are stored per file. For R1/R2 files paired by file name, the files look like mates when ≥ 99 % of
   names match position by position and no R1 read is marked 2 (or R2 read marked 1). A failed check
   is a warning only.
+- **Mate role from the file name, not for long reads**: a file named `_1`/`_2` or `_R1`/`_R2` is registered as
+  R1 or R2 of a pair unless its content shows long reads (a read longer than 1,000 bp among the first 1,000 records
+  checked at import, or headers that identify Oxford Nanopore or PacBio with medium or high confidence): paired-end
+  mates are short reads, and ENA names a run's single FASTQ `<run>_1.fastq.gz` (item 69 of the Mac test log, where
+  Flye refused such a file as "read R1 of a pair"). The file keeps a note of the mate its name gave and why it was
+  not used (`mate_note`). A file already marked R1 or R2 whose other mate is not in the sample (no file with the
+  same name and the other digit, nor the other output of the job that wrote it) is not treated as half of a pair
+  when it is the sample's only FASTQ file or ARVA's statistics or its headers show long reads. The mate role can be
+  corrected with `PATCH /api/v1/files/{id}` (`read_mate`: R1, R2 or null), which keeps the previous role and the
+  change in `mate_note`; the file is never changed. Paired Illumina files keep their mates.
 - **Limits**: read names are opaque identifiers that tools may rewrite (NCBI SRA replaces most of
   them), so a header without platform information is not evidence about the platform. Illumina read
   number 1 means "single-end or R1". Parsing never fails an import: lines are bounded (1,000,000
@@ -1028,10 +1038,62 @@ defaults, and real runs on the synthetic genome with a draft carrying 16 known e
     checksum, into the package folder or `~/.medaka/data`. ARVA therefore uses only the shipped consensus models:
     their files are part of a package pinned by its sha256 in the lock, and before every run ARVA checks each file's
     sha256 against conda's record of the package (`conda-meta/medaka-*.json`) and the job's recorded sha256, and
-    after the run that the log's "Using model: <file>" is that file. The user's model (sup v5.2.0, Dorado v5.2.0
-    basecalling, R10.4.1) is one of them, so a Database Manager entry for models was not needed; older basecaller
-    models (medaka maps them to models it would download) are polished with Racon instead. `--bacteria` is not
-    offered.
+    after the run that the log's "Using model: <file>" is that file. `--bacteria` is not offered.
+  - *Other models: the Database Manager (kind `medaka_model`, item 69 of the Mac test log).* Reads from R9.4.1
+    flow cells (public data such as PRJNA983748, Guppy 4 HAC on a GridION), R10.3, R10.4 E8.1 or older R10.4.1
+    basecallers need a model the package does not ship; with Racon alone, a homopolymer error left in one
+    validation genome changed an MLST allele (arcC_484 instead of arcC_1). Verified from the medaka 2.1.1 sources:
+    `options.py` lists `current_models` (shipped), `archived_models` plus the `basecaller_models` mapping ("can be
+    downloaded on the fly") and `deprecated_models` (the TensorFlow models of medaka 1.x, `r941_min_high_g360` among
+    them: `resolve_model` raises "Model '…' is deprecated in medaka v2.0. Please use medaka version 1.x."); a name
+    resolves to `<name>_model_pt.tar.gz` in `medaka/data` or `~/.medaka/data`, and an existing path is returned
+    unchanged ("model is path to model file"), so `medaka_consensus -m <file>` uses that file (its `-h`:
+    "Alternatively a .tar.gz/.hdf file from 'medaka train'"). `medaka tools download_models --models …` and
+    `resolve_model` download from `model_url_template` (the master branch) with `requests.get`, no checksum,
+    accepting any archive whose meta has `model_function`. The repository keeps the model files in Git LFS
+    (`.gitattributes`), so its tree holds LFS pointers with each file's SHA-256 and size; GitHub serves the content
+    from `media.githubusercontent.com/media/nanoporetech/medaka/<ref>/medaka/data/<file>`. ARVA's list
+    (`arva_tools/medaka_models.py`) holds the consensus models `medaka_consensus -h` 2.1.1 offers that the package
+    does not ship (read-level, APK joint and bacterial methylation models left out), each with the SHA-256 and size
+    of its LFS pointer at the tag `v2.1.1` (commit 7354d9d, whose `options.py` is byte-identical to the installed
+    one). What a model was trained for comes from medaka's naming: pore (r941 = R9.4.1, r103, r104, r1041), device
+    or kit (min = MinION/GridION, prom = PromethION, e81, e82 with 260 or 400 bps), accuracy (fast, hac, sup) and
+    basecaller (gNNN = Guppy N.N.N, as the CHANGELOG's "Models for Guppy version 5.0.7"; vX.Y.Z = the Dorado model
+    version of `basecaller_models`). Licence: the Oxford Nanopore Technologies PLC. Public License Version 1.0
+    (medaka's README and LICENSE; the model files are part of the repository).
+  - *Download (only after confirmation).* The Database Manager shows the model, what it was trained for, the
+    address (the repository at `v2.1.1`, not master), the size, the published SHA-256, the licence, the folder and
+    the space; after the user confirms, the worker downloads the file (resumable), compares its size and SHA-256
+    with the LFS pointer (a different file is deleted), checks the archive without running it (only `model/` with
+    `meta.pkl` and `weights.pt`; every global the two pickles would import, read with `pickletools`, must be one
+    medaka's own models use: `functools.partial`, `medaka.models.build_model_torch`, a `medaka.labels` label scheme,
+    a `medaka.features` feature encoder; `collections.OrderedDict`, `torch.*Storage`,
+    `torch._utils._rebuild_tensor_v2`), then lets medaka load it once in its environment as it loads a model it
+    downloads, and records the address, the SHA-256 and the archive facts in the record and in
+    `ARVA_DATABASE.json` beside the file. A model file the user already has is registered where it is, after the
+    same checks (its name must be one of the published models and its SHA-256 the published one); ARVA never
+    changes or deletes it. One record per model; a model is never a default.
+  - *Use.* The polishing dialog, the workflow's polishing node and the API offer the shipped models and the
+    registered ones (`plan.medaka.registered`). A registered model is used only when the user chooses it, even when
+    medaka's own mapping names it for the reads' basecall model (the suggestion says it is registered); ARVA then
+    checks before the run that the file still has the recorded SHA-256 and passes the archive check, copies it into
+    the job's work folder (checking the copy's SHA-256 again) and passes the copy with `-m <file>`
+    (`bin/medaka_consensus` expands `-m` unquoted, so a path with spaces, such as an external disk's
+    `/Volumes/My Disk/...`, would be split), and after the run checks that the log's "Using model:" is that copy. The
+    job records the model, its
+    source (`shipped` or `registered`), its SHA-256, the address it came from and the database record (which cannot
+    be deleted while the job is queued or runs); the report says "registered in the Database Manager". Guidance
+    shown with the choice: pick the model that matches the reads' flow cell and basecaller; for R9.4.1 reads
+    basecalled with Guppy 4 or 5 in HAC mode on a MinION or GridION, `r941_min_hac_g507` (PromethION:
+    `r941_prom_hac_g507`), the closest model medaka 2 can load: `r941_min_high_g360`, made for Guppy 3.6, is
+    deprecated and not loadable. medaka does not document how well a g507 model fits Guppy 4 reads.
+  - *Test of a downloaded model (2026-11-07).* `r941_min_hac_g507_model_pt.tar.gz` from
+    `https://media.githubusercontent.com/media/nanoporetech/medaka/v2.1.1/medaka/data/r941_min_hac_g507_model_pt.tar.gz`:
+    1,502,971 bytes, SHA-256 `6e87607808bfe7884fc701ded596931afeeb8a59e69bdcb268ef07ac7680ac26` (the LFS pointer's
+    oid; the server's ETag is the same hash). `medaka_consensus -i reads -d draft.fasta -o medaka -m <that file>
+    -t 2 -b 100` (medaka 2.1.1, HOME empty) logged "Using model: <that file>", downloaded nothing, and corrected the
+    synthetic draft's 16 known edits (dnadiff: 0 SNPs, 0 indels; the synthetic reads' errors are random, so this
+    checks that the file is used, not its accuracy on R9.4.1 data).
   - *Test.* On the synthetic draft (7 substitutions, 12 indel bases) one run with `r1041_e82_400bps_sup_v5.2.0`
     and 2 threads gave a sequence identical to the reference (dnadiff: 0 SNPs, 0 indels), kept both contig names
     and copied nothing unpolished, in about 20 s; HOME stayed empty (no download). The synthetic reads' errors are

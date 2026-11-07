@@ -524,6 +524,8 @@ class QuickValidation:
     # Stable code of the message, with its values, so an interface can show it in its own language.
     code: str = ""
     params: dict[str, Any] = field(default_factory=dict)
+    # The longest sequence among the records checked (0 when none was read).
+    max_length: int = 0
 
 
 def quick_validate(path: Path, max_records: int = 1000) -> QuickValidation:
@@ -546,12 +548,14 @@ def quick_validate(path: Path, max_records: int = 1000) -> QuickValidation:
             "Unrecognised content: expected FASTQ (records starting with '@') or FASTA ('>').", code="unrecognised",
         )
     checked = 0
+    longest = 0
     headers: list[bytes] = []
     header_bytes = 0
     try:
         with open_sequence_file(Path(path)) as fh:
-            for header, _seq, _qual, _line in iter_records(fh, info.format):
+            for header, seq, _qual, _line in iter_records(fh, info.format):
                 checked += 1
+                longest = max(longest, len(seq))
                 header_bytes += len(header)
                 if header_bytes <= MAX_HEADER_BYTES:
                     headers.append(header)
@@ -577,4 +581,5 @@ def quick_validate(path: Path, max_records: int = 1000) -> QuickValidation:
         headers,
         "verified",
         {"format": info.format.value.upper(), "count": checked},
+        longest,
     )

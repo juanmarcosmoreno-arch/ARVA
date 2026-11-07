@@ -15,7 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
-from app.db.base import new_uuid
+from app.db.base import new_uuid, utcnow
 from app.models import FileFormat, RawFile, Sample
 from app.services.capacity import InsufficientStorageError, ensure_space
 from app.storage import get_storage
@@ -36,15 +36,92 @@ class DuplicateFileError(ValueError):
         )
 
 
+# Reads longer than this are long reads (short_hybrid.SHORT_READ_MAX_LENGTH: short reads are at most 1,000 bp).
+LONG_READ_MIN_LENGTH = 1_000
+_LONG_PLATFORMS = ("nanopore", "pacbio")
+_CONFIDENT = ("high", "medium")
+
+
 def detect_read_mate(filename: str) -> str | None:
     m = _MATE.search(filename)
     return f"R{m.group(1)}" if m else None
+
+
+def mate_from_content(name_mate: str | None, max_length: int, headers: dict[str, Any] | None) -> tuple[str | None,
+                                                                                                      dict | None]:
+    """The mate a file is registered as: the one its name gives (R1/R2), unless its content shows long reads (a read
+    longer than LONG_READ_MIN_LENGTH among the first records checked, or headers that identify Oxford Nanopore or
+    PacBio): paired-end mates are short reads, and ENA names a run's single FASTQ <run>_1.fastq.gz. Returns the mate
+    and, when the name's mate was not used, why."""
+    if name_mate is None:
+        return None, None
+    suggestion = (headers or {}).get("suggested_technology") or {}
+    platform = suggestion.get("value") if suggestion.get("confidence") in _CONFIDENT else None
+    if max_length > LONG_READ_MIN_LENGTH or platform in _LONG_PLATFORMS:
+        reason = "long_reads" if max_length > LONG_READ_MIN_LENGTH else "long_read_headers"
+        return None, {"from_name": name_mate, "set_by": "content", "reason": reason, "max_length": max_length,
+                      "platform": platform}
+    return name_mate, None
 
 
 def mate_pair_key(filename: str) -> str | None:
     """The same for the R1 and R2 file of one pair (the mate digit replaced)."""
     m = _MATE.search(filename)
     return (filename[: m.start(1)] + "#" + filename[m.end(1) :]).lower() if m else None
+
+
+def lone_mates(files: list[RawFile]) -> set[str]:
+    """The ids of files marked R1 or R2 whose other mate is not among `files` (the same file name with the other
+    mate digit, or the other output of the job that wrote it). A lone mate is not half of a pair: a single long-read
+    FASTQ that ENA names <run>_1.fastq.gz, imported before ARVA read its content, is one."""
+    out = set()
+    for f in files:
+        if f.read_mate not in ("R1", "R2"):
+            continue
+        other = "R2" if f.read_mate == "R1" else "R1"
+        key = mate_pair_key(f.original_filename)
+        if not any(g.id != f.id and g.read_mate == other
+                   and ((key is not None and mate_pair_key(g.original_filename) == key)
+                        or (f.produced_by_job_id is not None and g.produced_by_job_id == f.produced_by_job_id))
+                   for g in files):
+            out.add(f.id)
+    return out
+
+
+def sample_lone_mates(db: Session, sample_ids: set[str]) -> tuple[set[str], dict[str, int]]:
+    """The lone mates of the samples' files, and how many FASTQ files each sample has."""
+    rows = list(db.scalars(select(RawFile).where(RawFile.sample_id.in_(sample_ids)))) if sample_ids else []
+    fastq: dict[str, int] = {}
+    for f in rows:
+        if f.file_format in (FileFormat.fastq, FileFormat.fastq_gz):
+            fastq[f.sample_id] = fastq.get(f.sample_id, 0) + 1
+    return lone_mates(rows), fastq
+
+
+def not_a_mate(lone: bool, sample_fastq_files: int, max_length: int | None, platform: str | None,
+               confidence: str | None) -> bool:
+    """Whether a file marked R1 or R2 by its name is not half of a pair: it is a lone mate (no file of the sample is
+    its other half) and either the sample has no other FASTQ file or the file holds long reads (ARVA's statistics or
+    confident read headers)."""
+    if not lone:
+        return False
+    long_reads = (max_length is not None and max_length > LONG_READ_MIN_LENGTH) or \
+        (platform in _LONG_PLATFORMS and confidence in _CONFIDENT)
+    return sample_fastq_files <= 1 or long_reads
+
+
+def set_read_mate(db: Session, f: RawFile, mate: str | None) -> RawFile:
+    """Correct a file's mate role (R1, R2 or none: not part of a pair), keeping what it was and when it changed."""
+    detail = dict(f.validation_detail or {})
+    note = dict(detail.get("mate") or {})
+    note.update({"from_name": note.get("from_name", detect_read_mate(f.original_filename)), "set_by": "user",
+                 "previous": f.read_mate, "reason": "user", "at": utcnow().isoformat()})
+    detail["mate"] = note
+    f.read_mate = mate
+    f.validation_detail = detail
+    db.commit()
+    db.refresh(f)
+    return f
 
 
 def header_metadata(headers: list[bytes]) -> dict[str, Any] | None:
@@ -74,9 +151,13 @@ def _validate(
     if pod5 is not None:
         return FileFormat.pod5, None, pod5.is_complete, pod5.message, {"code": pod5.code, "params": {}}, None
     check = quick_validate(path)
+    headers = header_metadata(check.headers)
+    detail: dict[str, Any] = {"code": check.code, "params": check.params}
+    mate, note = mate_from_content(detect_read_mate(filename), check.max_length, headers)
+    if note is not None:
+        detail["mate"] = note
     return (
-        _to_file_format(check.format, check.compressed), detect_read_mate(filename), check.is_valid,
-        check.message, {"code": check.code, "params": check.params}, header_metadata(check.headers),
+        _to_file_format(check.format, check.compressed), mate, check.is_valid, check.message, detail, headers,
     )
 
 

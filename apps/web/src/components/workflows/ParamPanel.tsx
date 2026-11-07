@@ -60,6 +60,8 @@ function FieldRow({ field: f, value, serverProblem, onChange, readOnly, database
   let control;
   if (databaseKind !== undefined) {
     control = <DatabaseSelect kind={databaseKind} value={typeof value === "string" ? value : null} readOnly={readOnly} onChange={onChange} />;
+  } else if (f.path === "medaka.model") {
+    control = <MedakaModelSelect value={typeof value === "string" ? value : null} readOnly={readOnly} onChange={onChange} />;
   } else if (f.kind === "boolean") {
     control = <input type="checkbox" className="h-4 w-4 accent-arva-teal" checked={Boolean(value)} disabled={readOnly} onChange={(e) => onChange(e.target.checked)} />;
   } else if (f.kind === "enum") {
@@ -112,6 +114,43 @@ function FieldRow({ field: f, value, serverProblem, onChange, readOnly, database
       {range && f.kind !== "boolean" && <p className="text-[10px] text-muted-foreground">{range}</p>}
       {local && !readOnly && <p className="text-[11px] text-danger">{t(local)}</p>}
       {serverProblem && <p className="text-[11px] text-danger">{t("wf.param.server", { message: serverProblem })}</p>}
+    </div>
+  );
+}
+
+/** medaka.model as a choice among the models Medaka's package ships and the ones registered in the Database Manager.
+ * Empty: medaka's own model for the reads' basecall model, used only when the package ships it (a registered model is
+ * never chosen for you). */
+function MedakaModelSelect({ value, readOnly, onChange }: { value: string | null; readOnly: boolean; onChange: (v: string | null) => void }) {
+  const t = useT();
+  const listing = useQuery({ queryKey: ["medaka-models"], queryFn: api.medakaModels, staleTime: 60_000 });
+  const shipped = listing.data?.shipped ?? [];
+  const registered = listing.data?.registered ?? [];
+  const known = !value || shipped.includes(value) || registered.some((r) => r.model === value);
+  return (
+    <div className="space-y-1">
+      <Select className="h-8 text-xs" value={value ?? ""} disabled={readOnly} onChange={(e) => onChange(e.target.value === "" ? null : e.target.value)}>
+        <option value="">{t("wf.param.medakaFromReads")}</option>
+        <optgroup label={t("polishing.medaka.shippedGroup")}>
+          {shipped.map((m) => (
+            <option key={m} value={m}>
+              {m}
+            </option>
+          ))}
+        </optgroup>
+        {registered.length > 0 && (
+          <optgroup label={t("polishing.medaka.registeredGroup")}>
+            {registered.map((r) => (
+              <option key={r.database_id} value={r.model}>
+                {t("polishing.medaka.registeredOption", { model: r.model, chemistry: r.chemistry ?? "?", basecaller: r.basecaller ?? "?" })}
+              </option>
+            ))}
+          </optgroup>
+        )}
+        {!known && value && <option value={value}>{value}</option>}
+      </Select>
+      <p className="text-[10px] text-muted-foreground">{t("polishing.medaka.guidance")}</p>
+      {listing.isError && <p className="text-[11px] text-danger">{t("wf.param.dbLoadError")}</p>}
     </div>
   );
 }

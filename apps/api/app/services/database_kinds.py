@@ -513,6 +513,52 @@ KINDS: tuple[DatabaseKind, ...] = (
                      "Whether NCBI keeps older builds anywhere: none is on the FTP listing."),
     ),
     DatabaseKind(
+        key="medaka_model",
+        name="Medaka model",
+        description="A Medaka consensus model that the medaka package does not ship, for reads of other flow cells "
+                    "or basecallers than R10.4.1 with Dorado v5.2.0 (the two models it ships): R9.4.1 (Guppy 5 "
+                    "models, MinION/GridION, PromethION and E8.1), R10.3, R10.4 E8.1 and older R10.4.1 basecaller "
+                    "versions. Choose the model that matches the reads' flow cell and basecaller.",
+        tools=(ToolUse("Medaka", "medaka 2.1.1 lists these models in medaka_consensus -h and loads a model file given "
+                                 "with -m <file>; the old TensorFlow models (r941_min_high_g360 and the other "
+                                 "deprecated_models of medaka/options.py) are not loadable in medaka 2",
+                       integrated=True),),
+        source_url="https://github.com/nanoporetech/medaka/tree/v2.1.1/medaka/data",
+        licence="Oxford Nanopore Technologies PLC. Public License Version 1.0 (medaka's licence; the model files "
+                "are part of its repository)",
+        licence_url="https://github.com/nanoporetech/medaka/blob/v2.1.1/LICENSE",
+        citation="Oxford Nanopore Technologies. Medaka: sequence correction provided by ONT Research. "
+                 "https://github.com/nanoporetech/medaka",
+        recognise="A file <model>_model_pt.tar.gz (medaka/models.py model_suffixes) holding model/meta.pkl and "
+                  "model/weights.pt, whose pickles import only what medaka's own models import (checked without "
+                  "running them), with the SHA-256 and size of the file medaka publishes under that name; a folder "
+                  "ARVA downloaded it into has ARVA_DATABASE.json beside the file.",
+        version_from="The model name (it states the pore, device or kit, accuracy and basecaller version), "
+                     "identified by the SHA-256 of medaka v2.1.1's published file (its Git LFS pointer).",
+        typical_size="About 1.5 MB per model.",
+        download="current",
+        download_note="medaka would download a missing model from its repository's master branch with no checksum "
+                      "(models.resolve_model); ARVA never lets it. After you confirm the model, what it was trained "
+                      "for, the address, the size and the licence, ARVA downloads <model>_model_pt.tar.gz from the "
+                      "medaka repository at the tag of the installed version (v2.1.1, served by GitHub from "
+                      "media.githubusercontent.com because the repository keeps models in Git LFS), checks the "
+                      "SHA-256 and size against the Git LFS pointer of that tag, checks the archive, lets medaka load "
+                      "it once, and records the address and SHA-256.",
+        accepts=("folder", "file"),
+        sources=("medaka 2.1.1 package: medaka/options.py (current_models, archived_models, basecaller_models, "
+                 "deprecated_models, model_url_template), medaka/models.py (resolve_model, model_suffixes), "
+                 "medaka/datastore.py (ModelStoreTGZ), medaka/medaka.py (download_models, list_models), "
+                 "bin/medaka_consensus (-m)",
+                 "github.com/nanoporetech/medaka at tag v2.1.1 (commit 7354d9d): .gitattributes (models in Git LFS), "
+                 "the LFS pointers of medaka/data/*_model_pt.tar.gz (SHA-256 and size), README (Licence and "
+                 "Copyright), CHANGELOG (model naming), LICENSE",
+                 "Download of r941_min_hac_g507_model_pt.tar.gz on 2026-11-07 (1,502,971 bytes, SHA-256 as "
+                 "published) and a medaka_consensus 2.1.1 run with -m <file>"),
+        unconfirmed=("medaka's model names state the basecaller version they were trained on (g507: Guppy 5.0.7); "
+                     "how well a model fits reads from another basecaller version (for example Guppy 4 HAC reads "
+                     "with r941_min_hac_g507) is not documented by medaka.",),
+    ),
+    DatabaseKind(
         key="reference_genomes",
         name="Reference genome collection",
         description="Genomes of known species (for example type and reference strains) to identify a genome's "
@@ -617,6 +663,8 @@ def compatibility(kind_key: str, version_json: dict | None = None, installed: st
         return Compatibility("unknown", "tool_not_integrated", {"tool": BY_KEY[kind_key].tools[-1].tool})
     if kind_key == "spa_types":
         return _spa_types(installed)
+    if kind_key == "medaka_model":
+        return _medaka_model(version, installed)
     if kind_key in TESTED_DATA:
         return _tested(kind_key, version, installed)
     if kind_key != "bakta":
@@ -654,6 +702,25 @@ def _spa_types(installed: str | None) -> Compatibility:
     if not installed:
         return Compatibility("unknown", "tool_not_installed", {"tool": "spaTyper"})
     return Compatibility("compatible", "no_requirement", {"tool": f"spaTyper {installed}"})
+
+
+def _medaka_model(model: str | None, installed: str | None) -> Compatibility:
+    """A model file is for the medaka version whose published list it comes from (arva_tools.medaka_models, medaka
+    2.1.1): compatible with that medaka, unknown with another version or none."""
+    from arva_tools.medaka_models import MEDAKA_VERSION, PUBLISHED
+    from arva_tools.registry import detect
+
+    if installed is None:
+        d = detect("medaka")
+        installed = d.version if d.path else None
+    if not installed:
+        return Compatibility("unknown", "tool_not_installed", {"tool": "Medaka"})
+    if installed != MEDAKA_VERSION:
+        return Compatibility("unknown", "tool_version_unchecked", {"tool": "Medaka", "version": installed})
+    if model not in PUBLISHED:
+        return Compatibility("unknown", "medaka_model_unknown", {"tool": "Medaka", "version": installed,
+                                                                 "model": model or "?"})
+    return Compatibility("compatible", "medaka_model", {"tool": "Medaka", "version": installed, "model": model})
 
 
 def leading_version(declared: str | None) -> str:

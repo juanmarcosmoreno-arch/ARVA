@@ -46,7 +46,7 @@ from app.schemas.schemas import (
     UnicyclerPreviewRequest,
     UnicyclerRequest,
 )
-from app.services import flye, genome_registration, polishing, quast, short_hybrid
+from app.services import flye, genome_registration, medaka_models, polishing, quast, short_hybrid
 from app.services.assemblies import GRAPH_MAX_EDGES, GRAPH_MAX_NODES, assembly_graph
 from app.services.jobs import (
     create_assembly_import_job,
@@ -369,7 +369,8 @@ def start_polishing(assembly_id: str, payload: PolishingRequest, db: Session = D
             if catalogue is None:
                 raise HTTPException(status.HTTP_409_CONFLICT, f"Medaka is not available: {error}")
             medaka_model = polishing.choose_medaka_model(catalogue, ev, payload.medaka.model,
-                                                         payload.medaka.accept_model_mismatch)
+                                                         payload.medaka.accept_model_mismatch,
+                                                         medaka_models.registered(db))
     except (flye.InputError, quast.InputError) as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
     if payload.quast and detect("quast", refresh=True).status is not ToolStatus.available:
@@ -381,7 +382,8 @@ def start_polishing(assembly_id: str, payload: PolishingRequest, db: Session = D
     if payload.strategy in ("racon", "hybrid"):
         racon = RaconParams(**payload.racon.model_dump(), threads=threads)
     if payload.strategy == "medaka" and medaka_model is not None:
-        medaka = MedakaParams(model=medaka_model["model"], threads=threads, batch_size=payload.medaka.batch_size)
+        medaka = MedakaParams(model=medaka_model["model"], threads=threads, batch_size=payload.medaka.batch_size,
+                              model_file=medaka_model.get("path"))
     if payload.strategy in ("pilon", "hybrid"):
         values = payload.pilon.model_dump()
         heap = values.pop("heap_gb")

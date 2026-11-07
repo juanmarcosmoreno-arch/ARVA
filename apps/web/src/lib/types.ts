@@ -60,6 +60,8 @@ export interface RawFile {
   original_filename: string;
   file_format: FileFormat;
   read_mate: string | null;
+  /** Why read_mate is not the mate the file name gives (content: long reads; user: corrected). */
+  mate_note?: { from_name: string | null; set_by: "content" | "user"; reason: string; max_length?: number; previous?: string | null } | null;
   size_bytes: number;
   checksum_sha256: string | null;
   is_valid: boolean;
@@ -1630,7 +1632,86 @@ export interface PolishingTool {
 export type PolishingToolId = "racon" | "medaka" | "minimap2" | "pilon" | "java" | "bwa" | "samtools" | "dnadiff";
 
 /** How medaka's own mapping (medaka/options.py) relates the reads' basecall model to a Medaka model. */
-export type MedakaSuggestionStatus = "mapped" | "mapped_not_bundled" | "unknown_basecall_model" | "fast_unsupported" | "several_basecall_models" | "no_basecall_model";
+export type MedakaSuggestionStatus = "mapped" | "mapped_not_bundled" | "mapped_registered" | "unknown_basecall_model" | "fast_unsupported" | "several_basecall_models" | "no_basecall_model";
+
+/** A Medaka model registered in the Database Manager (downloaded by ARVA or a file of yours), used only when chosen. */
+export interface RegisteredMedakaModel {
+  database_id: string;
+  model: string;
+  name: string;
+  /** The file passed to medaka_consensus -m. */
+  path: string;
+  sha256: string;
+  /** Where ARVA downloaded it from (none: your own file). */
+  url: string | null;
+  origin: string;
+  status: string;
+  chemistry: string | null;
+  device: string | null;
+  accuracy: string | null;
+  /** The basecaller version the model was trained for. */
+  basecaller: string | null;
+  notes: string[];
+}
+
+/** A Medaka model ARVA can download (arva_tools.medaka_models: published by medaka v2.1.1, not in its package). */
+export interface MedakaModelInfo {
+  name: string;
+  file: string;
+  pore: string;
+  chemistry: string;
+  device: string | null;
+  accuracy: string;
+  basecaller: string;
+  sha256: string;
+  bytes: number;
+  url: string;
+  pointer_url: string;
+  medaka_url: string;
+  notes: string[];
+  database_id: string | null;
+  status: DatabaseStatus | null;
+}
+
+export interface MedakaModelListing {
+  medaka_version: string | null;
+  published_for: string;
+  tag: string;
+  commit: string;
+  shipped: string[];
+  available: MedakaModelInfo[];
+  registered: RegisteredMedakaModel[];
+  licence: string;
+  licence_url: string;
+  citation: string;
+  medaka_url_template: string;
+  download_url_template: string;
+  deprecated_example: string;
+}
+
+export interface MedakaModelPlan extends Omit<MedakaModelInfo, "database_id" | "status"> {
+  model: string;
+  key: string;
+  medaka_version: string;
+  tag: string;
+  commit: string;
+  licence: string;
+  licence_url: string;
+  citation: string;
+  source_page: string;
+  db_dir: string;
+  folder: string;
+  target_path: string;
+  host_target_path: string | null;
+  destinations: DatabaseLocation[];
+  required_bytes: number;
+  free_bytes: number;
+  reserve_bytes: number;
+  available_bytes: number;
+  enough: boolean;
+  blocked_by: string | null;
+  blocked_code: string | null;
+}
 
 export interface MedakaPlan {
   available: boolean;
@@ -1643,6 +1724,8 @@ export interface MedakaPlan {
   default_model: string | null;
   suggestion: { status: MedakaSuggestionStatus; basecall_model: string | null; basecall_models: string[]; model: string | null; source: string } | null;
   default_batch_size: number;
+  /** Models registered in the Database Manager that this medaka lists; used only when chosen. */
+  registered?: RegisteredMedakaModel[];
   /** Why the chosen reads cannot be polished with Medaka. */
   problem: string | null;
   /** The draft is an unpolished Flye assembly, the input Medaka's models were trained on. */
@@ -1835,7 +1918,18 @@ export interface PolishingSummary {
   helpers: { name: string; version: string | null; path: string }[];
   followups: { pilon_job_id?: string; quast_job_id?: string; pilon_error?: string; quast_error?: string };
   medaka?: {
-    model: { model: string; source: "basecall_model" | "user"; mismatch_accepted: boolean; sha256: string; file: string; suggestion: MedakaPlan["suggestion"] };
+    model: {
+      model: string;
+      source: "basecall_model" | "user";
+      /** shipped: the package's own file; registered: a model file from the Database Manager (passed with -m <file>). */
+      model_source?: "shipped" | "registered";
+      mismatch_accepted: boolean;
+      sha256: string;
+      file: string;
+      path?: string;
+      url?: string | null;
+      suggestion: MedakaPlan["suggestion"];
+    };
     threads: number;
     batch_size: number;
     programs: { program: string; version: string; required: string; pass: boolean }[];
@@ -1987,6 +2081,8 @@ export interface ReferenceDatabase {
   mlst?: MlstDatabase | null;
   /** A VFDB that ABRicate can search: its set (A core, B full), version, source and checksums. */
   vfdb?: VfdbProvenance | null;
+  /** A Medaka model: its name, what it was trained for, its file, SHA-256 and address. */
+  medaka_model?: RegisteredMedakaModel | null;
 }
 
 /** Which VFDB a record is or a virulence run searched (apps/api/app/services/vfdb_db.py provenance). */

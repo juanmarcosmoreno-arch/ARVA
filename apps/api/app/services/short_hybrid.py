@@ -129,9 +129,9 @@ def check_inputs(sample: Sample, inputs: Inputs, ev: list[dict[str, Any]], tool:
                          f"{pair[1]['read_count']:,} (ARVA read statistics); the two files of a pair must hold the "
                          "same reads in the same order")
     if (e := by_role.get("long")) is not None:
-        if e["read_mate"]:
+        if e["read_mate"] and not e.get("lone_mate"):
             raise InputError(f"{e['name']} is marked as read {e['read_mate']} of a pair: paired-end files hold short "
-                             "reads, not long reads")
+                             "reads, not long reads (if it holds long reads, set its mate role to none)")
         if e["header_platform"] == "illumina" and e["header_confidence"] in CONFIDENT:
             raise InputError(f"{e['name']}: its read headers identify Illumina reads ({e['header_confidence']} "
                              "confidence), not long reads")

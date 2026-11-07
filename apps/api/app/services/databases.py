@@ -88,6 +88,8 @@ MESSAGES = {
                          "goes with the tool's environment).",
     "mobsuite_taxonomy_unreachable": "NCBI's dated taxonomy archives could not be read ({detail}).",
     "mobsuite_taxonomy_unknown": "NCBI lists no taxonomy archive {name}.",
+    "no_default_kind": "{kind} has no default: each analysis uses the one you choose.",
+    "medaka_model_known": "{model} is already known to ARVA ({path}); delete that record first.",
     "mobsuite_taxonomy_confirm": "Confirm the NCBI taxonomy archive ({name}) MOB-suite's host-range predictions will "
                                  "use.",
 }
@@ -437,6 +439,16 @@ def register(db: Session, raw_path: str, kind: str | None = None, declared_versi
         elif not d.version_by_checksum:
             raise refusal("version_needed", path=raw_path, suggested=d.suggested_version or "")
     key, name = record_name(d)
+    medaka_details = None
+    if d.kind == "medaka_model":
+        from app.services import medaka_models
+
+        medaka_details = medaka_models.registered_details(d)
+        if (dup := medaka_models.blocking_duplicate(db, medaka_details["model"])) is not None:
+            raise DatabaseStateError("", "medaka_model_known", model=medaka_details["model"], path=_shown(dup.path or ""))
+        # Identified by the SHA-256 of medaka's published file (database_detect checked it).
+        source = VersionSource.checksum
+        key, name = medaka_models.key_for(version or ""), medaka_models.record_name(version or "")
     vfdb_details = None
     if d.kind == "vfdb" and d.variant in kinds.ABRICATE_FOLDERS:
         from app.services import vfdb_db
@@ -461,11 +473,13 @@ def register(db: Session, raw_path: str, kind: str | None = None, declared_versi
         details={"detection": _stored_detection(d), "version_json": d.facts.get("version_json"),
                  "collection": d.facts.get("collection"),
                  "catalogue": catalogue_snapshot(catalogue) if same else None,
-                 **({"vfdb": vfdb_details} if vfdb_details else {})},
+                 **({"vfdb": vfdb_details} if vfdb_details else {}),
+                 **({"medaka_model": medaka_details} if medaka_details else {})},
         inventory=d.facts.get("genomes") if d.kind == "reference_genomes" else None,
     )
     known = {VersionSource.file: f"version read from {d.version_file}", VersionSource.declared: "version declared by the "
-             "user", None: "version to be identified by the full checksum"}[source]
+             "user", VersionSource.checksum: "identified by the SHA-256 of the file its publisher lists",
+             None: "version to be identified by the full checksum"}[source]
     append_log(record, f"Registered {_shown(path)} as {name} {version or ''} ({known}); quick verification passed. ARVA "
                        "only reads this folder and never changes or deletes it")
     db.add(record)
@@ -871,12 +885,16 @@ def usable_now(record: ReferenceDatabase) -> bool:
 # Kinds whose default, unless the user chose one, is the copy bundled with the tool (VFDB: ABRicate's core set A, not
 # a full set B added later).
 BUNDLED_FIRST = ("vfdb",)
+# Kinds without a default: an analysis uses one only when the user chooses it (Medaka models must match the reads).
+NO_DEFAULT = ("medaka_model",)
 
 
 def ensure_default(db: Session, kind: str) -> None:
     """Keep one default per kind: when none of a kind's usable databases is the default, the most recently verified
     becomes it (for BUNDLED_FIRST kinds, the bundled copy first). An explicit choice is never replaced while that
-    database is usable."""
+    database is usable. Kinds in NO_DEFAULT have none."""
+    if kind in NO_DEFAULT:
+        return
     rows = list(db.scalars(select(ReferenceDatabase).where(ReferenceDatabase.kind == kind)
                            .order_by(ReferenceDatabase.verified_at.desc().nulls_last(),
                                      ReferenceDatabase.created_at.desc())))
@@ -897,6 +915,8 @@ def ensure_default(db: Session, kind: str) -> None:
 
 def set_default(db: Session, record_id: str) -> ReferenceDatabase:
     record = _get(db, record_id, lock=True)
+    if record.kind in NO_DEFAULT:
+        raise DatabaseStateError("", "no_default_kind", kind=kinds.BY_KEY[record.kind].name)
     if record.status not in USABLE:
         raise DatabaseStateError("", "not_usable", name=record.name, status=record.status.value)
     compat = record_compatibility(record)

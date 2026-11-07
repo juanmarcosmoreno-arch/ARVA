@@ -107,6 +107,12 @@ class SampleRead(ORMModel, SampleBase):
 
 # --- Raw files ----------------------------------------------------------------
 
+class RawFileUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    read_mate: Literal["R1", "R2"] | None = Field(description="The file's mate role in a pair of short reads; null: "
+                                                "not part of a pair (long reads, or single-end reads)")
+
+
 class CodedMessage(BaseModel):
     """A stable code and its parameters for an English message, so the interface can show it translated."""
     code: str
@@ -133,6 +139,9 @@ class RawFileRead(ORMModel):
         default=None,
         description="Summary of the first read headers (arva_core.header_meta); suggestions only, never user metadata",
     )
+    mate_note: dict[str, Any] | None = Field(
+        default=None, description="When read_mate is not the mate the file name gives: from_name, set_by (content: "
+        "the reads are long reads; user: corrected with PATCH /files/{id}), reason, and the longest read checked")
 
     @field_serializer("header_metadata")
     def _without_fingerprint(self, value: dict[str, Any] | None) -> dict[str, Any] | None:
@@ -1603,6 +1612,7 @@ class UnicyclerToolRead(AssemblyToolRead):
 class AssemblyFileEvidence(FlyeFileEvidence):
     role: Literal["r1", "r2", "unpaired", "long"]
     read_mate: str | None
+    lone_mate: bool = Field(default=False, description="Marked R1 or R2, but no file of the sample is its other mate")
     read_count: int | None
 
 
@@ -1725,9 +1735,11 @@ class RaconSettingsIn(BaseModel):
 class MedakaSettingsIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    model: str | None = Field(default=None, max_length=120, description="Passed as -m: one of the models Medaka's "
-                              "package ships (the plan's medaka.models). Unset: medaka's own model for the basecall "
-                              "model ARVA read from the reads' headers, when the package ships it; otherwise refused")
+    model: str | None = Field(default=None, max_length=120, description="One of the models Medaka's package ships "
+                              "(the plan's medaka.models, passed as -m <name>) or registered in the Database Manager "
+                              "(the plan's medaka.registered, passed as -m <its file>). Unset: medaka's own model for "
+                              "the basecall model ARVA read from the reads' headers, when the package ships it; "
+                              "otherwise refused (a registered model is never chosen for you)")
     batch_size: int = Field(default=100, ge=1, le=1000, description="Passed as -b (medaka_consensus' default 100; "
                             "\"controls memory use\")")
     accept_model_mismatch: bool = Field(default=False, description="Use `model` even though medaka's mapping gives "
@@ -1811,12 +1823,28 @@ class MedakaModelFile(BaseModel):
 
 
 class MedakaModelSuggestion(BaseModel):
-    status: Literal["mapped", "mapped_not_bundled", "unknown_basecall_model", "fast_unsupported",
+    status: Literal["mapped", "mapped_not_bundled", "mapped_registered", "unknown_basecall_model", "fast_unsupported",
                     "several_basecall_models", "no_basecall_model"]
     basecall_model: str | None
     basecall_models: list[str]
     model: str | None = Field(description="medaka's model for the basecall model (medaka/options.py)")
     source: str
+
+
+class RegisteredMedakaModel(BaseModel):
+    database_id: str
+    model: str
+    name: str
+    path: str = Field(description="The model file passed to medaka_consensus -m")
+    sha256: str
+    url: str | None = Field(default=None, description="Where ARVA downloaded it from (none: the user's own file)")
+    origin: str
+    status: str
+    chemistry: str | None = None
+    device: str | None = None
+    accuracy: str | None = None
+    basecaller: str | None = Field(default=None, description="The basecaller version the model was trained for")
+    notes: list[str] = []
 
 
 class MedakaPlanRead(BaseModel):
@@ -1826,6 +1854,8 @@ class MedakaPlanRead(BaseModel):
     models: list[str] = Field(description="Consensus models ARVA can run: shipped in Medaka's package, checksum "
                                           "matching conda's record")
     bundled: list[MedakaModelFile]
+    registered: list[RegisteredMedakaModel] = Field(default_factory=list, description="Models registered in the "
+                                                    "Database Manager that this medaka lists; used only when chosen")
     default_model: str | None = Field(description="medaka_consensus' own default (shown, never used silently)")
     suggestion: MedakaModelSuggestion | None
     default_batch_size: int
@@ -2029,6 +2059,8 @@ class ReferenceDatabaseRead(ORMModel):
                                         "schemes updated after PubMLST's open-data date, the terms")
     vfdb: dict[str, Any] | None = Field(default=None, description="A VFDB that ABRicate can search: its set (A core, B "
                                         "full), version, source and checksums")
+    medaka_model: dict[str, Any] | None = Field(default=None, description="A Medaka model: its name, what it was "
+                                                "trained for, its file, SHA-256 and address")
 
 
 class DatabaseLocationRead(BaseModel):
@@ -4523,6 +4555,18 @@ class VfdbBuildPlanRequest(VfdbPlanRequest):
 class VfdbBuildRequest(VfdbBuildPlanRequest):
     confirm_bytes: int = Field(ge=0, description="The file size the plan showed")
     accept_terms: bool
+
+
+class MedakaModelPlanRequest(VfdbPlanRequest):
+    model: str = Field(pattern=r"^[a-z0-9][a-z0-9_.]{2,100}$", description="A Medaka model name the listing offers "
+                       "(for example r941_min_hac_g507)")
+
+
+class MedakaModelDownloadRequest(MedakaModelPlanRequest):
+    confirm_sha256: str = Field(pattern=r"^[0-9a-f]{64}$", description="The SHA-256 the plan showed")
+    confirm_bytes: int = Field(ge=0, description="The file size the plan showed")
+    accept_licence: bool = Field(description="Medaka's licence (Oxford Nanopore Technologies PLC. Public License "
+                                             "Version 1.0) accepted")
 
 
 # --- Native executor (ARVA.app runs Flye or Bakta on the Mac; app.services.native, docs/plan-flye-nativo.md) -------

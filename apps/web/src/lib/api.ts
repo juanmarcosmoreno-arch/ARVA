@@ -29,6 +29,8 @@ import type {
   VirulenceAnnotationHits,
   VirulencePlan,
   VfdbPlan,
+  MedakaModelListing,
+  MedakaModelPlan,
   VirulenceRequest,
   VirulenceSample,
   MlstOverview,
@@ -674,6 +676,12 @@ export const api = {
     request<VfdbPlan>("/databases/vfdb/build-plan", json("POST", body)),
   vfdbBuild: (body: { path: string; vfdb_set?: "A" | "B" | null; declared_version?: string | null; destination?: string | null; folder?: string | null; confirm_bytes: number; accept_terms: boolean }) =>
     request<ReferenceDatabase>("/databases/vfdb/build", json("POST", body)),
+  medakaModels: () => request<MedakaModelListing>("/databases/medaka-models"),
+  medakaModelPlan: (body: { model: string; destination?: string | null; folder?: string | null }) =>
+    request<MedakaModelPlan>("/databases/medaka-models/plan", json("POST", body)),
+  medakaModelDownload: (body: { model: string; destination?: string | null; folder?: string | null; confirm_sha256: string; confirm_bytes: number; accept_licence: boolean }) =>
+    request<ReferenceDatabase>("/databases/medaka-models/download", json("POST", body)),
+  updateFileMate: (fileId: string, readMate: "R1" | "R2" | null) => request<RawFile>(`/files/${fileId}`, json("PATCH", { read_mate: readMate })),
   ncbi16sPlan: (body: { taxonomy: boolean }) => request<Ncbi16sPlan>("/databases/ncbi-16s/plan", json("POST", body)),
   ncbi16sDownload: (body: { taxonomy: boolean; confirm_version: string; confirm_bytes: number; accept_terms: boolean }) =>
     request<ReferenceDatabase>("/databases/ncbi-16s/download", json("POST", body)),

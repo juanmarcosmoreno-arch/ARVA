@@ -6,9 +6,11 @@ technology-specific error model) or, for Oxford Nanopore reads, Medaka (a neural
 basecaller model), short reads → Pilon, both → Racon, then Pilon on Racon's result. Every check uses recorded evidence
 only and never changes what the user chose; suggestions are labelled as such.
 
-Medaka's model is never guessed: it is the one the user picks from the models Medaka's package ships, or, when none
-is given, the one medaka's own mapping (medaka/options.py basecaller_models) gives for the basecall model ARVA read
-from the reads' headers, and only when the package ships it.
+Medaka's model is never guessed: it is the one the user picks from the models Medaka's package ships and the
+models registered in the Database Manager (services/medaka_models.py: R9.4.1, R10.3, R10.4 and older R10.4.1 models,
+each checked against medaka's published SHA-256), or, when none is given, the one medaka's own mapping
+(medaka/options.py basecaller_models) gives for the basecall model ARVA read from the reads' headers, and only when
+the package ships it. A registered model is used only when the user chooses it; its file is passed with -m.
 """
 from __future__ import annotations
 
@@ -30,7 +32,7 @@ from arva_tools.registry import detect
 from sqlalchemy.orm import Session
 
 from app.models import Assembly, AssemblyKind, AssemblyMode, Sample, SequencingTechnology
-from app.services import short_hybrid
+from app.services import medaka_models, short_hybrid
 from app.services.flye import CONFIDENT, InputError, read_type_suggestion
 from app.services.performance import Resources, effective_resources
 from app.storage import get_storage
@@ -178,7 +180,9 @@ SUGGESTION_TEXT = {
     "fast_unsupported": "{basecall} is a 'fast' basecalling model, which Medaka does not support (medaka: basecall "
                         "again with a 'high accuracy' or 'super accuracy' model first)",
     "mapped_not_bundled": "medaka's model for the basecall model {basecall} is {model}, which its package does not "
-                          "ship; ARVA does not let Medaka download models",
+                          "ship; ARVA does not let Medaka download models (download it in the Database Manager)",
+    "mapped_registered": "medaka's model for the basecall model {basecall} is {model}, registered in the Database "
+                         "Manager; choose it to use it",
     "mapped": "medaka's model for the basecall model {basecall} is {model}",
 }
 
@@ -227,44 +231,72 @@ def _header_models(ev: list[dict[str, Any]]) -> list[str]:
     return sorted({m for e in ev if e.get("role") == "long" for m in e.get("basecall_models") or []})
 
 
-def medaka_plan(ev: list[dict[str, Any]], catalogue: dict[str, Any] | None, error: str | None) -> dict[str, Any]:
-    """The models ARVA can run Medaka with and the one medaka's mapping gives for the long reads' basecall model."""
+def _registered_usable(catalogue: dict[str, Any], registered: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
+    """The registered models this medaka can use: allowed by its own options.py and not shipped (a shipped model is
+    always run from the package's file)."""
+    allowed = set(catalogue.get("allowed_models") or [])
+    shipped = set(offered_models(catalogue))
+    return [r for r in registered or [] if r["model"] in allowed and r["model"] not in shipped]
+
+
+def _suggest(catalogue: dict[str, Any], ev: list[dict[str, Any]], registered: list[dict[str, Any]]) -> dict[str, Any]:
+    s = model_for_basecaller(catalogue, _header_models(ev))
+    if s["status"] == "mapped_not_bundled" and any(r["model"] == s["model"] for r in registered):
+        s = {**s, "status": "mapped_registered"}
+    return s
+
+
+def medaka_plan(ev: list[dict[str, Any]], catalogue: dict[str, Any] | None, error: str | None,
+                registered: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    """The models ARVA can run Medaka with (shipped, and registered in the Database Manager) and the one medaka's
+    mapping gives for the long reads' basecall model."""
     if catalogue is None:
-        return {"available": False, "error": error, "version": None, "models": [], "bundled": [], "default_model": None,
-                "suggestion": None, "default_batch_size": DEFAULT_BATCH_SIZE}
+        return {"available": False, "error": error, "version": None, "models": [], "bundled": [], "registered": [],
+                "default_model": None, "suggestion": None, "default_batch_size": DEFAULT_BATCH_SIZE}
     has_long = any(e.get("role") == "long" for e in ev)
+    usable = _registered_usable(catalogue, registered)
     return {"available": True, "error": None, "version": catalogue["version"], "models": offered_models(catalogue),
-            "bundled": catalogue["bundled_models"], "default_model": catalogue["default_consensus"],
-            "suggestion": model_for_basecaller(catalogue, _header_models(ev)) if has_long else None,
+            "bundled": catalogue["bundled_models"], "registered": usable,
+            "default_model": catalogue["default_consensus"],
+            "suggestion": _suggest(catalogue, ev, usable) if has_long else None,
             "default_batch_size": DEFAULT_BATCH_SIZE}
 
 
 def choose_medaka_model(catalogue: dict[str, Any], ev: list[dict[str, Any]], model: str | None,
-                        accept_mismatch: bool) -> dict[str, Any]:
+                        accept_mismatch: bool, registered: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     """The model a Medaka run uses, and why. Without `model`, medaka's own mapping for the basecall model of the
-    reads' headers, when the package ships that model; otherwise the user's choice among the shipped models, which
-    must be confirmed when it differs from the mapping's. Raises InputError instead of guessing."""
+    reads' headers, when the package ships that model; otherwise the user's choice among the shipped models and the
+    registered ones (services/medaka_models.registered), which must be confirmed when it differs from the mapping's.
+    A registered model is never chosen for the user. Raises InputError instead of guessing."""
     offered = offered_models(catalogue)
-    suggestion = model_for_basecaller(catalogue, _header_models(ev))
+    usable = _registered_usable(catalogue, registered)
+    by_name = {r["model"]: r for r in usable}
+    suggestion = _suggest(catalogue, ev, usable)
+    names = ", ".join([*offered, *sorted(by_name)]) or "none"
     if suggestion["status"] == "fast_unsupported":
         raise InputError(f"Medaka cannot polish with these reads: {suggestion_text(suggestion)}")
     if model is None:
         if suggestion["status"] != "mapped":
-            raise InputError(f"Choose the Medaka model: {suggestion_text(suggestion)}. Models ARVA can use: "
-                             f"{', '.join(offered) or 'none'}")
+            raise InputError(f"Choose the Medaka model: {suggestion_text(suggestion)}. Models ARVA can use: {names}")
         model, source = suggestion["model"], "basecall_model"
     else:
         source = "user"
-    if model not in offered:
-        raise InputError(f"The Medaka model {model} is not one of the models Medaka's package ships "
-                         f"({', '.join(offered) or 'none'}); ARVA does not let Medaka download models")
+    if model not in offered and model not in by_name:
+        raise InputError(f"The Medaka model {model} is neither one of the models Medaka's package ships nor one "
+                         f"registered in the Database Manager ({names}); ARVA does not let Medaka download models")
     mismatch = suggestion["model"] is not None and suggestion["model"] != model
     if mismatch and not accept_mismatch:
         raise InputError(f"The model {model} is not the one for these reads: {suggestion_text(suggestion)}. Confirm "
                          "the choice to use it anyway")
-    bundled = next(m for m in catalogue["bundled_models"] if m["name"] == model)
-    return {"model": model, "source": source, "suggestion": suggestion, "mismatch_accepted": mismatch,
-            "file": bundled["file"], "sha256": bundled["sha256"], "medaka_version": catalogue["version"]}
+    base = {"model": model, "source": source, "suggestion": suggestion, "mismatch_accepted": mismatch,
+            "medaka_version": catalogue["version"]}
+    if model in offered:
+        bundled = next(m for m in catalogue["bundled_models"] if m["name"] == model)
+        return {**base, "model_source": "shipped", "file": bundled["file"], "sha256": bundled["sha256"]}
+    r = by_name[model]
+    return {**base, "model_source": "registered", "file": Path(r["path"]).name, "path": r["path"],
+            "sha256": r["sha256"], "database_id": r["database_id"], "url": r.get("url"), "origin": r.get("origin"),
+            "chemistry": r.get("chemistry"), "basecaller": r.get("basecaller")}
 
 
 def resources(res: Resources) -> dict[str, int]:
@@ -315,7 +347,7 @@ def plan(db: Session, sample: Sample, draft: Assembly, inputs: short_hybrid.Inpu
         "suggested_strategy": suggested_strategy(sample),
         "preset_suggestion": preset_suggestion(sample, ev),
         "problem": problem,
-        "medaka": {**medaka_plan(ev, catalogue, error), "problem": medaka_problem,
+        "medaka": {**medaka_plan(ev, catalogue, error, medaka_models.registered(db)), "problem": medaka_problem,
                    "draft_is_flye": draft.assembler == "Flye" and draft.parent_assembly_id is None},
         "sample_technology": sample.sequencing_technology,
         "confirmation_required": short_hybrid.needs_confirmation(sample),

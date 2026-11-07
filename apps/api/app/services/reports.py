@@ -726,7 +726,9 @@ def _polishing_highlights(summary: dict[str, Any]) -> list[str]:
            f"{str(draft.get('assembly_id', ''))[:8]} in {summary.get('rounds_run')} round(s)"]
     if medaka := summary.get("medaka"):
         model = medaka.get("model") or {}
-        out.append(f"Medaka model {model.get('model')} (shipped in the package, sha256 {str(model.get('sha256'))[:12]}…; "
+        where = "registered in the Database Manager" if model.get("model_source") == "registered" else \
+            "shipped in the package"
+        out.append(f"Medaka model {model.get('model')} ({where}, sha256 {str(model.get('sha256'))[:12]}…; "
                    + ("medaka's mapping for the reads' basecall model "
                       f"{(model.get('suggestion') or {}).get('basecall_model')}" if model.get("source") == "basecall_model"
                       else "chosen by the user") + f"), -t {medaka.get('threads')}, -b {medaka.get('batch_size')}")

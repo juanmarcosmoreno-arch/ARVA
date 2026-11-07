@@ -153,6 +153,11 @@ function MedakaUsed({ summary: s }: { summary: PolishingSummary }) {
           batch: m.batch_size,
         })}
       </li>
+      <li>
+        {m.model.model_source === "registered"
+          ? t("polishing.medaka.usedRegistered", { file: m.model.file, sha256: (m.model.sha256 ?? "").slice(0, 12) })
+          : t("polishing.medaka.usedShipped", { sha256: (m.model.sha256 ?? "").slice(0, 12) })}
+      </li>
       <li>{m.unpolished.bases > 0 ? t("polishing.medaka.unpolished", { bases: fmtInt(m.unpolished.bases), regions }) : t("polishing.medaka.allPolished")}</li>
     </ul>
   );

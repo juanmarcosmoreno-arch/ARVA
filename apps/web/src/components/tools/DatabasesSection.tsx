@@ -3,6 +3,7 @@ import { ChevronDown, Database, Download, FolderPlus, Globe, HardDrive } from "l
 import { useEffect, useState, type ReactNode } from "react";
 import { AmrReleaseDialog } from "@/components/databases/AmrReleaseDialog";
 import { DownloadDialog } from "@/components/databases/DownloadDialog";
+import { MedakaModelDialog } from "@/components/databases/MedakaModelDialog";
 import { Ncbi16sDialog } from "@/components/databases/Ncbi16sDialog";
 import { NcbiCollectionDialog } from "@/components/databases/NcbiCollectionDialog";
 import { RecordRow } from "@/components/databases/RecordRow";
@@ -19,7 +20,7 @@ import { api } from "@/lib/api";
 import { groupByKind, isBusy, type KindGroup } from "@/lib/databases";
 import { fmtBytes } from "@/lib/format";
 import { serverText } from "@/lib/messages";
-import type { CatalogueEntry, DatabaseUsage } from "@/lib/types";
+import type { CatalogueEntry, DatabaseUsage, MedakaModelInfo } from "@/lib/types";
 
 export function DatabasesSection() {
   const t = useT();
@@ -193,6 +194,7 @@ function KindCard({ group }: { group: KindGroup }) {
               </span>
             </div>
           )}
+          {kind.key === "medaka_model" && <MedakaModelsPanel />}
           {kind.key === "reference_genomes" && (
             <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-dashed p-3 text-xs">
               <p className="max-w-2xl text-muted-foreground">{t("ncbi.kindHint")}</p>
@@ -210,6 +212,58 @@ function KindCard({ group }: { group: KindGroup }) {
       {current16s && <Ncbi16sDialog onClose={() => setCurrent16s(false)} />}
       {vfdb && <VfdbDialog mode={vfdb} onClose={() => setVfdb(null)} />}
     </Card>
+  );
+}
+
+/** The Medaka models ARVA can download (published by medaka for the installed version, not in its package), grouped
+ * by pore, each downloaded only after its own confirmation; a model file you have is registered with "Register". */
+function MedakaModelsPanel() {
+  const t = useT();
+  const listing = useQuery({ queryKey: ["medaka-models"], queryFn: api.medakaModels, staleTime: 60_000 });
+  const [chosen, setChosen] = useState<MedakaModelInfo | null>(null);
+  const l = listing.data;
+  const pores = l ? [...new Set(l.available.map((m) => m.pore))] : [];
+  return (
+    <div className="space-y-2 rounded-lg border border-dashed p-3 text-xs">
+      <p className="max-w-3xl text-muted-foreground">{t("medakaModels.kindHint")}</p>
+      <p className="max-w-3xl text-muted-foreground">{t("polishing.medaka.guidance")}</p>
+      <ErrorNote error={listing.error} />
+      {l && (
+        <>
+          <p className="text-muted-foreground">
+            {t("medakaModels.shipped", { version: l.medaka_version ?? "?", models: l.shipped.join(", ") || "—" })}{" "}
+            {t("medakaModels.licence", { licence: l.licence })}
+          </p>
+          {pores.map((pore) => (
+            <details key={pore} open={pore === "R9.4.1"}>
+              <summary className="cursor-pointer font-medium">{t("medakaModels.poreGroup", { pore, n: l.available.filter((m) => m.pore === pore).length })}</summary>
+              <ul className="mt-1 space-y-1">
+                {l.available
+                  .filter((m) => m.pore === pore)
+                  .map((m) => (
+                    <li key={m.name} className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="min-w-0">
+                        <code>{m.name}</code>{" "}
+                        <span className="text-muted-foreground">
+                          {t("medakaModels.trainedForValue", { chemistry: m.chemistry, device: m.device ?? "—", accuracy: m.accuracy, basecaller: m.basecaller })} · {fmtBytes(m.bytes)}
+                        </span>
+                      </span>
+                      {m.database_id ? (
+                        <Badge tone="success">{t("databases.alreadyHere")}</Badge>
+                      ) : (
+                        <Button size="sm" variant="outline" onClick={() => setChosen(m)}>
+                          <Download className="h-3.5 w-3.5" aria-hidden /> {t("databases.downloadAction")}
+                        </Button>
+                      )}
+                    </li>
+                  ))}
+              </ul>
+            </details>
+          ))}
+        </>
+      )}
+      {chosen && <MedakaModelDialog model={chosen} onClose={() => setChosen(null)} />}
+    </div>
   );
 }
 

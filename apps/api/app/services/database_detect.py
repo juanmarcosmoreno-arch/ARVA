@@ -52,6 +52,7 @@ PROBLEMS = {
     "blastdb_unreadable": "blastdbcmd could not read this BLAST database: {detail}",
     "blastdb_mismatch": "{file} states {stated} sequences but the BLAST database holds {found}",
     "not_nucleotide": "{file} describes a {dbtype} BLAST database; ABRicate's VFDB search needs a nucleotide one",
+    "medaka_model_invalid": "{file} is not a Medaka model ARVA can use: {detail}",
     "vfdb_raw_names": "The sequences keep VFDB's own names (VFG...), so ABRicate will report each hit's VFDB "
                       "identifier as the gene instead of the gene's name; ARVA can build a database with gene names from "
                       "VFDB_setB_nt.fas(.gz) instead",
@@ -722,10 +723,74 @@ def _mlst_schemes(root: Path) -> Detection | None:
     return d
 
 
+MEDAKA_KIND = "medaka_model"
+
+
+def _medaka_detection(d: Detection, model_file: Path) -> Detection:
+    """The checks of arva_tools.medaka_models.check_file (name, archive members, pickled globals read without running
+    them, SHA-256 and size against medaka's published file); reads the whole file (about 1.5 MB)."""
+    from arva_tools import medaka_models as mm
+
+    try:
+        facts = mm.check_file(model_file)
+    except mm.NotAModel as exc:
+        d.problems.append(Problem("medaka_model_invalid", {"file": model_file.name, "detail": exc.detail}))
+        d.facts["medaka_model"] = {"name": mm.name_from_file(model_file.name), "problem": exc.code}
+        return d
+    except OSError as exc:
+        d.problems.append(Problem("version_unreadable", {"file": model_file.name, "kind": "Medaka model",
+                                                         "detail": str(exc)}))
+        return d
+    d.version, d.version_file, d.version_detail = facts["name"], model_file.name, "published_sha256"
+    d.facts["medaka_model"] = facts
+    return d
+
+
+def _medaka_model_file(path: Path) -> Detection | None:
+    from arva_tools.medaka import MODEL_SUFFIX
+
+    if not path.name.endswith(MODEL_SUFFIX):
+        return None
+    d = Detection(MEDAKA_KIND, str(path), "file")
+    d.files.append(FileCheck(path.name, "kind", os.access(path, os.R_OK), path.stat().st_size))
+    return _medaka_detection(d, path)
+
+
+def medaka_arva_file(root: Path) -> dict | None:
+    """ARVA_DATABASE.json of a folder ARVA downloaded a Medaka model into."""
+    f = root / ARVA_DATABASE_FILE
+    if not f.is_file():
+        return None
+    try:
+        meta = json.loads(read_text(f))
+    except ValueError:
+        return None
+    return meta if isinstance(meta, dict) and meta.get("kind") == MEDAKA_KIND and isinstance(meta.get("file"), str) \
+        else None
+
+
+def _medaka_model_folder(root: Path) -> Detection | None:
+    meta = medaka_arva_file(root)
+    if meta is None:
+        return None
+    d = Detection(MEDAKA_KIND, str(root), "folder")
+    name = Path(meta["file"]).name
+    d.files.append(_check(root, ARVA_DATABASE_FILE, "kind"))
+    if d.require(root, name):
+        return d
+    _medaka_detection(d, root / name)
+    if d.version is not None and meta.get("model") != d.version:
+        d.problems.append(Problem("version_unreadable", {"file": ARVA_DATABASE_FILE, "kind": "Medaka model",
+                                                         "detail": f"it names {meta.get('model')}, the file is "
+                                                                   f"{d.version}"}))
+    d.facts["arva"] = {k: meta.get(k) for k in ("model", "url", "sha256", "downloaded_at", "medaka_tag")}
+    return d
+
+
 FOLDER_DETECTORS = (_bakta, _amrfinderplus, _gtdbtk, _skani, _kraken2, _checkm2, _busco, _plasmidfinder, _mobsuite,
                     _genomad, _interproscan, _spa_types, _vfdb, _mlst_schemes, _abricate_db, _abricate_vfdb,
-                    _ncbi_16s)
-FILE_DETECTORS = (_sylph, _mash, _vfdb_file)
+                    _ncbi_16s, _medaka_model_folder)
+FILE_DETECTORS = (_sylph, _mash, _vfdb_file, _medaka_model_file)
 
 
 def detect(path: Path, ctx=None) -> list[Detection]:

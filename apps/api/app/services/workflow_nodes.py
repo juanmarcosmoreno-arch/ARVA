@@ -648,7 +648,13 @@ def _reads(db: Session, sample: Sample, include_derived: bool) -> list[RawFile]:
 def _source_reads_long(db: Session, sample: Sample, params: dict[str, Any]) -> dict[str, Any]:
     if sample.sequencing_technology is SequencingTechnology.illumina:
         raise LaunchRefused("wf_source_technology", "the sample's sequencing technology is Illumina (short reads)")
-    files = [f for f in _reads(db, sample, params.get("include_derived", False)) if f.read_mate is None]
+    from app.services.flye import evidence
+
+    reads = _reads(db, sample, params.get("include_derived", False))
+    # A lone mate that is not half of a pair (imports.not_a_mate: e.g. ENA's <run>_1.fastq.gz of a single long-read
+    # run) is a candidate too.
+    not_mates = {e["file_id"] for e in evidence(db, [f for f in reads if f.read_mate]) if e["lone_mate"]}
+    files = [f for f in reads if f.read_mate is None or f.id in not_mates]
     if len(files) != 1:
         raise LaunchRefused("wf_source_long", f"{len(files)} candidate long-read files (valid FASTQ without a mate)",
                             count=len(files))

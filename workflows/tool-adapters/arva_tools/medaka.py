@@ -24,6 +24,12 @@ medaka/models.py, medaka/stitch.py, bin/medaka_consensus) and real runs on the s
   files conda records with their sha256 (conda-meta/medaka-*.json) inside a package pinned by its own sha256 in the
   lock; it never lets medaka download one. -m receives the model name; resolve_model finds the file in the package
   before trying any download, and ARVA checks the log's "Using model: <file>" afterwards.
+* Other models (R9.4.1, R10.3, R10.4, older R10.4.1 basecallers) come from the Database Manager: downloaded by ARVA
+  after the user confirms, from the medaka repository at the installed version's tag, checked against its published
+  SHA-256, or registered from a file the user has (arva_tools.medaka_models). For those, -m receives the file's path:
+  resolve_model returns an existing path unchanged ("model is path to model file"), and medaka_consensus -h says
+  "Alternatively a .tar.gz/.hdf file from 'medaka train'". Tested on 2026-11-07: -m <path of r941_min_hac_g507_model_pt
+  .tar.gz> on the synthetic genome logged "Using model: <that path>" and wrote the consensus.
 * The model for the reads comes from medaka's own mapping applied to the basecall model ARVA read from the FASTQ
   headers (the RG:Z read group or basecall_model_version_id, the same fields medaka's _model_from_fastq reads).
   Without -m medaka_consensus would try the same automatically and fall back to its default model with only a
@@ -100,11 +106,24 @@ print(json.dumps({
 """
 
 
+# bin/medaka_consensus expands -m unquoted (MODEL=$(medaka tools resolve_model --model $OPTARG), then --model $MODEL):
+# whitespace splits a path and * ? [ expand it as a glob into other files.
+_UNSAFE_FOR_CONSENSUS = re.compile(r"[\s*?\[]")
+
+
+def unsafe_for_consensus(path: str) -> bool:
+    """Whether medaka_consensus would split or glob-expand this path given to -m (ARVA's polishing task passes a
+    checked copy of a registered model in the job's work folder instead of the user's own path)."""
+    return _UNSAFE_FOR_CONSENSUS.search(path) is not None
+
+
 @dataclass
 class MedakaParams:
     model: str
     threads: int = 1
     batch_size: int = DEFAULT_BATCH_SIZE
+    # A registered model's file (absolute path to <model>_model_pt.tar.gz), passed to -m instead of the name.
+    model_file: str | None = None
 
     @classmethod
     def from_dict(cls, values: dict[str, Any]) -> MedakaParams:
@@ -120,6 +139,10 @@ class MedakaParams:
             errors.append("threads must be between 1 and 128")
         if not whole(self.batch_size) or not 1 <= self.batch_size <= 1000:
             errors.append("batch_size must be between 1 and 1,000")
+        if self.model_file is not None:
+            f = Path(self.model_file) if isinstance(self.model_file, str) else None
+            if f is None or not f.is_absolute() or f.name != f"{self.model}{MODEL_SUFFIX}" or "\n" in self.model_file:
+                errors.append(f"model_file must be the absolute path of {self.model}{MODEL_SUFFIX}")
         if errors:
             raise ValueError("; ".join(errors))
 
@@ -240,9 +263,10 @@ class MedakaAdapter(ToolAdapter):
         id="medaka",
         name="Medaka",
         description="Consensus polishing of Oxford Nanopore assemblies (Flye's in particular) with a neural network "
-        "trained for the reads' basecaller model; ARVA uses the models its package ships.",
+        "trained for the reads' basecaller model; ARVA uses the models its package ships and model files from the "
+        "Database Manager.",
         homepage="https://github.com/nanoporetech/medaka",
-        license="MPL-2.0",
+        license="Oxford Nanopore Technologies PLC. Public License 1.0",
         citation="Oxford Nanopore Technologies. Medaka: sequence correction provided by ONT Research. "
         "https://github.com/nanoporetech/medaka",
         citation_url="https://github.com/nanoporetech/medaka",
@@ -278,13 +302,17 @@ class MedakaAdapter(ToolAdapter):
         supported = help_options(help_text)
         if missing := [f for f in FLAGS if f not in supported]:
             raise ValueError(f"this Medaka version does not offer {', '.join(missing)} (not in medaka_consensus -h)")
-        if params.model not in offered:
+        if params.model_file is None and params.model not in offered:
             raise ValueError(f"the model {params.model} is not one of the models this Medaka package ships "
                              f"({', '.join(offered) or 'none'})")
+        if params.model_file is not None and params.model in offered:
+            raise ValueError(f"the package ships {params.model}; ARVA uses the package's file for it")
         if params.model not in help_choices(help_text):
             raise ValueError(f"medaka_consensus -h does not list the model {params.model}")
+        if params.model_file is not None and not Path(params.model_file).is_file():
+            raise ValueError(f"the model file {params.model_file} is not there")
         return [str(consensus_script(executable)), "-i", str(reads), "-d", str(draft), "-o", OUTPUT_DIR,
-                "-m", params.model, "-t", str(params.threads), "-b", str(params.batch_size)]
+                "-m", params.model_file or params.model, "-t", str(params.threads), "-b", str(params.batch_size)]
 
     @staticmethod
     def stage(line: str) -> str | None:
@@ -328,7 +356,8 @@ class MedakaAdapter(ToolAdapter):
         if m := re.search(r"Model (\S+) is not compatible with (\S+)", log):
             return f"Medaka reports that the model {m.group(1)} is not compatible with the reads"
         if "could not be downloaded" in log or "is not installed and could not be installed" in log:
-            return "Medaka tried to download a model that its package does not ship; ARVA uses only shipped models"
+            return ("Medaka tried to download a model that its package does not ship; ARVA uses only shipped models "
+                    "and model files from the Database Manager")
         killed = returncode in SIGKILL_STATUSES or re.search(r"^.*\bKilled\b", log, re.M) is not None
         if "Failed to run medaka inference." in log or killed:
             if killed:

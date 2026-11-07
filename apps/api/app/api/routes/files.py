@@ -6,9 +6,15 @@ from sqlalchemy.orm import Session
 from app.api.deps import raw_file_or_404, sample_or_404
 from app.db.session import get_db
 from app.models import RawFile
-from app.schemas.schemas import HeaderSummaryRead, RawFileRead, UploadRejection, UploadResult
+from app.schemas.schemas import (
+    HeaderSummaryRead,
+    RawFileRead,
+    RawFileUpdate,
+    UploadRejection,
+    UploadResult,
+)
 from app.services.capacity import InsufficientStorageError
-from app.services.imports import DuplicateFileError, register_raw_file, rejection
+from app.services.imports import DuplicateFileError, register_raw_file, rejection, set_read_mate
 from app.services.read_headers import build_header_summary
 from app.storage import get_storage
 from app.storage.local import FileTooLargeError
@@ -58,6 +64,14 @@ def header_summary(sample_id: str, db: Session = Depends(get_db)):
 @router.get("/files/{file_id}", response_model=RawFileRead)
 def get_file(file_id: str, db: Session = Depends(get_db)):
     return raw_file_or_404(db, file_id)
+
+
+@router.patch("/files/{file_id}", response_model=RawFileRead)
+def update_file(file_id: str, payload: RawFileUpdate, db: Session = Depends(get_db)):
+    """Correct the file's mate role: R1 or R2 of a pair of short reads, or null (not part of a pair: long reads or
+    single-end reads). ARVA takes it from the file name (_1/_2, _R1/_R2) unless the content shows long reads; the
+    previous role and the change are kept in mate_note. The file itself is never changed."""
+    return set_read_mate(db, raw_file_or_404(db, file_id), payload.read_mate)
 
 
 @router.get("/files/{file_id}/download")

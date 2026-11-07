@@ -302,3 +302,49 @@ describe("Polishing dialog", () => {
     expect(screen.getByText("Elige el modelo de Medaka: ARVA no tiene un modelo propio de medaka para estas lecturas.")).toBeInTheDocument();
   });
 });
+
+describe("Medaka models registered in the Database Manager", () => {
+  const r941 = {
+    database_id: "db-r941", model: "r941_min_hac_g507", name: "Medaka model r941_min_hac_g507", path: "/db/medaka-models/r941_min_hac_g507/r941_min_hac_g507_model_pt.tar.gz",
+    sha256: "6e87607808bfe7884fc701ded596931afeeb8a59e69bdcb268ef07ac7680ac26", url: "https://media.githubusercontent.com/media/nanoporetech/medaka/v2.1.1/medaka/data/r941_min_hac_g507_model_pt.tar.gz",
+    origin: "download", status: "installed", chemistry: "R9.4.1", device: "MinION/GridION", accuracy: "hac", basecaller: "Guppy 5.0.7", notes: [],
+  };
+  const r941Plan: PolishingPlan = {
+    ...plan,
+    medaka: {
+      ...plan.medaka!,
+      registered: [r941],
+      suggestion: { status: "mapped_registered", basecall_model: "dna_r9.4.1_e8_hac@v3.3", basecall_models: ["dna_r9.4.1_e8_hac@v3.3"], model: "r941_min_hac_g507", source: "medaka.options.basecaller_models" },
+    },
+  };
+
+  it("lists them apart from the shipped models, never picks one, and sends the chosen name", async () => {
+    vi.spyOn(api, "polishingPreview").mockResolvedValue(r941Plan);
+    const polish = vi.spyOn(api, "polish").mockResolvedValue(job({ status: "pending", job_type: "medaka_polish" }));
+    renderWith(<PolishingDialog open onOpenChange={() => undefined} sampleId="s" technology="nanopore" assemblies={[draft]} files={[ont]} jobs={[]} draftId="draft-0001" />);
+    fireEvent.click(await screen.findByRole("radio", { name: /Oxford Nanopore reads: Medaka/ }));
+    expect(await screen.findByText(/medaka's mapping gives r941_min_hac_g507, which is registered in the Database Manager\. ARVA does not choose it for you/)).toBeInTheDocument();
+    const model = screen.getByRole("combobox", { name: "Model (-m)" }) as HTMLSelectElement;
+    expect(model.value).toBe("");
+    expect(within(model).getByRole("group", { name: "Registered in the Database Manager" })).toBeInTheDocument();
+    expect(within(model).getByRole("option", { name: "r941_min_hac_g507 (R9.4.1, Guppy 5.0.7)" })).toBeInTheDocument();
+    expect(screen.getAllByText(/R9\.4\.1 reads basecalled with Guppy 4 or 5 in HAC mode \(MinION\/GridION\): r941_min_hac_g507, the closest model medaka 2 can load/).length).toBeGreaterThan(0);
+    expect(screen.getByRole("button", { name: "Polish" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Choose r941_min_hac_g507" }));
+    expect(model.value).toBe("r941_min_hac_g507");
+    expect(await screen.findByText(/a registered model file for R9\.4\.1, trained for Guppy 5\.0\.7 \(SHA-256 6e87607808bf…\)/)).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Polish" })).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", { name: "Polish" }));
+    await waitFor(() => expect(polish).toHaveBeenCalled());
+    expect(polish.mock.calls[0][1].medaka).toEqual({ model: "r941_min_hac_g507", batch_size: 100, accept_model_mismatch: false });
+  });
+
+  it("says in Spanish which models to choose for R9.4.1 reads", async () => {
+    useSettings.setState({ language: "es" });
+    vi.spyOn(api, "polishingPreview").mockResolvedValue(r941Plan);
+    renderWith(<PolishingDialog open onOpenChange={() => undefined} sampleId="s" technology="nanopore" assemblies={[draft]} files={[ont]} jobs={[]} draftId="draft-0001" />);
+    fireEvent.click(await screen.findByRole("radio", { name: /Medaka/ }));
+    expect(await screen.findByText(/r941_min_hac_g507, el modelo más cercano que medaka 2 puede cargar \(r941_min_high_g360, hecho para Guppy 3\.6, está obsoleto/)).toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "Registrados en el Gestor de bases de datos" })).toBeInTheDocument();
+  });
+});

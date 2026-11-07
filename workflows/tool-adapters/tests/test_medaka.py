@@ -142,4 +142,4 @@ def test_conda_records_give_each_package_files_checksum(tmp_path):
 def test_params_round_trip():
     p = MedakaParams.from_dict({"model": SUP, "threads": 2, "batch_size": 100, "other": 1})
     p.validate()
-    assert p.as_dict() == {"model": SUP, "threads": 2, "batch_size": 100}
+    assert p.as_dict() == {"model": SUP, "threads": 2, "batch_size": 100, "model_file": None}

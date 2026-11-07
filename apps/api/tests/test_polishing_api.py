@@ -480,7 +480,7 @@ def test_medaka_model_is_medakas_own_choice_or_the_users_never_a_guess(client, n
         "dna_r10.4.1_e8.2_400bps_sup@v5.2.0"]
     cases = [
         (plain, {}, 400, "Choose the Medaka model: ARVA found no basecall model in the reads' headers"),
-        (plain, {"model": "r1041_e82_400bps_sup_v4.3.0"}, 400, "not one of the models Medaka's package ships"),
+        (plain, {"model": "r1041_e82_400bps_sup_v4.3.0"}, 400, "neither one of the models Medaka's package ships"),
         (dorado, {"model": HAC}, 400, "Confirm the choice"),
         (dorado, {"model": SUP, "batch_size": 0}, 422, "batch_size"),
         ({"r1_file_id": ids["r1"], "r2_file_id": ids["r2"]}, {}, 400, "medaka strategy needs Oxford Nanopore long reads"),

@@ -552,8 +552,8 @@ def new_racon_job(sample: Sample, draft: Assembly, reads: RawFile, params: Racon
 
 def new_medaka_job(sample: Sample, draft: Assembly, reads: RawFile, params: MedakaParams, model: dict, extra: dict,
                    res: Resources, parent_job_id: str | None = None) -> AnalysisJob:
-    """A pending Medaka polishing job (medaka_consensus with a model its package ships, then the comparisons).
-    `model` is polishing.choose_medaka_model's record of the model and why it was chosen."""
+    """A pending Medaka polishing job (medaka_consensus with a model its package ships or a registered model file,
+    then the comparisons). `model` is polishing.choose_medaka_model's record of the model and why it was chosen."""
     from app.services.polishing import medaka_catalogue
 
     tool = require_tool("medaka")
@@ -628,6 +628,19 @@ def create_polishing_job(db: Session, sample: Sample, draft: Assembly, strategy:
     if strategy == "medaka":
         assert medaka is not None and long is not None
         job = new_medaka_job(sample, draft, long, medaka[0], medaka[1], extra, res)
+        if database_id := medaka[1].get("database_id"):
+            # A registered model: the job names the record (so it cannot be deleted while the job is queued or runs)
+            # and keeps its name, version and checksum after its deletion.
+            from app.models import ReferenceDatabase
+            from app.services import databases as dbs
+
+            record = db.get(ReferenceDatabase, database_id)
+            if record is None:
+                raise ToolUnavailableError("the registered Medaka model is no longer known")
+            try:
+                dbs.record_use(job, record)
+            except dbs.DatabaseStateError as exc:
+                raise ToolUnavailableError(f"the registered Medaka model cannot be used: {exc}") from exc
     elif strategy == "pilon":
         job = pilon_job
     else:

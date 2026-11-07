@@ -81,6 +81,9 @@ class Settings(BaseSettings):
     # VFDB's download folder (its FASTA files are linked from https://www.mgc.ac.cn/VFs/download.htm as Down/...), for
     # the full set B nucleotides (app.services.vfdb_db). Tests point it at a local server.
     vfdb_url: str = "https://www.mgc.ac.cn/VFs/Down"
+    # Where GitHub serves the medaka repository's Git LFS files; a Medaka model is <this>/<tag>/medaka/data/<file>
+    # (arva_tools.medaka_models.DOWNLOAD_URL_TEMPLATE).
+    medaka_models_url: str = "https://media.githubusercontent.com/media/nanoporetech/medaka"
     # NCBI's dated taxonomy archives, read to build MOB-suite's taxa.sqlite. Tests point it at a local server.
     ncbi_taxonomy_url: str = "https://ftp.ncbi.nlm.nih.gov/pub/taxonomy/taxdump_archive"
 

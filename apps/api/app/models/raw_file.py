@@ -74,3 +74,9 @@ class RawFile(Base):
     header_metadata: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
     sample: Mapped["Sample"] = relationship("Sample", back_populates="raw_files")
+
+    @property
+    def mate_note(self) -> dict | None:
+        """Why the file's mate role is not the one its name gives (its content shows long reads, or the user set
+        it): validation_detail["mate"]."""
+        return (self.validation_detail or {}).get("mate")

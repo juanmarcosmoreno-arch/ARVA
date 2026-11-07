@@ -732,11 +732,16 @@ export ARVA_TOOL_MEDAKA=~/.arva-tools/conda/medaka/bin/medaka   # scripts/test-a
 ```
 
 The package ships the consensus models `r1041_e82_400bps_sup_v5.2.0` and `r1041_e82_400bps_hac_v5.2.0` (R10.4.1
-E8.2, 400 bps, Dorado v5.2.0 basecalling), and ARVA uses only these: any other model medaka would download on first
-use from GitHub with no checksum. Nothing has to be downloaded or registered for them; the Tools page and the
-polishing dialog list them with their checksums. Reads basecalled with another model are polished with Racon. The
-polishing dialog takes the model from the basecall model in the reads' headers with medaka's own mapping, or asks
-you to choose (see docs/scientific-methods.md, *Polishing*).
+E8.2, 400 bps, Dorado v5.2.0 basecalling). Nothing has to be downloaded or registered for them; the Tools page and
+the polishing dialog list them with their checksums. ARVA never lets medaka download a model itself (medaka would
+fetch it from GitHub's master branch with no checksum). For reads of other flow cells or basecallers (R9.4.1 with
+Guppy 5 models such as `r941_min_hac_g507`, R10.3, R10.4 E8.1, older R10.4.1 basecallers), the Database Manager
+(Tools → Reference databases → Medaka model) downloads one model at a time after you confirm it, from the medaka
+repository at the installed version's tag (`media.githubusercontent.com`, about 1.5 MB each), checked against the
+SHA-256 medaka publishes; or registers a `<model>_model_pt.tar.gz` you already have. A downloaded or registered
+model is offered by the polishing dialog and the workflow's polishing node and used only when you choose it. The
+polishing dialog takes the model from the basecall model in the reads' headers with medaka's own mapping when the
+package ships it, or asks you to choose (see docs/scientific-methods.md, *Polishing*).
 
 The assembly charts, the comparison and the assembly-graph view are drawn by ARVA in the browser from
 the stored statistics and the GFA file; they need no further tool. To explore a large graph in full,

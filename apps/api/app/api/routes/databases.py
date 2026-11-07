@@ -22,6 +22,8 @@ from app.schemas.schemas import (
     DetectResultRead,
     DownloadPlanRead,
     ExtractPlanRead,
+    MedakaModelDownloadRequest,
+    MedakaModelPlanRequest,
     NcbiPlanRead,
     NcbiPlanRequest,
     NcbiStartRequest,
@@ -31,7 +33,7 @@ from app.schemas.schemas import (
     VfdbPlanRequest,
     VfdbStartRequest,
 )
-from app.services import abricate_db, mlst, vfdb_db
+from app.services import abricate_db, medaka_models, mlst, vfdb_db
 from app.services import database_catalogue as catalogue
 from app.services import database_kinds as kinds
 from app.services import databases as svc
@@ -72,6 +74,7 @@ def _read(db: Session, r: ReferenceDatabase, log: bool = False) -> ReferenceData
         "log_text": r.log_text if log else None,
         "mlst": mlst.database_summary(r) if r.kind == mlst.KIND else None,
         "vfdb": _vfdb(r),
+        "medaka_model": medaka_models.summary(r) if r.kind == medaka_models.KIND else None,
     })
 
 
@@ -307,6 +310,39 @@ def vfdb_build(payload: VfdbBuildRequest, db: Session = Depends(get_db)):
         return _read(db, vfdb_db.start_build(db, payload.path, payload.confirm_bytes, payload.accept_terms,
                                              payload.vfdb_set, payload.declared_version, payload.destination,
                                              payload.folder))
+    except _EXPECTED as exc:
+        return _refusal(exc)
+
+
+@router.get("/databases/medaka-models")
+def medaka_model_listing(db: Session = Depends(get_db)):
+    """The Medaka models: the ones medaka's package ships, the ones ARVA can download (those medaka 2.1.1 publishes
+    and loads, with what each was trained for, its address, size and SHA-256) and the ones registered here, which
+    polishing offers. Nothing is sent anywhere."""
+    return medaka_models.listing(db)
+
+
+@router.post("/databases/medaka-models/plan")
+def medaka_model_plan(payload: MedakaModelPlanRequest, db: Session = Depends(get_db)):
+    """What downloading one Medaka model would do: the model and what it was trained for, the address (the medaka
+    repository at the installed version's tag), its size and published SHA-256, Medaka's licence, the folder and the
+    space. Nothing is downloaded."""
+    try:
+        return medaka_models.plan_download(db, payload.model, payload.destination, payload.folder)
+    except _EXPECTED as exc:
+        return _refusal(exc)
+
+
+@router.post("/databases/medaka-models/download", response_model=ReferenceDatabaseRead,
+             status_code=status.HTTP_202_ACCEPTED,
+             responses={507: {"description": "Not enough free space in the chosen database folder"}})
+def medaka_model_download(payload: MedakaModelDownloadRequest, db: Session = Depends(get_db)):
+    """Download the confirmed model (its SHA-256 and size must be the ones the plan showed) in the worker, check it
+    against medaka's published SHA-256, check the archive and let medaka load it once; the address and SHA-256 are
+    recorded."""
+    try:
+        return _read(db, medaka_models.start_download(db, payload.model, payload.confirm_sha256, payload.confirm_bytes,
+                                                      payload.accept_licence, payload.destination, payload.folder))
     except _EXPECTED as exc:
         return _refusal(exc)
 

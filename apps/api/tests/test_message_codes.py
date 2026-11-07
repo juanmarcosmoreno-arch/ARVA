@@ -58,6 +58,8 @@ def test_every_code_the_api_sends_has_a_text_in_the_interface():
     missing = sorted(f"job.error.{c}" for c in job_codes if f"job.error.{c}" not in keys)
     db_codes = _codes(app / "tasks" / "databases.py", "TaskFailure") | _codes(app / "tasks" / "ncbi_collection.py", "TaskFailure")
     db_codes |= _codes(app / "tasks" / "vfdb_db.py", "TaskFailure")
+    db_codes |= _codes(app / "tasks" / "medaka_models.py", "TaskFailure")
+    assert {"medaka_model_checksum", "medaka_model_invalid", "medaka_model_unloadable"} <= db_codes
     assert {"vfdb_bad_file", "vfdb_index_failed", "vfdb_no_abricate"} <= db_codes
     missing += sorted(f"database.error.{c}" for c in db_codes if f"database.error.{c}" not in keys)
     files = {"verified", "corrupt", "unrecognised", "format_error", "no_records", "entire", "full_failed", "pod5_complete",

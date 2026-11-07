@@ -76,7 +76,7 @@ def record(client, record_id):
 
 def test_every_kind_states_its_facts_and_their_sources(client):
     keys = [k.key for k in kinds.KINDS]
-    assert len(keys) == len(set(keys)) and len(keys) == 18
+    assert len(keys) == len(set(keys)) and len(keys) == 19
     for k in kinds.KINDS:
         assert k.source_url.startswith(("https://", "http://")) and k.licence and k.citation and k.recognise
         assert k.version_from and k.typical_size and k.download in ("catalogue", "register", "bundled", "release", "current") \
@@ -725,6 +725,10 @@ def test_every_database_code_and_server_text_has_both_languages():
 
     keys = [f"api.error.{c}" for c in svc.MESSAGES] + [f"databases.problem.{c}" for c in detection.PROBLEMS]
     keys += [f"api.error.{c}" for c in vfdb_db.MESSAGES]
+    from app.services import medaka_models
+
+    keys += [f"api.error.{c}" for c in medaka_models.MESSAGES]
+    keys += [f"databases.compat.{c}" for c in ("medaka_model", "medaka_model_unknown")]
     keys += [f"database.error.{c}" for c in ("not_recognised", "check_failed", "version_mismatch", "published_mismatch",
                                              "quick_failed")]
     assert [k for k in keys if k not in en or k not in es] == []

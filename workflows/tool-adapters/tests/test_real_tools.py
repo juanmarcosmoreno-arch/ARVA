@@ -816,6 +816,46 @@ def test_medaka_ships_the_users_model_and_corrects_the_known_errors(tmp_path, sm
     assert after["report"]["reference"]["indel_bases"] == 0
 
 
+@pytest.mark.skipif(not os.environ.get("ARVA_MEDAKA_TEST_MODEL"),
+                    reason="needs ARVA_MEDAKA_TEST_MODEL: a downloaded r941_min_hac_g507_model_pt.tar.gz")
+def test_medaka_polishes_with_a_registered_model_file(tmp_path, small_genome, polishing_draft):
+    """Recorded on 2026-11-07 with Medaka 2.1.1 and r941_min_hac_g507_model_pt.tar.gz downloaded from the medaka
+    repository at v2.1.1 (SHA-256 as its Git LFS pointer states): -m <the file> makes medaka_consensus log "Using model:
+    <the file>", nothing is downloaded (HOME stays empty), and the synthetic draft's 16 known edits are corrected (an
+    R9.4.1 model on synthetic reads whose errors are random: this checks that the file is used, not its accuracy)."""
+    from arva_tools import medaka_models as mm
+    from arva_tools.medaka import (
+        CONSENSUS,
+        OUTPUT_DIR,
+        MedakaAdapter,
+        MedakaParams,
+        offered_models,
+        read_catalogue,
+    )
+
+    model = Path(os.environ["ARVA_MEDAKA_TEST_MODEL"])
+    assert mm.check_file(model)["sha256"] == mm.PUBLISHED["r941_min_hac_g507"][0]
+    exe = tool("medaka")
+    catalogue = read_catalogue(exe)
+    assert "r941_min_hac_g507" in catalogue["allowed_models"] and "r941_min_high_g360" in catalogue["deprecated_models"]
+    (ont,) = _linked(tmp_path, small_genome, ["ont.fastq.gz"])
+    draft = tmp_path / "draft.fasta"
+    draft.write_bytes(polishing_draft.read_bytes())
+    params = MedakaParams("r941_min_hac_g507", threads=2, model_file=str(model))
+    argv = MedakaAdapter.argv(exe, params, ont, draft, MedakaAdapter.help_text(exe), offered_models(catalogue))
+    assert argv[argv.index("-m") + 1] == str(model)
+    home = tmp_path / "home"
+    home.mkdir()
+    log = tmp_path / "medaka.log"
+    run_command(argv, cwd=tmp_path, stderr_path=log, extra_env=MedakaAdapter().environment(exe), home=home)
+    parsed = MedakaAdapter.parse_log(log.read_text())
+    assert parsed["finished"] and parsed["model_files"] == [str(model)]
+    assert list(home.iterdir()) == []
+    after = _dnadiff(tmp_path, small_genome / "reference.fasta", tmp_path / OUTPUT_DIR / CONSENSUS, "after")
+    assert after["report"]["reference"]["substituted_bases"] == 0
+    assert after["report"]["reference"]["indel_bases"] == 0
+
+
 def test_pilon_corrects_every_known_error_and_lists_it(tmp_path, small_genome, polishing_draft):
     """Recorded with Pilon 1.24 (Java 21), BWA 0.7.17 and samtools 1.19.2: one round with the Illumina-like pairs
     corrects all 16 edits; its .changes file and dnadiff agree, and the polished genome equals the reference."""

@@ -65,7 +65,9 @@ FILTERED = {"/projects", "/samples", "/dashboard", "/jobs", "/annotations", "/co
 # Unscoped GET routes that show no project data.
 GLOBAL_READS = {"/tools", "/tools/libraries", "/metadata/template", "/typing/modules", "/workflows/catalogue",
                 "/workflows", "/gene-queries", "/system/storage", "/system/performance", "/system/native-executor", "/auth/me",
-                "/comparisons/phylogeny/compare", "/batches/compare", "/batches/queue", "/assist/status"}
+                "/comparisons/phylogeny/compare", "/batches/compare", "/batches/queue", "/assist/status",
+                # The Medaka models polishing and the workflow editor offer (shipped and registered; no project data).
+                "/databases/medaka-models"}
 DOWNLOADS = re.compile(r"(report|export|download|\.csv|\.json|\.nwk|\.fasta|\.Rtab|/files/|/outputs/|/file$)")
 
 

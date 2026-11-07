@@ -18,6 +18,7 @@ export function useRefreshDatabases() {
   return () => {
     qc.invalidateQueries({ queryKey: ["databases"] });
     qc.invalidateQueries({ queryKey: ["database-usage"] });
+    qc.invalidateQueries({ queryKey: ["medaka-models"] });
   };
 }
 
@@ -68,6 +69,17 @@ export function RecordRow({ record }: { record: ReferenceDatabase }) {
           <code className="mt-1 block break-all text-xs text-muted-foreground">{record.host_path ?? record.path}</code>
           {offline && <p className="mt-1 text-xs text-muted-foreground">{t("databases.unavailableHint")}</p>}
           {record.vfdb?.set && <VfdbLine vfdb={record.vfdb} />}
+          {record.medaka_model && (
+            <p className="mt-1 text-xs text-muted-foreground">
+              {t("medakaModels.trainedForValue", {
+                chemistry: record.medaka_model.chemistry ?? "?",
+                device: record.medaka_model.device ?? "—",
+                accuracy: record.medaka_model.accuracy ?? "?",
+                basecaller: record.medaka_model.basecaller ?? "?",
+              })}
+              {record.medaka_model.sha256 ? ` · SHA-256 ${record.medaka_model.sha256.slice(0, 12)}…` : ""}
+            </p>
+          )}
         </div>
         <div className="flex shrink-0 flex-wrap gap-2">
           {busy ? (
@@ -76,7 +88,7 @@ export function RecordRow({ record }: { record: ReferenceDatabase }) {
             </Button>
           ) : (
             <>
-              {ready && !record.is_default && record.compatibility?.status !== "incompatible" && (
+              {ready && !record.is_default && record.kind !== "medaka_model" && record.compatibility?.status !== "incompatible" && (
                 <Button size="sm" variant="outline" onClick={() => makeDefault.mutate()} disabled={makeDefault.isPending || offline}>
                   <Star className="h-3.5 w-3.5" aria-hidden /> {t("databases.makeDefault")}
                 </Button>
