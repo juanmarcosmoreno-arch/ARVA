@@ -1054,14 +1054,24 @@ def create_variant_job(db: Session, sample: Sample, plan: dict, inputs, params, 
 
 ACTIVE = (JobStatus.pending, JobStatus.running)
 # RQ statuses of a task no worker is executing any more.
-_NOT_EXECUTING = {"finished", "failed", "stopped", "canceled"}
+_NOT_EXECUTING = {"finished", "failed", "stopped", "canceled", "abandoned"}
 
 
 def task_status(rq_id: str) -> str | None:
-    """RQ's status of a task, "missing" when Redis no longer holds it, None when Redis cannot be asked."""
+    """RQ's status of a task, "missing" when Redis no longer holds it, "abandoned" when RQ still says "started" but
+    the worker that took it is no longer registered (a Redis that keeps its data across a restart remembers the task
+    of a worker that died with the machine), None when Redis cannot be asked."""
     try:
-        status = RqJob.fetch(rq_id, connection=get_queue().connection).get_status()
-        return str(getattr(status, "value", status)) if status else "missing"
+        connection = get_queue().connection
+        rq_job = RqJob.fetch(rq_id, connection=connection)
+        status = rq_job.get_status()
+        value = str(getattr(status, "value", status)) if status else "missing"
+        if value == "started" and rq_job.worker_name:
+            from rq.worker import Worker
+
+            if rq_job.worker_name not in {w.name for w in Worker.all(connection=connection)}:
+                return "abandoned"
+        return value
     except NoSuchJobError:
         return "missing"
     except (RedisError, InvalidJobOperation):

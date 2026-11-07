@@ -318,3 +318,22 @@ def test_variant_and_workflow_run_reports_follow_the_language(client):
 
     assert set(variants_report.PROJECT_LABELS["en"]) == set(variants_report.PROJECT_LABELS["es"])
     assert len(variants_report.VARIANT_LIMITATIONS) == len(variants_report.VARIANT_LIMITATIONS_ES)
+
+
+def test_a_started_task_of_a_worker_that_is_gone_is_abandoned(monkeypatch):
+    """A Redis that keeps its data across a restart still says "started" for the task a dead worker took; the task is
+    lost when that worker is no longer registered, and still running when it is."""
+    from types import SimpleNamespace
+
+    import rq.worker
+
+    from app.services import jobs as jobs_service
+
+    task = SimpleNamespace(worker_name="old-worker", get_status=lambda: "started")
+    monkeypatch.setattr(jobs_service.RqJob, "fetch", classmethod(lambda cls, rq_id, connection=None: task))
+    monkeypatch.setattr(rq.worker.Worker, "all", classmethod(lambda cls, connection=None: [SimpleNamespace(name="new")]))
+    assert jobs_service.task_status("arva-x") == "abandoned"
+    assert jobs_service.is_lost(SimpleNamespace(), "abandoned")
+    monkeypatch.setattr(rq.worker.Worker, "all",
+                        classmethod(lambda cls, connection=None: [SimpleNamespace(name="old-worker")]))
+    assert jobs_service.task_status("arva-x") == "started"
