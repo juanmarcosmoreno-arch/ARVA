@@ -1,0 +1,16 @@
+isolate	source	sanger_st	ont_asm_st_paper	illu_asm_st_paper	hyb_asm_st_paper	spa_hyb_asm	spa_ont_asm	spa_illu_asm	cc_table_s7	ast_penicillin	ast_ampicillin	ast_tetracycline	ast_erythromycin	ast_lincomycin	ast_pirlimycin	ast_clindamycin	ast_sulfadimethoxine	ast_cephalothin	ast_ceftiofur	ast_cefazolin	ast_tilmicosin	ast_vancomycin	ast_penicillin_novobiocin	ast_enrofloxacin	ast_oxacillin	ast_cefoxitin	ast_amoxyclav	ast_gentamicin	ast_sulphtrimethoprim	blaZ_inferred	mecA_paper	per_isolate_genes_in_paper
+AC06-110	Human	398	753	Undetermined	398	t571	t571	unknown	398	S	S	S	R	I	S	S	R	S	S	S	S	S	S	S	S	S	S	S	S	absent	not_reported	heatmap_figure_only
+OF01-07	BTM	2187	Undetermined	2187	2187	t267	t267	t267	97	S	S	S	S	I	S	S	S	S	S	S	S	S	S	S	S	S	S	S	S	absent	not_reported	heatmap_figure_only
+AC12-45	Human	7	Undetermined	7	7	t091	t091	t091	7	R	R	R	S	S	S	S	R	S	S	S	S	S	S	S	S	S	S	S	S	present	not_reported	heatmap_figure_only
+OF10-16	BTM	8	Undetermined	8	8	t008	t008	t008	8	R	R	S	S	S	S	S	S	S	S	S	S	S	S	S	S	S	S	S	S	present	not_reported	heatmap_figure_only
+AC14-18	Human	72	72	72	72	t148	t148	t6509	8	R	R	S	S	I	S	S	R	S	S	S	S	S	S	S	S	S	S	S	S	present	not_reported	heatmap_figure_only
+AC05-54	Human	5957	5957	5957	5957	t548	t548	t548	5	R	R	S	S	S	S	S	R	S	S	S	S	S	S	S	S	S	S	S	S	present	not_reported	heatmap_figure_only
+AC14-41	BTM	5	Undetermined	5	5	t010	t010	t5923	5	R	R	S	S	S	S	S	R	S	S	S	S	S	S	S	S	S	S	S	S	present	not_reported	heatmap_figure_only
+AC15-06	BTM	3028	3028	3028	3028	t9432	t9432	t2980	97	S	S	S	S	S	S	S	S	S	S	S	S	S	S	S	S	S	S	S	S	absent	not_reported	heatmap_figure_only
+OF20-25	BTM	30	30	30	30	t012	t012	t012	30	R	R	S	S	I	S	S	S	S	S	S	S	S	S	S	S	S	S	S	S	present	not_reported	heatmap_figure_only
+CP18	CQM	3021	3021	3021	3021	t359	t359	t359	97	S	S	S	S	I	S	S	R	S	S	S	S	S	S	S	S	S	S	S	S	absent	not_reported	heatmap_figure_only
+OF39-02	BTM	352	352	352	352	t3380	t3380	t3380	97	S	S	S	S	I	S	S	R	S	S	S	S	S	S	S	S	S	S	S	S	absent	not_reported	heatmap_figure_only
+V14	CQM	151	Undetermined	151	151	t2211	t2211	t2211	151	S	S	S	S	R	R	S	R	S	S	S	S	S	S	S	S	S	S	S	S	absent	not_reported	heatmap_figure_only
+OF21-07	BTM	97	97	97	97	t359	t359	unknown	97	R	R	S	S	S	S	S	R	S	S	S	S	S	S	S	S	S	S	S	S	present	not_reported	heatmap_figure_only
+OF21-04	BTM	87	87	87	87	t216	t216	t529	87	S	S	S	S	I	S	S	R	S	S	S	S	S	S	S	S	S	S	S	S	absent	not_reported	heatmap_figure_only
+CR92	CQM	7083	7083	7083	7083	t529	t529	t529	151	S	S	S	S	I	S	S	S	S	S	S	S	S	S	S	S	S	S	S	S	absent	not_reported	heatmap_figure_only
