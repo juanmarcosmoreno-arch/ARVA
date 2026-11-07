@@ -1,0 +1,4 @@
+# Editing this file and pushing it to the branch claude/affectionate-darwin-oknu0k starts the Chakrawarti 2024
+# validation on GitHub Actions (.github/workflows/validation.yml): all 15 isolates, ARVA from the newest published
+# images of the branch. Change the line below (e.g. the date and a reason) to start a new run; see README.md.
+2026-11-07 first run on GitHub Actions

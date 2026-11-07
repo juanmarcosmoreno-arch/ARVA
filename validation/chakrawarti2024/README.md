@@ -161,6 +161,84 @@ apps/api/.venv/bin/python -I validation/chakrawarti2024/run_validation.py --star
 apps/api/.venv/bin/python -I validation/chakrawarti2024/compare.py
 ```
 
+### Running it on GitHub Actions
+
+One isolate takes about 1.5 h (Medaka about 70 min of CPU, Flye about 8 min,
+about 10 GB of memory at its peak), which is too long for a cloud session
+that sleeps when idle. The workflow `.github/workflows/validation.yml`
+therefore runs the validation on GitHub's runners, one runner per isolate,
+all at once (as many as the account's concurrency limit allows).
+
+How to start it:
+
+- **Actions tab**: choose "Validation (Chakrawarti 2024)", then "Run
+  workflow" on the branch. GitHub offers this button only for workflows
+  that are also on the default branch (`main`), so until `validation.yml` is
+  merged there, start it by editing `RUN` (below). You can fill in two
+  optional fields:
+  - `image_tag` is the ARVA image tag, e.g. `0.2.0-d78bb98`. Leave it empty
+    to use the newest images that `images.yml` published for the branch's
+    history: `<version>-<short commit>`, or failing that
+    `<version>-<short commit>-amd64`, going back from the selected commit.
+  - `isolates` takes names from `isolates.tsv`, separated by spaces or
+    commas. Leave it empty to run all 15.
+- **Editing `RUN`**: change the line in `validation/chakrawarti2024/RUN` and
+  push it to `claude/affectionate-darwin-oknu0k`. This starts all 15 isolates
+  with the newest published images, and works without a dispatch from the
+  default branch. `images.yml` ignores changes under `validation/`, so editing
+  `RUN` never rebuilds the images or cancels an image build in progress.
+
+What each isolate job does:
+
+1. Starts ARVA from the published images (`ghcr.io/<owner>/arva-api` and
+   `arva-web`) with `docker-compose.yml`. An override file mounts a runner
+   folder read-only at `/import`, ARVA's import folder, in place of
+   `./import`.
+2. Runs `run_validation.py --api-url http://127.0.0.1:8000 --only <isolate>
+   --download-dir <runner folder> --container-download-dir /import
+   --download-ridom-spa` against that fresh ARVA. Before the isolate,
+   `setup()` gets the databases through ARVA's API, with the same
+   confirmations a user gives:
+   - the Medaka model, using ARVA's confirmed download;
+   - the newest AMRFinderPlus release that ARVA lists as compatible, which
+     ARVA downloads and indexes after the size and NCBI's terms are
+     confirmed;
+   - the Ridom SpaServer files. ARVA never downloads these, so the runner
+     fetches `sparepeats.fasta` and `spatypes.txt` from spa.ridom.de into the
+     import folder and registers that folder, declaring the download date as
+     the version. Ridom's policy allows non-commercial use. The files are
+     never uploaded.
+
+   mlst's schemes come with mlst.
+3. Uploads two artifacts:
+   - `result-<isolate>`: `results/<isolate>.json`, or `.failed.json`, plus
+     mlst's S. aureus profile table from the image;
+   - `logs-<isolate>`: the run log and the logs of the api, worker, web,
+     postgres, redis and backup containers.
+
+   A failed isolate fails its job.
+
+Once all the isolate jobs have finished, whether they passed or not, the
+`concordance` job does the following:
+
+- Gathers the `result-*` artifacts into `results/`. This replaces the result
+  files committed here, so the concordance covers this run only;
+  `racon-pilot/` stays.
+- Runs `compare.py`.
+- Writes `concordance.md` to the run's summary page.
+- Uploads `results/` (each isolate's JSON, `concordance.tsv` and
+  `concordance.md`) as one artifact, **`chakrawarti2024-results`**.
+
+To keep the results, download that artifact from the run's page (Summary,
+then Artifacts), or with `gh run download <run id> -n chakrawarti2024-results`.
+Then copy the files into `validation/chakrawarti2024/results/` to commit
+them. Artifacts are kept for 90 days, and the per-isolate ones for 30.
+
+Each result records the image it ran (`provenance.arva_image`,
+`provenance.arva_image_commit`) and how each database was obtained
+(`provenance.setup`). `git_commit` is the commit of the harness, which can be
+newer than the image's.
+
 ### Racon pilot (`results/racon-pilot/`)
 
 The pilot (AC05-54 and AC15-06) ran before ARVA could register an R9.4.1

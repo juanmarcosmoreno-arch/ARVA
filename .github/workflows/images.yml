@@ -11,8 +11,10 @@ name: Container images
 on:
   push:
     branches: [main, claude/affectionate-darwin-oknu0k]
-    # A push that only changes documentation builds nothing, so it never cancels the build of the code before it.
-    paths-ignore: ["docs/**", "**/*.md"]
+    # A push that only changes documentation or the validation harness (validation/ and validation.yml are not in the
+    # images; editing validation/chakrawarti2024/RUN starts validation.yml) builds nothing, so it never cancels the
+    # build of the code before it.
+    paths-ignore: ["docs/**", "**/*.md", "validation/**", ".github/workflows/validation.yml"]
   workflow_dispatch:
 
 permissions:

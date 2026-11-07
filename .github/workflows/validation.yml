@@ -1,0 +1,348 @@
+# External validation of ARVA against Chakrawarti et al. 2024 (validation/chakrawarti2024/README.md), on GitHub's
+# runners: one isolate takes about 1.5 h (Medaka about 70 min of CPU, Flye about 8 min, about 10 GB of memory at its
+# peak), too long for a session that sleeps when idle.
+#
+# - plan: the isolates to run (isolates.tsv, optionally filtered) and the ARVA images to run them with: the tag given,
+#   or the newest images .github/workflows/images.yml published for this branch's history (<version>-<short commit>,
+#   else <version>-<short commit>-amd64, walking back from the commit being validated).
+# - isolate (one runner per isolate): ARVA from those published images with Docker Compose (docker-compose.yml plus an
+#   override that mounts a runner folder read-only at /import, ARVA's import folder), then run_validation.py through
+#   ARVA's HTTP API; the result JSON, the run log and ARVA's container logs are uploaded as artifacts.
+# - concordance: all the isolates' results, compare.py, one artifact "chakrawarti2024-results" and the concordance in
+#   the run's summary.
+#
+# Start it by editing validation/chakrawarti2024/RUN on the branch claude/affectionate-darwin-oknu0k (a push that
+# changes that file starts all 15 isolates), or from the Actions tab (Run workflow), which GitHub offers only once this
+# file is also on the default branch.
+name: Validation (Chakrawarti 2024)
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: >-
+          ARVA image tag (ghcr.io/<owner>/arva-api and arva-web), e.g. 0.2.0-d78bb98. Empty: the newest images
+          images.yml published for the selected branch's history.
+        required: false
+        default: ""
+        type: string
+      isolates:
+        description: "Isolates to run, separated by spaces or commas (names from isolates.tsv). Empty: all 15."
+        required: false
+        default: ""
+        type: string
+  push:
+    branches: [claude/affectionate-darwin-oknu0k]
+    paths: [validation/chakrawarti2024/RUN]
+
+permissions:
+  contents: read
+  packages: read
+
+# One validation at a time per branch; a new one waits instead of cancelling hours of work.
+concurrency:
+  group: validation-chakrawarti2024-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    name: Plan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    outputs:
+      isolates: ${{ steps.isolates.outputs.isolates }}
+      api: ${{ steps.image.outputs.api }}
+      web: ${{ steps.image.outputs.web }}
+      tag: ${{ steps.image.outputs.tag }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 40
+
+      - name: Isolates
+        id: isolates
+        env:
+          ISOLATES_FILTER: ${{ inputs.isolates }}
+        run: |
+          python3 -I - "$ISOLATES_FILTER" <<'PY'
+          import csv
+          import json
+          import os
+          import re
+          import sys
+
+          with open("validation/chakrawarti2024/isolates.tsv", newline="") as fh:
+              names = [r["isolate"] for r in csv.DictReader(fh, delimiter="\t")]
+          safe = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}")
+          bad = [n for n in names if not safe.fullmatch(n)]
+          if bad or len(set(names)) != len(names):
+              sys.exit(f"isolates.tsv: unexpected or repeated isolate names {bad or names}")
+          want = [w for w in re.split(r"[\s,]+", sys.argv[1]) if w]
+          unknown = sorted(set(want) - set(names))
+          if unknown:
+              sys.exit(f"Unknown isolates {unknown}; isolates.tsv lists {names}")
+          chosen = [n for n in names if not want or n in want]
+          print(f"{len(chosen)} isolate(s): {', '.join(chosen)}")
+          with open(os.environ["GITHUB_OUTPUT"], "a") as out:
+              out.write(f"isolates={json.dumps(chosen)}\n")
+          PY
+
+      - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Images
+        id: image
+        env:
+          TAG_INPUT: ${{ inputs.image_tag }}
+        run: |
+          owner=${GITHUB_REPOSITORY_OWNER,,}
+          api=ghcr.io/$owner/arva-api
+          web=ghcr.io/$owner/arva-web
+          published() { docker manifest inspect "$api:$1" > /dev/null 2>&1 && docker manifest inspect "$web:$1" > /dev/null 2>&1; }
+          tag=
+          if [ -n "$TAG_INPUT" ]; then
+            if ! [[ $TAG_INPUT =~ ^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$ ]]; then
+              echo "::error::Not an image tag: $TAG_INPUT"
+              exit 1
+            fi
+            if ! published "$TAG_INPUT"; then
+              echo "::error::$api:$TAG_INPUT and $web:$TAG_INPUT are not both published"
+              exit 1
+            fi
+            tag=$TAG_INPUT
+          else
+            # The tags images.yml's "Names and tags" step gives a commit: <version>-<short commit>-<arch> per
+            # architecture, and <version>-<short commit> once both architectures are published.
+            for commit in $(git rev-list --max-count=40 HEAD); do
+              version=$(git show "$commit:apps/api/app/__init__.py" 2>/dev/null |
+                sed -n 's/^__version__ = "\([0-9a-z.]*\)".*/\1/p')
+              if [ -z "$version" ]; then continue; fi
+              for candidate in "$version-${commit::7}" "$version-${commit::7}-amd64"; do
+                if published "$candidate"; then
+                  tag=$candidate
+                  break 2
+                fi
+              done
+              echo "No published images for $commit ($version-${commit::7})"
+            done
+            if [ -z "$tag" ]; then
+              echo "::error::No published ARVA images for the last 40 commits of $GITHUB_REF_NAME; run images.yml or give image_tag"
+              exit 1
+            fi
+          fi
+          echo "ARVA images: $api:$tag and $web:$tag"
+          {
+            echo "api=$api"
+            echo "web=$web"
+            echo "tag=$tag"
+          } >> "$GITHUB_OUTPUT"
+          echo "ARVA images: \`$api:$tag\`, \`$web:$tag\`" >> "$GITHUB_STEP_SUMMARY"
+
+  isolate:
+    name: ${{ matrix.isolate }}
+    needs: plan
+    # GitHub runs as many of these at once as the account's concurrency limit allows (no max-parallel).
+    strategy:
+      fail-fast: false
+      matrix:
+        isolate: ${{ fromJSON(needs.plan.outputs.isolates) }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 330
+    env:
+      ISOLATE: ${{ matrix.isolate }}
+      API_IMAGE: ${{ needs.plan.outputs.api }}
+      WEB_IMAGE: ${{ needs.plan.outputs.web }}
+      IMAGE_TAG: ${{ needs.plan.outputs.tag }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Free disk space
+        run: scripts/ci/free-disk.sh
+
+      - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # docker-compose.yml with the published images, and an override that replaces its ./import mount: a runner
+      # folder, read-only at /import (ARVA_IMPORT_ROOTS is ["/import"] in docker-compose.yml) in the api and worker
+      # containers, where run_validation.py downloads the FASTQ and the Ridom files. Compose merges a service's
+      # volumes by their path in the container, so this mount takes the place of ./import:/import:ro.
+      - name: Start ARVA
+        run: |
+          import_dir=$RUNNER_TEMP/arva-import
+          mkdir -p "$import_dir" "$RUNNER_TEMP/artifact/results" "$RUNNER_TEMP/logs"
+          chmod 0755 "$import_dir"
+          override=$RUNNER_TEMP/compose.validation.yml
+          cat > "$override" <<EOF
+          services:
+            api:
+              volumes:
+                - type: bind
+                  source: $import_dir
+                  target: /import
+                  read_only: true
+            worker:
+              volumes:
+                - type: bind
+                  source: $import_dir
+                  target: /import
+                  read_only: true
+          EOF
+          {
+            echo "COMPOSE_FILE=$GITHUB_WORKSPACE/docker-compose.yml:$override"
+            echo "ARVA_API_IMAGE=$API_IMAGE"
+            echo "ARVA_WEB_IMAGE=$WEB_IMAGE"
+            echo "ARVA_IMAGE_TAG=$IMAGE_TAG"
+            echo "ARVA_PLATFORM=linux/amd64"
+            echo "ARVA_HOST_IMPORT_DIR=$import_dir"
+            echo "IMPORT_DIR=$import_dir"
+          } >> "$GITHUB_ENV"
+          export COMPOSE_FILE="$GITHUB_WORKSPACE/docker-compose.yml:$override" ARVA_API_IMAGE=$API_IMAGE \
+            ARVA_WEB_IMAGE=$WEB_IMAGE ARVA_IMAGE_TAG=$IMAGE_TAG ARVA_PLATFORM=linux/amd64 \
+            ARVA_HOST_IMPORT_DIR=$import_dir
+          docker compose config --images
+          docker compose pull --quiet
+          docker compose up -d --no-build --wait --wait-timeout 600
+          docker compose ps
+          commit=$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' \
+            "$API_IMAGE:$IMAGE_TAG")
+          echo "IMAGE_COMMIT=$commit" >> "$GITHUB_ENV"
+          curl -fsS http://127.0.0.1:8000/health
+          echo
+          echo "ARVA $(curl -fsS http://127.0.0.1:8000/health) from $API_IMAGE:$IMAGE_TAG (commit $commit)"
+          # mlst's S. aureus profile table from the image (for compare.py's per-locus differences).
+          mkdir -p "$RUNNER_TEMP/artifact/mlst"
+          docker compose exec -T api cat /opt/arva-tools/conda/mlst/db/pubmlst/saureus/saureus.txt \
+            > "$RUNNER_TEMP/artifact/mlst/saureus.txt" || rm -f "$RUNNER_TEMP/artifact/mlst/saureus.txt"
+          df -h / /mnt 2>/dev/null || df -h /
+          free -g
+          nproc
+
+      - name: Run the validation
+        run: |
+          set -o pipefail
+          docker_root=$(docker info --format '{{.DockerRootDir}}')
+          python3 -I validation/chakrawarti2024/run_validation.py \
+            --api-url http://127.0.0.1:8000 --only "$ISOLATE" \
+            --download-dir "$IMPORT_DIR" --container-download-dir /import \
+            --results "$RUNNER_TEMP/artifact/results" --monitor-path "$docker_root" \
+            --download-ridom-spa --threads "$(nproc)" --job-timeout 16200 \
+            --arva-image "$API_IMAGE:$IMAGE_TAG" --arva-image-commit "$IMAGE_COMMIT" \
+            2>&1 | tee "$RUNNER_TEMP/logs/run.log"
+
+      - name: Container logs
+        if: always()
+        run: |
+          if [ -z "${COMPOSE_FILE:-}" ]; then exit 0; fi
+          docker compose ps -a > "$RUNNER_TEMP/logs/compose-ps.txt" 2>&1 || true
+          for service in api worker web postgres redis backup; do
+            docker compose logs --no-color --timestamps "$service" > "$RUNNER_TEMP/logs/$service.log" 2>&1 || true
+          done
+          { df -h / /mnt 2>/dev/null || df -h /; free -m; } > "$RUNNER_TEMP/logs/runner.txt" 2>&1 || true
+          tail -n 100 "$RUNNER_TEMP/logs/worker.log" || true
+
+      - name: Upload the result
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: result-${{ matrix.isolate }}
+          path: ${{ runner.temp }}/artifact/
+          if-no-files-found: warn
+          retention-days: 30
+          # "Re-run failed jobs" uploads the same name again in the same run.
+          overwrite: true
+
+      - name: Upload the logs
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: logs-${{ matrix.isolate }}
+          path: ${{ runner.temp }}/logs/
+          if-no-files-found: warn
+          retention-days: 30
+          # "Re-run failed jobs" uploads the same name again in the same run.
+          overwrite: true
+
+      - name: Outcome
+        if: always()
+        run: |
+          python3 -I - "$RUNNER_TEMP/artifact/results" "$ISOLATE" <<'PY' | tee -a "$GITHUB_STEP_SUMMARY"
+          import json
+          import sys
+          from pathlib import Path
+
+          results, name = Path(sys.argv[1]), sys.argv[2]
+          done, failed = results / f"{name}.json", results / f"{name}.failed.json"
+          if done.is_file():
+              res = json.loads(done.read_text())
+              s = res.get("summary") or {}
+              print(f"**{name}**: {res['status']} in {res['wall_seconds'] / 60:.0f} min; ST {s.get('st')}, "
+                    f"spa {s.get('spa')}, SCCmec {s.get('sccmec')}, agr {s.get('agr')}; AMR genes: "
+                    f"{', '.join(s.get('amr_genes') or []) or 'none'}")
+          elif failed.is_file():
+              print(f"**{name}**: failed: {json.loads(failed.read_text()).get('error')}")
+          else:
+              print(f"**{name}**: no result written (see the logs artifact)")
+          PY
+          # A failed isolate fails its job (the concordance job still runs and lists it as failed or missing).
+          test -f "$RUNNER_TEMP/artifact/results/$ISOLATE.json"
+
+  concordance:
+    name: Concordance
+    needs: [plan, isolate]
+    if: always() && needs.plan.result == 'success'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # No result artifact at all (every isolate job failed before uploading) must still give a concordance that
+      # lists every isolate as missing; Compare says how many result files it found.
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        continue-on-error: true
+        with:
+          pattern: result-*
+          path: ${{ runner.temp }}/downloaded
+          merge-multiple: true
+
+      # The concordance of this run only: the results committed in the repository (an earlier local run) are
+      # replaced by the ones this run produced; results/racon-pilot/ stays (compare.py lists it apart, never counted).
+      - name: Compare
+        env:
+          IMAGES: ${{ needs.plan.outputs.api }}:${{ needs.plan.outputs.tag }}
+        run: |
+          results=validation/chakrawarti2024/results
+          find "$results" -maxdepth 1 -type f -delete
+          shopt -s nullglob
+          files=("$RUNNER_TEMP"/downloaded/results/*.json)
+          echo "${#files[@]} result file(s) from this run"
+          if [ "${#files[@]}" -gt 0 ]; then cp "${files[@]}" "$results"/; fi
+          profiles=()
+          if [ -f "$RUNNER_TEMP/downloaded/mlst/saureus.txt" ]; then
+            profiles=(--mlst-profiles "$RUNNER_TEMP/downloaded/mlst/saureus.txt")
+          fi
+          python3 -I validation/chakrawarti2024/compare.py "${profiles[@]}" > /dev/null
+          {
+            echo "ARVA image: \`$IMAGES\` (and arva-web with the same tag)"
+            echo
+            cat "$results/concordance.md"
+          } >> "$GITHUB_STEP_SUMMARY"
+          ls -l "$results"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: chakrawarti2024-results
+          path: validation/chakrawarti2024/results/
+          if-no-files-found: error
+          retention-days: 90
+          overwrite: true

@@ -19,13 +19,30 @@ For each isolate of isolates.tsv (one at a time, because the disk is small):
       identification with skani when a reference collection is registered (otherwise skipped and recorded);
  4. write results/<isolate>.json (ARVA version and commit, tool versions, parameters, commands, ST, alleles, spa,
     SCCmec, agr, AMR genes, timings, peak disk and memory);
- 5. delete the downloaded FASTQ and the ARVA sample, and the sample's imported copy under ARVA's raw/ folder (ARVA's
-    sample deletion keeps raw/ by design; this harness removes it to free the disk, see cleanup());
+ 5. delete the downloaded FASTQ and the ARVA sample and, with --start-arva, the sample's imported copy under ARVA's
+    raw/ folder (ARVA's sample deletion keeps raw/ by design; this harness removes it to free the disk, see cleanup());
  6. skip isolates that already have results/<isolate>.json, so the run can be resumed.
+
+Before the first isolate, setup() makes sure ARVA has the databases the steps need, through ARVA's own API with the
+confirmations a user gives: the Medaka model (above); an AMRFinderPlus database (the newest NCBI release ARVA lists as
+compatible with its AMRFinderPlus, downloaded and indexed by ARVA after confirming its size and NCBI's terms); and, with
+--download-ridom-spa, the Ridom SpaServer files for spa typing (ARVA never downloads them: this runner fetches
+sparepeats.fasta and spatypes.txt from spa.ridom.de into the import folder and registers that folder, declaring the
+download date as the version). mlst's schemes are bundled with mlst.
+
+Two ways to reach ARVA:
+- --start-arva: the API and worker from this source tree (scripts/dev.sh's way), with the download folder as the
+  import folder;
+- an ARVA already running, e.g. the published images under Docker Compose (.github/workflows/validation.yml): --api-url
+  its address, --download-dir a host folder mounted as one of its import folders and --container-download-dir the
+  same folder as the containers see it (e.g. /import). ARVA's storage is then inside the containers, so the imported
+  copies under raw/ are left to ARVA (the whole stack is thrown away after the run in CI).
 
 Standard library only. Run it with -I (downloaded files are untrusted data), e.g.:
 
     apps/api/.venv/bin/python -I validation/chakrawarti2024/run_validation.py --start-arva --smallest 2
+    python3 -I validation/chakrawarti2024/run_validation.py --api-url http://127.0.0.1:8000 --only AC15-06 \
+        --download-dir "$RUNNER_TEMP/arva-import" --container-download-dir /import --download-ridom-spa
 """
 from __future__ import annotations
 
@@ -35,6 +52,7 @@ import datetime as dt
 import hashlib
 import json
 import os
+import posixpath
 import re
 import shutil
 import signal
@@ -84,6 +102,13 @@ MEDAKA_NOTE = ("Paper: Rebaler then Medaka v1.0.3 (model not stated). ARVA polis
                "medaka v2.1.1 tag (SHA-256 " + MEDAKA_MODEL_SHA256 + "); medaka 1.0.3's models (r941_min_high_g360 "
                "and older) cannot be loaded by medaka 2, and no Rebaler step was run.")
 AMR_SETTINGS = {"organism": "Staphylococcus_aureus"}
+# The Ridom SpaServer files (database_kinds.py, kind spa_types: "Download repeat sequences (FASTA)" and "Download
+# spa-types (CSV)"). Ridom's policy (https://spa.ridom.de/policy.shtml): individuals may download and use them for
+# non-commercial purposes; they are not redistributed (never written to results/ or to an artifact).
+RIDOM_FILES = {"sparepeats.fasta": "https://spa.ridom.de/dynamic/sparepeats.fasta",
+               "spatypes.txt": "https://spa.ridom.de/dynamic/spatypes.txt"}
+RIDOM_MAX_BYTES = 64 * 1024 ** 2
+USABLE_DB = ("installed", "registered")
 TYPING_MODULE = "staphylococcus_aureus"
 TYPING_METHODS = ("sccmec", "spa", "agr")
 # Bioconda environments the way scripts/test-all.sh finds them (ARVA_TOOL_<ID> overrides).
@@ -314,6 +339,25 @@ def download(url: str, dest: Path, md5: str, size: int, attempts: int = 3) -> di
     raise RuntimeError(f"Download failed: {'; '.join(errors)}")
 
 
+def fetch_small(url: str, dest: Path, limit: int, attempts: int = 3) -> dict[str, Any]:
+    """Download a small public file (no published checksum) and record its size and SHA-256."""
+    errors = []
+    for attempt in range(1, attempts + 1):
+        try:
+            with urllib.request.urlopen(url, timeout=120) as resp:
+                data = resp.read(limit + 1)
+        except (OSError, urllib.error.URLError) as exc:
+            errors.append(f"attempt {attempt}: {exc}")
+            time.sleep(10 * attempt)
+            continue
+        if not data or len(data) > limit:
+            errors.append(f"attempt {attempt}: {len(data)} bytes (expected 1 to {limit})")
+            continue
+        dest.write_bytes(data)
+        return {"url": url, "bytes": len(data), "sha256": hashlib.sha256(data).hexdigest(), "fetched_at": now()}
+    raise SystemExit(f"Download of {url} failed: {'; '.join(errors)}")
+
+
 def job_record(job: dict, wall: float | None = None) -> dict[str, Any]:
     keys = ("id", "job_type", "tool_name", "tool_version", "tool_path", "status", "parameters", "commands",
             "database_name", "database_version", "database_kind", "database_checksum", "database_path",
@@ -331,6 +375,8 @@ class Runner:
         self.root_index: int | None = None
         self.project_id: str | None = None
         self.medaka_model: dict[str, Any] | None = None
+        self.amr_db: dict[str, Any] | None = None
+        self.spa_files: dict[str, Any] | None = None
 
     # generic -------------------------------------------------------------------------------------------------------
     def wait(self, job_id: str, label: str) -> dict:
@@ -362,15 +408,29 @@ class Runner:
             time.sleep(self.args.poll)
 
     # setup ---------------------------------------------------------------------------------------------------------
+    def as_seen_by_arva(self, host_path: Path) -> str:
+        """A path under the download folder as ARVA sees it (inside its containers with --container-download-dir)."""
+        rel = host_path.resolve().relative_to(self.args.downloads.resolve())
+        if self.args.container_download_dir:
+            return posixpath.join(self.args.container_download_dir, *rel.parts)
+        return str(host_path.resolve())
+
     def setup(self) -> None:
         roots = self.api.get("/imports/roots")
-        want = os.path.realpath(self.args.downloads)
-        for r in roots:
-            if os.path.realpath(r["path"]) == want and r["exists"]:
-                self.root_index = r["index"]
+        if self.args.container_download_dir:
+            want = posixpath.normpath(self.args.container_download_dir)
+            for r in roots:
+                if posixpath.normpath(r["path"]) == want and r["exists"]:
+                    self.root_index = r["index"]
+        else:
+            want = os.path.realpath(self.args.downloads)
+            for r in roots:
+                if os.path.realpath(r["path"]) == want and r["exists"]:
+                    self.root_index = r["index"]
         if self.root_index is None:
             raise SystemExit(f"{want} is not one of ARVA's import folders ({[r['path'] for r in roots]}); start ARVA "
-                             "with ARVA_IMPORT_ROOTS including it (or use --start-arva)")
+                             "with ARVA_IMPORT_ROOTS including it (or use --start-arva), or give the folder as ARVA's "
+                             "containers see it with --container-download-dir")
         for p in self.api.get("/projects"):
             if p["name"] == PROJECT_NAME:
                 self.project_id = p["id"]
@@ -384,6 +444,8 @@ class Runner:
         else:
             log(f"reusing project {self.project_id}")
         self.medaka_model = self.ensure_medaka_model()
+        self.amr_db = self.ensure_amrfinder_db()
+        self.spa_files = self.ensure_spa_files()
 
     def wait_database(self, record_id: str, label: str, timeout: float = 3600) -> dict:
         t0, last = time.monotonic(), None
@@ -454,6 +516,79 @@ class Runner:
         log(f"Medaka model {MEDAKA_MODEL}: {how}; {found['path']} (SHA-256 {found['sha256']})")
         return {**found, "how": how, "expected_sha256": MEDAKA_MODEL_SHA256}
 
+    def usable_databases(self, kind: str) -> list[dict]:
+        return [d for d in self.api.get("/databases") if d["kind"] == kind and d["status"] in USABLE_DB]
+
+    def ensure_amrfinder_db(self) -> dict[str, Any]:
+        """An AMRFinderPlus database in ARVA, the way a user gets one in the Databases section: the usable record ARVA
+        already has, or the newest release NCBI lists that ARVA says its AMRFinderPlus reads, after the plan (files,
+        size, terms) and the confirmed download (size repeated, NCBI's terms accepted); ARVA then indexes it with
+        amrfinder_index. Stops the run if none of that works: every isolate would fail at AMRFinderPlus."""
+        have = self.usable_databases("amrfinderplus")
+        if have:
+            d = next((x for x in have if x.get("is_default")), have[0])
+            log(f"AMRFinderPlus database: already registered, {d['name']} {d['version']} ({d['path']})")
+            return {"how": "already registered", "name": d["name"], "version": d["version"], "path": d["path"]}
+        rel = self.api.get("/databases/amrfinderplus/releases")
+        ok = [r for r in rel["releases"] if r["compatibility"] == "compatible"]
+        if not ok:
+            raise SystemExit(f"NCBI lists no AMRFinderPlus release that ARVA's AMRFinderPlus {rel['tool_version']} "
+                             f"reads ({rel['url']}): {[(r['version'], r['compatibility']) for r in rel['releases']]}")
+        # The newest compatible release whose folder is complete: NCBI may still be uploading the newest one (ARVA
+        # refuses a release that lacks a required file), so the next ones are tried before giving up.
+        for r in ok[:3]:
+            version = r["version"]
+            plan = self.api.post("/databases/amrfinderplus/plan", {"version": version})
+            if not plan.get("missing"):
+                break
+            log(f"AMRFinderPlus database {version}: NCBI's folder lacks {plan['missing']}; trying an older release")
+        if plan.get("blocked_by") or plan.get("missing") or not plan.get("enough"):
+            raise SystemExit(f"ARVA cannot download AMRFinderPlus database {version}: blocked_by "
+                             f"{plan.get('blocked_by')!r} ({plan.get('blocked_code')}), missing {plan.get('missing')}, "
+                             f"enough space {plan.get('enough')}")
+        log(f"downloading AMRFinderPlus database {version} through ARVA: {plan['url']} ({len(plan['files'])} files, "
+            f"{plan['download_bytes']:,} bytes as NCBI's listing gives them; terms: {plan['licence']}) into "
+            f"{plan['target_path']}")
+        rec = self.api.post("/databases/amrfinderplus/download", {
+            "version": version, "confirm_bytes": plan["download_bytes"], "accept_terms": True})
+        rec = self.wait_database(rec["id"], f"AMRFinderPlus database {version}")
+        if rec["status"] not in USABLE_DB:
+            raise SystemExit(f"ARVA's download of AMRFinderPlus database {version} ended {rec['status']}: "
+                             f"{rec.get('error_message')}")
+        return {"how": "downloaded and indexed by ARVA (POST /databases/amrfinderplus/download, confirmed)",
+                "name": rec.get("name"), "version": rec.get("version"), "path": rec.get("path"),
+                "tool_version": plan["tool_version"], "url": plan["url"], "download_bytes": plan["download_bytes"]}
+
+    def ensure_spa_files(self) -> dict[str, Any] | None:
+        """The Ridom SpaServer files for spa typing. ARVA never downloads them (kind spa_types is user-provided only):
+        the usable record ARVA already has or, with --download-ridom-spa, this runner downloads them into the import
+        folder and registers that folder through POST /databases/register, declaring the download date as the
+        version (the files state none). Without either, spa typing is refused by ARVA and recorded as skipped."""
+        have = self.usable_databases("spa_types")
+        if have:
+            d = next((x for x in have if x.get("is_default")), have[0])
+            log(f"Ridom spa files: already registered, {d['name']} {d['version']} ({d['path']})")
+            return {"how": "already registered", "name": d["name"], "version": d["version"], "path": d["path"]}
+        if not self.args.download_ridom_spa:
+            log("Ridom spa files: none registered and --download-ridom-spa not given; spa typing will be skipped")
+            return None
+        day = dt.datetime.now(dt.UTC).date().isoformat()
+        folder = self.args.downloads / f"ridom-spa-{day}"
+        folder.mkdir(parents=True, exist_ok=True)
+        files = {}
+        for name, url in RIDOM_FILES.items():
+            files[name] = fetch_small(url, folder / name, RIDOM_MAX_BYTES)
+            log(f"Ridom {name}: {files[name]['bytes']:,} bytes, SHA-256 {files[name]['sha256']}")
+        path = self.as_seen_by_arva(folder)
+        declared = f"downloaded {day} from spa.ridom.de"
+        rec = self.api.post("/databases/register", {"path": path, "kind": "spa_types", "declared_version": declared})
+        if rec["status"] not in USABLE_DB:
+            raise SystemExit(f"ARVA registered the Ridom files at {path} as {rec['status']}: {rec.get('error_message')}")
+        log(f"registered the Ridom spa files {path} as {rec['name']} {rec['version']} ({rec['status']})")
+        return {"how": "downloaded by this runner from spa.ridom.de and registered (POST /databases/register)",
+                "name": rec.get("name"), "version": rec.get("version"), "path": rec.get("path"), "files": files,
+                "policy": "https://spa.ridom.de/policy.shtml (non-commercial use; files not redistributed)"}
+
     def provenance(self) -> dict[str, Any]:
         def git(*argv: str) -> str:
             return subprocess.run(["git", "-C", str(REPO), *argv], capture_output=True, text=True).stdout.strip()
@@ -464,7 +599,12 @@ class Runner:
         dbs = [{k: d.get(k) for k in ("kind", "name", "version", "version_source", "path", "is_default", "status")}
                for d in self.api.get("/databases")]
         perf = self.api.get("/system/performance")["effective"]
-        return {"arva_version": (self.api.up() or {}).get("version"), "git_commit": git("rev-parse", "HEAD"),
+        return {"arva_version": (self.api.up() or {}).get("version"),
+                "arva_started_from": "source tree (--start-arva)" if self.args.start_arva else "running ARVA",
+                "arva_image": self.args.arva_image, "arva_image_commit": self.args.arva_image_commit,
+                "setup": {"medaka_model": (self.medaka_model or {}).get("how"), "amrfinderplus_database": self.amr_db,
+                          "spa_files": self.spa_files},
+                "git_commit": git("rev-parse", "HEAD"),
                 "git_branch": git("rev-parse", "--abbrev-ref", "HEAD"),
                 "git_dirty_paths": [line for line in git("status", "--porcelain").splitlines() if line],
                 "tools": tools, "databases": dbs, "performance_profile": perf, "threads_requested": self.args.threads}
@@ -481,7 +621,7 @@ class Runner:
         if free < need:
             raise SystemExit(f"{name}: {free / 1e9:.2f} GB free, {need / 1e9:.2f} GB needed (3 x FASTQ + margin); "
                              "stopping")
-        mon = Monitor(self.args.storage_root)
+        mon = Monitor(self.args.monitor_path)
         mon.start()
         t_start = time.monotonic()
         res: dict[str, Any] = {"isolate": name, "started_at": now(), "input": {k: row[k] for k in (
@@ -658,7 +798,7 @@ class Runner:
         res["finished_at"] = now()
         res["wall_seconds"] = round(time.monotonic() - t_start, 1)
         res["resources"] = mon.finish()
-        if sample_id is not None:
+        if sample_id is not None and self.args.storage_root is not None:
             res["arva_storage_bytes_before_cleanup"] = self.storage_bytes(sample_id)
         res["summary"] = summary(res)
         if res["status"] == "completed" or not self.args.keep_on_failure:
@@ -686,24 +826,28 @@ class Runner:
             out[top] = sum(p.stat().st_size for p in d.rglob("*") if p.is_file()) if d.is_dir() else 0
         return out
 
-    def remove_sample(self, sample_id: str) -> None:
-        """DELETE the sample through the API, then its imported copy under raw/ (ARVA keeps raw/ on deletion)."""
+    def remove_sample(self, sample_id: str) -> bool:
+        """DELETE the sample through the API, then, with --start-arva (ARVA's storage is this computer's folder), its
+        imported copy under raw/ (ARVA keeps raw/ on deletion). Returns whether raw/ was removed."""
         if not UUID.fullmatch(sample_id) or not UUID.fullmatch(self.project_id or ""):
             raise RuntimeError("unexpected identifiers")
         self.api.delete(f"/samples/{sample_id}")
+        if not self.args.start_arva or self.args.storage_root is None:
+            return False
         raw = (self.args.storage_root / "raw" / self.project_id / sample_id).resolve()
         base = (self.args.storage_root / "raw").resolve()
         if raw.is_dir() and base in raw.parents:
             shutil.rmtree(raw)
+            return True
+        return False
 
     def cleanup(self, res: dict, sample_id: str | None, folder: Path) -> None:
         done = {}
         if sample_id is not None:
             try:
                 self.idle(sample_id)
-                self.remove_sample(sample_id)
+                done["arva_raw_copy_removed"] = self.remove_sample(sample_id)
                 done["arva_sample_deleted"] = True
-                done["arva_raw_copy_removed"] = True
             except Exception as exc:
                 done["arva_sample_delete_error"] = str(exc)
         if folder.is_dir() and folder.parent.resolve() == self.args.downloads.resolve():
@@ -741,12 +885,24 @@ def summary(res: dict) -> dict[str, Any]:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--api", default="http://127.0.0.1:8000")
+    ap.add_argument("--api", "--api-url", dest="api", default="http://127.0.0.1:8000", help="ARVA's address")
     ap.add_argument("--isolates", type=Path, default=HERE / "isolates.tsv")
     ap.add_argument("--expected", type=Path, default=HERE / "expected.tsv")
     ap.add_argument("--results", type=Path, default=HERE / "results")
-    ap.add_argument("--downloads", type=Path, default=DEFAULT_DOWNLOADS, help="an ARVA import folder")
-    ap.add_argument("--storage-root", type=Path, default=API_DIR / "data", help="ARVA_STORAGE_ROOT of the running API")
+    ap.add_argument("--downloads", "--download-dir", dest="downloads", type=Path, default=DEFAULT_DOWNLOADS,
+                    help="where the FASTQ files are downloaded: an ARVA import folder (or one mounted as one)")
+    ap.add_argument("--container-download-dir", help="the download folder as ARVA sees it when ARVA runs in containers "
+                    "and the folder is mounted at another path (e.g. /import); default: the same path")
+    ap.add_argument("--storage-root", type=Path, default=None, help="ARVA_STORAGE_ROOT of the running API, when it is "
+                    "a folder of this computer (default with --start-arva: apps/api/data; otherwise none: ARVA's "
+                    "per-sample storage is not measured and raw/ is left to ARVA)")
+    ap.add_argument("--monitor-path", type=Path, default=None, help="a path on the filesystem whose disk use is "
+                    "sampled (default: --storage-root, else the download folder), e.g. Docker's data root")
+    ap.add_argument("--download-ridom-spa", action="store_true", help="when ARVA has no Ridom spa files, download "
+                    "sparepeats.fasta and spatypes.txt from spa.ridom.de into the download folder and register them "
+                    "(Ridom's policy: non-commercial use; https://spa.ridom.de/policy.shtml)")
+    ap.add_argument("--arva-image", help="the ARVA image the API runs (recorded in each result's provenance)")
+    ap.add_argument("--arva-image-commit", help="the commit that image was built from (recorded likewise)")
     ap.add_argument("--only", nargs="*", help="isolate names")
     ap.add_argument("--smallest", type=int, help="only the N isolates with the smallest ONT FASTQ")
     ap.add_argument("--threads", type=int, default=4)
@@ -761,8 +917,17 @@ def main() -> None:
                     "(in a folder ARVA may register from) instead of letting ARVA download it, when ARVA has none")
     ap.add_argument("--logs", type=Path, default=DEFAULT_LOGS, help="API and worker logs with --start-arva")
     args = ap.parse_args()
+    if args.start_arva and args.container_download_dir:
+        ap.error("--container-download-dir is for an ARVA running in containers, not with --start-arva")
+    if args.start_arva and args.storage_root is None:
+        args.storage_root = API_DIR / "data"
     args.results.mkdir(parents=True, exist_ok=True)
     args.downloads.mkdir(parents=True, exist_ok=True)
+    args.monitor_path = args.monitor_path or args.storage_root or args.downloads
+    try:
+        shutil.disk_usage(args.monitor_path)
+    except OSError as exc:
+        ap.error(f"--monitor-path {args.monitor_path}: {exc}")
 
     with open(args.isolates, newline="") as fh:
         rows = list(csv.DictReader(fh, delimiter="\t"))
