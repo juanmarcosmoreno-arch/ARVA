@@ -356,3 +356,24 @@ For each isolate, ARVA runs its ONT-only pipeline (Filtlong, Flye
   AC15-06 / AC15-6; AC07-01 / AC07-1; V27-LhB / V27; V41_2066-3 / V41_2006-3 /
   V41; OF17-34 / OF-17-34. ENA `sample_alias` differs too (Jun = JUNEAU,
   Hkl = HOCKKL). We matched names by BioSample and SRX, not by name.
+
+## Results of the first full run (GitHub Actions run 42417357263, images 0.2.0-d78bb98, 2026-11-07)
+
+All 15 isolates ran end to end (Filtlong, Flye 2.9.6 `--nano-raw`, Medaka 2.1.1 with the registered
+`r941_min_hac_g507`, mlst, spaTyper, sccmec, AgrVATE, AMRFinderPlus with `--organism Staphylococcus_aureus`).
+Full table: `results/concordance.md`.
+
+- **MLST vs Sanger: 12/15 exact.** Of the three others, two are *no call* rather than a wrong call (V14, ST151;
+  CR92, ST7083: same lineage, partial matches `pta 421?` and `yqiL 370?`, so mlst gives no ST) and one is a wrong
+  call (AC06-110, ST398: arcC and aroE alleles off, reported as a novel ST; the paper's ONT-only pipeline also
+  got this isolate wrong, ST753). On these 15 isolates the paper's ONT-only calls match Sanger 9/15; the set
+  deliberately includes 6 isolates the paper's ONT-only assembly got wrong, of which ARVA calls 4 correctly.
+- **spa: 15/15** against the hybrid-assembly spa types (Table S5).
+- **Penicillinase vs penicillin phenotype: 15/15** (blaZ, or blaPC1 — AMRFinderPlus' other symbol for the same
+  S. aureus PC1 penicillinase — present exactly in the resistant isolates).
+- **mecA: 15/15** absent, as all isolates are oxacillin/cefoxitin susceptible.
+- Soft checks from the paper's text: tet(K) only in the tetracycline-resistant isolate, erm(T) in the
+  erythromycin-resistant AC06-110, lnu(G) in the lincomycin-resistant V14; erm(A) in OF20-25 (CC30), which
+  Table S7 lists as erythromycin susceptible (the paper's text and S7 disagree on this point, see above).
+- **Racon vs Medaka:** with Racon only, AC05-54 got a homopolymer error in arcC (novel ST); Medaka with the
+  matching R9.4.1 model gives ST5957 like Sanger.

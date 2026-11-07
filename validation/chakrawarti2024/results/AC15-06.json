@@ -1,6 +1,6 @@
 {
   "isolate": "AC15-06",
-  "started_at": "2026-11-07T13:55:44+00:00",
+  "started_at": "2026-11-07T21:54:26+00:00",
   "input": {
     "source": "BTM",
     "farm": "AC-15",
@@ -51,24 +51,54 @@
   },
   "provenance": {
     "arva_version": "0.2.0",
-    "git_commit": "ae1da29d4c806047a259c0d22f7bfdedfda6cb88",
+    "arva_started_from": "running ARVA",
+    "arva_image": "ghcr.io/juanmarcosmoreno-arch/arva-api:0.2.0-d78bb98",
+    "arva_image_commit": "d78bb983f6d93a839a50e97c1cd4993ac1471fd5",
+    "setup": {
+      "medaka_model": "downloaded by ARVA (POST /databases/medaka-models/download, confirmed)",
+      "amrfinderplus_database": {
+        "how": "downloaded and indexed by ARVA (POST /databases/amrfinderplus/download, confirmed)",
+        "name": "AMRFinderPlus database",
+        "version": "2026-10-29.1",
+        "path": "/databases/amrfinderplus/2026-10-29.1",
+        "tool_version": "4.2.7",
+        "url": "https://ftp.ncbi.nlm.nih.gov/pathogen/Antimicrobial_resistance/AMRFinderPlus/database/4.2/2026-10-29.1/",
+        "download_bytes": 127029923
+      },
+      "spa_files": {
+        "how": "downloaded by this runner from spa.ridom.de and registered (POST /databases/register)",
+        "name": "spa types (Ridom SpaServer)",
+        "version": "downloaded 2026-11-07 from spa.ridom.de",
+        "path": "/import/ridom-spa-2026-11-07",
+        "files": {
+          "sparepeats.fasta": {
+            "url": "https://spa.ridom.de/dynamic/sparepeats.fasta",
+            "bytes": 30162,
+            "sha256": "60e52817b1fde3a60905ed8eb149c0a8de46dfc3243a2b22f05912b748299365",
+            "fetched_at": "2026-11-07T21:54:25+00:00"
+          },
+          "spatypes.txt": {
+            "url": "https://spa.ridom.de/dynamic/spatypes.txt",
+            "bytes": 826898,
+            "sha256": "a898c9e89e29bdc71eca47371d5ad9b3f0dcc795783a3ed4865fe17f85ee9e9b",
+            "fetched_at": "2026-11-07T21:54:26+00:00"
+          }
+        },
+        "policy": "https://spa.ridom.de/policy.shtml (non-commercial use; files not redistributed)"
+      }
+    },
+    "git_commit": "0d3d95f88b348b359cd755bc5122a765c508c183",
     "git_branch": "claude/affectionate-darwin-oknu0k",
-    "git_dirty_paths": [
-      "M validation/chakrawarti2024/compare.py",
-      " M validation/chakrawarti2024/results/concordance.md",
-      "R  validation/chakrawarti2024/results/AC05-54.json -> validation/chakrawarti2024/results/racon-pilot/AC05-54.json",
-      "R  validation/chakrawarti2024/results/AC15-06.json -> validation/chakrawarti2024/results/racon-pilot/AC15-06.json",
-      " M validation/chakrawarti2024/run_validation.py"
-    ],
+    "git_dirty_paths": [],
     "tools": {
       "filtlong": {
         "version": "0.3.1",
-        "path": "/root/.arva-tools/conda/filtlong/bin/filtlong",
+        "path": "/opt/arva-tools/conda/filtlong/bin/filtlong",
         "status": "available"
       },
       "flye": {
         "version": "2.9.6",
-        "path": "/root/.arva-tools/conda/flye/bin/flye",
+        "path": "/opt/arva-tools/conda/flye/bin/flye",
         "status": "available"
       },
       "racon": {
@@ -78,47 +108,47 @@
       },
       "medaka": {
         "version": "2.1.1",
-        "path": "/root/.arva-tools/conda/medaka/bin/medaka",
+        "path": "/opt/arva-tools/conda/medaka/bin/medaka",
         "status": "available"
       },
       "minimap2": {
-        "version": "2.26-r1175",
+        "version": "2.24-r1122",
         "path": "/usr/bin/minimap2",
         "status": "available"
       },
       "samtools": {
-        "version": "1.19.2",
+        "version": "1.16.1",
         "path": "/usr/bin/samtools",
         "status": "available"
       },
       "mlst": {
         "version": "2.35.0",
-        "path": "/root/.arva-tools/conda/mlst/bin/mlst",
+        "path": "/opt/arva-tools/conda/mlst/bin/mlst",
         "status": "available"
       },
       "skani": {
         "version": "0.4.0",
-        "path": "/root/.arva-tools/conda/skani/bin/skani",
+        "path": "/opt/arva-tools/conda/skani/bin/skani",
         "status": "available"
       },
       "amrfinderplus": {
         "version": "4.2.7",
-        "path": "/root/.arva-tools/conda/amrfinderplus/bin/amrfinder",
+        "path": "/opt/arva-tools/conda/amrfinderplus/bin/amrfinder",
         "status": "available"
       },
       "sccmec": {
         "version": "1.2.0",
-        "path": "/root/.arva-tools/conda/sccmec/bin/sccmec",
+        "path": "/opt/arva-tools/conda/sccmec/bin/sccmec",
         "status": "available"
       },
       "spatyper": {
         "version": "0.3.3",
-        "path": "/root/.arva-tools/conda/spatyper/bin/spaTyper",
+        "path": "/opt/arva-tools/conda/spatyper/bin/spaTyper",
         "status": "available"
       },
       "agrvate": {
         "version": "1.0.2",
-        "path": "/root/.arva-tools/conda/agrvate/bin/agrvate",
+        "path": "/opt/arva-tools/conda/agrvate/bin/agrvate",
         "status": "available"
       }
     },
@@ -126,18 +156,9 @@
       {
         "kind": "amrfinderplus",
         "name": "AMRFinderPlus database",
-        "version": "2026-08-07.1",
+        "version": "2026-10-29.1",
         "version_source": "file",
-        "path": "/root/.arva-db/amrfinderplus/2026-08-07.1",
-        "is_default": true,
-        "status": "installed"
-      },
-      {
-        "kind": "bakta",
-        "name": "Bakta database (light)",
-        "version": "6.0",
-        "version_source": "file",
-        "path": "/root/.arva-db/bakta-light/6.0",
+        "path": "/databases/amrfinderplus/2026-10-29.1",
         "is_default": true,
         "status": "installed"
       },
@@ -146,7 +167,7 @@
         "name": "Medaka model r941_min_hac_g507",
         "version": "r941_min_hac_g507",
         "version_source": "checksum",
-        "path": "/root/.arva-db/medaka-models/r941_min_hac_g507",
+        "path": "/databases/medaka-models/r941_min_hac_g507",
         "is_default": false,
         "status": "installed"
       },
@@ -155,34 +176,25 @@
         "name": "PubMLST schemes bundled with mlst 2.35.0",
         "version": "2026-03-11",
         "version_source": "file",
-        "path": "/root/.arva-tools/conda/mlst/db",
+        "path": "/opt/arva-tools/conda/mlst/db",
         "is_default": true,
         "status": "registered"
-      },
-      {
-        "kind": "mobsuite",
-        "name": "MOB-suite database 3.1.8",
-        "version": "3.1.8",
-        "version_source": "file",
-        "path": "/root/.arva-db/mobsuite-3.1.8/3.1.8",
-        "is_default": true,
-        "status": "installed"
       },
       {
         "kind": "plasmidfinder",
         "name": "PlasmidFinder replicons (bundled with ABRicate 1.4.0)",
         "version": "2026-04-03",
         "version_source": "file",
-        "path": "/root/.arva-tools/conda/abricate/db/plasmidfinder",
+        "path": "/opt/arva-tools/conda/abricate/db/plasmidfinder",
         "is_default": true,
         "status": "registered"
       },
       {
         "kind": "spa_types",
         "name": "spa types (Ridom SpaServer)",
-        "version": "2026-11-07",
+        "version": "downloaded 2026-11-07 from spa.ridom.de",
         "version_source": "declared",
-        "path": "/root/.arva-db/spa-ridom/2026-11-07",
+        "path": "/import/ridom-spa-2026-11-07",
         "is_default": true,
         "status": "registered"
       },
@@ -191,7 +203,7 @@
         "name": "VFDB core set A (bundled with ABRicate 1.4.0)",
         "version": "2026-04-03",
         "version_source": "file",
-        "path": "/root/.arva-tools/conda/abricate/db/vfdb",
+        "path": "/opt/arva-tools/conda/abricate/db/vfdb",
         "is_default": true,
         "status": "registered"
       }
@@ -201,13 +213,13 @@
       "choice": "auto",
       "threads": 2,
       "max_threads": 4,
-      "memory_gb": 6,
-      "max_memory_gb": 13,
+      "memory_gb": 7,
+      "max_memory_gb": 15,
       "nice": 15,
       "usable_cpus": 4,
-      "usable_memory_gb": 13.352909088134766,
+      "usable_memory_gb": 15.609283447265625,
       "requested_threads": 2,
-      "requested_memory_gb": 6,
+      "requested_memory_gb": 7,
       "exceeds": [],
       "admin_threads": null,
       "admin_memory_gb": null,
@@ -217,14 +229,14 @@
   },
   "steps": {
     "import": {
-      "id": "a27d6a2e-d33c-4d23-97e4-930c320cb714",
+      "id": "3aeb6160-cc6b-4e9a-b79f-59c66d00df3c",
       "job_type": "server_import",
       "tool_name": "arva-import",
       "tool_version": "0.2.0",
       "tool_path": null,
       "status": "completed",
       "parameters": {
-        "root": "/tmp/claude-0/-home-user-ARVA/a0079f7f-7f60-54c5-bf8b-5f8483664aed/scratchpad/validation-data/fastq",
+        "root": "/import",
         "paths": [
           "AC15-06/SRR25741643_1.fastq.gz"
         ]
@@ -235,14 +247,14 @@
       "database_kind": null,
       "database_checksum": null,
       "database_path": null,
-      "duration_seconds": 0.612,
-      "started_at": "2026-11-07T13:58:11.884048Z",
-      "finished_at": "2026-11-07T13:58:12.496306Z",
+      "duration_seconds": 0.259,
+      "started_at": "2026-11-07T21:56:57.407017Z",
+      "finished_at": "2026-11-07T21:56:57.665556Z",
       "error_message": null,
       "result_summary": {
         "imported": [
           {
-            "file_id": "705011f7-d410-47ae-8e01-746669ec8203",
+            "file_id": "59c2ff4c-79c4-4ee1-b82a-9f3577302bd6",
             "name": "SRR25741643_1.fastq.gz",
             "path": "AC15-06/SRR25741643_1.fastq.gz",
             "size_bytes": 238015105
@@ -254,11 +266,11 @@
       "wall_seconds": 10.0
     },
     "filtlong": {
-      "id": "eefa4190-f57d-4a8b-8d4a-5c08d8bb3bb9",
+      "id": "743816e2-9ca4-48e1-90ca-ded34a53e318",
       "job_type": "filtlong",
       "tool_name": "Filtlong",
       "tool_version": "0.3.1",
-      "tool_path": "/root/.arva-tools/conda/filtlong/bin/filtlong",
+      "tool_path": "/opt/arva-tools/conda/filtlong/bin/filtlong",
       "status": "completed",
       "parameters": {
         "min_length": 1000,
@@ -276,7 +288,7 @@
       },
       "commands": [
         [
-          "/root/.arva-tools/conda/filtlong/bin/filtlong",
+          "/opt/arva-tools/conda/filtlong/bin/filtlong",
           "--min_length",
           "1000",
           "--min_mean_q",
@@ -289,7 +301,7 @@
           "1",
           "--window_size",
           "250",
-          "/home/user/ARVA/apps/api/data/raw/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/705011f7-d410-47ae-8e01-746669ec8203__SRR25741643_1.fastq.gz"
+          "/data/raw/7108909a-030f-4bee-8f15-d2ee36640706/4b560203-2611-4a4f-8e5c-3077eb730a80/59c2ff4c-79c4-4ee1-b82a-9f3577302bd6__SRR25741643_1.fastq.gz"
         ]
       ],
       "database_name": null,
@@ -297,9 +309,9 @@
       "database_kind": null,
       "database_checksum": null,
       "database_path": null,
-      "duration_seconds": 37.345,
-      "started_at": "2026-11-07T13:58:22.044496Z",
-      "finished_at": "2026-11-07T13:58:59.389341Z",
+      "duration_seconds": 24.523,
+      "started_at": "2026-11-07T21:57:07.472898Z",
+      "finished_at": "2026-11-07T21:57:31.995423Z",
       "error_message": null,
       "result_summary": {
         "input_reads": 46151,
@@ -309,24 +321,24 @@
         "profile": "light",
         "choice": "auto",
         "threads": 1,
-        "memory_gb": 6,
+        "memory_gb": 7,
         "memory_limit_gb": null,
         "memory_option": null,
         "nice": 15,
         "usable_cpus": 4,
-        "usable_memory_gb": 13.4,
-        "in_container": false,
+        "usable_memory_gb": 15.6,
+        "in_container": true,
         "host": "unknown computer",
         "nice_executable": "/usr/bin/nice"
       },
-      "wall_seconds": 40.1
+      "wall_seconds": 30.0
     },
     "flye": {
-      "id": "5a9f6a5f-d74f-4307-b1d8-5993341af362",
+      "id": "4dd9fd00-1188-4a1a-b05d-aa535bfe7362",
       "job_type": "flye_assembly",
       "tool_name": "Flye",
       "tool_version": "2.9.6",
-      "tool_path": "/root/.arva-tools/conda/flye/bin/flye",
+      "tool_path": "/opt/arva-tools/conda/flye/bin/flye",
       "status": "completed",
       "parameters": {
         "read_type": "nano-raw",
@@ -352,8 +364,8 @@
           "mean_error_rate": null
         },
         "memory_estimate": {
-          "available_gb": 13.4,
-          "container_gb": 13.4,
+          "available_gb": 15.6,
+          "container_gb": 15.6,
           "read_bases": null,
           "asm_coverage": null,
           "genome_size_bp": 2800000,
@@ -373,18 +385,18 @@
           "estimate_gb": null,
           "verdict": "unknown",
           "suggestion": null,
-          "container_memory_gb": 13.4,
-          "in_container": false,
+          "container_memory_gb": 15.6,
+          "in_container": true,
           "expected_genome_size_bp": null
         }
       },
       "commands": [
         [
-          "/root/.arva-tools/conda/flye/bin/flye",
+          "/opt/arva-tools/conda/flye/bin/flye",
           "--nano-raw",
-          "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/5a9f6a5f-d74f-4307-b1d8-5993341af362/input/01_SRR25741643_1.filtlong.fastq.gz",
+          "/data/results/7108909a-030f-4bee-8f15-d2ee36640706/4b560203-2611-4a4f-8e5c-3077eb730a80/4dd9fd00-1188-4a1a-b05d-aa535bfe7362/input/01_SRR25741643_1.filtlong.fastq.gz",
           "--out-dir",
-          "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/5a9f6a5f-d74f-4307-b1d8-5993341af362/flye",
+          "/data/results/7108909a-030f-4bee-8f15-d2ee36640706/4b560203-2611-4a4f-8e5c-3077eb730a80/4dd9fd00-1188-4a1a-b05d-aa535bfe7362/flye",
           "--threads",
           "4",
           "--iterations",
@@ -398,13 +410,13 @@
       "database_kind": null,
       "database_checksum": null,
       "database_path": null,
-      "duration_seconds": 437.523,
-      "started_at": "2026-11-07T13:59:13.178537Z",
-      "finished_at": "2026-11-07T14:06:30.701320Z",
+      "duration_seconds": 322.881,
+      "started_at": "2026-11-07T21:57:40.823799Z",
+      "finished_at": "2026-11-07T22:03:03.704654Z",
       "error_message": null,
       "result_summary": {
         "flye_version": "2.9.6",
-        "assembly_id": "8a627965-93cf-4cab-9df4-b2e660210abf",
+        "assembly_id": "e1505f18-2ba9-4636-9aca-67225a6f065a",
         "read_type": "nano-raw",
         "log": {
           "total_read_length": 188799363,
@@ -457,7 +469,7 @@
           {
             "name": "flye-samtools",
             "provided_by": "installation",
-            "executable": "/root/.arva-tools/conda/flye/bin/flye-samtools",
+            "executable": "/opt/arva-tools/conda/flye/bin/flye-samtools",
             "samtools_version": "1.9"
           }
         ]
@@ -466,30 +478,30 @@
         "profile": "light",
         "choice": "auto",
         "threads": 4,
-        "memory_gb": 6,
+        "memory_gb": 7,
         "memory_limit_gb": null,
         "memory_option": null,
         "nice": 15,
         "usable_cpus": 4,
-        "usable_memory_gb": 13.4,
-        "in_container": false,
+        "usable_memory_gb": 15.6,
+        "in_container": true,
         "host": "unknown computer",
         "nice_executable": "/usr/bin/nice"
       },
-      "wall_seconds": 450.6
+      "wall_seconds": 330.3
     },
     "polishing_medaka": {
-      "id": "7f5840b8-07b8-471e-a563-48587f663eba",
+      "id": "6a84d84c-ca13-449b-999b-2d9a80f18e73",
       "job_type": "medaka_polish",
       "tool_name": "Medaka",
       "tool_version": "2.1.1",
-      "tool_path": "/root/.arva-tools/conda/medaka/bin/medaka",
+      "tool_path": "/opt/arva-tools/conda/medaka/bin/medaka",
       "status": "completed",
       "parameters": {
         "model": "r941_min_hac_g507",
         "threads": 4,
         "batch_size": 100,
-        "model_file": "/root/.arva-db/medaka-models/r941_min_hac_g507/r941_min_hac_g507_model_pt.tar.gz",
+        "model_file": "/databases/medaka-models/r941_min_hac_g507/r941_min_hac_g507_model_pt.tar.gz",
         "read_type": "map-ont",
         "medaka_model": {
           "model": "r941_min_hac_g507",
@@ -505,27 +517,27 @@
           "medaka_version": "2.1.1",
           "model_source": "registered",
           "file": "r941_min_hac_g507_model_pt.tar.gz",
-          "path": "/root/.arva-db/medaka-models/r941_min_hac_g507/r941_min_hac_g507_model_pt.tar.gz",
+          "path": "/databases/medaka-models/r941_min_hac_g507/r941_min_hac_g507_model_pt.tar.gz",
           "sha256": "6e87607808bfe7884fc701ded596931afeeb8a59e69bdcb268ef07ac7680ac26",
-          "database_id": "c2f14a26-3429-4385-850e-7245e6ded1b8",
+          "database_id": "5fff3810-d1ea-4426-b8c6-bd1705ec4028",
           "url": "https://media.githubusercontent.com/media/nanoporetech/medaka/v2.1.1/medaka/data/r941_min_hac_g507_model_pt.tar.gz",
           "origin": "download",
           "chemistry": "R9.4.1",
           "basecaller": "Guppy 5.0.7"
         },
         "draft": {
-          "assembly_id": "8a627965-93cf-4cab-9df4-b2e660210abf",
+          "assembly_id": "e1505f18-2ba9-4636-9aca-67225a6f065a",
           "kind": "assembly",
           "assembler": "Flye",
           "assembler_version": "2.9.6",
-          "job_id": "5a9f6a5f-d74f-4307-b1d8-5993341af362",
+          "job_id": "4dd9fd00-1188-4a1a-b05d-aa535bfe7362",
           "mode": "long",
           "declared_assembler": null,
           "declared_assembler_version": null,
           "contigs_sha256": "b33d392d44c6a89467bf3f63e3cc417429a7b833c3067dc8dd50428868914323"
         },
         "inputs": {
-          "long": "b2a6b575-1a07-47bb-b754-173aff429d20"
+          "long": "b89813a4-a1b6-4c40-86d7-9fe2d33f4de2"
         },
         "reads_confirmed": false,
         "sequencing_technology": "nanopore",
@@ -541,15 +553,15 @@
       },
       "commands": [
         [
-          "/root/.arva-tools/conda/medaka/bin/medaka_consensus",
+          "/opt/arva-tools/conda/medaka/bin/medaka_consensus",
           "-i",
-          "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/7f5840b8-07b8-471e-a563-48587f663eba/work/input/04_SRR25741643_1.filtlong.fastq.gz",
+          "/data/results/7108909a-030f-4bee-8f15-d2ee36640706/4b560203-2611-4a4f-8e5c-3077eb730a80/6a84d84c-ca13-449b-999b-2d9a80f18e73/work/input/04_SRR25741643_1.filtlong.fastq.gz",
           "-d",
-          "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/7f5840b8-07b8-471e-a563-48587f663eba/work/round0.fasta",
+          "/data/results/7108909a-030f-4bee-8f15-d2ee36640706/4b560203-2611-4a4f-8e5c-3077eb730a80/6a84d84c-ca13-449b-999b-2d9a80f18e73/work/round0.fasta",
           "-o",
           "medaka",
           "-m",
-          "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/7f5840b8-07b8-471e-a563-48587f663eba/work/model/r941_min_hac_g507_model_pt.tar.gz",
+          "/data/results/7108909a-030f-4bee-8f15-d2ee36640706/4b560203-2611-4a4f-8e5c-3077eb730a80/6a84d84c-ca13-449b-999b-2d9a80f18e73/work/model/r941_min_hac_g507_model_pt.tar.gz",
           "-t",
           "4",
           "-b",
@@ -569,8 +581,8 @@
           "map-ont",
           "-t",
           "4",
-          "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/7f5840b8-07b8-471e-a563-48587f663eba/work/round0.fasta",
-          "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/7f5840b8-07b8-471e-a563-48587f663eba/work/input/04_SRR25741643_1.filtlong.fastq.gz"
+          "/data/results/7108909a-030f-4bee-8f15-d2ee36640706/4b560203-2611-4a4f-8e5c-3077eb730a80/6a84d84c-ca13-449b-999b-2d9a80f18e73/work/round0.fasta",
+          "/data/results/7108909a-030f-4bee-8f15-d2ee36640706/4b560203-2611-4a4f-8e5c-3077eb730a80/6a84d84c-ca13-449b-999b-2d9a80f18e73/work/input/04_SRR25741643_1.filtlong.fastq.gz"
         ],
         [
           "/usr/bin/samtools",
@@ -578,20 +590,20 @@
           "-@",
           "3",
           "-T",
-          "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/7f5840b8-07b8-471e-a563-48587f663eba/work/draft.sort",
+          "/data/results/7108909a-030f-4bee-8f15-d2ee36640706/4b560203-2611-4a4f-8e5c-3077eb730a80/6a84d84c-ca13-449b-999b-2d9a80f18e73/work/draft.sort",
           "-o",
-          "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/7f5840b8-07b8-471e-a563-48587f663eba/work/draft.bam",
-          "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/7f5840b8-07b8-471e-a563-48587f663eba/work/draft.sam.gz"
+          "/data/results/7108909a-030f-4bee-8f15-d2ee36640706/4b560203-2611-4a4f-8e5c-3077eb730a80/6a84d84c-ca13-449b-999b-2d9a80f18e73/work/draft.bam",
+          "/data/results/7108909a-030f-4bee-8f15-d2ee36640706/4b560203-2611-4a4f-8e5c-3077eb730a80/6a84d84c-ca13-449b-999b-2d9a80f18e73/work/draft.sam.gz"
         ],
         [
           "/usr/bin/samtools",
           "stats",
-          "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/7f5840b8-07b8-471e-a563-48587f663eba/work/draft.bam"
+          "/data/results/7108909a-030f-4bee-8f15-d2ee36640706/4b560203-2611-4a4f-8e5c-3077eb730a80/6a84d84c-ca13-449b-999b-2d9a80f18e73/work/draft.bam"
         ],
         [
           "/usr/bin/samtools",
           "coverage",
-          "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/7f5840b8-07b8-471e-a563-48587f663eba/work/draft.bam"
+          "/data/results/7108909a-030f-4bee-8f15-d2ee36640706/4b560203-2611-4a4f-8e5c-3077eb730a80/6a84d84c-ca13-449b-999b-2d9a80f18e73/work/draft.bam"
         ],
         [
           "/usr/bin/samtools",
@@ -605,7 +617,7 @@
           "0",
           "-G",
           "UNMAP,SECONDARY,QCFAIL,DUP",
-          "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/7f5840b8-07b8-471e-a563-48587f663eba/work/draft.bam"
+          "/data/results/7108909a-030f-4bee-8f15-d2ee36640706/4b560203-2611-4a4f-8e5c-3077eb730a80/6a84d84c-ca13-449b-999b-2d9a80f18e73/work/draft.bam"
         ],
         [
           "/usr/bin/minimap2",
@@ -614,8 +626,8 @@
           "map-ont",
           "-t",
           "4",
-          "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/7f5840b8-07b8-471e-a563-48587f663eba/work/round1.fasta",
-          "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/7f5840b8-07b8-471e-a563-48587f663eba/work/input/04_SRR25741643_1.filtlong.fastq.gz"
+          "/data/results/7108909a-030f-4bee-8f15-d2ee36640706/4b560203-2611-4a4f-8e5c-3077eb730a80/6a84d84c-ca13-449b-999b-2d9a80f18e73/work/round1.fasta",
+          "/data/results/7108909a-030f-4bee-8f15-d2ee36640706/4b560203-2611-4a4f-8e5c-3077eb730a80/6a84d84c-ca13-449b-999b-2d9a80f18e73/work/input/04_SRR25741643_1.filtlong.fastq.gz"
         ],
         [
           "/usr/bin/samtools",
@@ -623,20 +635,20 @@
           "-@",
           "3",
           "-T",
-          "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/7f5840b8-07b8-471e-a563-48587f663eba/work/polished.sort",
+          "/data/results/7108909a-030f-4bee-8f15-d2ee36640706/4b560203-2611-4a4f-8e5c-3077eb730a80/6a84d84c-ca13-449b-999b-2d9a80f18e73/work/polished.sort",
           "-o",
-          "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/7f5840b8-07b8-471e-a563-48587f663eba/work/polished.bam",
-          "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/7f5840b8-07b8-471e-a563-48587f663eba/work/polished.sam.gz"
+          "/data/results/7108909a-030f-4bee-8f15-d2ee36640706/4b560203-2611-4a4f-8e5c-3077eb730a80/6a84d84c-ca13-449b-999b-2d9a80f18e73/work/polished.bam",
+          "/data/results/7108909a-030f-4bee-8f15-d2ee36640706/4b560203-2611-4a4f-8e5c-3077eb730a80/6a84d84c-ca13-449b-999b-2d9a80f18e73/work/polished.sam.gz"
         ],
         [
           "/usr/bin/samtools",
           "stats",
-          "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/7f5840b8-07b8-471e-a563-48587f663eba/work/polished.bam"
+          "/data/results/7108909a-030f-4bee-8f15-d2ee36640706/4b560203-2611-4a4f-8e5c-3077eb730a80/6a84d84c-ca13-449b-999b-2d9a80f18e73/work/polished.bam"
         ],
         [
           "/usr/bin/samtools",
           "coverage",
-          "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/7f5840b8-07b8-471e-a563-48587f663eba/work/polished.bam"
+          "/data/results/7108909a-030f-4bee-8f15-d2ee36640706/4b560203-2611-4a4f-8e5c-3077eb730a80/6a84d84c-ca13-449b-999b-2d9a80f18e73/work/polished.bam"
         ],
         [
           "/usr/bin/samtools",
@@ -650,28 +662,28 @@
           "0",
           "-G",
           "UNMAP,SECONDARY,QCFAIL,DUP",
-          "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/7f5840b8-07b8-471e-a563-48587f663eba/work/polished.bam"
+          "/data/results/7108909a-030f-4bee-8f15-d2ee36640706/4b560203-2611-4a4f-8e5c-3077eb730a80/6a84d84c-ca13-449b-999b-2d9a80f18e73/work/polished.bam"
         ]
       ],
       "database_name": "Medaka model r941_min_hac_g507",
       "database_version": "r941_min_hac_g507",
       "database_kind": "medaka_model",
-      "database_checksum": "sha256:cd2a96a717c8682921cdd5e2d144a5c5269c1ff9fdc365840f75a765cda41598",
-      "database_path": "/root/.arva-db/medaka-models/r941_min_hac_g507",
-      "duration_seconds": 4183.97,
-      "started_at": "2026-11-07T14:06:46.190201Z",
-      "finished_at": "2026-11-07T15:16:30.159746Z",
+      "database_checksum": "sha256:c9af5b9ab02a586edc5e028b5206934fd6f5cad5fe3dd7093e10ab0670d0e676",
+      "database_path": "/databases/medaka-models/r941_min_hac_g507",
+      "duration_seconds": 3449.876,
+      "started_at": "2026-11-07T22:03:13.996824Z",
+      "finished_at": "2026-11-07T23:00:43.873188Z",
       "error_message": null,
       "result_summary": {
         "polisher": "Medaka",
         "polisher_version": "2.1.1",
         "strategy": "medaka",
         "draft": {
-          "assembly_id": "8a627965-93cf-4cab-9df4-b2e660210abf",
+          "assembly_id": "e1505f18-2ba9-4636-9aca-67225a6f065a",
           "kind": "assembly",
           "assembler": "Flye",
           "assembler_version": "2.9.6",
-          "job_id": "5a9f6a5f-d74f-4307-b1d8-5993341af362",
+          "job_id": "4dd9fd00-1188-4a1a-b05d-aa535bfe7362",
           "mode": "long",
           "declared_assembler": null,
           "declared_assembler_version": null,
@@ -687,7 +699,7 @@
           },
           "parent_assembly_id": null
         },
-        "polished_assembly_id": "d07b52e9-660d-433a-903e-6178f0c0d55f",
+        "polished_assembly_id": "8b0ed269-7736-4b8a-a565-47a1d7cdd27e",
         "read_type": "map-ont",
         "rounds_requested": null,
         "rounds_run": 1,
@@ -790,15 +802,15 @@
             },
             "commands": [
               [
-                "/root/.arva-tools/conda/medaka/bin/medaka_consensus",
+                "/opt/arva-tools/conda/medaka/bin/medaka_consensus",
                 "-i",
-                "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/7f5840b8-07b8-471e-a563-48587f663eba/work/input/04_SRR25741643_1.filtlong.fastq.gz",
+                "/data/results/7108909a-030f-4bee-8f15-d2ee36640706/4b560203-2611-4a4f-8e5c-3077eb730a80/6a84d84c-ca13-449b-999b-2d9a80f18e73/work/input/04_SRR25741643_1.filtlong.fastq.gz",
                 "-d",
-                "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/7f5840b8-07b8-471e-a563-48587f663eba/work/round0.fasta",
+                "/data/results/7108909a-030f-4bee-8f15-d2ee36640706/4b560203-2611-4a4f-8e5c-3077eb730a80/6a84d84c-ca13-449b-999b-2d9a80f18e73/work/round0.fasta",
                 "-o",
                 "medaka",
                 "-m",
-                "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/7f5840b8-07b8-471e-a563-48587f663eba/work/model/r941_min_hac_g507_model_pt.tar.gz",
+                "/data/results/7108909a-030f-4bee-8f15-d2ee36640706/4b560203-2611-4a4f-8e5c-3077eb730a80/6a84d84c-ca13-449b-999b-2d9a80f18e73/work/model/r941_min_hac_g507_model_pt.tar.gz",
                 "-t",
                 "4",
                 "-b",
@@ -889,7 +901,7 @@
           "pilon_changes": null
         },
         "indirect": {
-          "aligner": "minimap2 2.26-r1175 -x map-ont",
+          "aligner": "minimap2 2.24-r1122 -x map-ont",
           "reads": "long",
           "before": {
             "stats": {
@@ -921,7 +933,7 @@
               }
             ],
             "depth_profile": {
-              "path": "results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/7f5840b8-07b8-471e-a563-48587f663eba/comparison/draft.depth_profile.json",
+              "path": "results/7108909a-030f-4bee-8f15-d2ee36640706/4b560203-2611-4a4f-8e5c-3077eb730a80/6a84d84c-ca13-449b-999b-2d9a80f18e73/comparison/draft.depth_profile.json",
               "sha256": "bc78089d577c3af1b6dfafced81114d18c3c276ec4ddf623d8b5b69c18d5ef09",
               "resolution": 25
             }
@@ -956,7 +968,7 @@
               }
             ],
             "depth_profile": {
-              "path": "results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/7f5840b8-07b8-471e-a563-48587f663eba/comparison/polished.depth_profile.json",
+              "path": "results/7108909a-030f-4bee-8f15-d2ee36640706/4b560203-2611-4a4f-8e5c-3077eb730a80/6a84d84c-ca13-449b-999b-2d9a80f18e73/comparison/polished.depth_profile.json",
               "sha256": "194140845d7e2ac4170d0b6db27069b9c1a38204326392e1fc455205c9bd7141",
               "resolution": 25
             }
@@ -997,15 +1009,15 @@
             "name": "minimap2",
             "tool_id": "minimap2",
             "path": "/usr/bin/minimap2",
-            "version": "2.26-r1175",
-            "version_validated": true
+            "version": "2.24-r1122",
+            "version_validated": false
           },
           {
             "name": "samtools",
             "tool_id": "samtools",
             "path": "/usr/bin/samtools",
-            "version": "1.19.2",
-            "version_validated": true
+            "version": "1.16.1",
+            "version_validated": false
           },
           {
             "name": "MUMmer dnadiff",
@@ -1032,9 +1044,9 @@
             "medaka_version": "2.1.1",
             "model_source": "registered",
             "file": "r941_min_hac_g507_model_pt.tar.gz",
-            "path": "/root/.arva-db/medaka-models/r941_min_hac_g507/r941_min_hac_g507_model_pt.tar.gz",
+            "path": "/databases/medaka-models/r941_min_hac_g507/r941_min_hac_g507_model_pt.tar.gz",
             "sha256": "6e87607808bfe7884fc701ded596931afeeb8a59e69bdcb268ef07ac7680ac26",
-            "database_id": "c2f14a26-3429-4385-850e-7245e6ded1b8",
+            "database_id": "5fff3810-d1ea-4426-b8c6-bd1705ec4028",
             "url": "https://media.githubusercontent.com/media/nanoporetech/medaka/v2.1.1/medaka/data/r941_min_hac_g507_model_pt.tar.gz",
             "origin": "download",
             "chemistry": "R9.4.1",
@@ -1075,7 +1087,7 @@
             }
           ],
           "model_files": [
-            "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/7f5840b8-07b8-471e-a563-48587f663eba/work/model/r941_min_hac_g507_model_pt.tar.gz"
+            "/data/results/7108909a-030f-4bee-8f15-d2ee36640706/4b560203-2611-4a4f-8e5c-3077eb730a80/6a84d84c-ca13-449b-999b-2d9a80f18e73/work/model/r941_min_hac_g507_model_pt.tar.gz"
           ],
           "unpolished": {
             "contigs": {},
@@ -1088,24 +1100,24 @@
         "profile": "light",
         "choice": "auto",
         "threads": 4,
-        "memory_gb": 6,
+        "memory_gb": 7,
         "memory_limit_gb": null,
         "memory_option": null,
         "nice": 15,
         "usable_cpus": 4,
-        "usable_memory_gb": 13.4,
-        "in_container": false,
+        "usable_memory_gb": 15.6,
+        "in_container": true,
         "host": "unknown computer",
         "nice_executable": "/usr/bin/nice"
       },
-      "wall_seconds": 4200.7
+      "wall_seconds": 3457.7
     },
     "mlst": {
-      "id": "3c8940c7-0f42-4702-b0d5-e36606d16d5f",
+      "id": "93724b5a-84db-42ad-842f-c2423e284e63",
       "job_type": "mlst_typing",
       "tool_name": "mlst",
       "tool_version": "2.35.0",
-      "tool_path": "/root/.arva-tools/conda/mlst/bin/mlst",
+      "tool_path": "/opt/arva-tools/conda/mlst/bin/mlst",
       "status": "completed",
       "parameters": {
         "scheme": null,
@@ -1120,12 +1132,12 @@
         ],
         "threads": 4,
         "assembly": {
-          "assembly_id": "d07b52e9-660d-433a-903e-6178f0c0d55f",
+          "assembly_id": "8b0ed269-7736-4b8a-a565-47a1d7cdd27e",
           "kind": "polished",
           "assembler": "Medaka",
           "assembler_version": "2.1.1",
-          "parent_assembly_id": "8a627965-93cf-4cab-9df4-b2e660210abf",
-          "job_id": "7f5840b8-07b8-471e-a563-48587f663eba",
+          "parent_assembly_id": "e1505f18-2ba9-4636-9aca-67225a6f065a",
+          "job_id": "6a84d84c-ca13-449b-999b-2d9a80f18e73",
           "contigs_sha256": "97abd8858d290d6cc56ad6de756bbc72b05cf9764e6e9d8443ce538cf75fb660"
         },
         "synthetic_evidence": [],
@@ -1133,14 +1145,14 @@
       },
       "commands": [
         [
-          "/root/.arva-tools/conda/mlst/bin/mlst",
+          "/opt/arva-tools/conda/mlst/bin/mlst",
           "--full",
           "--outfile",
-          "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/3c8940c7-0f42-4702-b0d5-e36606d16d5f/mlst.tsv",
+          "/data/results/7108909a-030f-4bee-8f15-d2ee36640706/4b560203-2611-4a4f-8e5c-3077eb730a80/93724b5a-84db-42ad-842f-c2423e284e63/mlst.tsv",
           "--json",
-          "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/3c8940c7-0f42-4702-b0d5-e36606d16d5f/mlst.json",
+          "/data/results/7108909a-030f-4bee-8f15-d2ee36640706/4b560203-2611-4a4f-8e5c-3077eb730a80/93724b5a-84db-42ad-842f-c2423e284e63/mlst.json",
           "--novel",
-          "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/3c8940c7-0f42-4702-b0d5-e36606d16d5f/novel_alleles.fasta",
+          "/data/results/7108909a-030f-4bee-8f15-d2ee36640706/4b560203-2611-4a4f-8e5c-3077eb730a80/93724b5a-84db-42ad-842f-c2423e284e63/novel_alleles.fasta",
           "--threads",
           "4",
           "--minid",
@@ -1152,23 +1164,23 @@
           "--exclude",
           "ecoli,abaumannii,vcholerae_2,senterica_achtman_2",
           "--blastdb",
-          "/root/.arva-tools/conda/mlst/db/blast/mlst.fa",
+          "/opt/arva-tools/conda/mlst/db/blast/mlst.fa",
           "--datadir",
-          "/root/.arva-tools/conda/mlst/db/pubmlst",
-          "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/3c8940c7-0f42-4702-b0d5-e36606d16d5f/input/genome.fna"
+          "/opt/arva-tools/conda/mlst/db/pubmlst",
+          "/data/results/7108909a-030f-4bee-8f15-d2ee36640706/4b560203-2611-4a4f-8e5c-3077eb730a80/93724b5a-84db-42ad-842f-c2423e284e63/input/genome.fna"
         ]
       ],
       "database_name": "PubMLST schemes bundled with mlst 2.35.0",
       "database_version": "2026-03-11",
       "database_kind": "mlst_schemes",
       "database_checksum": "sha256:eb4d35e1fa4d78d9fae893e5292f53532bc318b305b80991e3fa95e845e29e9f",
-      "database_path": "/root/.arva-tools/conda/mlst/db",
-      "duration_seconds": 2.254,
-      "started_at": "2026-11-07T15:16:40.332478Z",
-      "finished_at": "2026-11-07T15:16:42.586786Z",
+      "database_path": "/opt/arva-tools/conda/mlst/db",
+      "duration_seconds": 2.006,
+      "started_at": "2026-11-07T23:00:47.284096Z",
+      "finished_at": "2026-11-07T23:00:49.289689Z",
       "error_message": null,
       "result_summary": {
-        "mlst_result_id": "0ed43abe-8ac7-46e7-9d4a-2866ad430754",
+        "mlst_result_id": "48188cc6-7f63-4d5a-848b-1e5f6ee1ea31",
         "scheme": "saureus",
         "st": "3028",
         "status": "PERFECT",
@@ -1181,24 +1193,24 @@
         "profile": "light",
         "choice": "auto",
         "threads": 4,
-        "memory_gb": 6,
+        "memory_gb": 7,
         "memory_limit_gb": null,
         "memory_option": null,
         "nice": 15,
         "usable_cpus": 4,
-        "usable_memory_gb": 13.4,
-        "in_container": false,
+        "usable_memory_gb": 15.6,
+        "in_container": true,
         "host": "unknown computer",
         "nice_executable": "/usr/bin/nice"
       },
-      "wall_seconds": 10.6
+      "wall_seconds": 10.3
     },
     "typing_sccmec": {
-      "id": "bc0e1263-e7a9-466a-ad54-59c90ac9a6c5",
+      "id": "2e994c1e-e86f-492c-8da6-6efff423527c",
       "job_type": "species_typing",
       "tool_name": "sccmec",
       "tool_version": "1.2.0",
-      "tool_path": "/root/.arva-tools/conda/sccmec/bin/sccmec",
+      "tool_path": "/opt/arva-tools/conda/sccmec/bin/sccmec",
       "status": "completed",
       "parameters": {
         "module": "staphylococcus_aureus",
@@ -1210,12 +1222,12 @@
           "min_regions_coverage": 83
         },
         "assembly": {
-          "assembly_id": "d07b52e9-660d-433a-903e-6178f0c0d55f",
+          "assembly_id": "8b0ed269-7736-4b8a-a565-47a1d7cdd27e",
           "kind": "polished",
           "assembler": "Medaka",
           "assembler_version": "2.1.1",
-          "parent_assembly_id": "8a627965-93cf-4cab-9df4-b2e660210abf",
-          "job_id": "7f5840b8-07b8-471e-a563-48587f663eba",
+          "parent_assembly_id": "e1505f18-2ba9-4636-9aca-67225a6f065a",
+          "job_id": "6a84d84c-ca13-449b-999b-2d9a80f18e73",
           "contigs_sha256": "97abd8858d290d6cc56ad6de756bbc72b05cf9764e6e9d8443ce538cf75fb660"
         },
         "synthetic_evidence": [],
@@ -1236,8 +1248,8 @@
               "tool": "mlst",
               "tool_version": "2.35.0",
               "status": "PERFECT",
-              "result_id": "0ed43abe-8ac7-46e7-9d4a-2866ad430754",
-              "created_at": "2026-11-07T15:16:42.574145+00:00"
+              "result_id": "48188cc6-7f63-4d5a-848b-1e5f6ee1ea31",
+              "created_at": "2026-11-07T23:00:49.286264+00:00"
             }
           }
         },
@@ -1245,17 +1257,17 @@
       },
       "commands": [
         [
-          "/root/.arva-tools/conda/sccmec/bin/sccmec",
+          "/opt/arva-tools/conda/sccmec/bin/sccmec",
           "--input",
-          "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/bc0e1263-e7a9-466a-ad54-59c90ac9a6c5/input/contigs.fasta",
+          "/data/results/7108909a-030f-4bee-8f15-d2ee36640706/4b560203-2611-4a4f-8e5c-3077eb730a80/2e994c1e-e86f-492c-8da6-6efff423527c/input/contigs.fasta",
           "--yaml-targets",
-          "/root/.arva-tools/conda/sccmec/share/sccmec/sccmec-targets.yaml",
+          "/opt/arva-tools/conda/sccmec/share/sccmec/sccmec-targets.yaml",
           "--yaml-regions",
-          "/root/.arva-tools/conda/sccmec/share/sccmec/sccmec-regions.yaml",
+          "/opt/arva-tools/conda/sccmec/share/sccmec/sccmec-regions.yaml",
           "--targets",
-          "/root/.arva-tools/conda/sccmec/share/sccmec/sccmec-targets.fasta",
+          "/opt/arva-tools/conda/sccmec/share/sccmec/sccmec-targets.fasta",
           "--regions",
-          "/root/.arva-tools/conda/sccmec/share/sccmec/sccmec-regions.fasta",
+          "/opt/arva-tools/conda/sccmec/share/sccmec/sccmec-regions.fasta",
           "--min-targets-pident",
           "90",
           "--min-targets-coverage",
@@ -1267,20 +1279,20 @@
           "--prefix",
           "sccmec",
           "--outdir",
-          "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/bc0e1263-e7a9-466a-ad54-59c90ac9a6c5/sccmec"
+          "/data/results/7108909a-030f-4bee-8f15-d2ee36640706/4b560203-2611-4a4f-8e5c-3077eb730a80/2e994c1e-e86f-492c-8da6-6efff423527c/sccmec"
         ]
       ],
       "database_name": "sccmec schemas (sccmec_targets, sccmec_regions)",
       "database_version": "1.2.0",
       "database_kind": "sccmec_schemas",
       "database_checksum": "sha256:404844b7c08e717a71240547b9c5175343d1e3091e9b6cf239416bed29794cca",
-      "database_path": "/root/.arva-tools/conda/sccmec/share/sccmec",
-      "duration_seconds": 1.991,
-      "started_at": "2026-11-07T15:16:52.275402Z",
-      "finished_at": "2026-11-07T15:16:54.266737Z",
+      "database_path": "/opt/arva-tools/conda/sccmec/share/sccmec",
+      "duration_seconds": 1.442,
+      "started_at": "2026-11-07T23:00:58.403258Z",
+      "finished_at": "2026-11-07T23:00:59.845526Z",
       "error_message": null,
       "result_summary": {
-        "typing_result_id": "f718faa1-ec73-49e6-8351-60c32f939b04",
+        "typing_result_id": "629eb504-a44d-4b16-992a-ac12837db594",
         "method": "sccmec",
         "status": "not_typeable",
         "call": null,
@@ -1289,37 +1301,37 @@
         ],
         "files": {
           "sccmec/sccmec.tsv": {
-            "path": "results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/bc0e1263-e7a9-466a-ad54-59c90ac9a6c5/sccmec/sccmec.tsv",
+            "path": "results/7108909a-030f-4bee-8f15-d2ee36640706/4b560203-2611-4a4f-8e5c-3077eb730a80/2e994c1e-e86f-492c-8da6-6efff423527c/sccmec/sccmec.tsv",
             "sha256": "0607fa3f9fdbf7b602f5d8390d40d73a4d7826d0074a2a623ef4bd58e2bf686a",
             "size_bytes": 489
           },
           "sccmec/sccmec.targets.details.tsv": {
-            "path": "results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/bc0e1263-e7a9-466a-ad54-59c90ac9a6c5/sccmec/sccmec.targets.details.tsv",
+            "path": "results/7108909a-030f-4bee-8f15-d2ee36640706/4b560203-2611-4a4f-8e5c-3077eb730a80/2e994c1e-e86f-492c-8da6-6efff423527c/sccmec/sccmec.targets.details.tsv",
             "sha256": "4a50b834c619fa8e13fa2821f464c7e5850ada18091f96bb041bb6a1750f82e1",
             "size_bytes": 1753
           },
           "sccmec/sccmec.regions.details.tsv": {
-            "path": "results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/bc0e1263-e7a9-466a-ad54-59c90ac9a6c5/sccmec/sccmec.regions.details.tsv",
+            "path": "results/7108909a-030f-4bee-8f15-d2ee36640706/4b560203-2611-4a4f-8e5c-3077eb730a80/2e994c1e-e86f-492c-8da6-6efff423527c/sccmec/sccmec.regions.details.tsv",
             "sha256": "06c3a135ecf5f651416a3146180e73607995526c256848f1154039235badebc6",
             "size_bytes": 3250
           },
           "sccmec/sccmec.targets.blastn.tsv": {
-            "path": "results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/bc0e1263-e7a9-466a-ad54-59c90ac9a6c5/sccmec/sccmec.targets.blastn.tsv",
+            "path": "results/7108909a-030f-4bee-8f15-d2ee36640706/4b560203-2611-4a4f-8e5c-3077eb730a80/2e994c1e-e86f-492c-8da6-6efff423527c/sccmec/sccmec.targets.blastn.tsv",
             "sha256": "6e6f87a14938bf362bf9ff6b7d177e5ba291ced48e664107559576f6b78fc0c7",
             "size_bytes": 109
           },
           "sccmec/sccmec.regions.blastn.tsv": {
-            "path": "results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/bc0e1263-e7a9-466a-ad54-59c90ac9a6c5/sccmec/sccmec.regions.blastn.tsv",
+            "path": "results/7108909a-030f-4bee-8f15-d2ee36640706/4b560203-2611-4a4f-8e5c-3077eb730a80/2e994c1e-e86f-492c-8da6-6efff423527c/sccmec/sccmec.regions.blastn.tsv",
             "sha256": "f8b27493233951f20b6379662003e85a12c1689831bf0a6248ae6c49a66042c9",
             "size_bytes": 16826
           },
           "sccmec.stderr.log": {
-            "path": "results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/bc0e1263-e7a9-466a-ad54-59c90ac9a6c5/sccmec.stderr.log",
-            "sha256": "d5c85b963b4b7edd78a352ad6a49fa72bb97089f511b2370d8f52e1fe626656d",
-            "size_bytes": 4847
+            "path": "results/7108909a-030f-4bee-8f15-d2ee36640706/4b560203-2611-4a4f-8e5c-3077eb730a80/2e994c1e-e86f-492c-8da6-6efff423527c/sccmec.stderr.log",
+            "sha256": "c12821cc61c202603ff8abcd8aeb679dcaf53aa8da30f78ec8f12aafd33810a7",
+            "size_bytes": 4663
           },
           "input": {
-            "path": "results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/bc0e1263-e7a9-466a-ad54-59c90ac9a6c5/input/contigs.fasta",
+            "path": "results/7108909a-030f-4bee-8f15-d2ee36640706/4b560203-2611-4a4f-8e5c-3077eb730a80/2e994c1e-e86f-492c-8da6-6efff423527c/input/contigs.fasta",
             "sha256": "35ac142ec457e31fd693e8af4973f0d614e339d608beb37e06adee1461b25423",
             "size_bytes": 2786262
           }
@@ -1329,24 +1341,24 @@
         "profile": "light",
         "choice": "auto",
         "threads": 1,
-        "memory_gb": 6,
+        "memory_gb": 7,
         "memory_limit_gb": null,
         "memory_option": null,
         "nice": 15,
         "usable_cpus": 4,
-        "usable_memory_gb": 13.4,
-        "in_container": false,
+        "usable_memory_gb": 15.6,
+        "in_container": true,
         "host": "unknown computer",
         "nice_executable": "/usr/bin/nice"
       },
-      "wall_seconds": 11.9
+      "wall_seconds": 11.1
     },
     "typing_spa": {
-      "id": "7b4fd4b5-6262-4362-accd-d8e3efae9196",
+      "id": "c9338828-85ff-4385-bd5a-1921686547b9",
       "job_type": "species_typing",
       "tool_name": "spaTyper",
       "tool_version": "0.3.3",
-      "tool_path": "/root/.arva-tools/conda/spatyper/bin/spaTyper",
+      "tool_path": "/opt/arva-tools/conda/spatyper/bin/spaTyper",
       "status": "completed",
       "parameters": {
         "module": "staphylococcus_aureus",
@@ -1355,12 +1367,12 @@
           "do_enrich": false
         },
         "assembly": {
-          "assembly_id": "d07b52e9-660d-433a-903e-6178f0c0d55f",
+          "assembly_id": "8b0ed269-7736-4b8a-a565-47a1d7cdd27e",
           "kind": "polished",
           "assembler": "Medaka",
           "assembler_version": "2.1.1",
-          "parent_assembly_id": "8a627965-93cf-4cab-9df4-b2e660210abf",
-          "job_id": "7f5840b8-07b8-471e-a563-48587f663eba",
+          "parent_assembly_id": "e1505f18-2ba9-4636-9aca-67225a6f065a",
+          "job_id": "6a84d84c-ca13-449b-999b-2d9a80f18e73",
           "contigs_sha256": "97abd8858d290d6cc56ad6de756bbc72b05cf9764e6e9d8443ce538cf75fb660"
         },
         "synthetic_evidence": [],
@@ -1381,8 +1393,8 @@
               "tool": "mlst",
               "tool_version": "2.35.0",
               "status": "PERFECT",
-              "result_id": "0ed43abe-8ac7-46e7-9d4a-2866ad430754",
-              "created_at": "2026-11-07T15:16:42.574145+00:00"
+              "result_id": "48188cc6-7f63-4d5a-848b-1e5f6ee1ea31",
+              "created_at": "2026-11-07T23:00:49.286264+00:00"
             }
           }
         },
@@ -1395,28 +1407,28 @@
       },
       "commands": [
         [
-          "/root/.arva-tools/conda/spatyper/bin/spaTyper",
+          "/opt/arva-tools/conda/spatyper/bin/spaTyper",
           "--repeat_file",
-          "/root/.arva-db/spa-ridom/2026-11-07/sparepeats.fasta",
+          "/import/ridom-spa-2026-11-07/sparepeats.fasta",
           "--repeat_order_file",
-          "/root/.arva-db/spa-ridom/2026-11-07/spatypes.txt",
+          "/import/ridom-spa-2026-11-07/spatypes.txt",
           "--fasta",
-          "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/7b4fd4b5-6262-4362-accd-d8e3efae9196/input/contigs.fasta",
+          "/data/results/7108909a-030f-4bee-8f15-d2ee36640706/4b560203-2611-4a4f-8e5c-3077eb730a80/c9338828-85ff-4385-bd5a-1921686547b9/input/contigs.fasta",
           "--output",
-          "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/7b4fd4b5-6262-4362-accd-d8e3efae9196/spatyper.tsv"
+          "/data/results/7108909a-030f-4bee-8f15-d2ee36640706/4b560203-2611-4a4f-8e5c-3077eb730a80/c9338828-85ff-4385-bd5a-1921686547b9/spatyper.tsv"
         ]
       ],
       "database_name": "spa types (Ridom SpaServer)",
-      "database_version": "2026-11-07",
+      "database_version": "downloaded 2026-11-07 from spa.ridom.de",
       "database_kind": "spa_types",
       "database_checksum": null,
-      "database_path": "/root/.arva-db/spa-ridom/2026-11-07",
-      "duration_seconds": 3.224,
-      "started_at": "2026-11-07T15:17:03.153316Z",
-      "finished_at": "2026-11-07T15:17:06.376803Z",
+      "database_path": "/import/ridom-spa-2026-11-07",
+      "duration_seconds": 1.883,
+      "started_at": "2026-11-07T23:01:08.931542Z",
+      "finished_at": "2026-11-07T23:01:10.814549Z",
       "error_message": null,
       "result_summary": {
-        "typing_result_id": "06c6b2d4-ffac-4cf8-8598-8c3308fa86a9",
+        "typing_result_id": "3011a47d-f7bf-48a2-9eca-073521e112da",
         "method": "spa",
         "status": "typed",
         "call": "t9432",
@@ -1425,22 +1437,22 @@
         ],
         "files": {
           "spatyper.tsv": {
-            "path": "results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/7b4fd4b5-6262-4362-accd-d8e3efae9196/spatyper.tsv",
+            "path": "results/7108909a-030f-4bee-8f15-d2ee36640706/4b560203-2611-4a4f-8e5c-3077eb730a80/c9338828-85ff-4385-bd5a-1921686547b9/spatyper.tsv",
             "sha256": "6a9f34cd537a1ab3624cfc9fb1acd7ce7662b0c7f8e4ae205615a8684b4ed5c7",
             "size_bytes": 69
           },
           "spatyper.stdout.log": {
-            "path": "results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/7b4fd4b5-6262-4362-accd-d8e3efae9196/spatyper.stdout.log",
-            "sha256": "903db71d3c45bb8fe0a2457c980474df3326268203e28aeb25b52421ecd5ef6e",
-            "size_bytes": 443
+            "path": "results/7108909a-030f-4bee-8f15-d2ee36640706/4b560203-2611-4a4f-8e5c-3077eb730a80/c9338828-85ff-4385-bd5a-1921686547b9/spatyper.stdout.log",
+            "sha256": "1523f53feb958e05d9ee7e12798226884f511c8c2bb290d8c0bf91df9544d011",
+            "size_bytes": 405
           },
           "spatyper.stderr.log": {
-            "path": "results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/7b4fd4b5-6262-4362-accd-d8e3efae9196/spatyper.stderr.log",
+            "path": "results/7108909a-030f-4bee-8f15-d2ee36640706/4b560203-2611-4a4f-8e5c-3077eb730a80/c9338828-85ff-4385-bd5a-1921686547b9/spatyper.stderr.log",
             "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
             "size_bytes": 0
           },
           "input": {
-            "path": "results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/7b4fd4b5-6262-4362-accd-d8e3efae9196/input/contigs.fasta",
+            "path": "results/7108909a-030f-4bee-8f15-d2ee36640706/4b560203-2611-4a4f-8e5c-3077eb730a80/c9338828-85ff-4385-bd5a-1921686547b9/input/contigs.fasta",
             "sha256": "35ac142ec457e31fd693e8af4973f0d614e339d608beb37e06adee1461b25423",
             "size_bytes": 2786262
           }
@@ -1450,24 +1462,24 @@
         "profile": "light",
         "choice": "auto",
         "threads": 1,
-        "memory_gb": 6,
+        "memory_gb": 7,
         "memory_limit_gb": null,
         "memory_option": null,
         "nice": 15,
         "usable_cpus": 4,
-        "usable_memory_gb": 13.4,
-        "in_container": false,
+        "usable_memory_gb": 15.6,
+        "in_container": true,
         "host": "unknown computer",
         "nice_executable": "/usr/bin/nice"
       },
-      "wall_seconds": 10.3
+      "wall_seconds": 10.2
     },
     "typing_agr": {
-      "id": "d52e4f57-8c21-44b4-9e89-0fd11ddcbefb",
+      "id": "34fc313c-2fc4-4fec-822b-682203ab2879",
       "job_type": "species_typing",
       "tool_name": "AgrVATE",
       "tool_version": "1.0.2",
-      "tool_path": "/root/.arva-tools/conda/agrvate/bin/agrvate",
+      "tool_path": "/opt/arva-tools/conda/agrvate/bin/agrvate",
       "status": "completed",
       "parameters": {
         "module": "staphylococcus_aureus",
@@ -1477,12 +1489,12 @@
           "typing_only": false
         },
         "assembly": {
-          "assembly_id": "d07b52e9-660d-433a-903e-6178f0c0d55f",
+          "assembly_id": "8b0ed269-7736-4b8a-a565-47a1d7cdd27e",
           "kind": "polished",
           "assembler": "Medaka",
           "assembler_version": "2.1.1",
-          "parent_assembly_id": "8a627965-93cf-4cab-9df4-b2e660210abf",
-          "job_id": "7f5840b8-07b8-471e-a563-48587f663eba",
+          "parent_assembly_id": "e1505f18-2ba9-4636-9aca-67225a6f065a",
+          "job_id": "6a84d84c-ca13-449b-999b-2d9a80f18e73",
           "contigs_sha256": "97abd8858d290d6cc56ad6de756bbc72b05cf9764e6e9d8443ce538cf75fb660"
         },
         "synthetic_evidence": [],
@@ -1503,8 +1515,8 @@
               "tool": "mlst",
               "tool_version": "2.35.0",
               "status": "PERFECT",
-              "result_id": "0ed43abe-8ac7-46e7-9d4a-2866ad430754",
-              "created_at": "2026-11-07T15:16:42.574145+00:00"
+              "result_id": "48188cc6-7f63-4d5a-848b-1e5f6ee1ea31",
+              "created_at": "2026-11-07T23:00:49.286264+00:00"
             }
           }
         },
@@ -1512,25 +1524,25 @@
       },
       "commands": [
         [
-          "/root/.arva-tools/conda/agrvate/bin/agrvate",
+          "/opt/arva-tools/conda/agrvate/bin/agrvate",
           "--input",
           "contigs.fasta",
           "--mummer",
           "--databases",
-          "/root/.arva-tools/conda/agrvate/bin/agrvate_databases/"
+          "/opt/arva-tools/conda/agrvate/bin/agrvate_databases/"
         ]
       ],
       "database_name": "AgrVATE databases (agrvate_databases)",
       "database_version": "1.0.2",
       "database_kind": "agrvate_databases",
       "database_checksum": "sha256:10b5e29f8d0774a557bebb3d26662240476443eb495eea9dd9084a14e5fba642",
-      "database_path": "/root/.arva-tools/conda/agrvate/bin/agrvate_databases",
-      "duration_seconds": 6.134,
-      "started_at": "2026-11-07T15:17:13.718964Z",
-      "finished_at": "2026-11-07T15:17:19.852438Z",
+      "database_path": "/opt/arva-tools/conda/agrvate/bin/agrvate_databases",
+      "duration_seconds": 4.342,
+      "started_at": "2026-11-07T23:01:19.258054Z",
+      "finished_at": "2026-11-07T23:01:23.599917Z",
       "error_message": null,
       "result_summary": {
-        "typing_result_id": "578e9b9a-c764-4635-91c5-4221a102dd82",
+        "typing_result_id": "40e8c3c2-629e-47f6-a6a5-c84919c2cf32",
         "method": "agr",
         "status": "typed",
         "call": "I",
@@ -1540,52 +1552,52 @@
         ],
         "files": {
           "agrvate/contigs-results/contigs-summary.tab": {
-            "path": "results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/d52e4f57-8c21-44b4-9e89-0fd11ddcbefb/agrvate/contigs-results/contigs-summary.tab",
+            "path": "results/7108909a-030f-4bee-8f15-d2ee36640706/4b560203-2611-4a4f-8e5c-3077eb730a80/34fc313c-2fc4-4fec-822b-682203ab2879/agrvate/contigs-results/contigs-summary.tab",
             "sha256": "6fb8d172f06974eb7c1d0dd2f0e9825e2681d250c1204757d2dbc6eb233c3138",
             "size_bytes": 93
           },
           "agrvate/contigs-results/contigs-agr_gp.tab": {
-            "path": "results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/d52e4f57-8c21-44b4-9e89-0fd11ddcbefb/agrvate/contigs-results/contigs-agr_gp.tab",
+            "path": "results/7108909a-030f-4bee-8f15-d2ee36640706/4b560203-2611-4a4f-8e5c-3077eb730a80/34fc313c-2fc4-4fec-822b-682203ab2879/agrvate/contigs-results/contigs-agr_gp.tab",
             "sha256": "f6b8701ffc49da2aefca290d8d923c33492106c5a1ba9a89fbe1725b7e3f50b8",
             "size_bytes": 598
           },
           "agrvate/contigs-results/contigs-agr_operon.fna": {
-            "path": "results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/d52e4f57-8c21-44b4-9e89-0fd11ddcbefb/agrvate/contigs-results/contigs-agr_operon.fna",
+            "path": "results/7108909a-030f-4bee-8f15-d2ee36640706/4b560203-2611-4a4f-8e5c-3077eb730a80/34fc313c-2fc4-4fec-822b-682203ab2879/agrvate/contigs-results/contigs-agr_operon.fna",
             "sha256": "bee63382d0b78679c94f2c35c5196a083484afdcc230a2e39c237325f01d8760",
             "size_bytes": 3551
           },
           "agrvate/contigs-results/contigs-agr_operon_frameshifts.tab": {
-            "path": "results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/d52e4f57-8c21-44b4-9e89-0fd11ddcbefb/agrvate/contigs-results/contigs-agr_operon_frameshifts.tab",
+            "path": "results/7108909a-030f-4bee-8f15-d2ee36640706/4b560203-2611-4a4f-8e5c-3077eb730a80/34fc313c-2fc4-4fec-822b-682203ab2879/agrvate/contigs-results/contigs-agr_operon_frameshifts.tab",
             "sha256": "d6f7eb036a655592d1209bd25d721dcedb19edbbc426eeb1fb551848b7abf44d",
             "size_bytes": 98
           },
           "agrvate/contigs-results/contigs-mummer/out.1coords": {
-            "path": "results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/d52e4f57-8c21-44b4-9e89-0fd11ddcbefb/agrvate/contigs-results/contigs-mummer/out.1coords",
+            "path": "results/7108909a-030f-4bee-8f15-d2ee36640706/4b560203-2611-4a4f-8e5c-3077eb730a80/34fc313c-2fc4-4fec-822b-682203ab2879/agrvate/contigs-results/contigs-mummer/out.1coords",
             "sha256": "f49120d12fcf40896effff10ed9f21045c2b784868d7aa9dddb0fbbdd7b38152",
             "size_bytes": 81
           },
           "agrvate/contigs-results/contigs-snippy/snps.tab": {
-            "path": "results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/d52e4f57-8c21-44b4-9e89-0fd11ddcbefb/agrvate/contigs-results/contigs-snippy/snps.tab",
+            "path": "results/7108909a-030f-4bee-8f15-d2ee36640706/4b560203-2611-4a4f-8e5c-3077eb730a80/34fc313c-2fc4-4fec-822b-682203ab2879/agrvate/contigs-results/contigs-snippy/snps.tab",
             "sha256": "234cd9598de441b3ef6b7f3b7563cbdfa5fea43a64f60ac61e80d77ea1325aee",
             "size_bytes": 3046
           },
           "agrvate/contigs.fasta-error-report.tab": {
-            "path": "results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/d52e4f57-8c21-44b4-9e89-0fd11ddcbefb/agrvate/contigs.fasta-error-report.tab",
+            "path": "results/7108909a-030f-4bee-8f15-d2ee36640706/4b560203-2611-4a4f-8e5c-3077eb730a80/34fc313c-2fc4-4fec-822b-682203ab2879/agrvate/contigs.fasta-error-report.tab",
             "sha256": "c72bafbebfd5171e215d925a2fa0278ec4d4fa97576115faba6bc6bb68761179",
             "size_bytes": 134
           },
           "agrvate/agrvate.log": {
-            "path": "results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/d52e4f57-8c21-44b4-9e89-0fd11ddcbefb/agrvate/agrvate.log",
+            "path": "results/7108909a-030f-4bee-8f15-d2ee36640706/4b560203-2611-4a4f-8e5c-3077eb730a80/34fc313c-2fc4-4fec-822b-682203ab2879/agrvate/agrvate.log",
             "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
             "size_bytes": 0
           },
           "agrvate/agrvate.stdout.log": {
-            "path": "results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/d52e4f57-8c21-44b4-9e89-0fd11ddcbefb/agrvate/agrvate.stdout.log",
-            "sha256": "e16eeab527f49a9474990d4ecfd2ebeca31c1d50702bf1710a8a73e2a0821d3e",
-            "size_bytes": 351
+            "path": "results/7108909a-030f-4bee-8f15-d2ee36640706/4b560203-2611-4a4f-8e5c-3077eb730a80/34fc313c-2fc4-4fec-822b-682203ab2879/agrvate/agrvate.stdout.log",
+            "sha256": "033ae84acc1befa1986c5e44190ddda7ad699efd4baccd52a9d6f1b82e900fb3",
+            "size_bytes": 349
           },
           "input": {
-            "path": "results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/d52e4f57-8c21-44b4-9e89-0fd11ddcbefb/input/contigs.fasta",
+            "path": "results/7108909a-030f-4bee-8f15-d2ee36640706/4b560203-2611-4a4f-8e5c-3077eb730a80/34fc313c-2fc4-4fec-822b-682203ab2879/input/contigs.fasta",
             "sha256": "35ac142ec457e31fd693e8af4973f0d614e339d608beb37e06adee1461b25423",
             "size_bytes": 2786262
           }
@@ -1595,24 +1607,24 @@
         "profile": "light",
         "choice": "auto",
         "threads": 1,
-        "memory_gb": 6,
+        "memory_gb": 7,
         "memory_limit_gb": null,
         "memory_option": null,
         "nice": 15,
         "usable_cpus": 4,
-        "usable_memory_gb": 13.4,
-        "in_container": false,
+        "usable_memory_gb": 15.6,
+        "in_container": true,
         "host": "unknown computer",
         "nice_executable": "/usr/bin/nice"
       },
-      "wall_seconds": 10.1
+      "wall_seconds": 10.0
     },
     "amrfinderplus": {
-      "id": "9e652572-6264-43ef-a530-a4f2542590e6",
+      "id": "589d6863-04b1-4ccd-825d-265dbbf9be5e",
       "job_type": "amr_detection",
       "tool_name": "AMRFinderPlus",
       "tool_version": "4.2.7",
-      "tool_path": "/root/.arva-tools/conda/amrfinderplus/bin/amrfinder",
+      "tool_path": "/opt/arva-tools/conda/amrfinderplus/bin/amrfinder",
       "status": "completed",
       "parameters": {
         "mode": "nucleotide",
@@ -1624,12 +1636,12 @@
         "annotation_format": null,
         "threads": 4,
         "assembly": {
-          "assembly_id": "d07b52e9-660d-433a-903e-6178f0c0d55f",
+          "assembly_id": "8b0ed269-7736-4b8a-a565-47a1d7cdd27e",
           "kind": "polished",
           "assembler": "Medaka",
           "assembler_version": "2.1.1",
-          "parent_assembly_id": "8a627965-93cf-4cab-9df4-b2e660210abf",
-          "job_id": "7f5840b8-07b8-471e-a563-48587f663eba",
+          "parent_assembly_id": "e1505f18-2ba9-4636-9aca-67225a6f065a",
+          "job_id": "6a84d84c-ca13-449b-999b-2d9a80f18e73",
           "contigs_sha256": "97abd8858d290d6cc56ad6de756bbc72b05cf9764e6e9d8443ce538cf75fb660"
         },
         "annotation_id": null,
@@ -1645,15 +1657,15 @@
       },
       "commands": [
         [
-          "/root/.arva-tools/conda/amrfinderplus/bin/amrfinder",
+          "/opt/arva-tools/conda/amrfinderplus/bin/amrfinder",
           "--nucleotide",
-          "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/9e652572-6264-43ef-a530-a4f2542590e6/input/genome.fna",
+          "/data/results/7108909a-030f-4bee-8f15-d2ee36640706/4b560203-2611-4a4f-8e5c-3077eb730a80/589d6863-04b1-4ccd-825d-265dbbf9be5e/input/genome.fna",
           "--database",
-          "/root/.arva-db/amrfinderplus/2026-08-07.1",
+          "/databases/amrfinderplus/2026-10-29.1",
           "--output",
-          "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/9e652572-6264-43ef-a530-a4f2542590e6/amrfinder.tsv",
+          "/data/results/7108909a-030f-4bee-8f15-d2ee36640706/4b560203-2611-4a4f-8e5c-3077eb730a80/589d6863-04b1-4ccd-825d-265dbbf9be5e/amrfinder.tsv",
           "--nucleotide_output",
-          "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/9e652572-6264-43ef-a530-a4f2542590e6/nucleotide_hits.fna",
+          "/data/results/7108909a-030f-4bee-8f15-d2ee36640706/4b560203-2611-4a4f-8e5c-3077eb730a80/589d6863-04b1-4ccd-825d-265dbbf9be5e/nucleotide_hits.fna",
           "--ident_min",
           "-1",
           "--coverage_min",
@@ -1663,25 +1675,25 @@
           "--threads",
           "4",
           "--blast_bin",
-          "/root/.arva-tools/conda/amrfinderplus/bin",
+          "/opt/arva-tools/conda/amrfinderplus/bin",
           "--hmmer_bin",
-          "/root/.arva-tools/conda/amrfinderplus/bin",
+          "/opt/arva-tools/conda/amrfinderplus/bin",
           "--print_node",
           "--organism",
           "Staphylococcus_aureus",
           "--mutation_all",
-          "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/9e652572-6264-43ef-a530-a4f2542590e6/mutation_all.tsv",
+          "/data/results/7108909a-030f-4bee-8f15-d2ee36640706/4b560203-2611-4a4f-8e5c-3077eb730a80/589d6863-04b1-4ccd-825d-265dbbf9be5e/mutation_all.tsv",
           "--plus"
         ]
       ],
       "database_name": "AMRFinderPlus database",
-      "database_version": "2026-08-07.1",
+      "database_version": "2026-10-29.1",
       "database_kind": "amrfinderplus",
-      "database_checksum": "sha256:fd4acf1ddabfa16ea437e763092a2236412a8e4e542266e932ed42bd5669ff35",
-      "database_path": "/root/.arva-db/amrfinderplus/2026-08-07.1",
-      "duration_seconds": 25.627,
-      "started_at": "2026-11-07T15:17:24.309766Z",
-      "finished_at": "2026-11-07T15:17:49.936528Z",
+      "database_checksum": "sha256:49c62cd13da8b3626d23b1a7ed87afa7552e9d08a11b2d26a376528ec6616747",
+      "database_path": "/databases/amrfinderplus/2026-10-29.1",
+      "duration_seconds": 17.638,
+      "started_at": "2026-11-07T23:01:29.580612Z",
+      "finished_at": "2026-11-07T23:01:47.218403Z",
       "error_message": null,
       "result_summary": {
         "counts": {
@@ -1754,7 +1766,7 @@
         },
         "log": {
           "software_version": "4.2.7",
-          "database_version": "2026-08-07.1",
+          "database_version": "2026-10-29.1",
           "search": "translated nucleotide and mutation",
           "includes": [],
           "warnings": [
@@ -1764,29 +1776,29 @@
         },
         "files": {
           "report": {
-            "path": "results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/9e652572-6264-43ef-a530-a4f2542590e6/amrfinder.tsv",
+            "path": "results/7108909a-030f-4bee-8f15-d2ee36640706/4b560203-2611-4a4f-8e5c-3077eb730a80/589d6863-04b1-4ccd-825d-265dbbf9be5e/amrfinder.tsv",
             "sha256": "224c40fc12a004d94cc1c62e2259763b79815b57d24f8847ea6dbb10d6b15b5a",
             "size_bytes": 3523
           },
           "mutation_all": {
-            "path": "results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/9e652572-6264-43ef-a530-a4f2542590e6/mutation_all.tsv",
+            "path": "results/7108909a-030f-4bee-8f15-d2ee36640706/4b560203-2611-4a4f-8e5c-3077eb730a80/589d6863-04b1-4ccd-825d-265dbbf9be5e/mutation_all.tsv",
             "sha256": "4635ca3f61494c10d49124893bc3e3c98527940558e9279a0cbcd94ebfd29cd4",
             "size_bytes": 67944
           },
           "nucleotide_hits": {
-            "path": "results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/9e652572-6264-43ef-a530-a4f2542590e6/nucleotide_hits.fna",
+            "path": "results/7108909a-030f-4bee-8f15-d2ee36640706/4b560203-2611-4a4f-8e5c-3077eb730a80/589d6863-04b1-4ccd-825d-265dbbf9be5e/nucleotide_hits.fna",
             "sha256": "513a2bf3a94bef59a5859afbdb3ca782d49ed08ed0fbccc7210fb83adffc2f38",
             "size_bytes": 17927
           },
           "log": {
-            "path": "results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/9e652572-6264-43ef-a530-a4f2542590e6/amrfinder.stderr.log",
-            "sha256": "04f2f639b2c2601085bab07708fb0ef0d30a1994534c7ffd195eec5b06d8b099",
-            "size_bytes": 1572
+            "path": "results/7108909a-030f-4bee-8f15-d2ee36640706/4b560203-2611-4a4f-8e5c-3077eb730a80/589d6863-04b1-4ccd-825d-265dbbf9be5e/amrfinder.stderr.log",
+            "sha256": "6b3bf22bd16222cd31e91176e6934e32022899c89aa4857ca14b0c9a8dc11c19",
+            "size_bytes": 1458
           }
         },
         "inputs": {
           "input": {
-            "path": "results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/9e652572-6264-43ef-a530-a4f2542590e6/input/genome.fna",
+            "path": "results/7108909a-030f-4bee-8f15-d2ee36640706/4b560203-2611-4a4f-8e5c-3077eb730a80/589d6863-04b1-4ccd-825d-265dbbf9be5e/input/genome.fna",
             "sha256": "35ac142ec457e31fd693e8af4973f0d614e339d608beb37e06adee1461b25423",
             "size_bytes": 2786262
           }
@@ -1803,17 +1815,17 @@
         "profile": "light",
         "choice": "auto",
         "threads": 4,
-        "memory_gb": 6,
+        "memory_gb": 7,
         "memory_limit_gb": null,
         "memory_option": null,
         "nice": 15,
         "usable_cpus": 4,
-        "usable_memory_gb": 13.4,
-        "in_container": false,
+        "usable_memory_gb": 15.6,
+        "in_container": true,
         "host": "unknown computer",
         "nice_executable": "/usr/bin/nice"
       },
-      "wall_seconds": 30.1
+      "wall_seconds": 20.0
     }
   },
   "skipped": {
@@ -1844,16 +1856,16 @@
     "md5_expected": "042cc1e1e2ea5a11aca18eafd9f91c4d",
     "md5_ok": true,
     "sha256": "8df0c3d6157de77ef1bbf3494778ee694219931703277cc160486dc958e73119",
-    "seconds": 146.6,
+    "seconds": 150.2,
     "attempts": 1,
     "errors": [],
     "ena_file_name": "SRR25741643_1.fastq.gz",
     "local_file_name": "SRR25741643_1.fastq.gz",
     "deleted_after_import": true
   },
-  "sample_id": "acac92e3-03b2-4495-bd45-4a43d32ac4a2",
+  "sample_id": "4b560203-2611-4a4f-8e5c-3077eb730a80",
   "imported_file": {
-    "id": "705011f7-d410-47ae-8e01-746669ec8203",
+    "id": "59c2ff4c-79c4-4ee1-b82a-9f3577302bd6",
     "original_filename": "SRR25741643_1.fastq.gz",
     "size_bytes": 238015105,
     "checksum_sha256": "8df0c3d6157de77ef1bbf3494778ee694219931703277cc160486dc958e73119",
@@ -1870,7 +1882,7 @@
     "sha256_matches_download": true
   },
   "filtered_file": {
-    "id": "b2a6b575-1a07-47bb-b754-173aff429d20",
+    "id": "b89813a4-a1b6-4c40-86d7-9fe2d33f4de2",
     "original_filename": "SRR25741643_1.filtlong.fastq.gz",
     "size_bytes": 196567129
   },
@@ -1898,8 +1910,8 @@
         "ram_gb": 2.0
       },
       "reference_bases": 230000000,
-      "available_gb": 13.4,
-      "container_gb": 13.4,
+      "available_gb": 15.6,
+      "container_gb": 15.6,
       "read_bases": null,
       "asm_coverage": null,
       "genome_size_bp": null,
@@ -1919,13 +1931,13 @@
       "estimate_gb": null,
       "verdict": "unknown",
       "suggestion": null,
-      "container_memory_gb": 13.4,
-      "in_container": false,
+      "container_memory_gb": 15.6,
+      "in_container": true,
       "expected_genome_size_bp": null
     }
   },
   "assembly_flye": {
-    "id": "8a627965-93cf-4cab-9df4-b2e660210abf",
+    "id": "e1505f18-2ba9-4636-9aca-67225a6f065a",
     "assembler": "Flye",
     "assembler_version": "2.9.6",
     "kind": "assembly",
@@ -2049,17 +2061,17 @@
       ],
       "files": {
         "contigs": {
-          "path": "results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/5a9f6a5f-d74f-4307-b1d8-5993341af362/assembly.fasta",
+          "path": "results/7108909a-030f-4bee-8f15-d2ee36640706/4b560203-2611-4a4f-8e5c-3077eb730a80/4dd9fd00-1188-4a1a-b05d-aa535bfe7362/assembly.fasta",
           "sha256": "b33d392d44c6a89467bf3f63e3cc417429a7b833c3067dc8dd50428868914323",
           "size_bytes": 2797279
         },
         "graph": {
-          "path": "results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/5a9f6a5f-d74f-4307-b1d8-5993341af362/assembly_graph.gfa",
+          "path": "results/7108909a-030f-4bee-8f15-d2ee36640706/4b560203-2611-4a4f-8e5c-3077eb730a80/4dd9fd00-1188-4a1a-b05d-aa535bfe7362/assembly_graph.gfa",
           "sha256": "12009ed135636594d901ca3efb48045850b5109922627d27ef689bf858ebc27c",
           "size_bytes": 2751522
         },
         "info": {
-          "path": "results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/5a9f6a5f-d74f-4307-b1d8-5993341af362/assembly_info.txt",
+          "path": "results/7108909a-030f-4bee-8f15-d2ee36640706/4b560203-2611-4a4f-8e5c-3077eb730a80/4dd9fd00-1188-4a1a-b05d-aa535bfe7362/assembly_info.txt",
           "sha256": "79b6010df20264acf6923fec2538d00e519ea1ee687e7bec11a598a4caa7316a",
           "size_bytes": 92
         }
@@ -2094,10 +2106,10 @@
       ],
       "registered": [
         {
-          "database_id": "c2f14a26-3429-4385-850e-7245e6ded1b8",
+          "database_id": "5fff3810-d1ea-4426-b8c6-bd1705ec4028",
           "model": "r941_min_hac_g507",
           "name": "Medaka model r941_min_hac_g507",
-          "path": "/root/.arva-db/medaka-models/r941_min_hac_g507/r941_min_hac_g507_model_pt.tar.gz",
+          "path": "/databases/medaka-models/r941_min_hac_g507/r941_min_hac_g507_model_pt.tar.gz",
           "sha256": "6e87607808bfe7884fc701ded596931afeeb8a59e69bdcb268ef07ac7680ac26",
           "url": "https://media.githubusercontent.com/media/nanoporetech/medaka/v2.1.1/medaka/data/r941_min_hac_g507_model_pt.tar.gz",
           "origin": "download",
@@ -2135,8 +2147,8 @@
     "sha256": "6e87607808bfe7884fc701ded596931afeeb8a59e69bdcb268ef07ac7680ac26",
     "expected_sha256": "6e87607808bfe7884fc701ded596931afeeb8a59e69bdcb268ef07ac7680ac26",
     "sha256_ok": true,
-    "database_id": "c2f14a26-3429-4385-850e-7245e6ded1b8",
-    "path": "/root/.arva-db/medaka-models/r941_min_hac_g507/r941_min_hac_g507_model_pt.tar.gz",
+    "database_id": "5fff3810-d1ea-4426-b8c6-bd1705ec4028",
+    "path": "/databases/medaka-models/r941_min_hac_g507/r941_min_hac_g507_model_pt.tar.gz",
     "url": "https://media.githubusercontent.com/media/nanoporetech/medaka/v2.1.1/medaka/data/r941_min_hac_g507_model_pt.tar.gz",
     "origin": "download",
     "chemistry": "R9.4.1",
@@ -2153,11 +2165,11 @@
     "registration": "downloaded by ARVA (POST /databases/medaka-models/download, confirmed)"
   },
   "assembly_polished": {
-    "id": "d07b52e9-660d-433a-903e-6178f0c0d55f",
+    "id": "8b0ed269-7736-4b8a-a565-47a1d7cdd27e",
     "assembler": "Medaka",
     "assembler_version": "2.1.1",
     "kind": "polished",
-    "parent_assembly_id": "8a627965-93cf-4cab-9df4-b2e660210abf",
+    "parent_assembly_id": "e1505f18-2ba9-4636-9aca-67225a6f065a",
     "mode": "long",
     "read_type": "map-ont",
     "stats": {
@@ -2277,7 +2289,7 @@
       ],
       "files": {
         "contigs": {
-          "path": "results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/7f5840b8-07b8-471e-a563-48587f663eba/polished.fasta",
+          "path": "results/7108909a-030f-4bee-8f15-d2ee36640706/4b560203-2611-4a4f-8e5c-3077eb730a80/6a84d84c-ca13-449b-999b-2d9a80f18e73/polished.fasta",
           "sha256": "97abd8858d290d6cc56ad6de756bbc72b05cf9764e6e9d8443ce538cf75fb660",
           "size_bytes": 2751864
         },
@@ -2388,12 +2400,12 @@
       ],
       "threads": 4,
       "assembly": {
-        "assembly_id": "d07b52e9-660d-433a-903e-6178f0c0d55f",
+        "assembly_id": "8b0ed269-7736-4b8a-a565-47a1d7cdd27e",
         "kind": "polished",
         "assembler": "Medaka",
         "assembler_version": "2.1.1",
-        "parent_assembly_id": "8a627965-93cf-4cab-9df4-b2e660210abf",
-        "job_id": "7f5840b8-07b8-471e-a563-48587f663eba",
+        "parent_assembly_id": "e1505f18-2ba9-4636-9aca-67225a6f065a",
+        "job_id": "6a84d84c-ca13-449b-999b-2d9a80f18e73",
         "contigs_sha256": "97abd8858d290d6cc56ad6de756bbc72b05cf9764e6e9d8443ce538cf75fb660"
       },
       "synthetic_evidence": [],
@@ -2751,8 +2763,8 @@
               "tool": "mlst",
               "tool_version": "2.35.0",
               "status": "PERFECT",
-              "result_id": "0ed43abe-8ac7-46e7-9d4a-2866ad430754",
-              "created_at": "2026-11-07T15:16:42.574145+00:00"
+              "result_id": "48188cc6-7f63-4d5a-848b-1e5f6ee1ea31",
+              "created_at": "2026-11-07T23:00:49.286264+00:00"
             }
           }
         }
@@ -2777,7 +2789,7 @@
           ],
           "ridom_files": {
             "name": "spa types (Ridom SpaServer)",
-            "version": "2026-11-07",
+            "version": "downloaded 2026-11-07 from spa.ridom.de",
             "sha256": {
               "sparepeats.fasta": "60e52817b1fde3a60905ed8eb149c0a8de46dfc3243a2b22f05912b748299365",
               "spatypes.txt": "a898c9e89e29bdc71eca47371d5ad9b3f0dcc795783a3ed4865fe17f85ee9e9b"
@@ -2790,13 +2802,13 @@
           {
             "code": "spa_files_version",
             "params": {
-              "version": "2026-11-07"
+              "version": "downloaded 2026-11-07 from spa.ridom.de"
             }
           }
         ],
         "tool_version": "0.3.3",
         "database_name": "spa types (Ridom SpaServer)",
-        "database_version": "2026-11-07",
+        "database_version": "downloaded 2026-11-07 from spa.ridom.de",
         "parameters": {
           "do_enrich": false
         },
@@ -2817,8 +2829,8 @@
               "tool": "mlst",
               "tool_version": "2.35.0",
               "status": "PERFECT",
-              "result_id": "0ed43abe-8ac7-46e7-9d4a-2866ad430754",
-              "created_at": "2026-11-07T15:16:42.574145+00:00"
+              "result_id": "48188cc6-7f63-4d5a-848b-1e5f6ee1ea31",
+              "created_at": "2026-11-07T23:00:49.286264+00:00"
             }
           }
         }
@@ -2915,8 +2927,8 @@
               "tool": "mlst",
               "tool_version": "2.35.0",
               "status": "PERFECT",
-              "result_id": "0ed43abe-8ac7-46e7-9d4a-2866ad430754",
-              "created_at": "2026-11-07T15:16:42.574145+00:00"
+              "result_id": "48188cc6-7f63-4d5a-848b-1e5f6ee1ea31",
+              "created_at": "2026-11-07T23:00:49.286264+00:00"
             }
           }
         }
@@ -2925,7 +2937,7 @@
   },
   "amrfinderplus": {
     "tool_version": "4.2.7",
-    "database_version": "2026-08-07.1",
+    "database_version": "2026-10-29.1",
     "parameters": {
       "mode": "nucleotide",
       "organism": "Staphylococcus_aureus",
@@ -3287,27 +3299,21 @@
     ]
   },
   "status": "completed",
-  "finished_at": "2026-11-07T15:17:54+00:00",
-  "wall_seconds": 4929.5,
+  "finished_at": "2026-11-07T23:01:49+00:00",
+  "wall_seconds": 4042.6,
   "resources": {
     "sampling_seconds": 5.0,
-    "filesystem": "/home/user/ARVA/apps/api/data",
-    "disk_used_at_start_bytes": 36240883712,
-    "peak_disk_used_bytes": 37024960512,
-    "peak_disk_increase_bytes": 784076800,
-    "min_disk_free_bytes": 4297547776,
-    "memory_used_at_start_bytes": 1348075520,
-    "peak_memory_used_bytes": 10664144896,
-    "peak_memory_increase_bytes": 9316069376,
-    "largest_process_rss_bytes": 9411887104,
+    "filesystem": "/var/lib/docker",
+    "disk_used_at_start_bytes": 34006396928,
+    "peak_disk_used_bytes": 34795798528,
+    "peak_disk_increase_bytes": 789401600,
+    "min_disk_free_bytes": 120081612800,
+    "memory_used_at_start_bytes": 1477480448,
+    "peak_memory_used_bytes": 10944749568,
+    "peak_memory_increase_bytes": 9467269120,
+    "largest_process_rss_bytes": 9413521408,
     "largest_process_name": "flye-modules",
     "note": "system-wide samples (MemTotal - MemAvailable; statvfs used) every few seconds, so short peaks can be missed"
-  },
-  "arva_storage_bytes_before_cleanup": {
-    "raw": 238015105,
-    "processed": 196567129,
-    "results": 103799154,
-    "checkpoints": 0
   },
   "summary": {
     "st": "3028",
@@ -3355,19 +3361,19 @@
     "n50": 2751853,
     "step_seconds": {
       "import": 10.0,
-      "filtlong": 40.1,
-      "flye": 450.6,
-      "polishing_medaka": 4200.7,
-      "mlst": 10.6,
-      "typing_sccmec": 11.9,
-      "typing_spa": 10.3,
-      "typing_agr": 10.1,
-      "amrfinderplus": 30.1
+      "filtlong": 30.0,
+      "flye": 330.3,
+      "polishing_medaka": 3457.7,
+      "mlst": 10.3,
+      "typing_sccmec": 11.1,
+      "typing_spa": 10.2,
+      "typing_agr": 10.0,
+      "amrfinderplus": 20.0
     }
   },
   "cleanup": {
+    "arva_raw_copy_removed": false,
     "arva_sample_deleted": true,
-    "arva_raw_copy_removed": true,
     "download_folder_removed": true
   }
 }

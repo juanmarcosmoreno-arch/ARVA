@@ -1,0 +1,3686 @@
+{
+  "isolate": "V14",
+  "started_at": "2026-11-07T21:54:55+00:00",
+  "input": {
+    "source": "CQM",
+    "farm": "CR",
+    "biosample": "SAMN36020208",
+    "ont_experiment": "SRX21464873",
+    "ont_run": "SRR25741632",
+    "ont_fastq_url": "https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR257/032/SRR25741632/SRR25741632_1.fastq.gz",
+    "ont_fastq_md5": "72073187f49051814c7f37021e8e75a7",
+    "ont_fastq_bytes": "258097773",
+    "ont_read_count": "17164",
+    "ont_base_count": "252134953",
+    "ont_instrument": "GridION"
+  },
+  "expected_from_paper": {
+    "isolate": "V14",
+    "source": "CQM",
+    "sanger_st": "151",
+    "ont_asm_st_paper": "Undetermined",
+    "illu_asm_st_paper": "151",
+    "hyb_asm_st_paper": "151",
+    "spa_hyb_asm": "t2211",
+    "spa_ont_asm": "t2211",
+    "spa_illu_asm": "t2211",
+    "cc_table_s7": "151",
+    "ast_penicillin": "S",
+    "ast_ampicillin": "S",
+    "ast_tetracycline": "S",
+    "ast_erythromycin": "S",
+    "ast_lincomycin": "R",
+    "ast_pirlimycin": "R",
+    "ast_clindamycin": "S",
+    "ast_sulfadimethoxine": "R",
+    "ast_cephalothin": "S",
+    "ast_ceftiofur": "S",
+    "ast_cefazolin": "S",
+    "ast_tilmicosin": "S",
+    "ast_vancomycin": "S",
+    "ast_penicillin_novobiocin": "S",
+    "ast_enrofloxacin": "S",
+    "ast_oxacillin": "S",
+    "ast_cefoxitin": "S",
+    "ast_amoxyclav": "S",
+    "ast_gentamicin": "S",
+    "ast_sulphtrimethoprim": "S",
+    "blaZ_inferred": "absent",
+    "mecA_paper": "not_reported",
+    "per_isolate_genes_in_paper": "heatmap_figure_only"
+  },
+  "provenance": {
+    "arva_version": "0.2.0",
+    "arva_started_from": "running ARVA",
+    "arva_image": "ghcr.io/juanmarcosmoreno-arch/arva-api:0.2.0-d78bb98",
+    "arva_image_commit": "d78bb983f6d93a839a50e97c1cd4993ac1471fd5",
+    "setup": {
+      "medaka_model": "downloaded by ARVA (POST /databases/medaka-models/download, confirmed)",
+      "amrfinderplus_database": {
+        "how": "downloaded and indexed by ARVA (POST /databases/amrfinderplus/download, confirmed)",
+        "name": "AMRFinderPlus database",
+        "version": "2026-10-29.1",
+        "path": "/databases/amrfinderplus/2026-10-29.1",
+        "tool_version": "4.2.7",
+        "url": "https://ftp.ncbi.nlm.nih.gov/pathogen/Antimicrobial_resistance/AMRFinderPlus/database/4.2/2026-10-29.1/",
+        "download_bytes": 127029923
+      },
+      "spa_files": {
+        "how": "downloaded by this runner from spa.ridom.de and registered (POST /databases/register)",
+        "name": "spa types (Ridom SpaServer)",
+        "version": "downloaded 2026-11-07 from spa.ridom.de",
+        "path": "/import/ridom-spa-2026-11-07",
+        "files": {
+          "sparepeats.fasta": {
+            "url": "https://spa.ridom.de/dynamic/sparepeats.fasta",
+            "bytes": 30162,
+            "sha256": "60e52817b1fde3a60905ed8eb149c0a8de46dfc3243a2b22f05912b748299365",
+            "fetched_at": "2026-11-07T21:54:53+00:00"
+          },
+          "spatypes.txt": {
+            "url": "https://spa.ridom.de/dynamic/spatypes.txt",
+            "bytes": 826898,
+            "sha256": "a898c9e89e29bdc71eca47371d5ad9b3f0dcc795783a3ed4865fe17f85ee9e9b",
+            "fetched_at": "2026-11-07T21:54:55+00:00"
+          }
+        },
+        "policy": "https://spa.ridom.de/policy.shtml (non-commercial use; files not redistributed)"
+      }
+    },
+    "git_commit": "0d3d95f88b348b359cd755bc5122a765c508c183",
+    "git_branch": "claude/affectionate-darwin-oknu0k",
+    "git_dirty_paths": [],
+    "tools": {
+      "filtlong": {
+        "version": "0.3.1",
+        "path": "/opt/arva-tools/conda/filtlong/bin/filtlong",
+        "status": "available"
+      },
+      "flye": {
+        "version": "2.9.6",
+        "path": "/opt/arva-tools/conda/flye/bin/flye",
+        "status": "available"
+      },
+      "racon": {
+        "version": "1.5.0",
+        "path": "/usr/bin/racon",
+        "status": "available"
+      },
+      "medaka": {
+        "version": "2.1.1",
+        "path": "/opt/arva-tools/conda/medaka/bin/medaka",
+        "status": "available"
+      },
+      "minimap2": {
+        "version": "2.24-r1122",
+        "path": "/usr/bin/minimap2",
+        "status": "available"
+      },
+      "samtools": {
+        "version": "1.16.1",
+        "path": "/usr/bin/samtools",
+        "status": "available"
+      },
+      "mlst": {
+        "version": "2.35.0",
+        "path": "/opt/arva-tools/conda/mlst/bin/mlst",
+        "status": "available"
+      },
+      "skani": {
+        "version": "0.4.0",
+        "path": "/opt/arva-tools/conda/skani/bin/skani",
+        "status": "available"
+      },
+      "amrfinderplus": {
+        "version": "4.2.7",
+        "path": "/opt/arva-tools/conda/amrfinderplus/bin/amrfinder",
+        "status": "available"
+      },
+      "sccmec": {
+        "version": "1.2.0",
+        "path": "/opt/arva-tools/conda/sccmec/bin/sccmec",
+        "status": "available"
+      },
+      "spatyper": {
+        "version": "0.3.3",
+        "path": "/opt/arva-tools/conda/spatyper/bin/spaTyper",
+        "status": "available"
+      },
+      "agrvate": {
+        "version": "1.0.2",
+        "path": "/opt/arva-tools/conda/agrvate/bin/agrvate",
+        "status": "available"
+      }
+    },
+    "databases": [
+      {
+        "kind": "amrfinderplus",
+        "name": "AMRFinderPlus database",
+        "version": "2026-10-29.1",
+        "version_source": "file",
+        "path": "/databases/amrfinderplus/2026-10-29.1",
+        "is_default": true,
+        "status": "installed"
+      },
+      {
+        "kind": "medaka_model",
+        "name": "Medaka model r941_min_hac_g507",
+        "version": "r941_min_hac_g507",
+        "version_source": "checksum",
+        "path": "/databases/medaka-models/r941_min_hac_g507",
+        "is_default": false,
+        "status": "installed"
+      },
+      {
+        "kind": "mlst_schemes",
+        "name": "PubMLST schemes bundled with mlst 2.35.0",
+        "version": "2026-03-11",
+        "version_source": "file",
+        "path": "/opt/arva-tools/conda/mlst/db",
+        "is_default": true,
+        "status": "registered"
+      },
+      {
+        "kind": "plasmidfinder",
+        "name": "PlasmidFinder replicons (bundled with ABRicate 1.4.0)",
+        "version": "2026-04-03",
+        "version_source": "file",
+        "path": "/opt/arva-tools/conda/abricate/db/plasmidfinder",
+        "is_default": true,
+        "status": "registered"
+      },
+      {
+        "kind": "spa_types",
+        "name": "spa types (Ridom SpaServer)",
+        "version": "downloaded 2026-11-07 from spa.ridom.de",
+        "version_source": "declared",
+        "path": "/import/ridom-spa-2026-11-07",
+        "is_default": true,
+        "status": "registered"
+      },
+      {
+        "kind": "vfdb",
+        "name": "VFDB core set A (bundled with ABRicate 1.4.0)",
+        "version": "2026-04-03",
+        "version_source": "file",
+        "path": "/opt/arva-tools/conda/abricate/db/vfdb",
+        "is_default": true,
+        "status": "registered"
+      }
+    ],
+    "performance_profile": {
+      "profile": "light",
+      "choice": "auto",
+      "threads": 2,
+      "max_threads": 4,
+      "memory_gb": 7,
+      "max_memory_gb": 15,
+      "nice": 15,
+      "usable_cpus": 4,
+      "usable_memory_gb": 15.609291076660156,
+      "requested_threads": 2,
+      "requested_memory_gb": 7,
+      "exceeds": [],
+      "admin_threads": null,
+      "admin_memory_gb": null,
+      "host": "unknown computer"
+    },
+    "threads_requested": 4
+  },
+  "steps": {
+    "import": {
+      "id": "3896851c-0173-4b59-b886-ef5506058d61",
+      "job_type": "server_import",
+      "tool_name": "arva-import",
+      "tool_version": "0.2.0",
+      "tool_path": null,
+      "status": "completed",
+      "parameters": {
+        "root": "/import",
+        "paths": [
+          "V14/SRR25741632_1.fastq.gz"
+        ]
+      },
+      "commands": null,
+      "database_name": null,
+      "database_version": null,
+      "database_kind": null,
+      "database_checksum": null,
+      "database_path": null,
+      "duration_seconds": 0.399,
+      "started_at": "2026-11-07T21:58:29.144983Z",
+      "finished_at": "2026-11-07T21:58:29.543817Z",
+      "error_message": null,
+      "result_summary": {
+        "imported": [
+          {
+            "file_id": "5145df38-a879-4534-b201-6f11aa3e2120",
+            "name": "SRR25741632_1.fastq.gz",
+            "path": "V14/SRR25741632_1.fastq.gz",
+            "size_bytes": 258097773
+          }
+        ],
+        "rejected": []
+      },
+      "resources": null,
+      "wall_seconds": 10.0
+    },
+    "filtlong": {
+      "id": "14007c76-6f70-4d56-8221-e471eb457b4d",
+      "job_type": "filtlong",
+      "tool_name": "Filtlong",
+      "tool_version": "0.3.1",
+      "tool_path": "/opt/arva-tools/conda/filtlong/bin/filtlong",
+      "status": "completed",
+      "parameters": {
+        "min_length": 1000,
+        "max_length": null,
+        "min_mean_q": 90.0,
+        "min_window_q": null,
+        "keep_percent": null,
+        "target_bases": null,
+        "length_weight": 1.0,
+        "mean_q_weight": 1.0,
+        "window_q_weight": 1.0,
+        "window_size": 250,
+        "genome_size_bp": null,
+        "target_coverage_x": null
+      },
+      "commands": [
+        [
+          "/opt/arva-tools/conda/filtlong/bin/filtlong",
+          "--min_length",
+          "1000",
+          "--min_mean_q",
+          "90",
+          "--length_weight",
+          "1",
+          "--mean_q_weight",
+          "1",
+          "--window_q_weight",
+          "1",
+          "--window_size",
+          "250",
+          "/data/raw/06d81a7a-ac21-441b-8e97-dbdd098aff1c/67d02f8a-89cc-42da-b6a1-84528f5b2434/5145df38-a879-4534-b201-6f11aa3e2120__SRR25741632_1.fastq.gz"
+        ]
+      ],
+      "database_name": null,
+      "database_version": null,
+      "database_kind": null,
+      "database_checksum": null,
+      "database_path": null,
+      "duration_seconds": 40.257,
+      "started_at": "2026-11-07T21:58:39.233818Z",
+      "finished_at": "2026-11-07T21:59:19.491108Z",
+      "error_message": null,
+      "result_summary": {
+        "input_reads": 17164,
+        "input_bases": 252134953
+      },
+      "resources": {
+        "profile": "light",
+        "choice": "auto",
+        "threads": 1,
+        "memory_gb": 7,
+        "memory_limit_gb": null,
+        "memory_option": null,
+        "nice": 15,
+        "usable_cpus": 4,
+        "usable_memory_gb": 15.6,
+        "in_container": true,
+        "host": "unknown computer",
+        "nice_executable": "/usr/bin/nice"
+      },
+      "wall_seconds": 50.1
+    },
+    "flye": {
+      "id": "38418a6a-353a-4dcd-bd42-68a4441cc22e",
+      "job_type": "flye_assembly",
+      "tool_name": "Flye",
+      "tool_version": "2.9.6",
+      "tool_path": "/opt/arva-tools/conda/flye/bin/flye",
+      "status": "completed",
+      "parameters": {
+        "read_type": "nano-raw",
+        "genome_size_bp": 2800000,
+        "iterations": 1,
+        "min_overlap": null,
+        "asm_coverage": null,
+        "read_error": null,
+        "meta": false,
+        "keep_haplotypes": false,
+        "no_alt_contigs": false,
+        "scaffold": false,
+        "threads": 4,
+        "genome_size_basis": "entered",
+        "assumed_depth_x": null,
+        "long_reads_confirmed": false,
+        "sequencing_technology": "nanopore",
+        "arva_read_type_suggestion": {
+          "value": null,
+          "basis": "no_quality_or_model",
+          "platform": "nanopore",
+          "platform_source": "sample_metadata",
+          "mean_error_rate": null
+        },
+        "memory_estimate": {
+          "available_gb": 15.6,
+          "container_gb": 15.6,
+          "read_bases": null,
+          "asm_coverage": null,
+          "genome_size_bp": 2800000,
+          "bases_used": null,
+          "floor": {
+            "gb": 8.6,
+            "kmer_size": 17,
+            "counter_gib": 8,
+            "flye_version": "2.9.6",
+            "peak_measured_mb": 8787,
+            "source": "Flye 2.9.6 src/sequence/vertex_index.cpp (KmerCounter::count) and flye/config/bin_cfg/asm_*.cfg",
+            "url": "https://github.com/mikolmogorov/Flye/blob/2.9.6/src/sequence/vertex_index.cpp"
+          },
+          "floor_gb": 8.6,
+          "floor_headroom_gb": 1.0,
+          "scaled_gb": null,
+          "estimate_gb": null,
+          "verdict": "unknown",
+          "suggestion": null,
+          "container_memory_gb": 15.6,
+          "in_container": true,
+          "expected_genome_size_bp": null
+        }
+      },
+      "commands": [
+        [
+          "/opt/arva-tools/conda/flye/bin/flye",
+          "--nano-raw",
+          "/data/results/06d81a7a-ac21-441b-8e97-dbdd098aff1c/67d02f8a-89cc-42da-b6a1-84528f5b2434/38418a6a-353a-4dcd-bd42-68a4441cc22e/input/01_SRR25741632_1.filtlong.fastq.gz",
+          "--out-dir",
+          "/data/results/06d81a7a-ac21-441b-8e97-dbdd098aff1c/67d02f8a-89cc-42da-b6a1-84528f5b2434/38418a6a-353a-4dcd-bd42-68a4441cc22e/flye",
+          "--threads",
+          "4",
+          "--iterations",
+          "1",
+          "--genome-size",
+          "2800000"
+        ]
+      ],
+      "database_name": null,
+      "database_version": null,
+      "database_kind": null,
+      "database_checksum": null,
+      "database_path": null,
+      "duration_seconds": 664.787,
+      "started_at": "2026-11-07T21:59:31.518595Z",
+      "finished_at": "2026-11-07T22:10:36.305712Z",
+      "error_message": null,
+      "result_summary": {
+        "flye_version": "2.9.6",
+        "assembly_id": "2fc412c0-77df-4f09-ab75-a51ea823a787",
+        "read_type": "nano-raw",
+        "log": {
+          "total_read_length": 241376698,
+          "input_genome_size": 2800000,
+          "estimated_coverage": 86,
+          "min_overlap": 9000,
+          "overlap_based_coverage": 76,
+          "mean_edge_coverage": 78,
+          "total_length": 2734347,
+          "fragments": 2,
+          "fragments_n50": 2730444,
+          "largest_fragment": 2730444,
+          "scaffolds": 0,
+          "mean_coverage": 87,
+          "reads_n50": 32061,
+          "reads_n90": 9011,
+          "alignment_error_rate": {
+            "consensus": 0.075966,
+            "polishing": 0.043491
+          },
+          "warnings": [],
+          "stages_seen": [
+            "configure",
+            "assembly",
+            "consensus",
+            "repeat",
+            "contigger",
+            "polishing",
+            "finalize"
+          ]
+        },
+        "contigs": [
+          {
+            "name": "contig_3",
+            "length": 2730444,
+            "coverage": 87.0,
+            "circular": true,
+            "repeat": false,
+            "multiplicity": 1,
+            "alt_group": null,
+            "graph_path": "3"
+          },
+          {
+            "name": "contig_2",
+            "length": 3903,
+            "coverage": 91.0,
+            "circular": false,
+            "repeat": true,
+            "multiplicity": 1,
+            "alt_group": "2",
+            "graph_path": "*,2,*"
+          }
+        ],
+        "contig_rows": {
+          "stored": 2,
+          "total": 2,
+          "truncated": false
+        },
+        "helpers": [
+          {
+            "name": "flye-samtools",
+            "provided_by": "installation",
+            "executable": "/opt/arva-tools/conda/flye/bin/flye-samtools",
+            "samtools_version": "1.9"
+          }
+        ]
+      },
+      "resources": {
+        "profile": "light",
+        "choice": "auto",
+        "threads": 4,
+        "memory_gb": 7,
+        "memory_limit_gb": null,
+        "memory_option": null,
+        "nice": 15,
+        "usable_cpus": 4,
+        "usable_memory_gb": 15.6,
+        "in_container": true,
+        "host": "unknown computer",
+        "nice_executable": "/usr/bin/nice"
+      },
+      "wall_seconds": 670.6
+    },
+    "polishing_medaka": {
+      "id": "037279b2-9a70-4204-b518-c4da894dece6",
+      "job_type": "medaka_polish",
+      "tool_name": "Medaka",
+      "tool_version": "2.1.1",
+      "tool_path": "/opt/arva-tools/conda/medaka/bin/medaka",
+      "status": "completed",
+      "parameters": {
+        "model": "r941_min_hac_g507",
+        "threads": 4,
+        "batch_size": 100,
+        "model_file": "/databases/medaka-models/r941_min_hac_g507/r941_min_hac_g507_model_pt.tar.gz",
+        "read_type": "map-ont",
+        "medaka_model": {
+          "model": "r941_min_hac_g507",
+          "source": "user",
+          "suggestion": {
+            "basecall_model": null,
+            "basecall_models": [],
+            "model": null,
+            "source": "medaka.options.basecaller_models",
+            "status": "no_basecall_model"
+          },
+          "mismatch_accepted": false,
+          "medaka_version": "2.1.1",
+          "model_source": "registered",
+          "file": "r941_min_hac_g507_model_pt.tar.gz",
+          "path": "/databases/medaka-models/r941_min_hac_g507/r941_min_hac_g507_model_pt.tar.gz",
+          "sha256": "6e87607808bfe7884fc701ded596931afeeb8a59e69bdcb268ef07ac7680ac26",
+          "database_id": "4bb7c4cc-6178-4de8-919f-1fd8534bbad1",
+          "url": "https://media.githubusercontent.com/media/nanoporetech/medaka/v2.1.1/medaka/data/r941_min_hac_g507_model_pt.tar.gz",
+          "origin": "download",
+          "chemistry": "R9.4.1",
+          "basecaller": "Guppy 5.0.7"
+        },
+        "draft": {
+          "assembly_id": "2fc412c0-77df-4f09-ab75-a51ea823a787",
+          "kind": "assembly",
+          "assembler": "Flye",
+          "assembler_version": "2.9.6",
+          "job_id": "38418a6a-353a-4dcd-bd42-68a4441cc22e",
+          "mode": "long",
+          "declared_assembler": null,
+          "declared_assembler_version": null,
+          "contigs_sha256": "943ee1a932e5aa4fd7c20ae70a173d28646256bd3f5408bd300d78413b88a45d"
+        },
+        "inputs": {
+          "long": "3cbc472d-7a05-45d1-86d6-c4e9b27f2260"
+        },
+        "reads_confirmed": false,
+        "sequencing_technology": "nanopore",
+        "read_layout": "long",
+        "arva_strategy_suggestion": "racon",
+        "arva_read_type_suggestion": "map-ont",
+        "heap_source": null,
+        "quast": false,
+        "quast_reference_file_id": null,
+        "medaka_model_source": "user",
+        "draft_is_flye": true,
+        "strategy": "medaka"
+      },
+      "commands": [
+        [
+          "/opt/arva-tools/conda/medaka/bin/medaka_consensus",
+          "-i",
+          "/data/results/06d81a7a-ac21-441b-8e97-dbdd098aff1c/67d02f8a-89cc-42da-b6a1-84528f5b2434/037279b2-9a70-4204-b518-c4da894dece6/work/input/04_SRR25741632_1.filtlong.fastq.gz",
+          "-d",
+          "/data/results/06d81a7a-ac21-441b-8e97-dbdd098aff1c/67d02f8a-89cc-42da-b6a1-84528f5b2434/037279b2-9a70-4204-b518-c4da894dece6/work/round0.fasta",
+          "-o",
+          "medaka",
+          "-m",
+          "/data/results/06d81a7a-ac21-441b-8e97-dbdd098aff1c/67d02f8a-89cc-42da-b6a1-84528f5b2434/037279b2-9a70-4204-b518-c4da894dece6/work/model/r941_min_hac_g507_model_pt.tar.gz",
+          "-t",
+          "4",
+          "-b",
+          "100"
+        ],
+        [
+          "/usr/bin/dnadiff",
+          "-p",
+          "dnadiff_round1",
+          "round0.fasta",
+          "round1.fasta"
+        ],
+        [
+          "/usr/bin/minimap2",
+          "-a",
+          "-x",
+          "map-ont",
+          "-t",
+          "4",
+          "/data/results/06d81a7a-ac21-441b-8e97-dbdd098aff1c/67d02f8a-89cc-42da-b6a1-84528f5b2434/037279b2-9a70-4204-b518-c4da894dece6/work/round0.fasta",
+          "/data/results/06d81a7a-ac21-441b-8e97-dbdd098aff1c/67d02f8a-89cc-42da-b6a1-84528f5b2434/037279b2-9a70-4204-b518-c4da894dece6/work/input/04_SRR25741632_1.filtlong.fastq.gz"
+        ],
+        [
+          "/usr/bin/samtools",
+          "sort",
+          "-@",
+          "3",
+          "-T",
+          "/data/results/06d81a7a-ac21-441b-8e97-dbdd098aff1c/67d02f8a-89cc-42da-b6a1-84528f5b2434/037279b2-9a70-4204-b518-c4da894dece6/work/draft.sort",
+          "-o",
+          "/data/results/06d81a7a-ac21-441b-8e97-dbdd098aff1c/67d02f8a-89cc-42da-b6a1-84528f5b2434/037279b2-9a70-4204-b518-c4da894dece6/work/draft.bam",
+          "/data/results/06d81a7a-ac21-441b-8e97-dbdd098aff1c/67d02f8a-89cc-42da-b6a1-84528f5b2434/037279b2-9a70-4204-b518-c4da894dece6/work/draft.sam.gz"
+        ],
+        [
+          "/usr/bin/samtools",
+          "stats",
+          "/data/results/06d81a7a-ac21-441b-8e97-dbdd098aff1c/67d02f8a-89cc-42da-b6a1-84528f5b2434/037279b2-9a70-4204-b518-c4da894dece6/work/draft.bam"
+        ],
+        [
+          "/usr/bin/samtools",
+          "coverage",
+          "/data/results/06d81a7a-ac21-441b-8e97-dbdd098aff1c/67d02f8a-89cc-42da-b6a1-84528f5b2434/037279b2-9a70-4204-b518-c4da894dece6/work/draft.bam"
+        ],
+        [
+          "/usr/bin/samtools",
+          "depth",
+          "-aa",
+          "-Q",
+          "0",
+          "-q",
+          "0",
+          "-l",
+          "0",
+          "-G",
+          "UNMAP,SECONDARY,QCFAIL,DUP",
+          "/data/results/06d81a7a-ac21-441b-8e97-dbdd098aff1c/67d02f8a-89cc-42da-b6a1-84528f5b2434/037279b2-9a70-4204-b518-c4da894dece6/work/draft.bam"
+        ],
+        [
+          "/usr/bin/minimap2",
+          "-a",
+          "-x",
+          "map-ont",
+          "-t",
+          "4",
+          "/data/results/06d81a7a-ac21-441b-8e97-dbdd098aff1c/67d02f8a-89cc-42da-b6a1-84528f5b2434/037279b2-9a70-4204-b518-c4da894dece6/work/round1.fasta",
+          "/data/results/06d81a7a-ac21-441b-8e97-dbdd098aff1c/67d02f8a-89cc-42da-b6a1-84528f5b2434/037279b2-9a70-4204-b518-c4da894dece6/work/input/04_SRR25741632_1.filtlong.fastq.gz"
+        ],
+        [
+          "/usr/bin/samtools",
+          "sort",
+          "-@",
+          "3",
+          "-T",
+          "/data/results/06d81a7a-ac21-441b-8e97-dbdd098aff1c/67d02f8a-89cc-42da-b6a1-84528f5b2434/037279b2-9a70-4204-b518-c4da894dece6/work/polished.sort",
+          "-o",
+          "/data/results/06d81a7a-ac21-441b-8e97-dbdd098aff1c/67d02f8a-89cc-42da-b6a1-84528f5b2434/037279b2-9a70-4204-b518-c4da894dece6/work/polished.bam",
+          "/data/results/06d81a7a-ac21-441b-8e97-dbdd098aff1c/67d02f8a-89cc-42da-b6a1-84528f5b2434/037279b2-9a70-4204-b518-c4da894dece6/work/polished.sam.gz"
+        ],
+        [
+          "/usr/bin/samtools",
+          "stats",
+          "/data/results/06d81a7a-ac21-441b-8e97-dbdd098aff1c/67d02f8a-89cc-42da-b6a1-84528f5b2434/037279b2-9a70-4204-b518-c4da894dece6/work/polished.bam"
+        ],
+        [
+          "/usr/bin/samtools",
+          "coverage",
+          "/data/results/06d81a7a-ac21-441b-8e97-dbdd098aff1c/67d02f8a-89cc-42da-b6a1-84528f5b2434/037279b2-9a70-4204-b518-c4da894dece6/work/polished.bam"
+        ],
+        [
+          "/usr/bin/samtools",
+          "depth",
+          "-aa",
+          "-Q",
+          "0",
+          "-q",
+          "0",
+          "-l",
+          "0",
+          "-G",
+          "UNMAP,SECONDARY,QCFAIL,DUP",
+          "/data/results/06d81a7a-ac21-441b-8e97-dbdd098aff1c/67d02f8a-89cc-42da-b6a1-84528f5b2434/037279b2-9a70-4204-b518-c4da894dece6/work/polished.bam"
+        ]
+      ],
+      "database_name": "Medaka model r941_min_hac_g507",
+      "database_version": "r941_min_hac_g507",
+      "database_kind": "medaka_model",
+      "database_checksum": "sha256:542423fb64b4ca1a774b04b1bf7d7725405de5c0b068ea3a3a47d6bd2dcca2ec",
+      "database_path": "/databases/medaka-models/r941_min_hac_g507",
+      "duration_seconds": 3244.271,
+      "started_at": "2026-11-07T22:10:47.822008Z",
+      "finished_at": "2026-11-07T23:04:52.093362Z",
+      "error_message": null,
+      "result_summary": {
+        "polisher": "Medaka",
+        "polisher_version": "2.1.1",
+        "strategy": "medaka",
+        "draft": {
+          "assembly_id": "2fc412c0-77df-4f09-ab75-a51ea823a787",
+          "kind": "assembly",
+          "assembler": "Flye",
+          "assembler_version": "2.9.6",
+          "job_id": "38418a6a-353a-4dcd-bd42-68a4441cc22e",
+          "mode": "long",
+          "declared_assembler": null,
+          "declared_assembler_version": null,
+          "contigs_sha256": "943ee1a932e5aa4fd7c20ae70a173d28646256bd3f5408bd300d78413b88a45d",
+          "stats": {
+            "contig_count": 2,
+            "total_length": 2734347,
+            "largest_contig": 2730444,
+            "n50": 2730444,
+            "l50": 1,
+            "gc_percent": 32.81207542422377,
+            "n_count": 0
+          },
+          "parent_assembly_id": null
+        },
+        "polished_assembly_id": "5b412604-6187-4494-8bd3-3aea697a05fc",
+        "read_type": "map-ont",
+        "rounds_requested": null,
+        "rounds_run": 1,
+        "rounds": [
+          {
+            "round": 1,
+            "changes": {
+              "snp": {
+                "events": 407,
+                "bases": 407
+              },
+              "insertion": {
+                "events": 362,
+                "bases": 372
+              },
+              "deletion": {
+                "events": 20,
+                "bases": 20
+              },
+              "other": {
+                "events": 0,
+                "bases": 0
+              }
+            },
+            "changes_source": "dnadiff",
+            "dnadiff": {
+              "before": {
+                "sequences": 2,
+                "aligned_sequences": 2,
+                "unaligned_sequences": 0,
+                "bases": 2734347,
+                "aligned_bases": 2734347,
+                "unaligned_bases": 0,
+                "one_to_one_alignments": 2,
+                "one_to_one_length": 2734347,
+                "one_to_one_identity": 99.97,
+                "breakpoints": 0,
+                "relocations": 0,
+                "translocations": 0,
+                "inversions": 0,
+                "inserted_regions": 0,
+                "inserted_region_bases": 0,
+                "substituted_bases": 407,
+                "indel_bases": 392
+              },
+              "after": {
+                "sequences": 2,
+                "aligned_sequences": 2,
+                "unaligned_sequences": 0,
+                "bases": 2734699,
+                "aligned_bases": 2734699,
+                "unaligned_bases": 0,
+                "one_to_one_alignments": 2,
+                "one_to_one_length": 2734699,
+                "one_to_one_identity": 99.97,
+                "breakpoints": 0,
+                "relocations": 0,
+                "translocations": 0,
+                "inversions": 0,
+                "inserted_regions": 0,
+                "inserted_region_bases": 0,
+                "substituted_bases": 407,
+                "indel_bases": 392
+              },
+              "events": {
+                "substitutions": 407,
+                "insertions": 362,
+                "inserted_bases": 372,
+                "deletions": 20,
+                "deleted_bases": 20
+              },
+              "events_by_contig": {
+                "contig_2": {
+                  "substitutions": 8,
+                  "insertions": 2,
+                  "inserted_bases": 2,
+                  "deletions": 1,
+                  "deleted_bases": 1
+                },
+                "contig_3": {
+                  "substitutions": 399,
+                  "insertions": 360,
+                  "inserted_bases": 370,
+                  "deletions": 19,
+                  "deleted_bases": 19
+                }
+              },
+              "ends": [
+                {
+                  "contig": "contig_2",
+                  "length": 3903,
+                  "start": 1,
+                  "end": 3903,
+                  "aligned_bases": 3903,
+                  "query_contigs": [
+                    "contig_2"
+                  ],
+                  "unaligned_start": 0,
+                  "unaligned_end": 0
+                },
+                {
+                  "contig": "contig_3",
+                  "length": 2730444,
+                  "start": 1,
+                  "end": 2730444,
+                  "aligned_bases": 2730444,
+                  "query_contigs": [
+                    "contig_3"
+                  ],
+                  "unaligned_start": 0,
+                  "unaligned_end": 0
+                }
+              ]
+            },
+            "medaka_unpolished": {
+              "contigs": {},
+              "bases": 0,
+              "verbatim_contigs": []
+            },
+            "commands": [
+              [
+                "/opt/arva-tools/conda/medaka/bin/medaka_consensus",
+                "-i",
+                "/data/results/06d81a7a-ac21-441b-8e97-dbdd098aff1c/67d02f8a-89cc-42da-b6a1-84528f5b2434/037279b2-9a70-4204-b518-c4da894dece6/work/input/04_SRR25741632_1.filtlong.fastq.gz",
+                "-d",
+                "/data/results/06d81a7a-ac21-441b-8e97-dbdd098aff1c/67d02f8a-89cc-42da-b6a1-84528f5b2434/037279b2-9a70-4204-b518-c4da894dece6/work/round0.fasta",
+                "-o",
+                "medaka",
+                "-m",
+                "/data/results/06d81a7a-ac21-441b-8e97-dbdd098aff1c/67d02f8a-89cc-42da-b6a1-84528f5b2434/037279b2-9a70-4204-b518-c4da894dece6/work/model/r941_min_hac_g507_model_pt.tar.gz",
+                "-t",
+                "4",
+                "-b",
+                "100"
+              ],
+              [
+                "/usr/bin/dnadiff",
+                "-p",
+                "dnadiff_round1",
+                "round0.fasta",
+                "round1.fasta"
+              ]
+            ]
+          }
+        ],
+        "direct": {
+          "source": "dnadiff",
+          "dnadiff": {
+            "before": {
+              "sequences": 2,
+              "aligned_sequences": 2,
+              "unaligned_sequences": 0,
+              "bases": 2734347,
+              "aligned_bases": 2734347,
+              "unaligned_bases": 0,
+              "one_to_one_alignments": 2,
+              "one_to_one_length": 2734347,
+              "one_to_one_identity": 99.97,
+              "breakpoints": 0,
+              "relocations": 0,
+              "translocations": 0,
+              "inversions": 0,
+              "inserted_regions": 0,
+              "inserted_region_bases": 0,
+              "substituted_bases": 407,
+              "indel_bases": 392
+            },
+            "after": {
+              "sequences": 2,
+              "aligned_sequences": 2,
+              "unaligned_sequences": 0,
+              "bases": 2734699,
+              "aligned_bases": 2734699,
+              "unaligned_bases": 0,
+              "one_to_one_alignments": 2,
+              "one_to_one_length": 2734699,
+              "one_to_one_identity": 99.97,
+              "breakpoints": 0,
+              "relocations": 0,
+              "translocations": 0,
+              "inversions": 0,
+              "inserted_regions": 0,
+              "inserted_region_bases": 0,
+              "substituted_bases": 407,
+              "indel_bases": 392
+            },
+            "events": {
+              "substitutions": 407,
+              "insertions": 362,
+              "inserted_bases": 372,
+              "deletions": 20,
+              "deleted_bases": 20
+            },
+            "events_by_contig": {
+              "contig_2": {
+                "substitutions": 8,
+                "insertions": 2,
+                "inserted_bases": 2,
+                "deletions": 1,
+                "deleted_bases": 1
+              },
+              "contig_3": {
+                "substitutions": 399,
+                "insertions": 360,
+                "inserted_bases": 370,
+                "deletions": 19,
+                "deleted_bases": 19
+              }
+            },
+            "ends": [
+              {
+                "contig": "contig_2",
+                "length": 3903,
+                "start": 1,
+                "end": 3903,
+                "aligned_bases": 3903,
+                "query_contigs": [
+                  "contig_2"
+                ],
+                "unaligned_start": 0,
+                "unaligned_end": 0
+              },
+              {
+                "contig": "contig_3",
+                "length": 2730444,
+                "start": 1,
+                "end": 2730444,
+                "aligned_bases": 2730444,
+                "query_contigs": [
+                  "contig_3"
+                ],
+                "unaligned_start": 0,
+                "unaligned_end": 0
+              }
+            ]
+          },
+          "pilon_changes": null
+        },
+        "indirect": {
+          "aligner": "minimap2 2.24-r1122 -x map-ont",
+          "reads": "long",
+          "before": {
+            "stats": {
+              "reads": 13570,
+              "reads_mapped": 13567,
+              "mapped_percent": 99.97789240972735,
+              "reads_properly_paired": 0,
+              "properly_paired_percent": null,
+              "bases_mapped_cigar": 239486749,
+              "nm_sum": 10361638,
+              "error_rate": 0.04326602,
+              "edit_distance_per_100_bases": 4.326601802924804,
+              "insertion_events": 1790545,
+              "deletion_events": 2585299,
+              "indel_events_per_100kb": 1827.1758325969008,
+              "average_length": 17787,
+              "supplementary_alignments": 279
+            },
+            "coverage": [
+              {
+                "contig": "contig_2",
+                "length": 3903,
+                "reads": 99,
+                "covered_bases": 3903,
+                "covered_percent": 100.0,
+                "mean_depth": 90.1112,
+                "mean_base_quality": 27.9,
+                "mean_mapq": 59.5
+              },
+              {
+                "contig": "contig_3",
+                "length": 2730444,
+                "reads": 13747,
+                "covered_bases": 2730444,
+                "covered_percent": 100.0,
+                "mean_depth": 86.5647,
+                "mean_base_quality": 27.4,
+                "mean_mapq": 59.9
+              }
+            ],
+            "depth_profile": {
+              "path": "results/06d81a7a-ac21-441b-8e97-dbdd098aff1c/67d02f8a-89cc-42da-b6a1-84528f5b2434/037279b2-9a70-4204-b518-c4da894dece6/comparison/draft.depth_profile.json",
+              "sha256": "bdb395795638f2dbd0b04c26adce7a19c1c14184bbb8c64e6bee28c0fa69c8d5",
+              "resolution": 25
+            }
+          },
+          "after": {
+            "stats": {
+              "reads": 13570,
+              "reads_mapped": 13567,
+              "mapped_percent": 99.97789240972735,
+              "reads_properly_paired": 0,
+              "properly_paired_percent": null,
+              "bases_mapped_cigar": 239486720,
+              "nm_sum": 10372855,
+              "error_rate": 0.04331286,
+              "edit_distance_per_100_bases": 4.331286093859401,
+              "insertion_events": 1782155,
+              "deletion_events": 2595862,
+              "indel_events_per_100kb": 1828.0834110551098,
+              "average_length": 17787,
+              "supplementary_alignments": 279
+            },
+            "coverage": [
+              {
+                "contig": "contig_2",
+                "length": 3904,
+                "reads": 99,
+                "covered_bases": 3904,
+                "covered_percent": 100.0,
+                "mean_depth": 90.0733,
+                "mean_base_quality": 27.9,
+                "mean_mapq": 59.8
+              },
+              {
+                "contig": "contig_3",
+                "length": 2730795,
+                "reads": 13747,
+                "covered_bases": 2730795,
+                "covered_percent": 100.0,
+                "mean_depth": 86.5573,
+                "mean_base_quality": 27.4,
+                "mean_mapq": 59.9
+              }
+            ],
+            "depth_profile": {
+              "path": "results/06d81a7a-ac21-441b-8e97-dbdd098aff1c/67d02f8a-89cc-42da-b6a1-84528f5b2434/037279b2-9a70-4204-b518-c4da894dece6/comparison/polished.depth_profile.json",
+              "sha256": "16ef8d79380cb83c8d1a8bfe562651cc72211bb69ecca439752391ed084c37ee",
+              "resolution": 25
+            }
+          }
+        },
+        "assembly_stats": {
+          "before": {
+            "contig_count": 2,
+            "total_length": 2734347,
+            "largest_contig": 2730444,
+            "n50": 2730444,
+            "l50": 1,
+            "gc_percent": 32.81207542422377,
+            "n_count": 0
+          },
+          "after": {
+            "contig_count": 2,
+            "total_length": 2734699,
+            "largest_contig": 2730795,
+            "n50": 2730795,
+            "l50": 1,
+            "gc_percent": 32.799075876357875,
+            "n_count": 0
+          }
+        },
+        "observations": [
+          {
+            "code": "edit_distance_increased",
+            "params": {
+              "before": 4.3266,
+              "after": 4.3313
+            },
+            "message": "The reads' edit distance per 100 aligned bases rose from 4.3266 to 4.3313 after polishing (indirect indicator): check the polished assembly before using it"
+          }
+        ],
+        "helpers": [
+          {
+            "name": "minimap2",
+            "tool_id": "minimap2",
+            "path": "/usr/bin/minimap2",
+            "version": "2.24-r1122",
+            "version_validated": false
+          },
+          {
+            "name": "samtools",
+            "tool_id": "samtools",
+            "path": "/usr/bin/samtools",
+            "version": "1.16.1",
+            "version_validated": false
+          },
+          {
+            "name": "MUMmer dnadiff",
+            "tool_id": "dnadiff",
+            "path": "/usr/bin/dnadiff",
+            "version": "1.3",
+            "version_validated": true,
+            "nucmer_version": "3.1"
+          }
+        ],
+        "followups": {},
+        "medaka": {
+          "model": {
+            "model": "r941_min_hac_g507",
+            "source": "user",
+            "suggestion": {
+              "basecall_model": null,
+              "basecall_models": [],
+              "model": null,
+              "source": "medaka.options.basecaller_models",
+              "status": "no_basecall_model"
+            },
+            "mismatch_accepted": false,
+            "medaka_version": "2.1.1",
+            "model_source": "registered",
+            "file": "r941_min_hac_g507_model_pt.tar.gz",
+            "path": "/databases/medaka-models/r941_min_hac_g507/r941_min_hac_g507_model_pt.tar.gz",
+            "sha256": "6e87607808bfe7884fc701ded596931afeeb8a59e69bdcb268ef07ac7680ac26",
+            "database_id": "4bb7c4cc-6178-4de8-919f-1fd8534bbad1",
+            "url": "https://media.githubusercontent.com/media/nanoporetech/medaka/v2.1.1/medaka/data/r941_min_hac_g507_model_pt.tar.gz",
+            "origin": "download",
+            "chemistry": "R9.4.1",
+            "basecaller": "Guppy 5.0.7"
+          },
+          "threads": 4,
+          "batch_size": 100,
+          "programs": [
+            {
+              "program": "bcftools",
+              "version": "1.25",
+              "required": "1.11",
+              "pass": true
+            },
+            {
+              "program": "bgzip",
+              "version": "1.24",
+              "required": "1.11",
+              "pass": true
+            },
+            {
+              "program": "minimap2",
+              "version": "2.31",
+              "required": "2.11",
+              "pass": true
+            },
+            {
+              "program": "samtools",
+              "version": "1.24",
+              "required": "1.11",
+              "pass": true
+            },
+            {
+              "program": "tabix",
+              "version": "1.24",
+              "required": "1.11",
+              "pass": true
+            }
+          ],
+          "model_files": [
+            "/data/results/06d81a7a-ac21-441b-8e97-dbdd098aff1c/67d02f8a-89cc-42da-b6a1-84528f5b2434/037279b2-9a70-4204-b518-c4da894dece6/work/model/r941_min_hac_g507_model_pt.tar.gz"
+          ],
+          "unpolished": {
+            "contigs": {},
+            "bases": 0,
+            "verbatim_contigs": []
+          }
+        }
+      },
+      "resources": {
+        "profile": "light",
+        "choice": "auto",
+        "threads": 4,
+        "memory_gb": 7,
+        "memory_limit_gb": null,
+        "memory_option": null,
+        "nice": 15,
+        "usable_cpus": 4,
+        "usable_memory_gb": 15.6,
+        "in_container": true,
+        "host": "unknown computer",
+        "nice_executable": "/usr/bin/nice"
+      },
+      "wall_seconds": 3258.9
+    },
+    "mlst": {
+      "id": "d1b28208-4653-4591-a205-87b1c523e191",
+      "job_type": "mlst_typing",
+      "tool_name": "mlst",
+      "tool_version": "2.35.0",
+      "tool_path": "/opt/arva-tools/conda/mlst/bin/mlst",
+      "status": "completed",
+      "parameters": {
+        "scheme": null,
+        "minid": 95.0,
+        "mincov": 50.0,
+        "minscore": 50.0,
+        "exclude": [
+          "ecoli",
+          "abaumannii",
+          "vcholerae_2",
+          "senterica_achtman_2"
+        ],
+        "threads": 4,
+        "assembly": {
+          "assembly_id": "5b412604-6187-4494-8bd3-3aea697a05fc",
+          "kind": "polished",
+          "assembler": "Medaka",
+          "assembler_version": "2.1.1",
+          "parent_assembly_id": "2fc412c0-77df-4f09-ab75-a51ea823a787",
+          "job_id": "037279b2-9a70-4204-b518-c4da894dece6",
+          "contigs_sha256": "10c05b034d53c39c313e1d24433012137ce26b97505d1137973e8af892e798c7"
+        },
+        "synthetic_evidence": [],
+        "scheme_mode": "detected"
+      },
+      "commands": [
+        [
+          "/opt/arva-tools/conda/mlst/bin/mlst",
+          "--full",
+          "--outfile",
+          "/data/results/06d81a7a-ac21-441b-8e97-dbdd098aff1c/67d02f8a-89cc-42da-b6a1-84528f5b2434/d1b28208-4653-4591-a205-87b1c523e191/mlst.tsv",
+          "--json",
+          "/data/results/06d81a7a-ac21-441b-8e97-dbdd098aff1c/67d02f8a-89cc-42da-b6a1-84528f5b2434/d1b28208-4653-4591-a205-87b1c523e191/mlst.json",
+          "--novel",
+          "/data/results/06d81a7a-ac21-441b-8e97-dbdd098aff1c/67d02f8a-89cc-42da-b6a1-84528f5b2434/d1b28208-4653-4591-a205-87b1c523e191/novel_alleles.fasta",
+          "--threads",
+          "4",
+          "--minid",
+          "95",
+          "--mincov",
+          "50",
+          "--minscore",
+          "50",
+          "--exclude",
+          "ecoli,abaumannii,vcholerae_2,senterica_achtman_2",
+          "--blastdb",
+          "/opt/arva-tools/conda/mlst/db/blast/mlst.fa",
+          "--datadir",
+          "/opt/arva-tools/conda/mlst/db/pubmlst",
+          "/data/results/06d81a7a-ac21-441b-8e97-dbdd098aff1c/67d02f8a-89cc-42da-b6a1-84528f5b2434/d1b28208-4653-4591-a205-87b1c523e191/input/genome.fna"
+        ]
+      ],
+      "database_name": "PubMLST schemes bundled with mlst 2.35.0",
+      "database_version": "2026-03-11",
+      "database_kind": "mlst_schemes",
+      "database_checksum": "sha256:eb4d35e1fa4d78d9fae893e5292f53532bc318b305b80991e3fa95e845e29e9f",
+      "database_path": "/opt/arva-tools/conda/mlst/db",
+      "duration_seconds": 2.566,
+      "started_at": "2026-11-07T23:05:00.915871Z",
+      "finished_at": "2026-11-07T23:05:03.481978Z",
+      "error_message": null,
+      "result_summary": {
+        "mlst_result_id": "397ff6dc-8190-408b-b9f2-560d4a497915",
+        "scheme": "saureus",
+        "st": null,
+        "status": "OK",
+        "score": 77,
+        "warnings": [
+          "partial_alleles",
+          "st_not_assigned",
+          "scheme_after_open_terms"
+        ]
+      },
+      "resources": {
+        "profile": "light",
+        "choice": "auto",
+        "threads": 4,
+        "memory_gb": 7,
+        "memory_limit_gb": null,
+        "memory_option": null,
+        "nice": 15,
+        "usable_cpus": 4,
+        "usable_memory_gb": 15.6,
+        "in_container": true,
+        "host": "unknown computer",
+        "nice_executable": "/usr/bin/nice"
+      },
+      "wall_seconds": 10.4
+    },
+    "typing_sccmec": {
+      "id": "44680667-d937-42fc-8eb2-9984148fa827",
+      "job_type": "species_typing",
+      "tool_name": "sccmec",
+      "tool_version": "1.2.0",
+      "tool_path": "/opt/arva-tools/conda/sccmec/bin/sccmec",
+      "status": "completed",
+      "parameters": {
+        "module": "staphylococcus_aureus",
+        "method": "sccmec",
+        "settings": {
+          "min_targets_pident": 90,
+          "min_targets_coverage": 80,
+          "min_regions_pident": 85,
+          "min_regions_coverage": 83
+        },
+        "assembly": {
+          "assembly_id": "5b412604-6187-4494-8bd3-3aea697a05fc",
+          "kind": "polished",
+          "assembler": "Medaka",
+          "assembler_version": "2.1.1",
+          "parent_assembly_id": "2fc412c0-77df-4f09-ab75-a51ea823a787",
+          "job_id": "037279b2-9a70-4204-b518-c4da894dece6",
+          "contigs_sha256": "10c05b034d53c39c313e1d24433012137ce26b97505d1137973e8af892e798c7"
+        },
+        "synthetic_evidence": [],
+        "applicability": {
+          "status": "applicable",
+          "checks": [
+            {
+              "source": "mlst",
+              "value": "saureus",
+              "matches": true
+            }
+          ],
+          "evidence": {
+            "species": null,
+            "mlst": {
+              "value": "saureus",
+              "st": null,
+              "tool": "mlst",
+              "tool_version": "2.35.0",
+              "status": "OK",
+              "result_id": "397ff6dc-8190-408b-b9f2-560d4a497915",
+              "created_at": "2026-11-07T23:05:03.476841+00:00"
+            }
+          }
+        },
+        "override": false
+      },
+      "commands": [
+        [
+          "/opt/arva-tools/conda/sccmec/bin/sccmec",
+          "--input",
+          "/data/results/06d81a7a-ac21-441b-8e97-dbdd098aff1c/67d02f8a-89cc-42da-b6a1-84528f5b2434/44680667-d937-42fc-8eb2-9984148fa827/input/contigs.fasta",
+          "--yaml-targets",
+          "/opt/arva-tools/conda/sccmec/share/sccmec/sccmec-targets.yaml",
+          "--yaml-regions",
+          "/opt/arva-tools/conda/sccmec/share/sccmec/sccmec-regions.yaml",
+          "--targets",
+          "/opt/arva-tools/conda/sccmec/share/sccmec/sccmec-targets.fasta",
+          "--regions",
+          "/opt/arva-tools/conda/sccmec/share/sccmec/sccmec-regions.fasta",
+          "--min-targets-pident",
+          "90",
+          "--min-targets-coverage",
+          "80",
+          "--min-regions-pident",
+          "85",
+          "--min-regions-coverage",
+          "83",
+          "--prefix",
+          "sccmec",
+          "--outdir",
+          "/data/results/06d81a7a-ac21-441b-8e97-dbdd098aff1c/67d02f8a-89cc-42da-b6a1-84528f5b2434/44680667-d937-42fc-8eb2-9984148fa827/sccmec"
+        ]
+      ],
+      "database_name": "sccmec schemas (sccmec_targets, sccmec_regions)",
+      "database_version": "1.2.0",
+      "database_kind": "sccmec_schemas",
+      "database_checksum": "sha256:404844b7c08e717a71240547b9c5175343d1e3091e9b6cf239416bed29794cca",
+      "database_path": "/opt/arva-tools/conda/sccmec/share/sccmec",
+      "duration_seconds": 1.71,
+      "started_at": "2026-11-07T23:05:12.208848Z",
+      "finished_at": "2026-11-07T23:05:13.918922Z",
+      "error_message": null,
+      "result_summary": {
+        "typing_result_id": "694b9f79-284e-483f-a5e2-dbfe39d3b320",
+        "method": "sccmec",
+        "status": "not_typeable",
+        "call": null,
+        "warnings": [
+          "sccmec_mecA_includes_mecC"
+        ],
+        "files": {
+          "sccmec/sccmec.tsv": {
+            "path": "results/06d81a7a-ac21-441b-8e97-dbdd098aff1c/67d02f8a-89cc-42da-b6a1-84528f5b2434/44680667-d937-42fc-8eb2-9984148fa827/sccmec/sccmec.tsv",
+            "sha256": "8ec4bb03e09663e1495e184920c35a56e3254164702823b6bf9a152e298d0a7d",
+            "size_bytes": 541
+          },
+          "sccmec/sccmec.targets.details.tsv": {
+            "path": "results/06d81a7a-ac21-441b-8e97-dbdd098aff1c/67d02f8a-89cc-42da-b6a1-84528f5b2434/44680667-d937-42fc-8eb2-9984148fa827/sccmec/sccmec.targets.details.tsv",
+            "sha256": "42d6e59bc41013f5929de44f4a0bdb4ac63d48864c08be9a7ca01c193d0872ab",
+            "size_bytes": 1739
+          },
+          "sccmec/sccmec.regions.details.tsv": {
+            "path": "results/06d81a7a-ac21-441b-8e97-dbdd098aff1c/67d02f8a-89cc-42da-b6a1-84528f5b2434/44680667-d937-42fc-8eb2-9984148fa827/sccmec/sccmec.regions.details.tsv",
+            "sha256": "0c33a909ea3339336391ac49fc311afe61246cef9adcd998cf29d16d7b677766",
+            "size_bytes": 4600
+          },
+          "sccmec/sccmec.targets.blastn.tsv": {
+            "path": "results/06d81a7a-ac21-441b-8e97-dbdd098aff1c/67d02f8a-89cc-42da-b6a1-84528f5b2434/44680667-d937-42fc-8eb2-9984148fa827/sccmec/sccmec.targets.blastn.tsv",
+            "sha256": "a0eb6358bcc4d67700a89f3b53610450155560aff92459ee2a0dc232fa75638f",
+            "size_bytes": 2945
+          },
+          "sccmec/sccmec.regions.blastn.tsv": {
+            "path": "results/06d81a7a-ac21-441b-8e97-dbdd098aff1c/67d02f8a-89cc-42da-b6a1-84528f5b2434/44680667-d937-42fc-8eb2-9984148fa827/sccmec/sccmec.regions.blastn.tsv",
+            "sha256": "8b6cc0f58182b6c3b53f875c893ef734d6e54daabd308bba704322b117200e62",
+            "size_bytes": 17439
+          },
+          "sccmec.stderr.log": {
+            "path": "results/06d81a7a-ac21-441b-8e97-dbdd098aff1c/67d02f8a-89cc-42da-b6a1-84528f5b2434/44680667-d937-42fc-8eb2-9984148fa827/sccmec.stderr.log",
+            "sha256": "b12137e30878c766999e2431416809a742b1b8ce2d4b4fdf8bdf88623cda0386",
+            "size_bytes": 4677
+          },
+          "input": {
+            "path": "results/06d81a7a-ac21-441b-8e97-dbdd098aff1c/67d02f8a-89cc-42da-b6a1-84528f5b2434/44680667-d937-42fc-8eb2-9984148fa827/input/contigs.fasta",
+            "sha256": "2c0df9cc82d5567e9cd9ec873d0c00c9d1c74a4bcf53da6b0db2ee2de20b547c",
+            "size_bytes": 2768903
+          }
+        }
+      },
+      "resources": {
+        "profile": "light",
+        "choice": "auto",
+        "threads": 1,
+        "memory_gb": 7,
+        "memory_limit_gb": null,
+        "memory_option": null,
+        "nice": 15,
+        "usable_cpus": 4,
+        "usable_memory_gb": 15.6,
+        "in_container": true,
+        "host": "unknown computer",
+        "nice_executable": "/usr/bin/nice"
+      },
+      "wall_seconds": 11.3
+    },
+    "typing_spa": {
+      "id": "48686c8b-3761-4eeb-ad08-ac356f5d0fb5",
+      "job_type": "species_typing",
+      "tool_name": "spaTyper",
+      "tool_version": "0.3.3",
+      "tool_path": "/opt/arva-tools/conda/spatyper/bin/spaTyper",
+      "status": "completed",
+      "parameters": {
+        "module": "staphylococcus_aureus",
+        "method": "spa",
+        "settings": {
+          "do_enrich": false
+        },
+        "assembly": {
+          "assembly_id": "5b412604-6187-4494-8bd3-3aea697a05fc",
+          "kind": "polished",
+          "assembler": "Medaka",
+          "assembler_version": "2.1.1",
+          "parent_assembly_id": "2fc412c0-77df-4f09-ab75-a51ea823a787",
+          "job_id": "037279b2-9a70-4204-b518-c4da894dece6",
+          "contigs_sha256": "10c05b034d53c39c313e1d24433012137ce26b97505d1137973e8af892e798c7"
+        },
+        "synthetic_evidence": [],
+        "applicability": {
+          "status": "applicable",
+          "checks": [
+            {
+              "source": "mlst",
+              "value": "saureus",
+              "matches": true
+            }
+          ],
+          "evidence": {
+            "species": null,
+            "mlst": {
+              "value": "saureus",
+              "st": null,
+              "tool": "mlst",
+              "tool_version": "2.35.0",
+              "status": "OK",
+              "result_id": "397ff6dc-8190-408b-b9f2-560d4a497915",
+              "created_at": "2026-11-07T23:05:03.476841+00:00"
+            }
+          }
+        },
+        "override": false,
+        "database_terms": {
+          "licence": "Ridom SpaServer policy: the nomenclature data belong to Ridom GmbH; individuals may download and use them for non-commercial purposes only; no database-driven web server from copies without permission; acknowledge the website and cite Harmsen et al. 2003",
+          "licence_url": "https://spa.ridom.de/policy.shtml",
+          "citation": "Harmsen D. et al. (2003) Typing of methicillin-resistant Staphylococcus aureus in a university hospital setting by using novel software for spa repeat determination and database management. Journal of Clinical Microbiology 41(12), doi:10.1128/JCM.41.12.5442-5448.2003."
+        }
+      },
+      "commands": [
+        [
+          "/opt/arva-tools/conda/spatyper/bin/spaTyper",
+          "--repeat_file",
+          "/import/ridom-spa-2026-11-07/sparepeats.fasta",
+          "--repeat_order_file",
+          "/import/ridom-spa-2026-11-07/spatypes.txt",
+          "--fasta",
+          "/data/results/06d81a7a-ac21-441b-8e97-dbdd098aff1c/67d02f8a-89cc-42da-b6a1-84528f5b2434/48686c8b-3761-4eeb-ad08-ac356f5d0fb5/input/contigs.fasta",
+          "--output",
+          "/data/results/06d81a7a-ac21-441b-8e97-dbdd098aff1c/67d02f8a-89cc-42da-b6a1-84528f5b2434/48686c8b-3761-4eeb-ad08-ac356f5d0fb5/spatyper.tsv"
+        ]
+      ],
+      "database_name": "spa types (Ridom SpaServer)",
+      "database_version": "downloaded 2026-11-07 from spa.ridom.de",
+      "database_kind": "spa_types",
+      "database_checksum": null,
+      "database_path": "/import/ridom-spa-2026-11-07",
+      "duration_seconds": 1.42,
+      "started_at": "2026-11-07T23:05:22.823451Z",
+      "finished_at": "2026-11-07T23:05:24.243538Z",
+      "error_message": null,
+      "result_summary": {
+        "typing_result_id": "2262cc2d-7310-41c7-9668-6e3797370380",
+        "method": "spa",
+        "status": "typed",
+        "call": "t2211",
+        "warnings": [
+          "spa_files_version"
+        ],
+        "files": {
+          "spatyper.tsv": {
+            "path": "results/06d81a7a-ac21-441b-8e97-dbdd098aff1c/67d02f8a-89cc-42da-b6a1-84528f5b2434/48686c8b-3761-4eeb-ad08-ac356f5d0fb5/spatyper.tsv",
+            "sha256": "9c6d742935158f1d0464e38a7483d226d6b93c20a8e8e2b203fafe57c5baaa41",
+            "size_bytes": 51
+          },
+          "spatyper.stdout.log": {
+            "path": "results/06d81a7a-ac21-441b-8e97-dbdd098aff1c/67d02f8a-89cc-42da-b6a1-84528f5b2434/48686c8b-3761-4eeb-ad08-ac356f5d0fb5/spatyper.stdout.log",
+            "sha256": "647dbd4d1e1e510313872d20ef117f210b920087826407e8a5851f8593362455",
+            "size_bytes": 405
+          },
+          "spatyper.stderr.log": {
+            "path": "results/06d81a7a-ac21-441b-8e97-dbdd098aff1c/67d02f8a-89cc-42da-b6a1-84528f5b2434/48686c8b-3761-4eeb-ad08-ac356f5d0fb5/spatyper.stderr.log",
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "size_bytes": 0
+          },
+          "input": {
+            "path": "results/06d81a7a-ac21-441b-8e97-dbdd098aff1c/67d02f8a-89cc-42da-b6a1-84528f5b2434/48686c8b-3761-4eeb-ad08-ac356f5d0fb5/input/contigs.fasta",
+            "sha256": "2c0df9cc82d5567e9cd9ec873d0c00c9d1c74a4bcf53da6b0db2ee2de20b547c",
+            "size_bytes": 2768903
+          }
+        }
+      },
+      "resources": {
+        "profile": "light",
+        "choice": "auto",
+        "threads": 1,
+        "memory_gb": 7,
+        "memory_limit_gb": null,
+        "memory_option": null,
+        "nice": 15,
+        "usable_cpus": 4,
+        "usable_memory_gb": 15.6,
+        "in_container": true,
+        "host": "unknown computer",
+        "nice_executable": "/usr/bin/nice"
+      },
+      "wall_seconds": 10.2
+    },
+    "typing_agr": {
+      "id": "27656257-0d87-44ea-8440-103627534ca8",
+      "job_type": "species_typing",
+      "tool_name": "AgrVATE",
+      "tool_version": "1.0.2",
+      "tool_path": "/opt/arva-tools/conda/agrvate/bin/agrvate",
+      "status": "completed",
+      "parameters": {
+        "module": "staphylococcus_aureus",
+        "method": "agr",
+        "settings": {
+          "mode": "mummer",
+          "typing_only": false
+        },
+        "assembly": {
+          "assembly_id": "5b412604-6187-4494-8bd3-3aea697a05fc",
+          "kind": "polished",
+          "assembler": "Medaka",
+          "assembler_version": "2.1.1",
+          "parent_assembly_id": "2fc412c0-77df-4f09-ab75-a51ea823a787",
+          "job_id": "037279b2-9a70-4204-b518-c4da894dece6",
+          "contigs_sha256": "10c05b034d53c39c313e1d24433012137ce26b97505d1137973e8af892e798c7"
+        },
+        "synthetic_evidence": [],
+        "applicability": {
+          "status": "applicable",
+          "checks": [
+            {
+              "source": "mlst",
+              "value": "saureus",
+              "matches": true
+            }
+          ],
+          "evidence": {
+            "species": null,
+            "mlst": {
+              "value": "saureus",
+              "st": null,
+              "tool": "mlst",
+              "tool_version": "2.35.0",
+              "status": "OK",
+              "result_id": "397ff6dc-8190-408b-b9f2-560d4a497915",
+              "created_at": "2026-11-07T23:05:03.476841+00:00"
+            }
+          }
+        },
+        "override": false
+      },
+      "commands": [
+        [
+          "/opt/arva-tools/conda/agrvate/bin/agrvate",
+          "--input",
+          "contigs.fasta",
+          "--mummer",
+          "--databases",
+          "/opt/arva-tools/conda/agrvate/bin/agrvate_databases/"
+        ]
+      ],
+      "database_name": "AgrVATE databases (agrvate_databases)",
+      "database_version": "1.0.2",
+      "database_kind": "agrvate_databases",
+      "database_checksum": "sha256:10b5e29f8d0774a557bebb3d26662240476443eb495eea9dd9084a14e5fba642",
+      "database_path": "/opt/arva-tools/conda/agrvate/bin/agrvate_databases",
+      "duration_seconds": 4.709,
+      "started_at": "2026-11-07T23:05:33.211815Z",
+      "finished_at": "2026-11-07T23:05:37.920353Z",
+      "error_message": null,
+      "result_summary": {
+        "typing_result_id": "9c7de553-2f62-4a4f-98f4-a4e16d759090",
+        "method": "agr",
+        "status": "typed",
+        "call": "II",
+        "warnings": [
+          "agr_mummer_mode",
+          "agr_snippy_threads",
+          "agr_operon_partial"
+        ],
+        "files": {
+          "agrvate/contigs-results/contigs-summary.tab": {
+            "path": "results/06d81a7a-ac21-441b-8e97-dbdd098aff1c/67d02f8a-89cc-42da-b6a1-84528f5b2434/27656257-0d87-44ea-8440-103627534ca8/agrvate/contigs-results/contigs-summary.tab",
+            "sha256": "1b61322ddf1b77e5f76811794acf7b047ed8d1e823ee1be107e047caee1a4555",
+            "size_bytes": 93
+          },
+          "agrvate/contigs-results/contigs-agr_gp.tab": {
+            "path": "results/06d81a7a-ac21-441b-8e97-dbdd098aff1c/67d02f8a-89cc-42da-b6a1-84528f5b2434/27656257-0d87-44ea-8440-103627534ca8/agrvate/contigs-results/contigs-agr_gp.tab",
+            "sha256": "75d175866e25142def8fae314569162fc3af14127c139acac53c315fc89f0db3",
+            "size_bytes": 572
+          },
+          "agrvate/contigs-results/contigs-agr_operon.fna": {
+            "path": "results/06d81a7a-ac21-441b-8e97-dbdd098aff1c/67d02f8a-89cc-42da-b6a1-84528f5b2434/27656257-0d87-44ea-8440-103627534ca8/agrvate/contigs-results/contigs-agr_operon.fna",
+            "sha256": "9952749d296ec5c63868d0a556e0b601dd3cf925c303000712bba41b5987e09f",
+            "size_bytes": 2319
+          },
+          "agrvate/contigs-results/contigs-agr_operon_frameshifts.tab": {
+            "path": "results/06d81a7a-ac21-441b-8e97-dbdd098aff1c/67d02f8a-89cc-42da-b6a1-84528f5b2434/27656257-0d87-44ea-8440-103627534ca8/agrvate/contigs-results/contigs-agr_operon_frameshifts.tab",
+            "sha256": "bc5900adb032c780a97fc70c9fe2b65370e6ca14f5400f12ac822e334a566836",
+            "size_bytes": 95
+          },
+          "agrvate/contigs-results/contigs-mummer/out.1coords": {
+            "path": "results/06d81a7a-ac21-441b-8e97-dbdd098aff1c/67d02f8a-89cc-42da-b6a1-84528f5b2434/27656257-0d87-44ea-8440-103627534ca8/agrvate/contigs-results/contigs-mummer/out.1coords",
+            "sha256": "099dd8514997c06e64e3f6f523f621db0b39229e2c79884ae7b58b5c9a9ee949",
+            "size_bytes": 157
+          },
+          "agrvate/contigs-results/contigs-snippy/snps.tab": {
+            "path": "results/06d81a7a-ac21-441b-8e97-dbdd098aff1c/67d02f8a-89cc-42da-b6a1-84528f5b2434/27656257-0d87-44ea-8440-103627534ca8/agrvate/contigs-results/contigs-snippy/snps.tab",
+            "sha256": "a625e971b09a7268dc6fcd52998fa80c256f5c17266e48b8f8ebaf702586e6ca",
+            "size_bytes": 7045
+          },
+          "agrvate/contigs.fasta-error-report.tab": {
+            "path": "results/06d81a7a-ac21-441b-8e97-dbdd098aff1c/67d02f8a-89cc-42da-b6a1-84528f5b2434/27656257-0d87-44ea-8440-103627534ca8/agrvate/contigs.fasta-error-report.tab",
+            "sha256": "c72bafbebfd5171e215d925a2fa0278ec4d4fa97576115faba6bc6bb68761179",
+            "size_bytes": 134
+          },
+          "agrvate/agrvate.log": {
+            "path": "results/06d81a7a-ac21-441b-8e97-dbdd098aff1c/67d02f8a-89cc-42da-b6a1-84528f5b2434/27656257-0d87-44ea-8440-103627534ca8/agrvate/agrvate.log",
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "size_bytes": 0
+          },
+          "agrvate/agrvate.stdout.log": {
+            "path": "results/06d81a7a-ac21-441b-8e97-dbdd098aff1c/67d02f8a-89cc-42da-b6a1-84528f5b2434/27656257-0d87-44ea-8440-103627534ca8/agrvate/agrvate.stdout.log",
+            "sha256": "d40b104e89b0d6963df8e9bfdb9b010ffce82981edc1d9b82c9607b2f3504add",
+            "size_bytes": 378
+          },
+          "input": {
+            "path": "results/06d81a7a-ac21-441b-8e97-dbdd098aff1c/67d02f8a-89cc-42da-b6a1-84528f5b2434/27656257-0d87-44ea-8440-103627534ca8/input/contigs.fasta",
+            "sha256": "2c0df9cc82d5567e9cd9ec873d0c00c9d1c74a4bcf53da6b0db2ee2de20b547c",
+            "size_bytes": 2768903
+          }
+        }
+      },
+      "resources": {
+        "profile": "light",
+        "choice": "auto",
+        "threads": 1,
+        "memory_gb": 7,
+        "memory_limit_gb": null,
+        "memory_option": null,
+        "nice": 15,
+        "usable_cpus": 4,
+        "usable_memory_gb": 15.6,
+        "in_container": true,
+        "host": "unknown computer",
+        "nice_executable": "/usr/bin/nice"
+      },
+      "wall_seconds": 10.0
+    },
+    "amrfinderplus": {
+      "id": "44b35c9d-da13-417b-b5f0-7b42cc77e04e",
+      "job_type": "amr_detection",
+      "tool_name": "AMRFinderPlus",
+      "tool_version": "4.2.7",
+      "tool_path": "/opt/arva-tools/conda/amrfinderplus/bin/amrfinder",
+      "status": "completed",
+      "parameters": {
+        "mode": "nucleotide",
+        "organism": "Staphylococcus_aureus",
+        "plus": true,
+        "ident_min": -1,
+        "coverage_min": 0.5,
+        "translation_table": 11,
+        "annotation_format": null,
+        "threads": 4,
+        "assembly": {
+          "assembly_id": "5b412604-6187-4494-8bd3-3aea697a05fc",
+          "kind": "polished",
+          "assembler": "Medaka",
+          "assembler_version": "2.1.1",
+          "parent_assembly_id": "2fc412c0-77df-4f09-ab75-a51ea823a787",
+          "job_id": "037279b2-9a70-4204-b518-c4da894dece6",
+          "contigs_sha256": "10c05b034d53c39c313e1d24433012137ce26b97505d1137973e8af892e798c7"
+        },
+        "annotation_id": null,
+        "annotation": null,
+        "synthetic_evidence": [],
+        "organism_choice": {
+          "proposed": null,
+          "rule": "no_species",
+          "species": null,
+          "chosen": "Staphylococcus_aureus",
+          "changed_by_user": true
+        }
+      },
+      "commands": [
+        [
+          "/opt/arva-tools/conda/amrfinderplus/bin/amrfinder",
+          "--nucleotide",
+          "/data/results/06d81a7a-ac21-441b-8e97-dbdd098aff1c/67d02f8a-89cc-42da-b6a1-84528f5b2434/44b35c9d-da13-417b-b5f0-7b42cc77e04e/input/genome.fna",
+          "--database",
+          "/databases/amrfinderplus/2026-10-29.1",
+          "--output",
+          "/data/results/06d81a7a-ac21-441b-8e97-dbdd098aff1c/67d02f8a-89cc-42da-b6a1-84528f5b2434/44b35c9d-da13-417b-b5f0-7b42cc77e04e/amrfinder.tsv",
+          "--nucleotide_output",
+          "/data/results/06d81a7a-ac21-441b-8e97-dbdd098aff1c/67d02f8a-89cc-42da-b6a1-84528f5b2434/44b35c9d-da13-417b-b5f0-7b42cc77e04e/nucleotide_hits.fna",
+          "--ident_min",
+          "-1",
+          "--coverage_min",
+          "0.5",
+          "--translation_table",
+          "11",
+          "--threads",
+          "4",
+          "--blast_bin",
+          "/opt/arva-tools/conda/amrfinderplus/bin",
+          "--hmmer_bin",
+          "/opt/arva-tools/conda/amrfinderplus/bin",
+          "--print_node",
+          "--organism",
+          "Staphylococcus_aureus",
+          "--mutation_all",
+          "/data/results/06d81a7a-ac21-441b-8e97-dbdd098aff1c/67d02f8a-89cc-42da-b6a1-84528f5b2434/44b35c9d-da13-417b-b5f0-7b42cc77e04e/mutation_all.tsv",
+          "--plus"
+        ]
+      ],
+      "database_name": "AMRFinderPlus database",
+      "database_version": "2026-10-29.1",
+      "database_kind": "amrfinderplus",
+      "database_checksum": "sha256:9fe50ee5925ac32b93ce9c82a520b7b8d4908d50f7b1be295d47c9248bf3f2b1",
+      "database_path": "/databases/amrfinderplus/2026-10-29.1",
+      "duration_seconds": 24.706,
+      "started_at": "2026-11-07T23:05:43.599818Z",
+      "finished_at": "2026-11-07T23:06:08.305826Z",
+      "error_message": null,
+      "result_summary": {
+        "counts": {
+          "total": 19,
+          "AMR": 6,
+          "VIRULENCE": 13,
+          "STRESS": 0,
+          "point_mutations": 4,
+          "incomplete": 4
+        },
+        "warnings": [
+          {
+            "code": "genotype_not_phenotype",
+            "params": {}
+          },
+          {
+            "code": "hits_partial",
+            "params": {
+              "count": 1,
+              "genes": "tet(38)"
+            }
+          },
+          {
+            "code": "hits_internal_stop",
+            "params": {
+              "count": 3,
+              "genes": "sem, sen, splA"
+            }
+          },
+          {
+            "code": "hmm_not_searched",
+            "params": {}
+          }
+        ],
+        "point_mutation_screen": {
+          "rows": 273,
+          "genes": [
+            "23S ribosomal RNA",
+            "30S ribosomal protein S10",
+            "50S ribosomal protein L3",
+            "50S ribosomal protein L6",
+            "CDP-diacylglycerol--glycerol-3-phosphate 3-phosphatidyltransferase PgsA",
+            "D-alanyl-D-alanine carboxypeptidase PBP4",
+            "D-alanyl-D-alanine carboxypeptidase PBP4 promoter region",
+            "DNA gyrase subunit A GyrA",
+            "DNA topoisomerase (ATP-hydrolyzing) subunit B GyrB",
+            "DNA topoisomerase IV subunit A ParC",
+            "DNA topoisomerase IV subunit B ParE",
+            "DNA-directed RNA polymerase subunit beta RpoC",
+            "UDP-N-acetylglucosamine 1-carboxyvinyltransferase MurA",
+            "bifunctional lysylphosphatidylglycerol flippase/synthetase MprF",
+            "cardiolipin synthase Cls",
+            "cell wall metabolism sensor histidine kinase WalK",
+            "cyclic-di-AMP phosphodiesterase GdpP",
+            "dihydrofolate reductase DfrB",
+            "dihydropteroate synthase FolP",
+            "glycerol-3-phosphate transporter GlpT",
+            "hexose phosphate transporter UhpT",
+            "multidrug efflux RND transporter permease subunit AcrB",
+            "multidrug efflux transporter transcriptional repressor MepR",
+            "penicillin-binding protein PBP2",
+            "sensor histidine kinase VraS"
+          ],
+          "wildtype_positions": 165,
+          "unknown_changes": 104,
+          "mutations": 4
+        },
+        "log": {
+          "software_version": "4.2.7",
+          "database_version": "2026-10-29.1",
+          "search": "translated nucleotide and mutation",
+          "includes": [],
+          "warnings": [
+            "This was compiled for running under bioconda, but $CONDA_PREFIX was not found"
+          ],
+          "error": null
+        },
+        "files": {
+          "report": {
+            "path": "results/06d81a7a-ac21-441b-8e97-dbdd098aff1c/67d02f8a-89cc-42da-b6a1-84528f5b2434/44b35c9d-da13-417b-b5f0-7b42cc77e04e/amrfinder.tsv",
+            "sha256": "2572268febbfff7d3e7cba56d8d40d52ec38ef8f426b54f407dcb1e457d586a7",
+            "size_bytes": 4171
+          },
+          "mutation_all": {
+            "path": "results/06d81a7a-ac21-441b-8e97-dbdd098aff1c/67d02f8a-89cc-42da-b6a1-84528f5b2434/44b35c9d-da13-417b-b5f0-7b42cc77e04e/mutation_all.tsv",
+            "sha256": "e021ccd1bbdd2b65b65f55d61216ad7ae5311846ef9e452da9a2afae0a2bc695",
+            "size_bytes": 61239
+          },
+          "nucleotide_hits": {
+            "path": "results/06d81a7a-ac21-441b-8e97-dbdd098aff1c/67d02f8a-89cc-42da-b6a1-84528f5b2434/44b35c9d-da13-417b-b5f0-7b42cc77e04e/nucleotide_hits.fna",
+            "sha256": "2d96f1c6ca5ec311ff8d373c08e353e6d3e8aca2e3f69a9b32cc1797e1032d44",
+            "size_bytes": 18585
+          },
+          "log": {
+            "path": "results/06d81a7a-ac21-441b-8e97-dbdd098aff1c/67d02f8a-89cc-42da-b6a1-84528f5b2434/44b35c9d-da13-417b-b5f0-7b42cc77e04e/amrfinder.stderr.log",
+            "sha256": "bc1f521600600c8f9a9e2789c8c1bf7c8627d0802cad89582353b0be824481ab",
+            "size_bytes": 1458
+          }
+        },
+        "inputs": {
+          "input": {
+            "path": "results/06d81a7a-ac21-441b-8e97-dbdd098aff1c/67d02f8a-89cc-42da-b6a1-84528f5b2434/44b35c9d-da13-417b-b5f0-7b42cc77e04e/input/genome.fna",
+            "sha256": "2c0df9cc82d5567e9cd9ec873d0c00c9d1c74a4bcf53da6b0db2ee2de20b547c",
+            "size_bytes": 2768903
+          }
+        },
+        "linked_annotation_id": null,
+        "tool_defaults": {
+          "ident_min": "-1",
+          "coverage_min": "0.5",
+          "translation_table": "11",
+          "threads": "4"
+        }
+      },
+      "resources": {
+        "profile": "light",
+        "choice": "auto",
+        "threads": 4,
+        "memory_gb": 7,
+        "memory_limit_gb": null,
+        "memory_option": null,
+        "nice": 15,
+        "usable_cpus": 4,
+        "usable_memory_gb": 15.6,
+        "in_container": true,
+        "host": "unknown computer",
+        "nice_executable": "/usr/bin/nice"
+      },
+      "wall_seconds": 30.1
+    }
+  },
+  "skipped": {
+    "species_skani": {
+      "reason": "no usable skani reference collection registered in ARVA",
+      "problems": [
+        {
+          "code": "no_database",
+          "message": "No usable Reference genome collection is registered: add one in the Database Manager",
+          "params": {
+            "kind": "Reference genome collection"
+          }
+        }
+      ],
+      "databases": []
+    }
+  },
+  "deviations": [
+    "Paper: Rebaler then Medaka v1.0.3 (model not stated). ARVA polished the Flye draft once with Medaka 2.1.1 and r941_min_hac_g507 (R9.4.1 MinION, HAC, trained for Guppy 5.0.7), registered in ARVA from the medaka v2.1.1 tag (SHA-256 6e87607808bfe7884fc701ded596931afeeb8a59e69bdcb268ef07ac7680ac26); medaka 1.0.3's models (r941_min_high_g360 and older) cannot be loaded by medaka 2, and no Rebaler step was run."
+  ],
+  "notes": [
+    "Paper: NanoFilt v2.7.1 -l 1000 -q 10. Filtlong --min_length 1000 --min_mean_q 90 applies the same two thresholds (NanoFilt's ave_qual is -10*log10 of the mean per-base error probability; Filtlong's mean quality is 100 * mean per-base accuracy; Q10 = 90 %)."
+  ],
+  "download": {
+    "url": "https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR257/032/SRR25741632/SRR25741632_1.fastq.gz",
+    "bytes": 258097773,
+    "md5": "72073187f49051814c7f37021e8e75a7",
+    "md5_expected": "72073187f49051814c7f37021e8e75a7",
+    "md5_ok": true,
+    "sha256": "103f122fd2b7443117a0bd8cab6c448809419535370998ee85abacf58ef82745",
+    "seconds": 213.0,
+    "attempts": 1,
+    "errors": [],
+    "ena_file_name": "SRR25741632_1.fastq.gz",
+    "local_file_name": "SRR25741632_1.fastq.gz",
+    "deleted_after_import": true
+  },
+  "sample_id": "67d02f8a-89cc-42da-b6a1-84528f5b2434",
+  "imported_file": {
+    "id": "5145df38-a879-4534-b201-6f11aa3e2120",
+    "original_filename": "SRR25741632_1.fastq.gz",
+    "size_bytes": 258097773,
+    "checksum_sha256": "103f122fd2b7443117a0bd8cab6c448809419535370998ee85abacf58ef82745",
+    "is_valid": true,
+    "validation_message": "FASTQ structure verified on the first 1000 record(s); the whole file is validated when statistics are computed.",
+    "read_mate": null,
+    "mate_note": {
+      "from_name": "R1",
+      "set_by": "content",
+      "reason": "long_reads",
+      "max_length": 124423,
+      "platform": null
+    },
+    "sha256_matches_download": true
+  },
+  "filtered_file": {
+    "id": "3cbc472d-7a05-45d1-86d6-c4e9b27f2260",
+    "original_filename": "SRR25741632_1.filtlong.fastq.gz",
+    "size_bytes": 247271160
+  },
+  "flye_plan": {
+    "read_type_suggestion": {
+      "heuristic": true,
+      "value": null,
+      "basis": "no_quality_or_model",
+      "platform": "nanopore",
+      "platform_source": "sample_metadata",
+      "mean_error_rate": null,
+      "mean_base_quality": null,
+      "read_error": null,
+      "q20_read_error_note": false,
+      "sup_model_but_low_quality": false
+    },
+    "memory": {
+      "reference": {
+        "source": "Flye 2.9.6 docs/USAGE.md, Flye benchmarks (E. coli row)",
+        "url": "https://github.com/mikolmogorov/Flye/blob/2.9.6/docs/USAGE.md#performance",
+        "genome": "E. coli",
+        "data": "PB 50x",
+        "genome_size_bp": 4600000,
+        "coverage_x": 50,
+        "ram_gb": 2.0
+      },
+      "reference_bases": 230000000,
+      "available_gb": 15.6,
+      "container_gb": 15.6,
+      "read_bases": null,
+      "asm_coverage": null,
+      "genome_size_bp": null,
+      "bases_used": null,
+      "floor": {
+        "gb": 8.6,
+        "kmer_size": 17,
+        "counter_gib": 8,
+        "flye_version": "2.9.6",
+        "peak_measured_mb": 8787,
+        "source": "Flye 2.9.6 src/sequence/vertex_index.cpp (KmerCounter::count) and flye/config/bin_cfg/asm_*.cfg",
+        "url": "https://github.com/mikolmogorov/Flye/blob/2.9.6/src/sequence/vertex_index.cpp"
+      },
+      "floor_gb": 8.6,
+      "floor_headroom_gb": 1.0,
+      "scaled_gb": null,
+      "estimate_gb": null,
+      "verdict": "unknown",
+      "suggestion": null,
+      "container_memory_gb": 15.6,
+      "in_container": true,
+      "expected_genome_size_bp": null
+    }
+  },
+  "assembly_flye": {
+    "id": "2fc412c0-77df-4f09-ab75-a51ea823a787",
+    "assembler": "Flye",
+    "assembler_version": "2.9.6",
+    "kind": "assembly",
+    "parent_assembly_id": null,
+    "mode": "long",
+    "read_type": "nano-raw",
+    "stats": {
+      "tool": {
+        "name": "arva-core.assembly_stats",
+        "version": "0.1.0"
+      },
+      "parameters": {
+        "thresholds": [
+          1000,
+          10000
+        ]
+      },
+      "contig_count": 2,
+      "total_length": 2734347,
+      "largest_contig": 2730444,
+      "smallest_contig": 3903,
+      "n50": 2730444,
+      "l50": 1,
+      "n90": 2730444,
+      "l90": 1,
+      "gc_percent": 32.81207542422377,
+      "n_count": 0,
+      "n_per_100kb": 0.0,
+      "other_iupac_count": 0,
+      "length_histogram": [
+        {
+          "min_length": 2000,
+          "max_length": 5000,
+          "contigs": 1,
+          "total_length": 3903
+        },
+        {
+          "min_length": 5000,
+          "max_length": 10000,
+          "contigs": 0,
+          "total_length": 0
+        },
+        {
+          "min_length": 10000,
+          "max_length": 20000,
+          "contigs": 0,
+          "total_length": 0
+        },
+        {
+          "min_length": 20000,
+          "max_length": 50000,
+          "contigs": 0,
+          "total_length": 0
+        },
+        {
+          "min_length": 50000,
+          "max_length": 100000,
+          "contigs": 0,
+          "total_length": 0
+        },
+        {
+          "min_length": 100000,
+          "max_length": 200000,
+          "contigs": 0,
+          "total_length": 0
+        },
+        {
+          "min_length": 200000,
+          "max_length": 500000,
+          "contigs": 0,
+          "total_length": 0
+        },
+        {
+          "min_length": 500000,
+          "max_length": 1000000,
+          "contigs": 0,
+          "total_length": 0
+        },
+        {
+          "min_length": 1000000,
+          "max_length": 2000000,
+          "contigs": 0,
+          "total_length": 0
+        },
+        {
+          "min_length": 2000000,
+          "max_length": 5000000,
+          "contigs": 1,
+          "total_length": 2730444
+        }
+      ],
+      "cumulative": {
+        "rank": [
+          1,
+          2
+        ],
+        "length": [
+          2730444,
+          3903
+        ],
+        "cumulative_length": [
+          2730444,
+          2734347
+        ],
+        "downsampled": false
+      },
+      "thresholds": [
+        {
+          "min_length": 1000,
+          "contigs": 2,
+          "total_length": 2734347,
+          "total_length_percent": 100.0
+        },
+        {
+          "min_length": 10000,
+          "contigs": 1,
+          "total_length": 2730444,
+          "total_length_percent": 99.8572602526307
+        }
+      ],
+      "coverage": {
+        "contigs_with_coverage": 2,
+        "length_weighted_median": 87.0
+      },
+      "circularity": {
+        "contigs_with_circularity": 2,
+        "circular_contigs": 1
+      },
+      "contig_rows": {
+        "stored": 2,
+        "total": 2,
+        "truncated": false
+      },
+      "expected_genome_size": {
+        "bp": 2800000,
+        "status": "given",
+        "source": "assembly_parameters",
+        "basis": "entered",
+        "assumed_depth_x": null
+      },
+      "warning_checks": [
+        {
+          "code": "many_contigs",
+          "rule": "more than 10 contigs per Mb of assembly (long-read assemblies; assemblies under 1 Mb are counted as 1 Mb)",
+          "evaluated": true,
+          "skipped_reason": null
+        },
+        {
+          "code": "genome_size_mismatch",
+          "rule": "total length differs from the expected genome size by more than 20%",
+          "evaluated": true,
+          "skipped_reason": null
+        },
+        {
+          "code": "low_coverage_contigs",
+          "rule": "contig coverage below 0.25 \u00d7 the length-weighted median coverage",
+          "evaluated": true,
+          "skipped_reason": null
+        },
+        {
+          "code": "high_coverage_contigs",
+          "rule": "contig coverage above 4 \u00d7 the length-weighted median coverage",
+          "evaluated": true,
+          "skipped_reason": null
+        },
+        {
+          "code": "chromosome_not_circular",
+          "rule": "a contig of at least 50% of the expected genome size that the assembler did not report as circular",
+          "evaluated": true,
+          "skipped_reason": null
+        },
+        {
+          "code": "gc_outlier_contigs",
+          "rule": "GC of a contig of at least 1,000 bp differs from the assembly's GC by more than 10 percentage points",
+          "evaluated": true,
+          "skipped_reason": null
+        }
+      ],
+      "files": {
+        "contigs": {
+          "path": "results/06d81a7a-ac21-441b-8e97-dbdd098aff1c/67d02f8a-89cc-42da-b6a1-84528f5b2434/38418a6a-353a-4dcd-bd42-68a4441cc22e/assembly.fasta",
+          "sha256": "943ee1a932e5aa4fd7c20ae70a173d28646256bd3f5408bd300d78413b88a45d",
+          "size_bytes": 2779941
+        },
+        "graph": {
+          "path": "results/06d81a7a-ac21-441b-8e97-dbdd098aff1c/67d02f8a-89cc-42da-b6a1-84528f5b2434/38418a6a-353a-4dcd-bd42-68a4441cc22e/assembly_graph.gfa",
+          "sha256": "3470507c8f909b0c40c8c1293e44f86c06958abf0ebcdb561bb361ebda8ad13b",
+          "size_bytes": 2735788
+        },
+        "info": {
+          "path": "results/06d81a7a-ac21-441b-8e97-dbdd098aff1c/67d02f8a-89cc-42da-b6a1-84528f5b2434/38418a6a-353a-4dcd-bd42-68a4441cc22e/assembly_info.txt",
+          "sha256": "e9692412bdeff15a9694e8b0c105d7a50191e4fd0b84d306558c375f01c57ca7",
+          "size_bytes": 123
+        }
+      }
+    },
+    "warnings": []
+  },
+  "polishing_plan": {
+    "medaka": {
+      "available": true,
+      "error": null,
+      "version": "2.1.1",
+      "models": [
+        "r1041_e82_400bps_hac_v5.2.0",
+        "r1041_e82_400bps_sup_v5.2.0"
+      ],
+      "bundled": [
+        {
+          "name": "r1041_e82_400bps_hac_v5.2.0",
+          "file": "r1041_e82_400bps_hac_v5.2.0_model_pt.tar.gz",
+          "sha256": "27103066aae241f9172e6d473caf8fe4489d354e2d2948e79d18e7336a728ca3",
+          "size": 1507284,
+          "checksum": "matches_package"
+        },
+        {
+          "name": "r1041_e82_400bps_sup_v5.2.0",
+          "file": "r1041_e82_400bps_sup_v5.2.0_model_pt.tar.gz",
+          "sha256": "143ba9c04f4026c6d49680af807b466c33a11208e367b8e9bc5b83e87c429e2d",
+          "size": 1508965,
+          "checksum": "matches_package"
+        }
+      ],
+      "registered": [
+        {
+          "database_id": "4bb7c4cc-6178-4de8-919f-1fd8534bbad1",
+          "model": "r941_min_hac_g507",
+          "name": "Medaka model r941_min_hac_g507",
+          "path": "/databases/medaka-models/r941_min_hac_g507/r941_min_hac_g507_model_pt.tar.gz",
+          "sha256": "6e87607808bfe7884fc701ded596931afeeb8a59e69bdcb268ef07ac7680ac26",
+          "url": "https://media.githubusercontent.com/media/nanoporetech/medaka/v2.1.1/medaka/data/r941_min_hac_g507_model_pt.tar.gz",
+          "origin": "download",
+          "status": "installed",
+          "chemistry": "R9.4.1",
+          "device": "MinION/GridION",
+          "accuracy": "hac",
+          "basecaller": "Guppy 5.0.7",
+          "notes": []
+        }
+      ],
+      "default_model": "r1041_e82_400bps_sup_v5.2.0",
+      "suggestion": {
+        "status": "no_basecall_model",
+        "basecall_model": null,
+        "basecall_models": [],
+        "model": null,
+        "source": "medaka.options.basecaller_models"
+      },
+      "default_batch_size": 100,
+      "problem": null,
+      "draft_is_flye": true
+    },
+    "strategies_available": [
+      "racon",
+      "medaka",
+      "pilon",
+      "hybrid"
+    ],
+    "problem": null
+  },
+  "medaka_model": {
+    "model": "r941_min_hac_g507",
+    "source": "registered",
+    "sha256": "6e87607808bfe7884fc701ded596931afeeb8a59e69bdcb268ef07ac7680ac26",
+    "expected_sha256": "6e87607808bfe7884fc701ded596931afeeb8a59e69bdcb268ef07ac7680ac26",
+    "sha256_ok": true,
+    "database_id": "4bb7c4cc-6178-4de8-919f-1fd8534bbad1",
+    "path": "/databases/medaka-models/r941_min_hac_g507/r941_min_hac_g507_model_pt.tar.gz",
+    "url": "https://media.githubusercontent.com/media/nanoporetech/medaka/v2.1.1/medaka/data/r941_min_hac_g507_model_pt.tar.gz",
+    "origin": "download",
+    "chemistry": "R9.4.1",
+    "basecaller": "Guppy 5.0.7",
+    "choice": "user",
+    "suggestion": {
+      "basecall_model": null,
+      "basecall_models": [],
+      "model": null,
+      "source": "medaka.options.basecaller_models",
+      "status": "no_basecall_model"
+    },
+    "medaka_version": "2.1.1",
+    "registration": "downloaded by ARVA (POST /databases/medaka-models/download, confirmed)"
+  },
+  "assembly_polished": {
+    "id": "5b412604-6187-4494-8bd3-3aea697a05fc",
+    "assembler": "Medaka",
+    "assembler_version": "2.1.1",
+    "kind": "polished",
+    "parent_assembly_id": "2fc412c0-77df-4f09-ab75-a51ea823a787",
+    "mode": "long",
+    "read_type": "map-ont",
+    "stats": {
+      "tool": {
+        "name": "arva-core.assembly_stats",
+        "version": "0.1.0"
+      },
+      "parameters": {
+        "thresholds": [
+          1000,
+          10000
+        ]
+      },
+      "contig_count": 2,
+      "total_length": 2734699,
+      "largest_contig": 2730795,
+      "smallest_contig": 3904,
+      "n50": 2730795,
+      "l50": 1,
+      "n90": 2730795,
+      "l90": 1,
+      "gc_percent": 32.799075876357875,
+      "n_count": 0,
+      "n_per_100kb": 0.0,
+      "other_iupac_count": 0,
+      "length_histogram": [
+        {
+          "min_length": 2000,
+          "max_length": 5000,
+          "contigs": 1,
+          "total_length": 3904
+        },
+        {
+          "min_length": 5000,
+          "max_length": 10000,
+          "contigs": 0,
+          "total_length": 0
+        },
+        {
+          "min_length": 10000,
+          "max_length": 20000,
+          "contigs": 0,
+          "total_length": 0
+        },
+        {
+          "min_length": 20000,
+          "max_length": 50000,
+          "contigs": 0,
+          "total_length": 0
+        },
+        {
+          "min_length": 50000,
+          "max_length": 100000,
+          "contigs": 0,
+          "total_length": 0
+        },
+        {
+          "min_length": 100000,
+          "max_length": 200000,
+          "contigs": 0,
+          "total_length": 0
+        },
+        {
+          "min_length": 200000,
+          "max_length": 500000,
+          "contigs": 0,
+          "total_length": 0
+        },
+        {
+          "min_length": 500000,
+          "max_length": 1000000,
+          "contigs": 0,
+          "total_length": 0
+        },
+        {
+          "min_length": 1000000,
+          "max_length": 2000000,
+          "contigs": 0,
+          "total_length": 0
+        },
+        {
+          "min_length": 2000000,
+          "max_length": 5000000,
+          "contigs": 1,
+          "total_length": 2730795
+        }
+      ],
+      "cumulative": {
+        "rank": [
+          1,
+          2
+        ],
+        "length": [
+          2730795,
+          3904
+        ],
+        "cumulative_length": [
+          2730795,
+          2734699
+        ],
+        "downsampled": false
+      },
+      "thresholds": [
+        {
+          "min_length": 1000,
+          "contigs": 2,
+          "total_length": 2734699,
+          "total_length_percent": 100.0
+        },
+        {
+          "min_length": 10000,
+          "contigs": 1,
+          "total_length": 2730795,
+          "total_length_percent": 99.85724205844957
+        }
+      ],
+      "coverage": {
+        "contigs_with_coverage": 2,
+        "length_weighted_median": 86.5573
+      },
+      "circularity": {
+        "contigs_with_circularity": 2,
+        "circular_contigs": 1
+      },
+      "contig_rows": {
+        "stored": 2,
+        "total": 2,
+        "truncated": false
+      },
+      "expected_genome_size": {
+        "bp": null,
+        "status": "not_given",
+        "source": null,
+        "basis": null,
+        "assumed_depth_x": null
+      },
+      "warning_checks": [
+        {
+          "code": "many_contigs",
+          "rule": "more than 10 contigs per Mb of assembly (long-read assemblies; assemblies under 1 Mb are counted as 1 Mb)",
+          "evaluated": true,
+          "skipped_reason": null
+        },
+        {
+          "code": "genome_size_mismatch",
+          "rule": "total length differs from the expected genome size by more than 20%",
+          "evaluated": false,
+          "skipped_reason": "no expected genome size is known for this sample"
+        },
+        {
+          "code": "low_coverage_contigs",
+          "rule": "contig mean depth of the mapped polishing reads below 0.25 \u00d7 the length-weighted median mean depth of the mapped polishing reads",
+          "evaluated": true,
+          "skipped_reason": null
+        },
+        {
+          "code": "high_coverage_contigs",
+          "rule": "contig mean depth of the mapped polishing reads above 4 \u00d7 the length-weighted median mean depth of the mapped polishing reads",
+          "evaluated": true,
+          "skipped_reason": null
+        },
+        {
+          "code": "chromosome_not_circular",
+          "rule": "a contig of at least 50% of the total assembly length that the assembler did not report as circular",
+          "evaluated": true,
+          "skipped_reason": null
+        },
+        {
+          "code": "gc_outlier_contigs",
+          "rule": "GC of a contig of at least 1,000 bp differs from the assembly's GC by more than 10 percentage points",
+          "evaluated": true,
+          "skipped_reason": null
+        }
+      ],
+      "files": {
+        "contigs": {
+          "path": "results/06d81a7a-ac21-441b-8e97-dbdd098aff1c/67d02f8a-89cc-42da-b6a1-84528f5b2434/037279b2-9a70-4204-b518-c4da894dece6/polished.fasta",
+          "sha256": "10c05b034d53c39c313e1d24433012137ce26b97505d1137973e8af892e798c7",
+          "size_bytes": 2734721
+        },
+        "graph": null,
+        "info": null
+      }
+    },
+    "warnings": []
+  },
+  "mlst": {
+    "scheme": "saureus",
+    "st": null,
+    "status": "OK",
+    "score": 77,
+    "alleles": [
+      {
+        "locus": "arcC",
+        "call": "6",
+        "type": "exact",
+        "alleles": [
+          "6"
+        ],
+        "similar_to": null
+      },
+      {
+        "locus": "aroE",
+        "call": "72",
+        "type": "exact",
+        "alleles": [
+          "72"
+        ],
+        "similar_to": null
+      },
+      {
+        "locus": "glpF",
+        "call": "12",
+        "type": "exact",
+        "alleles": [
+          "12"
+        ],
+        "similar_to": null
+      },
+      {
+        "locus": "gmk",
+        "call": "43",
+        "type": "exact",
+        "alleles": [
+          "43"
+        ],
+        "similar_to": null
+      },
+      {
+        "locus": "pta",
+        "call": "421?",
+        "type": "partial",
+        "alleles": [],
+        "similar_to": "421"
+      },
+      {
+        "locus": "tpi",
+        "call": "67",
+        "type": "exact",
+        "alleles": [
+          "67"
+        ],
+        "similar_to": null
+      },
+      {
+        "locus": "yqiL",
+        "call": "370?",
+        "type": "partial",
+        "alleles": [],
+        "similar_to": "370"
+      }
+    ],
+    "clonal_complex": {
+      "available": false,
+      "column": null,
+      "value": null,
+      "reason": "not_in_scheme"
+    },
+    "warnings": [
+      {
+        "code": "partial_alleles",
+        "params": {
+          "count": 2,
+          "loci": "pta, yqiL"
+        }
+      },
+      {
+        "code": "st_not_assigned",
+        "params": {}
+      },
+      {
+        "code": "scheme_after_open_terms",
+        "params": {
+          "scheme": "saureus",
+          "last_updated": "2026-03-10"
+        }
+      }
+    ],
+    "tool_version": "2.35.0",
+    "database_name": "PubMLST schemes bundled with mlst 2.35.0",
+    "database_version": "2026-03-11",
+    "parameters": {
+      "scheme": null,
+      "minid": 95.0,
+      "mincov": 50.0,
+      "minscore": 50.0,
+      "exclude": [
+        "ecoli",
+        "abaumannii",
+        "vcholerae_2",
+        "senterica_achtman_2"
+      ],
+      "threads": 4,
+      "assembly": {
+        "assembly_id": "5b412604-6187-4494-8bd3-3aea697a05fc",
+        "kind": "polished",
+        "assembler": "Medaka",
+        "assembler_version": "2.1.1",
+        "parent_assembly_id": "2fc412c0-77df-4f09-ab75-a51ea823a787",
+        "job_id": "037279b2-9a70-4204-b518-c4da894dece6",
+        "contigs_sha256": "10c05b034d53c39c313e1d24433012137ce26b97505d1137973e8af892e798c7"
+      },
+      "synthetic_evidence": [],
+      "scheme_mode": "detected"
+    }
+  },
+  "typing": {
+    "sccmec": [
+      {
+        "method": "sccmec",
+        "status": "not_typeable",
+        "call": null,
+        "details": {
+          "type": null,
+          "subtype": null,
+          "mecA": false,
+          "targets": [
+            "IS431",
+            "IS431_1",
+            "IS431_2"
+          ],
+          "regions": [],
+          "coverage": null,
+          "hits": null,
+          "region_coverage": [],
+          "region_hits": [],
+          "target_schema": "sccmec_targets",
+          "target_schema_version": "1.2.0",
+          "region_schema": "sccmec_regions",
+          "region_schema_version": "1.2.0",
+          "camlhmp_version": "1.1.4",
+          "params": "min-targets-coverage=80;min-targets-pident=90;min-regions-coverage=83;min-regions-pident=85",
+          "target_comment": "A type could not be determined, but one or more targets found",
+          "region_comment": "A type could not be determined",
+          "comment": "A type could not be determined based on the target matches or cassette coverage",
+          "ccr_complexes": [],
+          "mec_classes": [],
+          "target_hits": [
+            {
+              "target": "IS431",
+              "contig": "contig_3",
+              "start": 1652502,
+              "end": 1653292,
+              "strand": "+",
+              "identity": 91.677,
+              "coverage": 99,
+              "passes": true
+            },
+            {
+              "target": "IS431_1",
+              "contig": "contig_3",
+              "start": 1652502,
+              "end": 1653292,
+              "strand": "+",
+              "identity": 92.668,
+              "coverage": 100,
+              "passes": true
+            },
+            {
+              "target": "IS431_2",
+              "contig": "contig_3",
+              "start": 1652502,
+              "end": 1653292,
+              "strand": "+",
+              "identity": 91.677,
+              "coverage": 100,
+              "passes": true
+            }
+          ],
+          "types_considered": [
+            {
+              "type": "I",
+              "status": false,
+              "targets": [
+                "IS431"
+              ],
+              "missing": [
+                "ccrA1",
+                "ccrB1",
+                "mecA",
+                "mecR1",
+                "IS1272"
+              ],
+              "comment": ""
+            },
+            {
+              "type": "II",
+              "status": false,
+              "targets": [
+                "IS431"
+              ],
+              "missing": [
+                "ccrA2",
+                "ccrB2",
+                "mecA",
+                "mecR1",
+                "mecI"
+              ],
+              "comment": ""
+            },
+            {
+              "type": "III",
+              "status": false,
+              "targets": [
+                "IS431"
+              ],
+              "missing": [
+                "ccrA3",
+                "ccrB3",
+                "mecA",
+                "mecR1",
+                "mecI"
+              ],
+              "comment": ""
+            },
+            {
+              "type": "IV",
+              "status": false,
+              "targets": [
+                "IS431"
+              ],
+              "missing": [
+                "ccrA2",
+                "ccrB2",
+                "mecA",
+                "mecR1",
+                "IS1272"
+              ],
+              "comment": ""
+            },
+            {
+              "type": "V",
+              "status": false,
+              "targets": [
+                "IS431_1",
+                "IS431_2"
+              ],
+              "missing": [
+                "ccrC1",
+                "mecA",
+                "mecR1"
+              ],
+              "comment": ""
+            },
+            {
+              "type": "VI",
+              "status": false,
+              "targets": [
+                "IS431"
+              ],
+              "missing": [
+                "ccrA4",
+                "ccrB4",
+                "mecA",
+                "mecR1",
+                "IS1272"
+              ],
+              "comment": ""
+            },
+            {
+              "type": "VII",
+              "status": false,
+              "targets": [
+                "IS431_1",
+                "IS431_2"
+              ],
+              "missing": [
+                "ccrC1",
+                "mecA",
+                "mecR1",
+                "IS12960D"
+              ],
+              "comment": ""
+            },
+            {
+              "type": "VIII",
+              "status": false,
+              "targets": [
+                "IS431"
+              ],
+              "missing": [
+                "ccrA4",
+                "ccrB4",
+                "mecA",
+                "mecR1",
+                "mecI"
+              ],
+              "comment": ""
+            },
+            {
+              "type": "IX",
+              "status": false,
+              "targets": [
+                "IS431_1",
+                "IS431_2"
+              ],
+              "missing": [
+                "ccrA1",
+                "ccrB1",
+                "mecA",
+                "mecR1"
+              ],
+              "comment": ""
+            },
+            {
+              "type": "X",
+              "status": false,
+              "targets": [
+                "IS431_1",
+                "IS431_2"
+              ],
+              "missing": [
+                "ccrA1",
+                "ccrB6",
+                "mecA",
+                "mecR1"
+              ],
+              "comment": ""
+            },
+            {
+              "type": "XI",
+              "status": false,
+              "targets": [],
+              "missing": [
+                "ccrA1",
+                "ccrB3",
+                "blaZ",
+                "mecA",
+                "mecR1",
+                "mecI"
+              ],
+              "comment": ""
+            },
+            {
+              "type": "XII",
+              "status": false,
+              "targets": [
+                "IS431_1",
+                "IS431_2"
+              ],
+              "missing": [
+                "ccrC2",
+                "mecA",
+                "mecR1"
+              ],
+              "comment": ""
+            },
+            {
+              "type": "XIII",
+              "status": false,
+              "targets": [
+                "IS431"
+              ],
+              "missing": [
+                "ccrC2",
+                "mecA",
+                "mecR1",
+                "mecI"
+              ],
+              "comment": ""
+            },
+            {
+              "type": "XIV",
+              "status": false,
+              "targets": [
+                "IS431"
+              ],
+              "missing": [
+                "ccrC1",
+                "mecA",
+                "mecR1",
+                "mecI"
+              ],
+              "comment": ""
+            },
+            {
+              "type": "XV",
+              "status": false,
+              "targets": [
+                "IS431"
+              ],
+              "missing": [
+                "ccrA1",
+                "ccrB6",
+                "mecA",
+                "mecR1",
+                "mecI"
+              ],
+              "comment": ""
+            }
+          ],
+          "regions_considered": [
+            {
+              "subtype": "IVl",
+              "status": false,
+              "coverage": 23.43,
+              "hits": 8,
+              "comment": "Coverage based on 8 hits;There were one or more overlapping hits"
+            },
+            {
+              "subtype": "IIc",
+              "status": false,
+              "coverage": 16.8,
+              "hits": 4,
+              "comment": "Coverage based on 4 hits;There were one or more overlapping hits"
+            },
+            {
+              "subtype": "IIe",
+              "status": false,
+              "coverage": 16.71,
+              "hits": 2,
+              "comment": "Coverage based on 2 hits"
+            },
+            {
+              "subtype": "III",
+              "status": false,
+              "coverage": 14.31,
+              "hits": 12,
+              "comment": "Coverage based on 12 hits;There were one or more overlapping hits"
+            },
+            {
+              "subtype": "IIa",
+              "status": false,
+              "coverage": 13.89,
+              "hits": 32,
+              "comment": "Coverage based on 32 hits;There were one or more overlapping hits"
+            },
+            {
+              "subtype": "IIb",
+              "status": false,
+              "coverage": 13.58,
+              "hits": 1,
+              "comment": ""
+            },
+            {
+              "subtype": "VIII",
+              "status": false,
+              "coverage": 13.48,
+              "hits": 4,
+              "comment": "Coverage based on 4 hits;There were one or more overlapping hits"
+            },
+            {
+              "subtype": "IVj",
+              "status": false,
+              "coverage": 9.32,
+              "hits": 4,
+              "comment": "Coverage based on 4 hits;There were one or more overlapping hits"
+            },
+            {
+              "subtype": "Ia",
+              "status": false,
+              "coverage": 8.73,
+              "hits": 6,
+              "comment": "Coverage based on 6 hits;There were one or more overlapping hits"
+            },
+            {
+              "subtype": "Va",
+              "status": false,
+              "coverage": 8.7,
+              "hits": 5,
+              "comment": "Coverage based on 5 hits;There were one or more overlapping hits"
+            }
+          ],
+          "bundled": {
+            "name": "sccmec schemas (sccmec_targets, sccmec_regions)",
+            "checksum": "sha256:404844b7c08e717a71240547b9c5175343d1e3091e9b6cf239416bed29794cca",
+            "files": [
+              "sccmec-targets.yaml",
+              "sccmec-regions.yaml",
+              "sccmec-targets.fasta",
+              "sccmec-regions.fasta"
+            ]
+          }
+        },
+        "warnings": [
+          {
+            "code": "sccmec_mecA_includes_mecC",
+            "params": {}
+          }
+        ],
+        "tool_version": "1.2.0",
+        "database_name": "sccmec schemas (sccmec_targets, sccmec_regions)",
+        "database_version": "1.2.0",
+        "parameters": {
+          "min_targets_pident": 90,
+          "min_targets_coverage": 80,
+          "min_regions_pident": 85,
+          "min_regions_coverage": 83
+        },
+        "applicability": {
+          "status": "applicable",
+          "checks": [
+            {
+              "source": "mlst",
+              "value": "saureus",
+              "matches": true
+            }
+          ],
+          "evidence": {
+            "species": null,
+            "mlst": {
+              "value": "saureus",
+              "st": null,
+              "tool": "mlst",
+              "tool_version": "2.35.0",
+              "status": "OK",
+              "result_id": "397ff6dc-8190-408b-b9f2-560d4a497915",
+              "created_at": "2026-11-07T23:05:03.476841+00:00"
+            }
+          }
+        }
+      }
+    ],
+    "spa": [
+      {
+        "method": "spa",
+        "status": "typed",
+        "call": "t2211",
+        "details": {
+          "repeats": "04-34-34",
+          "spa_type": "t2211",
+          "rows": [
+            {
+              "contig": "contig_3",
+              "repeats": "04-34-34",
+              "repeat_count": 3,
+              "type": "t2211",
+              "gap_or_unknown_repeat": false
+            }
+          ],
+          "ridom_files": {
+            "name": "spa types (Ridom SpaServer)",
+            "version": "downloaded 2026-11-07 from spa.ridom.de",
+            "sha256": {
+              "sparepeats.fasta": "60e52817b1fde3a60905ed8eb149c0a8de46dfc3243a2b22f05912b748299365",
+              "spatypes.txt": "a898c9e89e29bdc71eca47371d5ad9b3f0dcc795783a3ed4865fe17f85ee9e9b"
+            },
+            "repeats": 865,
+            "types": 22865
+          }
+        },
+        "warnings": [
+          {
+            "code": "spa_files_version",
+            "params": {
+              "version": "downloaded 2026-11-07 from spa.ridom.de"
+            }
+          }
+        ],
+        "tool_version": "0.3.3",
+        "database_name": "spa types (Ridom SpaServer)",
+        "database_version": "downloaded 2026-11-07 from spa.ridom.de",
+        "parameters": {
+          "do_enrich": false
+        },
+        "applicability": {
+          "status": "applicable",
+          "checks": [
+            {
+              "source": "mlst",
+              "value": "saureus",
+              "matches": true
+            }
+          ],
+          "evidence": {
+            "species": null,
+            "mlst": {
+              "value": "saureus",
+              "st": null,
+              "tool": "mlst",
+              "tool_version": "2.35.0",
+              "status": "OK",
+              "result_id": "397ff6dc-8190-408b-b9f2-560d4a497915",
+              "created_at": "2026-11-07T23:05:03.476841+00:00"
+            }
+          }
+        }
+      }
+    ],
+    "agr": [
+      {
+        "method": "agr",
+        "status": "typed",
+        "call": "II",
+        "details": {
+          "agr_group": "II",
+          "agr_group_code": "gp2",
+          "match_score": 13,
+          "canonical_agrD": "canonical",
+          "multiple_agr": "single",
+          "frameshifts": 1,
+          "variants": [
+            {
+              "position": 5,
+              "type": "ins",
+              "effect": "frameshift_variant c.712dupA p.Ile238fs",
+              "gene": "agrA"
+            }
+          ],
+          "operon_alignment": {
+            "fragments": [
+              {
+                "ref_start": 1,
+                "ref_end": 1416,
+                "contig": "contig_3",
+                "start": 579771,
+                "end": 581188,
+                "identity": 96.19
+              },
+              {
+                "ref_start": 2659,
+                "ref_end": 3482,
+                "contig": "contig_3",
+                "start": 582432,
+                "end": 583255,
+                "identity": 99.52
+              }
+            ],
+            "reference_length": 3482,
+            "covered_bases": 2240,
+            "covered_fraction": 0.6433
+          },
+          "checks": {
+            "input_check": "pass",
+            "databases_check": "pass",
+            "outdir_check": "pass",
+            "agr_typing": "pass",
+            "operon_check": "pass",
+            "snippy_check": "pass"
+          },
+          "mode": "mummer",
+          "kmer_hits": {
+            "II": {
+              "hits": 13,
+              "contigs": [
+                "contig_3"
+              ]
+            }
+          },
+          "bundled": {
+            "name": "AgrVATE databases (agrvate_databases)",
+            "checksum": "sha256:10b5e29f8d0774a557bebb3d26662240476443eb495eea9dd9084a14e5fba642"
+          }
+        },
+        "warnings": [
+          {
+            "code": "agr_mummer_mode",
+            "params": {}
+          },
+          {
+            "code": "agr_snippy_threads",
+            "params": {}
+          },
+          {
+            "code": "agr_operon_partial",
+            "params": {
+              "percent": "64.3"
+            }
+          }
+        ],
+        "tool_version": "1.0.2",
+        "database_name": "AgrVATE databases (agrvate_databases)",
+        "database_version": "1.0.2",
+        "parameters": {
+          "mode": "mummer",
+          "typing_only": false
+        },
+        "applicability": {
+          "status": "applicable",
+          "checks": [
+            {
+              "source": "mlst",
+              "value": "saureus",
+              "matches": true
+            }
+          ],
+          "evidence": {
+            "species": null,
+            "mlst": {
+              "value": "saureus",
+              "st": null,
+              "tool": "mlst",
+              "tool_version": "2.35.0",
+              "status": "OK",
+              "result_id": "397ff6dc-8190-408b-b9f2-560d4a497915",
+              "created_at": "2026-11-07T23:05:03.476841+00:00"
+            }
+          }
+        }
+      }
+    ]
+  },
+  "amrfinderplus": {
+    "tool_version": "4.2.7",
+    "database_version": "2026-10-29.1",
+    "parameters": {
+      "mode": "nucleotide",
+      "organism": "Staphylococcus_aureus",
+      "plus": true,
+      "ident_min": -1,
+      "coverage_min": 0.5,
+      "translation_table": 11,
+      "annotation_format": null,
+      "threads": 4
+    },
+    "organism_choice": {
+      "proposed": null,
+      "rule": "no_species",
+      "species": null,
+      "chosen": "Staphylococcus_aureus",
+      "changed_by_user": true
+    },
+    "counts": {
+      "total": 19,
+      "AMR": 6,
+      "VIRULENCE": 13,
+      "STRESS": 0,
+      "point_mutations": 4,
+      "incomplete": 4
+    },
+    "warnings": [
+      {
+        "code": "genotype_not_phenotype",
+        "params": {}
+      },
+      {
+        "code": "hits_partial",
+        "params": {
+          "count": 1,
+          "genes": "tet(38)"
+        }
+      },
+      {
+        "code": "hits_internal_stop",
+        "params": {
+          "count": 3,
+          "genes": "sem, sen, splA"
+        }
+      },
+      {
+        "code": "hmm_not_searched",
+        "params": {}
+      }
+    ],
+    "point_mutation_screen": {
+      "rows": 273,
+      "genes": [
+        "23S ribosomal RNA",
+        "30S ribosomal protein S10",
+        "50S ribosomal protein L3",
+        "50S ribosomal protein L6",
+        "CDP-diacylglycerol--glycerol-3-phosphate 3-phosphatidyltransferase PgsA",
+        "D-alanyl-D-alanine carboxypeptidase PBP4",
+        "D-alanyl-D-alanine carboxypeptidase PBP4 promoter region",
+        "DNA gyrase subunit A GyrA",
+        "DNA topoisomerase (ATP-hydrolyzing) subunit B GyrB",
+        "DNA topoisomerase IV subunit A ParC",
+        "DNA topoisomerase IV subunit B ParE",
+        "DNA-directed RNA polymerase subunit beta RpoC",
+        "UDP-N-acetylglucosamine 1-carboxyvinyltransferase MurA",
+        "bifunctional lysylphosphatidylglycerol flippase/synthetase MprF",
+        "cardiolipin synthase Cls",
+        "cell wall metabolism sensor histidine kinase WalK",
+        "cyclic-di-AMP phosphodiesterase GdpP",
+        "dihydrofolate reductase DfrB",
+        "dihydropteroate synthase FolP",
+        "glycerol-3-phosphate transporter GlpT",
+        "hexose phosphate transporter UhpT",
+        "multidrug efflux RND transporter permease subunit AcrB",
+        "multidrug efflux transporter transcriptional repressor MepR",
+        "penicillin-binding protein PBP2",
+        "sensor histidine kinase VraS"
+      ],
+      "wildtype_positions": 165,
+      "unknown_changes": 104,
+      "mutations": 4
+    },
+    "hits": [
+      {
+        "element_symbol": "sey",
+        "element_name": "staphylococcal enterotoxin type Y",
+        "scope": "plus",
+        "type": "VIRULENCE",
+        "subtype": "VIRULENCE",
+        "amr_class": null,
+        "amr_subclass": null,
+        "method": "EXACTX",
+        "identity": 100.0,
+        "coverage": 100.0,
+        "contig": "contig_3",
+        "start": 72313,
+        "stop": 72975,
+        "strand": "+",
+        "closest_accession": "BAS21358.1"
+      },
+      {
+        "element_symbol": "hlgC",
+        "element_name": "bi-component gamma-hemolysin HlgCB subunit C",
+        "scope": "plus",
+        "type": "VIRULENCE",
+        "subtype": "VIRULENCE",
+        "amr_class": null,
+        "amr_subclass": null,
+        "method": "BLASTX",
+        "identity": 97.14,
+        "coverage": 100.0,
+        "contig": "contig_3",
+        "start": 196371,
+        "stop": 197315,
+        "strand": "-",
+        "closest_accession": "CAA57277.1"
+      },
+      {
+        "element_symbol": "hlgA",
+        "element_name": "bi-component gamma-hemolysin HlgAB subunit A",
+        "scope": "plus",
+        "type": "VIRULENCE",
+        "subtype": "VIRULENCE",
+        "amr_class": null,
+        "amr_subclass": null,
+        "method": "BLASTX",
+        "identity": 99.35,
+        "coverage": 100.0,
+        "contig": "contig_3",
+        "start": 197886,
+        "stop": 198812,
+        "strand": "-",
+        "closest_accession": "AUU54669.1"
+      },
+      {
+        "element_symbol": "murA_E291D",
+        "element_name": "Staphylococcus aureus fosfomycin resistant MurA",
+        "scope": "core",
+        "type": "AMR",
+        "subtype": "POINT",
+        "amr_class": "FOSFOMYCIN",
+        "amr_subclass": "FOSFOMYCIN",
+        "method": "POINTX",
+        "identity": 97.86,
+        "coverage": 100.0,
+        "contig": "contig_3",
+        "start": 509645,
+        "stop": 510907,
+        "strand": "+",
+        "closest_accession": "WP_000358006.1"
+      },
+      {
+        "element_symbol": "murA_T396N",
+        "element_name": "Staphylococcus aureus fosfomycin resistant MurA",
+        "scope": "core",
+        "type": "AMR",
+        "subtype": "POINT",
+        "amr_class": "FOSFOMYCIN",
+        "amr_subclass": "FOSFOMYCIN",
+        "method": "POINTX",
+        "identity": 97.86,
+        "coverage": 100.0,
+        "contig": "contig_3",
+        "start": 509645,
+        "stop": 510907,
+        "strand": "+",
+        "closest_accession": "WP_000358006.1"
+      },
+      {
+        "element_symbol": "hld",
+        "element_name": "delta-hemolysin",
+        "scope": "plus",
+        "type": "VIRULENCE",
+        "subtype": "VIRULENCE",
+        "amr_class": null,
+        "amr_subclass": null,
+        "method": "EXACTX",
+        "identity": 100.0,
+        "coverage": 100.0,
+        "contig": "contig_3",
+        "start": 582823,
+        "stop": 582900,
+        "strand": "+",
+        "closest_accession": "AGU62139.1"
+      },
+      {
+        "element_symbol": "sem",
+        "element_name": "staphylococcal enterotoxin type M",
+        "scope": "plus",
+        "type": "VIRULENCE",
+        "subtype": "VIRULENCE",
+        "amr_class": null,
+        "amr_subclass": null,
+        "method": "INTERNAL_STOP",
+        "identity": 93.26,
+        "coverage": 74.48,
+        "contig": "contig_3",
+        "start": 784924,
+        "stop": 785457,
+        "strand": "+",
+        "closest_accession": "SGR88215.1"
+      },
+      {
+        "element_symbol": "sei",
+        "element_name": "staphylococcal enterotoxin type I",
+        "scope": "plus",
+        "type": "VIRULENCE",
+        "subtype": "VIRULENCE",
+        "amr_class": null,
+        "amr_subclass": null,
+        "method": "BLASTX",
+        "identity": 96.28,
+        "coverage": 99.59,
+        "contig": "contig_3",
+        "start": 785679,
+        "stop": 786404,
+        "strand": "+",
+        "closest_accession": "SGR88193.1"
+      },
+      {
+        "element_symbol": "seu",
+        "element_name": "staphylococcal enterotoxin type U",
+        "scope": "plus",
+        "type": "VIRULENCE",
+        "subtype": "VIRULENCE",
+        "amr_class": null,
+        "amr_subclass": null,
+        "method": "BLASTX",
+        "identity": 98.85,
+        "coverage": 100.0,
+        "contig": "contig_3",
+        "start": 786561,
+        "stop": 787343,
+        "strand": "+",
+        "closest_accession": "SGR88168.1"
+      },
+      {
+        "element_symbol": "sen",
+        "element_name": "staphylococcal enterotoxin type N",
+        "scope": "plus",
+        "type": "VIRULENCE",
+        "subtype": "VIRULENCE",
+        "amr_class": null,
+        "amr_subclass": null,
+        "method": "INTERNAL_STOP",
+        "identity": 94.49,
+        "coverage": 100.0,
+        "contig": "contig_3",
+        "start": 787385,
+        "stop": 788200,
+        "strand": "+",
+        "closest_accession": "SAO78304.1"
+      },
+      {
+        "element_symbol": "lukE",
+        "element_name": "bi-component leukocidin LukED subunit E",
+        "scope": "plus",
+        "type": "VIRULENCE",
+        "subtype": "VIRULENCE",
+        "amr_class": null,
+        "amr_subclass": null,
+        "method": "BLASTX",
+        "identity": 98.71,
+        "coverage": 100.0,
+        "contig": "contig_3",
+        "start": 795133,
+        "stop": 796065,
+        "strand": "+",
+        "closest_accession": "RCV70079.1"
+      },
+      {
+        "element_symbol": "splA",
+        "element_name": "serine protease SplA",
+        "scope": "plus",
+        "type": "VIRULENCE",
+        "subtype": "VIRULENCE",
+        "amr_class": null,
+        "amr_subclass": null,
+        "method": "INTERNAL_STOP",
+        "identity": 95.32,
+        "coverage": 100.0,
+        "contig": "contig_3",
+        "start": 808700,
+        "stop": 809404,
+        "strand": "+",
+        "closest_accession": "ABD31004.1"
+      },
+      {
+        "element_symbol": "lnu(G)",
+        "element_name": "lincosamide nucleotidyltransferase Lnu(G)",
+        "scope": "core",
+        "type": "AMR",
+        "subtype": "AMR",
+        "amr_class": "LINCOSAMIDE",
+        "amr_subclass": "LINCOSAMIDE",
+        "method": "BLASTX",
+        "identity": 97.75,
+        "coverage": 100.0,
+        "contig": "contig_3",
+        "start": 992539,
+        "stop": 993339,
+        "strand": "+",
+        "closest_accession": "WP_002333496.1"
+      },
+      {
+        "element_symbol": "selX",
+        "element_name": "staphylococcal enterotoxin-like toxin X",
+        "scope": "plus",
+        "type": "VIRULENCE",
+        "subtype": "VIRULENCE",
+        "amr_class": null,
+        "amr_subclass": null,
+        "method": "BLASTX",
+        "identity": 96.06,
+        "coverage": 100.0,
+        "contig": "contig_3",
+        "start": 2250017,
+        "stop": 2250625,
+        "strand": "-",
+        "closest_accession": "AEI60187.1"
+      },
+      {
+        "element_symbol": "glpT_A100V",
+        "element_name": "Staphylococcus aureus fosfomycin resistant GlpT",
+        "scope": "core",
+        "type": "AMR",
+        "subtype": "POINT",
+        "amr_class": "FOSFOMYCIN",
+        "amr_subclass": "FOSFOMYCIN",
+        "method": "POINTX",
+        "identity": 98.67,
+        "coverage": 100.0,
+        "contig": "contig_3",
+        "start": 2281913,
+        "stop": 2283268,
+        "strand": "+",
+        "closest_accession": "WP_001010111.1"
+      },
+      {
+        "element_symbol": "glpT_L27F",
+        "element_name": "Staphylococcus aureus fosfomycin resistant GlpT",
+        "scope": "core",
+        "type": "AMR",
+        "subtype": "POINT",
+        "amr_class": "FOSFOMYCIN",
+        "amr_subclass": "FOSFOMYCIN",
+        "method": "POINTX",
+        "identity": 98.67,
+        "coverage": 100.0,
+        "contig": "contig_3",
+        "start": 2281913,
+        "stop": 2283268,
+        "strand": "+",
+        "closest_accession": "WP_001010111.1"
+      },
+      {
+        "element_symbol": "tet(38)",
+        "element_name": "tetracycline efflux MFS transporter Tet(38)",
+        "scope": "plus",
+        "type": "AMR",
+        "subtype": "AMR",
+        "amr_class": "TETRACYCLINE",
+        "amr_subclass": "TETRACYCLINE",
+        "method": "PARTIALX",
+        "identity": 99.5,
+        "coverage": 88.67,
+        "contig": "contig_3",
+        "start": 2523687,
+        "stop": 2524883,
+        "strand": "-",
+        "closest_accession": "CAG39166.1"
+      },
+      {
+        "element_symbol": "selZ",
+        "element_name": "staphylococcal enterotoxin type Z",
+        "scope": "plus",
+        "type": "VIRULENCE",
+        "subtype": "VIRULENCE",
+        "amr_class": null,
+        "amr_subclass": null,
+        "method": "BLASTX",
+        "identity": 95.75,
+        "coverage": 100.0,
+        "contig": "contig_3",
+        "start": 2582458,
+        "stop": 2583234,
+        "strand": "-",
+        "closest_accession": "SUK32596.1"
+      },
+      {
+        "element_symbol": "icaC",
+        "element_name": "polysaccharide intercellular adhesin biosynthesis/export protein IcaC",
+        "scope": "plus",
+        "type": "VIRULENCE",
+        "subtype": "VIRULENCE",
+        "amr_class": null,
+        "amr_subclass": null,
+        "method": "BLASTX",
+        "identity": 99.43,
+        "coverage": 100.0,
+        "contig": "contig_3",
+        "start": 2661899,
+        "stop": 2662948,
+        "strand": "-",
+        "closest_accession": "AUU58561.1"
+      }
+    ]
+  },
+  "status": "completed",
+  "finished_at": "2026-11-07T23:06:13+00:00",
+  "wall_seconds": 4278.2,
+  "resources": {
+    "sampling_seconds": 5.0,
+    "filesystem": "/var/lib/docker",
+    "disk_used_at_start_bytes": 34006147072,
+    "peak_disk_used_bytes": 35093159936,
+    "peak_disk_increase_bytes": 1087012864,
+    "min_disk_free_bytes": 119784251392,
+    "memory_used_at_start_bytes": 1499070464,
+    "peak_memory_used_bytes": 11034271744,
+    "peak_memory_increase_bytes": 9535201280,
+    "largest_process_rss_bytes": 9498128384,
+    "largest_process_name": "flye-modules",
+    "note": "system-wide samples (MemTotal - MemAvailable; statvfs used) every few seconds, so short peaks can be missed"
+  },
+  "summary": {
+    "st": null,
+    "mlst_status": "OK",
+    "alleles": {
+      "arcC": "6",
+      "aroE": "72",
+      "glpF": "12",
+      "gmk": "43",
+      "pta": "421?",
+      "tpi": "67",
+      "yqiL": "370?"
+    },
+    "spa": "t2211",
+    "sccmec": null,
+    "agr": "II",
+    "amr_genes": [
+      "glpT_A100V",
+      "glpT_L27F",
+      "lnu(G)",
+      "murA_E291D",
+      "murA_T396N",
+      "tet(38)"
+    ],
+    "all_elements": [
+      "glpT_A100V",
+      "glpT_L27F",
+      "hld",
+      "hlgA",
+      "hlgC",
+      "icaC",
+      "lnu(G)",
+      "lukE",
+      "murA_E291D",
+      "murA_T396N",
+      "sei",
+      "selX",
+      "selZ",
+      "sem",
+      "sen",
+      "seu",
+      "sey",
+      "splA",
+      "tet(38)"
+    ],
+    "polisher": "medaka",
+    "medaka_model": "r941_min_hac_g507",
+    "medaka_model_source": "registered",
+    "medaka_model_sha256": "6e87607808bfe7884fc701ded596931afeeb8a59e69bdcb268ef07ac7680ac26",
+    "contigs": 2,
+    "total_length": 2734699,
+    "n50": 2730795,
+    "step_seconds": {
+      "import": 10.0,
+      "filtlong": 50.1,
+      "flye": 670.6,
+      "polishing_medaka": 3258.9,
+      "mlst": 10.4,
+      "typing_sccmec": 11.3,
+      "typing_spa": 10.2,
+      "typing_agr": 10.0,
+      "amrfinderplus": 30.1
+    }
+  },
+  "cleanup": {
+    "arva_raw_copy_removed": false,
+    "arva_sample_deleted": true,
+    "download_folder_removed": true
+  }
+}

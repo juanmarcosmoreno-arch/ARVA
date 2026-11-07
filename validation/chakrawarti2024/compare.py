@@ -86,7 +86,8 @@ def main() -> None:
         arva_st = st_of(s.get("st"))
         sanger = st_of(exp["sanger_st"])
         paper_ont = exp["ont_asm_st_paper"]
-        blaz = has(genes, r"blaZ")
+        # blaZ and blaPC1 both name the S. aureus PC1 penicillinase (AMRFinderPlus uses either symbol)
+        blaz = has(genes, r"blaZ|blaPC1")
         meca = has(genes, r"mecA|mecC")
         pen_r = exp["ast_penicillin"] == "R"
         oxa_r = exp["ast_oxacillin"] == "R" or exp["ast_cefoxitin"] == "R"
@@ -157,7 +158,7 @@ def main() -> None:
         f"| ST vs Sanger, isolates the paper's ONT-only assembly got wrong | "
         f"{sum(r['st_vs_sanger'] == 'match' for r in disc)}/{len(disc)} | ONT-only 'Undetermined' or wrong in Table S3 |",
         f"| spa vs hybrid assembly (Table S5) | {count('spa_vs_paper')} | |",
-        f"| blaZ vs penicillin phenotype | {count('blaZ_vs_penicillin')} | blaZ expected exactly in penicillin R "
+        f"| blaZ/blaPC1 vs penicillin phenotype | {count('blaZ_vs_penicillin')} | penicillinase (blaZ or blaPC1) expected exactly in penicillin R "
         "(Table 1; Table 1 and Table S7 disagree on the R count, see README) |",
         f"| mecA vs oxacillin/cefoxitin | {count('mecA_vs_oxacillin')} | all isolates are S: mecA expected absent |",
         "",
