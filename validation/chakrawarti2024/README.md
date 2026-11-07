@@ -5,9 +5,11 @@ pipeline. It uses 15 *Staphylococcus aureus* isolates from a published study
 whose raw reads are public and whose expected results (Sanger MLST, spa types,
 phenotypic AST) are in the article's supplement.
 
-No reads, assemblies or ARVA results are stored here. The folder holds only
-the isolate list, the expected values copied from the paper, and their
-provenance.
+No reads or assemblies are stored here. The folder holds the isolate list,
+the expected values copied from the paper and their provenance, the runner
+(`run_validation.py`), the comparison script (`compare.py`) and ARVA's
+per-isolate results (`results/<isolate>.json`, small JSON summaries with
+provenance) and concordance (`results/concordance.md`, `.tsv`).
 
 ## Source
 
@@ -104,14 +106,72 @@ it was trained on Guppy 5.0.7 HAC output, not 4.0.11. Record this as a known
 deviation from the paper's pipeline. Two things to note:
 
 1. The installed medaka package ships only R10.4.1 model files
-   (`medaka/data/`), and ARVA does not let Medaka download models. The
-   `r941_min_hac_g507` model file must therefore be provisioned (added to the
-   medaka model store) before the run. The ARVA run must pass the model
-   explicitly, because these reads carry no basecall-model tag for ARVA's
-   automatic mapping.
+   (`medaka/data/`), and ARVA does not let Medaka download models itself.
+   The model is registered in ARVA's Database Manager (kind `medaka_model`)
+   through ARVA's own API: `run_validation.py` asks for the download plan
+   (`POST /api/v1/databases/medaka-models/plan`) and confirms the download
+   (`POST /api/v1/databases/medaka-models/download` with the plan's SHA-256,
+   size and Medaka's licence), as a user would in the Databases section. ARVA
+   fetches `r941_min_hac_g507_model_pt.tar.gz` from the medaka **v2.1.1** tag
+   (`https://media.githubusercontent.com/media/nanoporetech/medaka/v2.1.1/medaka/data/r941_min_hac_g507_model_pt.tar.gz`),
+   1,502,971 bytes, SHA-256
+   `6e87607808bfe7884fc701ded596931afeeb8a59e69bdcb268ef07ac7680ac26` (the
+   tag's Git LFS pointer), checks the archive and lets medaka load it once.
+   The runner refuses a registered model with any other checksum. The model
+   must be passed explicitly, because these reads carry no basecall-model tag
+   for ARVA's automatic mapping (ARVA's plan reports `no_basecall_model`).
 2. If a medaka 1.x environment were available, `r941_min_high_g360` would
    reproduce the paper more closely. We did not set one up: disk is limited
    and 1.x needs TensorFlow.
+
+## Methods of the ARVA run (`run_validation.py`)
+
+Everything goes through ARVA's HTTP API, one isolate at a time (the disk is
+small): download the ONT FASTQ from ENA (md5 and size checked), import it
+into a sample of the project "Validation Chakrawarti 2024", run the steps
+below, write `results/<isolate>.json`, delete the FASTQ and the sample.
+Isolates that already have a result are skipped, so the run resumes.
+
+| Step | ARVA | Paper (ONT-Asm) |
+|---|---|---|
+| Read filter | Filtlong `--min_length 1000 --min_mean_q 90` (the same two thresholds as NanoFilt `-l 1000 -q 10`; see `FILTER_NOTE` in the runner) | NanoFilt v2.7.1 `-l 1000 -q 10` |
+| Assembly | Flye `--nano-raw` (Guppy 4.0.11 reads are pre-Guppy5), `--genome-size 2.8m` | Flye v2.3.1, genome size 2.8 Mb |
+| Polishing | Medaka 2.1.1, model `r941_min_hac_g507` registered from medaka v2.1.1 (SHA-256 `6e87607808bfe7884fc701ded596931afeeb8a59e69bdcb268ef07ac7680ac26`), one round on the Flye draft | Rebaler v0.2.0, then Medaka v1.0.3 (model not stated) |
+| Typing | mlst; spaTyper, sccmec, AgrVATE (ARVA's S. aureus typing) | mlst v2.19.0; spaTyper v1.0 (CGE) |
+| Resistance genes | AMRFinderPlus `--organism Staphylococcus_aureus` | ABRicate v1.01 (CARD, ResFinder, NCBI, MEGARES 2.0, ARG-ANNOT) |
+
+Deviations, recorded in every result (`deviations`): the Medaka model is
+`r941_min_hac_g507` (trained on Guppy 5.0.7 HAC output) because the medaka
+1.0.3 models (`r941_min_high_g360` and older) are not loadable in medaka 2;
+there is no Rebaler step. There is no fallback polisher: if ARVA refuses
+Medaka or Medaka fails, the isolate is written as `results/<isolate>.failed.json`
+with the reason. Each result records the model actually used
+(`medaka_model`: name, source `registered`, SHA-256, database record, how it
+was registered), taken from the polishing job's own provenance.
+
+The ENA FASTQ keeps its name (`<run>_1.fastq.gz`). ARVA no longer takes a
+lone long-read file named `_1` as mate R1 of a pair; the import's `read_mate`
+and `mate_note` are recorded, and an isolate whose file is still marked as a
+mate fails with that reason.
+
+Run (PostgreSQL and Redis running):
+
+```
+apps/api/.venv/bin/python -I validation/chakrawarti2024/run_validation.py --start-arva
+apps/api/.venv/bin/python -I validation/chakrawarti2024/compare.py
+```
+
+### Racon pilot (`results/racon-pilot/`)
+
+The pilot (AC05-54 and AC15-06) ran before ARVA could register an R9.4.1
+Medaka model, so ARVA refused `r941_min_hac_g507` (HTTP 400, recorded in
+those files) and the pilot polished with Racon (minimap2 `map-ont`, ARVA's
+Racon defaults) instead. Those two results are kept in
+`results/racon-pilot/` for a Racon-vs-Medaka comparison. `compare.py`
+never counts them in the concordance; it lists them beside the Medaka
+results of the same isolates in a separate section of
+`results/concordance.md`. In the pilot, AC15-06 gave ST3028 (match) and
+AC05-54 a novel profile (arcC allele 484 instead of 1, so no ST5957).
 
 ## Isolate selection (15)
 
@@ -181,14 +241,14 @@ Gene and phenotype links stated in the text, usable as soft checks:
 
 ## What is compared
 
-For each isolate, ARVA runs its ONT-only pipeline (read filtering, Flye,
-Medaka with the model above) and the following comparisons are made:
+For each isolate, ARVA runs its ONT-only pipeline (Filtlong, Flye
+`--nano-raw`, Medaka with the registered `r941_min_hac_g507`) and the following comparisons are made:
 
 1. **MLST** (ARVA `mlst`) against the Sanger ST (gold standard) and against
    the paper's ONT-only call.
 2. **spa type** (ARVA spaTyper) against the hybrid-assembly spa type. The paper
    reports that ONT-Asm and Hyb-Asm agree on spa for all 62 isolates.
-3. **Resistance genes** (AMRFinderPlus and ABRicate) against the S7 phenotypes:
+3. **Resistance genes** (AMRFinderPlus; the runner does not run ABRicate) against the S7 phenotypes:
    - blaZ against penicillin;
    - mecA against oxacillin and cefoxitin (all S);
    - tet(K) against tetracycline;

@@ -1,6 +1,6 @@
 {
   "isolate": "AC15-06",
-  "started_at": "2026-11-07T10:55:26+00:00",
+  "started_at": "2026-11-07T13:55:44+00:00",
   "input": {
     "source": "BTM",
     "farm": "AC-15",
@@ -51,10 +51,14 @@
   },
   "provenance": {
     "arva_version": "0.2.0",
-    "git_commit": "1712b76e61b0452d8f788455a2d17ac217371149",
+    "git_commit": "ae1da29d4c806047a259c0d22f7bfdedfda6cb88",
     "git_branch": "claude/affectionate-darwin-oknu0k",
     "git_dirty_paths": [
-      "?? validation/"
+      "M validation/chakrawarti2024/compare.py",
+      " M validation/chakrawarti2024/results/concordance.md",
+      "R  validation/chakrawarti2024/results/AC05-54.json -> validation/chakrawarti2024/results/racon-pilot/AC05-54.json",
+      "R  validation/chakrawarti2024/results/AC15-06.json -> validation/chakrawarti2024/results/racon-pilot/AC15-06.json",
+      " M validation/chakrawarti2024/run_validation.py"
     ],
     "tools": {
       "filtlong": {
@@ -138,6 +142,15 @@
         "status": "installed"
       },
       {
+        "kind": "medaka_model",
+        "name": "Medaka model r941_min_hac_g507",
+        "version": "r941_min_hac_g507",
+        "version_source": "checksum",
+        "path": "/root/.arva-db/medaka-models/r941_min_hac_g507",
+        "is_default": false,
+        "status": "installed"
+      },
+      {
         "kind": "mlst_schemes",
         "name": "PubMLST schemes bundled with mlst 2.35.0",
         "version": "2026-03-11",
@@ -204,7 +217,7 @@
   },
   "steps": {
     "import": {
-      "id": "9f9cc179-1df1-413f-a0fb-80ef313d551d",
+      "id": "a27d6a2e-d33c-4d23-97e4-930c320cb714",
       "job_type": "server_import",
       "tool_name": "arva-import",
       "tool_version": "0.2.0",
@@ -213,7 +226,7 @@
       "parameters": {
         "root": "/tmp/claude-0/-home-user-ARVA/a0079f7f-7f60-54c5-bf8b-5f8483664aed/scratchpad/validation-data/fastq",
         "paths": [
-          "AC15-06/SRR25741643.fastq.gz"
+          "AC15-06/SRR25741643_1.fastq.gz"
         ]
       },
       "commands": null,
@@ -222,16 +235,16 @@
       "database_kind": null,
       "database_checksum": null,
       "database_path": null,
-      "duration_seconds": 0.474,
-      "started_at": "2026-11-07T10:56:38.641720Z",
-      "finished_at": "2026-11-07T10:56:39.115987Z",
+      "duration_seconds": 0.612,
+      "started_at": "2026-11-07T13:58:11.884048Z",
+      "finished_at": "2026-11-07T13:58:12.496306Z",
       "error_message": null,
       "result_summary": {
         "imported": [
           {
-            "file_id": "ef724ed2-619a-4fc0-9199-baa23a8b9b6d",
-            "name": "SRR25741643.fastq.gz",
-            "path": "AC15-06/SRR25741643.fastq.gz",
+            "file_id": "705011f7-d410-47ae-8e01-746669ec8203",
+            "name": "SRR25741643_1.fastq.gz",
+            "path": "AC15-06/SRR25741643_1.fastq.gz",
             "size_bytes": 238015105
           }
         ],
@@ -241,7 +254,7 @@
       "wall_seconds": 10.0
     },
     "filtlong": {
-      "id": "23c5837d-92dd-4e1a-90b3-21264710d63c",
+      "id": "eefa4190-f57d-4a8b-8d4a-5c08d8bb3bb9",
       "job_type": "filtlong",
       "tool_name": "Filtlong",
       "tool_version": "0.3.1",
@@ -276,7 +289,7 @@
           "1",
           "--window_size",
           "250",
-          "/home/user/ARVA/apps/api/data/raw/46ed071e-92a2-4161-8f71-63744648ea11/482968b6-eb1e-4b18-ba4f-9e5a948021db/ef724ed2-619a-4fc0-9199-baa23a8b9b6d__SRR25741643.fastq.gz"
+          "/home/user/ARVA/apps/api/data/raw/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/705011f7-d410-47ae-8e01-746669ec8203__SRR25741643_1.fastq.gz"
         ]
       ],
       "database_name": null,
@@ -284,9 +297,9 @@
       "database_kind": null,
       "database_checksum": null,
       "database_path": null,
-      "duration_seconds": 39.331,
-      "started_at": "2026-11-07T10:56:48.834704Z",
-      "finished_at": "2026-11-07T10:57:28.165805Z",
+      "duration_seconds": 37.345,
+      "started_at": "2026-11-07T13:58:22.044496Z",
+      "finished_at": "2026-11-07T13:58:59.389341Z",
       "error_message": null,
       "result_summary": {
         "input_reads": 46151,
@@ -309,7 +322,7 @@
       "wall_seconds": 40.1
     },
     "flye": {
-      "id": "d6b8b8dd-782b-455e-ab38-6a82f5d8a856",
+      "id": "5a9f6a5f-d74f-4307-b1d8-5993341af362",
       "job_type": "flye_assembly",
       "tool_name": "Flye",
       "tool_version": "2.9.6",
@@ -369,9 +382,9 @@
         [
           "/root/.arva-tools/conda/flye/bin/flye",
           "--nano-raw",
-          "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/482968b6-eb1e-4b18-ba4f-9e5a948021db/d6b8b8dd-782b-455e-ab38-6a82f5d8a856/input/01_SRR25741643.filtlong.fastq.gz",
+          "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/5a9f6a5f-d74f-4307-b1d8-5993341af362/input/01_SRR25741643_1.filtlong.fastq.gz",
           "--out-dir",
-          "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/482968b6-eb1e-4b18-ba4f-9e5a948021db/d6b8b8dd-782b-455e-ab38-6a82f5d8a856/flye",
+          "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/5a9f6a5f-d74f-4307-b1d8-5993341af362/flye",
           "--threads",
           "4",
           "--iterations",
@@ -385,13 +398,13 @@
       "database_kind": null,
       "database_checksum": null,
       "database_path": null,
-      "duration_seconds": 459.616,
-      "started_at": "2026-11-07T10:57:42.265508Z",
-      "finished_at": "2026-11-07T11:05:21.881338Z",
+      "duration_seconds": 437.523,
+      "started_at": "2026-11-07T13:59:13.178537Z",
+      "finished_at": "2026-11-07T14:06:30.701320Z",
       "error_message": null,
       "result_summary": {
         "flye_version": "2.9.6",
-        "assembly_id": "aa2a25f8-fd4c-4249-b947-4ee87f7cfe0c",
+        "assembly_id": "8a627965-93cf-4cab-9df4-b2e660210abf",
         "read_type": "nano-raw",
         "log": {
           "total_read_length": 188799363,
@@ -463,38 +476,56 @@
         "host": "unknown computer",
         "nice_executable": "/usr/bin/nice"
       },
-      "wall_seconds": 480.6
+      "wall_seconds": 450.6
     },
-    "polishing_racon": {
-      "id": "268b822e-2e25-4dd0-ad6b-fa0f67949d00",
-      "job_type": "racon_polish",
-      "tool_name": "Racon",
-      "tool_version": "1.5.0",
-      "tool_path": "/usr/bin/racon",
+    "polishing_medaka": {
+      "id": "7f5840b8-07b8-471e-a563-48587f663eba",
+      "job_type": "medaka_polish",
+      "tool_name": "Medaka",
+      "tool_version": "2.1.1",
+      "tool_path": "/root/.arva-tools/conda/medaka/bin/medaka",
       "status": "completed",
       "parameters": {
-        "read_type": "map-ont",
-        "rounds": 1,
-        "match": 3,
-        "mismatch": -5,
-        "gap": -4,
-        "window_length": 500,
-        "quality_threshold": 10.0,
-        "error_threshold": 0.3,
+        "model": "r941_min_hac_g507",
         "threads": 4,
+        "batch_size": 100,
+        "model_file": "/root/.arva-db/medaka-models/r941_min_hac_g507/r941_min_hac_g507_model_pt.tar.gz",
+        "read_type": "map-ont",
+        "medaka_model": {
+          "model": "r941_min_hac_g507",
+          "source": "user",
+          "suggestion": {
+            "basecall_model": null,
+            "basecall_models": [],
+            "model": null,
+            "source": "medaka.options.basecaller_models",
+            "status": "no_basecall_model"
+          },
+          "mismatch_accepted": false,
+          "medaka_version": "2.1.1",
+          "model_source": "registered",
+          "file": "r941_min_hac_g507_model_pt.tar.gz",
+          "path": "/root/.arva-db/medaka-models/r941_min_hac_g507/r941_min_hac_g507_model_pt.tar.gz",
+          "sha256": "6e87607808bfe7884fc701ded596931afeeb8a59e69bdcb268ef07ac7680ac26",
+          "database_id": "c2f14a26-3429-4385-850e-7245e6ded1b8",
+          "url": "https://media.githubusercontent.com/media/nanoporetech/medaka/v2.1.1/medaka/data/r941_min_hac_g507_model_pt.tar.gz",
+          "origin": "download",
+          "chemistry": "R9.4.1",
+          "basecaller": "Guppy 5.0.7"
+        },
         "draft": {
-          "assembly_id": "aa2a25f8-fd4c-4249-b947-4ee87f7cfe0c",
+          "assembly_id": "8a627965-93cf-4cab-9df4-b2e660210abf",
           "kind": "assembly",
           "assembler": "Flye",
           "assembler_version": "2.9.6",
-          "job_id": "d6b8b8dd-782b-455e-ab38-6a82f5d8a856",
+          "job_id": "5a9f6a5f-d74f-4307-b1d8-5993341af362",
           "mode": "long",
           "declared_assembler": null,
           "declared_assembler_version": null,
           "contigs_sha256": "b33d392d44c6a89467bf3f63e3cc417429a7b833c3067dc8dd50428868914323"
         },
         "inputs": {
-          "long": "19995517-9967-4bbc-9e39-4d68f56ad5a4"
+          "long": "b2a6b575-1a07-47bb-b754-173aff429d20"
         },
         "reads_confirmed": false,
         "sequencing_technology": "nanopore",
@@ -504,41 +535,25 @@
         "heap_source": null,
         "quast": false,
         "quast_reference_file_id": null,
-        "strategy": "racon",
-        "then_pilon": null
+        "medaka_model_source": "user",
+        "draft_is_flye": true,
+        "strategy": "medaka"
       },
       "commands": [
         [
-          "/usr/bin/minimap2",
-          "-x",
-          "map-ont",
-          "-t",
-          "4",
+          "/root/.arva-tools/conda/medaka/bin/medaka_consensus",
+          "-i",
+          "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/7f5840b8-07b8-471e-a563-48587f663eba/work/input/04_SRR25741643_1.filtlong.fastq.gz",
+          "-d",
+          "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/7f5840b8-07b8-471e-a563-48587f663eba/work/round0.fasta",
           "-o",
-          "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/482968b6-eb1e-4b18-ba4f-9e5a948021db/268b822e-2e25-4dd0-ad6b-fa0f67949d00/work/round1.paf",
-          "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/482968b6-eb1e-4b18-ba4f-9e5a948021db/268b822e-2e25-4dd0-ad6b-fa0f67949d00/work/round0.fasta",
-          "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/482968b6-eb1e-4b18-ba4f-9e5a948021db/268b822e-2e25-4dd0-ad6b-fa0f67949d00/work/input/04_SRR25741643.filtlong.fastq.gz"
-        ],
-        [
-          "/usr/bin/racon",
+          "medaka",
           "-m",
-          "3",
-          "-x",
-          "-5",
-          "-g",
-          "-4",
-          "-w",
-          "500",
-          "-q",
-          "10",
-          "-e",
-          "0.3",
+          "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/7f5840b8-07b8-471e-a563-48587f663eba/work/model/r941_min_hac_g507_model_pt.tar.gz",
           "-t",
           "4",
-          "-u",
-          "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/482968b6-eb1e-4b18-ba4f-9e5a948021db/268b822e-2e25-4dd0-ad6b-fa0f67949d00/work/input/04_SRR25741643.filtlong.fastq.gz",
-          "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/482968b6-eb1e-4b18-ba4f-9e5a948021db/268b822e-2e25-4dd0-ad6b-fa0f67949d00/work/round1.paf",
-          "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/482968b6-eb1e-4b18-ba4f-9e5a948021db/268b822e-2e25-4dd0-ad6b-fa0f67949d00/work/round0.fasta"
+          "-b",
+          "100"
         ],
         [
           "/usr/bin/dnadiff",
@@ -554,8 +569,8 @@
           "map-ont",
           "-t",
           "4",
-          "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/482968b6-eb1e-4b18-ba4f-9e5a948021db/268b822e-2e25-4dd0-ad6b-fa0f67949d00/work/round0.fasta",
-          "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/482968b6-eb1e-4b18-ba4f-9e5a948021db/268b822e-2e25-4dd0-ad6b-fa0f67949d00/work/input/04_SRR25741643.filtlong.fastq.gz"
+          "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/7f5840b8-07b8-471e-a563-48587f663eba/work/round0.fasta",
+          "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/7f5840b8-07b8-471e-a563-48587f663eba/work/input/04_SRR25741643_1.filtlong.fastq.gz"
         ],
         [
           "/usr/bin/samtools",
@@ -563,20 +578,20 @@
           "-@",
           "3",
           "-T",
-          "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/482968b6-eb1e-4b18-ba4f-9e5a948021db/268b822e-2e25-4dd0-ad6b-fa0f67949d00/work/draft.sort",
+          "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/7f5840b8-07b8-471e-a563-48587f663eba/work/draft.sort",
           "-o",
-          "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/482968b6-eb1e-4b18-ba4f-9e5a948021db/268b822e-2e25-4dd0-ad6b-fa0f67949d00/work/draft.bam",
-          "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/482968b6-eb1e-4b18-ba4f-9e5a948021db/268b822e-2e25-4dd0-ad6b-fa0f67949d00/work/draft.sam.gz"
+          "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/7f5840b8-07b8-471e-a563-48587f663eba/work/draft.bam",
+          "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/7f5840b8-07b8-471e-a563-48587f663eba/work/draft.sam.gz"
         ],
         [
           "/usr/bin/samtools",
           "stats",
-          "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/482968b6-eb1e-4b18-ba4f-9e5a948021db/268b822e-2e25-4dd0-ad6b-fa0f67949d00/work/draft.bam"
+          "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/7f5840b8-07b8-471e-a563-48587f663eba/work/draft.bam"
         ],
         [
           "/usr/bin/samtools",
           "coverage",
-          "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/482968b6-eb1e-4b18-ba4f-9e5a948021db/268b822e-2e25-4dd0-ad6b-fa0f67949d00/work/draft.bam"
+          "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/7f5840b8-07b8-471e-a563-48587f663eba/work/draft.bam"
         ],
         [
           "/usr/bin/samtools",
@@ -590,7 +605,7 @@
           "0",
           "-G",
           "UNMAP,SECONDARY,QCFAIL,DUP",
-          "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/482968b6-eb1e-4b18-ba4f-9e5a948021db/268b822e-2e25-4dd0-ad6b-fa0f67949d00/work/draft.bam"
+          "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/7f5840b8-07b8-471e-a563-48587f663eba/work/draft.bam"
         ],
         [
           "/usr/bin/minimap2",
@@ -599,8 +614,8 @@
           "map-ont",
           "-t",
           "4",
-          "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/482968b6-eb1e-4b18-ba4f-9e5a948021db/268b822e-2e25-4dd0-ad6b-fa0f67949d00/work/round1.fasta",
-          "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/482968b6-eb1e-4b18-ba4f-9e5a948021db/268b822e-2e25-4dd0-ad6b-fa0f67949d00/work/input/04_SRR25741643.filtlong.fastq.gz"
+          "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/7f5840b8-07b8-471e-a563-48587f663eba/work/round1.fasta",
+          "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/7f5840b8-07b8-471e-a563-48587f663eba/work/input/04_SRR25741643_1.filtlong.fastq.gz"
         ],
         [
           "/usr/bin/samtools",
@@ -608,20 +623,20 @@
           "-@",
           "3",
           "-T",
-          "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/482968b6-eb1e-4b18-ba4f-9e5a948021db/268b822e-2e25-4dd0-ad6b-fa0f67949d00/work/polished.sort",
+          "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/7f5840b8-07b8-471e-a563-48587f663eba/work/polished.sort",
           "-o",
-          "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/482968b6-eb1e-4b18-ba4f-9e5a948021db/268b822e-2e25-4dd0-ad6b-fa0f67949d00/work/polished.bam",
-          "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/482968b6-eb1e-4b18-ba4f-9e5a948021db/268b822e-2e25-4dd0-ad6b-fa0f67949d00/work/polished.sam.gz"
+          "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/7f5840b8-07b8-471e-a563-48587f663eba/work/polished.bam",
+          "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/7f5840b8-07b8-471e-a563-48587f663eba/work/polished.sam.gz"
         ],
         [
           "/usr/bin/samtools",
           "stats",
-          "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/482968b6-eb1e-4b18-ba4f-9e5a948021db/268b822e-2e25-4dd0-ad6b-fa0f67949d00/work/polished.bam"
+          "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/7f5840b8-07b8-471e-a563-48587f663eba/work/polished.bam"
         ],
         [
           "/usr/bin/samtools",
           "coverage",
-          "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/482968b6-eb1e-4b18-ba4f-9e5a948021db/268b822e-2e25-4dd0-ad6b-fa0f67949d00/work/polished.bam"
+          "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/7f5840b8-07b8-471e-a563-48587f663eba/work/polished.bam"
         ],
         [
           "/usr/bin/samtools",
@@ -635,28 +650,28 @@
           "0",
           "-G",
           "UNMAP,SECONDARY,QCFAIL,DUP",
-          "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/482968b6-eb1e-4b18-ba4f-9e5a948021db/268b822e-2e25-4dd0-ad6b-fa0f67949d00/work/polished.bam"
+          "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/7f5840b8-07b8-471e-a563-48587f663eba/work/polished.bam"
         ]
       ],
-      "database_name": null,
-      "database_version": null,
-      "database_kind": null,
-      "database_checksum": null,
-      "database_path": null,
-      "duration_seconds": 210.194,
-      "started_at": "2026-11-07T11:05:33.266058Z",
-      "finished_at": "2026-11-07T11:09:03.460110Z",
+      "database_name": "Medaka model r941_min_hac_g507",
+      "database_version": "r941_min_hac_g507",
+      "database_kind": "medaka_model",
+      "database_checksum": "sha256:cd2a96a717c8682921cdd5e2d144a5c5269c1ff9fdc365840f75a765cda41598",
+      "database_path": "/root/.arva-db/medaka-models/r941_min_hac_g507",
+      "duration_seconds": 4183.97,
+      "started_at": "2026-11-07T14:06:46.190201Z",
+      "finished_at": "2026-11-07T15:16:30.159746Z",
       "error_message": null,
       "result_summary": {
-        "polisher": "Racon",
-        "polisher_version": "1.5.0",
-        "strategy": "racon",
+        "polisher": "Medaka",
+        "polisher_version": "2.1.1",
+        "strategy": "medaka",
         "draft": {
-          "assembly_id": "aa2a25f8-fd4c-4249-b947-4ee87f7cfe0c",
+          "assembly_id": "8a627965-93cf-4cab-9df4-b2e660210abf",
           "kind": "assembly",
           "assembler": "Flye",
           "assembler_version": "2.9.6",
-          "job_id": "d6b8b8dd-782b-455e-ab38-6a82f5d8a856",
+          "job_id": "5a9f6a5f-d74f-4307-b1d8-5993341af362",
           "mode": "long",
           "declared_assembler": null,
           "declared_assembler_version": null,
@@ -672,25 +687,25 @@
           },
           "parent_assembly_id": null
         },
-        "polished_assembly_id": "3190e442-8ea9-40a8-b92f-d476afdea3a1",
+        "polished_assembly_id": "d07b52e9-660d-433a-903e-6178f0c0d55f",
         "read_type": "map-ont",
-        "rounds_requested": 1,
+        "rounds_requested": null,
         "rounds_run": 1,
         "rounds": [
           {
             "round": 1,
             "changes": {
               "snp": {
-                "events": 28,
-                "bases": 28
+                "events": 8,
+                "bases": 8
               },
               "insertion": {
-                "events": 202,
-                "bases": 274
+                "events": 424,
+                "bases": 442
               },
               "deletion": {
-                "events": 148,
-                "bases": 193
+                "events": 1,
+                "bases": 1
               },
               "other": {
                 "events": 0,
@@ -704,109 +719,90 @@
                 "aligned_sequences": 1,
                 "unaligned_sequences": 0,
                 "bases": 2751412,
-                "aligned_bases": 2751401,
-                "unaligned_bases": 11,
-                "one_to_one_alignments": 2,
-                "one_to_one_length": 2771401,
+                "aligned_bases": 2751412,
+                "unaligned_bases": 0,
+                "one_to_one_alignments": 1,
+                "one_to_one_length": 2751412,
                 "one_to_one_identity": 99.98,
-                "breakpoints": 4,
+                "breakpoints": 0,
                 "relocations": 0,
                 "translocations": 0,
                 "inversions": 0,
-                "inserted_regions": 2,
-                "inserted_region_bases": 11,
-                "substituted_bases": 28,
-                "indel_bases": 467
+                "inserted_regions": 0,
+                "inserted_region_bases": 0,
+                "substituted_bases": 8,
+                "indel_bases": 443
               },
               "after": {
                 "sequences": 1,
                 "aligned_sequences": 1,
                 "unaligned_sequences": 0,
-                "bases": 2751481,
-                "aligned_bases": 2751481,
+                "bases": 2751853,
+                "aligned_bases": 2751853,
                 "unaligned_bases": 0,
-                "one_to_one_alignments": 2,
-                "one_to_one_length": 2771480,
+                "one_to_one_alignments": 1,
+                "one_to_one_length": 2751853,
                 "one_to_one_identity": 99.98,
-                "breakpoints": 2,
+                "breakpoints": 0,
                 "relocations": 0,
                 "translocations": 0,
                 "inversions": 0,
-                "inserted_regions": 1,
-                "inserted_region_bases": 1,
-                "substituted_bases": 28,
-                "indel_bases": 467
+                "inserted_regions": 0,
+                "inserted_region_bases": 0,
+                "substituted_bases": 8,
+                "indel_bases": 443
               },
               "events": {
-                "substitutions": 28,
-                "insertions": 202,
-                "inserted_bases": 274,
-                "deletions": 148,
-                "deleted_bases": 193
+                "substitutions": 8,
+                "insertions": 424,
+                "inserted_bases": 442,
+                "deletions": 1,
+                "deleted_bases": 1
               },
               "events_by_contig": {
                 "contig_1": {
-                  "substitutions": 28,
-                  "insertions": 202,
-                  "inserted_bases": 274,
-                  "deletions": 148,
-                  "deleted_bases": 193
+                  "substitutions": 8,
+                  "insertions": 424,
+                  "inserted_bases": 442,
+                  "deletions": 1,
+                  "deleted_bases": 1
                 }
               },
               "ends": [
                 {
                   "contig": "contig_1",
                   "length": 2751412,
-                  "start": 3,
-                  "end": 2751403,
-                  "aligned_bases": 2771401,
+                  "start": 1,
+                  "end": 2751412,
+                  "aligned_bases": 2751412,
                   "query_contigs": [
                     "contig_1"
                   ],
-                  "unaligned_start": 2,
-                  "unaligned_end": 9
+                  "unaligned_start": 0,
+                  "unaligned_end": 0
                 }
               ]
             },
-            "racon_contigs": {
-              "contig_1": {
-                "length": 2751481,
-                "reads": 31554,
-                "windows_polished": 1.0
-              }
+            "medaka_unpolished": {
+              "contigs": {},
+              "bases": 0,
+              "verbatim_contigs": []
             },
             "commands": [
               [
-                "/usr/bin/minimap2",
-                "-x",
-                "map-ont",
-                "-t",
-                "4",
+                "/root/.arva-tools/conda/medaka/bin/medaka_consensus",
+                "-i",
+                "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/7f5840b8-07b8-471e-a563-48587f663eba/work/input/04_SRR25741643_1.filtlong.fastq.gz",
+                "-d",
+                "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/7f5840b8-07b8-471e-a563-48587f663eba/work/round0.fasta",
                 "-o",
-                "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/482968b6-eb1e-4b18-ba4f-9e5a948021db/268b822e-2e25-4dd0-ad6b-fa0f67949d00/work/round1.paf",
-                "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/482968b6-eb1e-4b18-ba4f-9e5a948021db/268b822e-2e25-4dd0-ad6b-fa0f67949d00/work/round0.fasta",
-                "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/482968b6-eb1e-4b18-ba4f-9e5a948021db/268b822e-2e25-4dd0-ad6b-fa0f67949d00/work/input/04_SRR25741643.filtlong.fastq.gz"
-              ],
-              [
-                "/usr/bin/racon",
+                "medaka",
                 "-m",
-                "3",
-                "-x",
-                "-5",
-                "-g",
-                "-4",
-                "-w",
-                "500",
-                "-q",
-                "10",
-                "-e",
-                "0.3",
+                "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/7f5840b8-07b8-471e-a563-48587f663eba/work/model/r941_min_hac_g507_model_pt.tar.gz",
                 "-t",
                 "4",
-                "-u",
-                "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/482968b6-eb1e-4b18-ba4f-9e5a948021db/268b822e-2e25-4dd0-ad6b-fa0f67949d00/work/input/04_SRR25741643.filtlong.fastq.gz",
-                "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/482968b6-eb1e-4b18-ba4f-9e5a948021db/268b822e-2e25-4dd0-ad6b-fa0f67949d00/work/round1.paf",
-                "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/482968b6-eb1e-4b18-ba4f-9e5a948021db/268b822e-2e25-4dd0-ad6b-fa0f67949d00/work/round0.fasta"
+                "-b",
+                "100"
               ],
               [
                 "/usr/bin/dnadiff",
@@ -826,67 +822,67 @@
               "aligned_sequences": 1,
               "unaligned_sequences": 0,
               "bases": 2751412,
-              "aligned_bases": 2751401,
-              "unaligned_bases": 11,
-              "one_to_one_alignments": 2,
-              "one_to_one_length": 2771401,
+              "aligned_bases": 2751412,
+              "unaligned_bases": 0,
+              "one_to_one_alignments": 1,
+              "one_to_one_length": 2751412,
               "one_to_one_identity": 99.98,
-              "breakpoints": 4,
+              "breakpoints": 0,
               "relocations": 0,
               "translocations": 0,
               "inversions": 0,
-              "inserted_regions": 2,
-              "inserted_region_bases": 11,
-              "substituted_bases": 28,
-              "indel_bases": 467
+              "inserted_regions": 0,
+              "inserted_region_bases": 0,
+              "substituted_bases": 8,
+              "indel_bases": 443
             },
             "after": {
               "sequences": 1,
               "aligned_sequences": 1,
               "unaligned_sequences": 0,
-              "bases": 2751481,
-              "aligned_bases": 2751481,
+              "bases": 2751853,
+              "aligned_bases": 2751853,
               "unaligned_bases": 0,
-              "one_to_one_alignments": 2,
-              "one_to_one_length": 2771480,
+              "one_to_one_alignments": 1,
+              "one_to_one_length": 2751853,
               "one_to_one_identity": 99.98,
-              "breakpoints": 2,
+              "breakpoints": 0,
               "relocations": 0,
               "translocations": 0,
               "inversions": 0,
-              "inserted_regions": 1,
-              "inserted_region_bases": 1,
-              "substituted_bases": 28,
-              "indel_bases": 467
+              "inserted_regions": 0,
+              "inserted_region_bases": 0,
+              "substituted_bases": 8,
+              "indel_bases": 443
             },
             "events": {
-              "substitutions": 28,
-              "insertions": 202,
-              "inserted_bases": 274,
-              "deletions": 148,
-              "deleted_bases": 193
+              "substitutions": 8,
+              "insertions": 424,
+              "inserted_bases": 442,
+              "deletions": 1,
+              "deleted_bases": 1
             },
             "events_by_contig": {
               "contig_1": {
-                "substitutions": 28,
-                "insertions": 202,
-                "inserted_bases": 274,
-                "deletions": 148,
-                "deleted_bases": 193
+                "substitutions": 8,
+                "insertions": 424,
+                "inserted_bases": 442,
+                "deletions": 1,
+                "deleted_bases": 1
               }
             },
             "ends": [
               {
                 "contig": "contig_1",
                 "length": 2751412,
-                "start": 3,
-                "end": 2751403,
-                "aligned_bases": 2771401,
+                "start": 1,
+                "end": 2751412,
+                "aligned_bases": 2751412,
                 "query_contigs": [
                   "contig_1"
                 ],
-                "unaligned_start": 2,
-                "unaligned_end": 9
+                "unaligned_start": 0,
+                "unaligned_end": 0
               }
             ]
           },
@@ -925,7 +921,7 @@
               }
             ],
             "depth_profile": {
-              "path": "results/46ed071e-92a2-4161-8f71-63744648ea11/482968b6-eb1e-4b18-ba4f-9e5a948021db/268b822e-2e25-4dd0-ad6b-fa0f67949d00/comparison/draft.depth_profile.json",
+              "path": "results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/7f5840b8-07b8-471e-a563-48587f663eba/comparison/draft.depth_profile.json",
               "sha256": "bc78089d577c3af1b6dfafced81114d18c3c276ec4ddf623d8b5b69c18d5ef09",
               "resolution": 25
             }
@@ -937,31 +933,31 @@
               "mapped_percent": 98.89497573955235,
               "reads_properly_paired": 0,
               "properly_paired_percent": null,
-              "bases_mapped_cigar": 183293485,
-              "nm_sum": 11022045,
-              "error_rate": 0.06013332,
-              "edit_distance_per_100_bases": 6.013331570404699,
-              "insertion_events": 1817977,
-              "deletion_events": 2478178,
-              "indel_events_per_100kb": 2343.866722813416,
+              "bases_mapped_cigar": 183294118,
+              "nm_sum": 11016695,
+              "error_rate": 0.06010392,
+              "edit_distance_per_100_bases": 6.010391997412595,
+              "insertion_events": 1807547,
+              "deletion_events": 2485893,
+              "indel_events_per_100kb": 2342.3774024216095,
               "average_length": 5910,
               "supplementary_alignments": 3319
             },
             "coverage": [
               {
                 "contig": "contig_1",
-                "length": 2751481,
+                "length": 2751853,
                 "reads": 34911,
-                "covered_bases": 2751481,
+                "covered_bases": 2751853,
                 "covered_percent": 100.0,
-                "mean_depth": 65.5322,
+                "mean_depth": 65.5288,
                 "mean_base_quality": 25.1,
                 "mean_mapq": 59.4
               }
             ],
             "depth_profile": {
-              "path": "results/46ed071e-92a2-4161-8f71-63744648ea11/482968b6-eb1e-4b18-ba4f-9e5a948021db/268b822e-2e25-4dd0-ad6b-fa0f67949d00/comparison/polished.depth_profile.json",
-              "sha256": "8082be98cdfdde5cdb27286cd9defea0b910bbde213594cd008cbe7f9849639b",
+              "path": "results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/7f5840b8-07b8-471e-a563-48587f663eba/comparison/polished.depth_profile.json",
+              "sha256": "194140845d7e2ac4170d0b6db27069b9c1a38204326392e1fc455205c9bd7141",
               "resolution": 25
             }
           }
@@ -978,32 +974,22 @@
           },
           "after": {
             "contig_count": 1,
-            "total_length": 2751481,
-            "largest_contig": 2751481,
-            "n50": 2751481,
+            "total_length": 2751853,
+            "largest_contig": 2751853,
+            "n50": 2751853,
             "l50": 1,
-            "gc_percent": 32.88018343575696,
+            "gc_percent": 32.87900916218999,
             "n_count": 0
           }
         },
         "observations": [
           {
-            "code": "ends_trimmed",
-            "params": {
-              "contig": "contig_1",
-              "start": 2,
-              "end": 9,
-              "circular": true
-            },
-            "message": "Racon left 2 bp at the start and 9 bp at the end of contig_1 unaligned to the polished assembly (dnadiff): the polished contig lacks them"
-          },
-          {
             "code": "edit_distance_increased",
             "params": {
               "before": 6.0044,
-              "after": 6.0133
+              "after": 6.0104
             },
-            "message": "The reads' edit distance per 100 aligned bases rose from 6.0044 to 6.0133 after polishing (indirect indicator): check the polished assembly before using it"
+            "message": "The reads' edit distance per 100 aligned bases rose from 6.0044 to 6.0104 after polishing (indirect indicator): check the polished assembly before using it"
           }
         ],
         "helpers": [
@@ -1030,7 +1016,73 @@
             "nucmer_version": "3.1"
           }
         ],
-        "followups": {}
+        "followups": {},
+        "medaka": {
+          "model": {
+            "model": "r941_min_hac_g507",
+            "source": "user",
+            "suggestion": {
+              "basecall_model": null,
+              "basecall_models": [],
+              "model": null,
+              "source": "medaka.options.basecaller_models",
+              "status": "no_basecall_model"
+            },
+            "mismatch_accepted": false,
+            "medaka_version": "2.1.1",
+            "model_source": "registered",
+            "file": "r941_min_hac_g507_model_pt.tar.gz",
+            "path": "/root/.arva-db/medaka-models/r941_min_hac_g507/r941_min_hac_g507_model_pt.tar.gz",
+            "sha256": "6e87607808bfe7884fc701ded596931afeeb8a59e69bdcb268ef07ac7680ac26",
+            "database_id": "c2f14a26-3429-4385-850e-7245e6ded1b8",
+            "url": "https://media.githubusercontent.com/media/nanoporetech/medaka/v2.1.1/medaka/data/r941_min_hac_g507_model_pt.tar.gz",
+            "origin": "download",
+            "chemistry": "R9.4.1",
+            "basecaller": "Guppy 5.0.7"
+          },
+          "threads": 4,
+          "batch_size": 100,
+          "programs": [
+            {
+              "program": "bcftools",
+              "version": "1.25",
+              "required": "1.11",
+              "pass": true
+            },
+            {
+              "program": "bgzip",
+              "version": "1.24",
+              "required": "1.11",
+              "pass": true
+            },
+            {
+              "program": "minimap2",
+              "version": "2.31",
+              "required": "2.11",
+              "pass": true
+            },
+            {
+              "program": "samtools",
+              "version": "1.24",
+              "required": "1.11",
+              "pass": true
+            },
+            {
+              "program": "tabix",
+              "version": "1.24",
+              "required": "1.11",
+              "pass": true
+            }
+          ],
+          "model_files": [
+            "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/7f5840b8-07b8-471e-a563-48587f663eba/work/model/r941_min_hac_g507_model_pt.tar.gz"
+          ],
+          "unpolished": {
+            "contigs": {},
+            "bases": 0,
+            "verbatim_contigs": []
+          }
+        }
       },
       "resources": {
         "profile": "light",
@@ -1046,10 +1098,10 @@
         "host": "unknown computer",
         "nice_executable": "/usr/bin/nice"
       },
-      "wall_seconds": 220.3
+      "wall_seconds": 4200.7
     },
     "mlst": {
-      "id": "43cb4bec-824e-419c-b036-8d79d66d762f",
+      "id": "3c8940c7-0f42-4702-b0d5-e36606d16d5f",
       "job_type": "mlst_typing",
       "tool_name": "mlst",
       "tool_version": "2.35.0",
@@ -1068,13 +1120,13 @@
         ],
         "threads": 4,
         "assembly": {
-          "assembly_id": "3190e442-8ea9-40a8-b92f-d476afdea3a1",
+          "assembly_id": "d07b52e9-660d-433a-903e-6178f0c0d55f",
           "kind": "polished",
-          "assembler": "Racon",
-          "assembler_version": "1.5.0",
-          "parent_assembly_id": "aa2a25f8-fd4c-4249-b947-4ee87f7cfe0c",
-          "job_id": "268b822e-2e25-4dd0-ad6b-fa0f67949d00",
-          "contigs_sha256": "869b2d56f0f8f5182c240d26dabb682fad0b684f5794823d1ebff95cc78c4c53"
+          "assembler": "Medaka",
+          "assembler_version": "2.1.1",
+          "parent_assembly_id": "8a627965-93cf-4cab-9df4-b2e660210abf",
+          "job_id": "7f5840b8-07b8-471e-a563-48587f663eba",
+          "contigs_sha256": "97abd8858d290d6cc56ad6de756bbc72b05cf9764e6e9d8443ce538cf75fb660"
         },
         "synthetic_evidence": [],
         "scheme_mode": "detected"
@@ -1084,11 +1136,11 @@
           "/root/.arva-tools/conda/mlst/bin/mlst",
           "--full",
           "--outfile",
-          "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/482968b6-eb1e-4b18-ba4f-9e5a948021db/43cb4bec-824e-419c-b036-8d79d66d762f/mlst.tsv",
+          "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/3c8940c7-0f42-4702-b0d5-e36606d16d5f/mlst.tsv",
           "--json",
-          "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/482968b6-eb1e-4b18-ba4f-9e5a948021db/43cb4bec-824e-419c-b036-8d79d66d762f/mlst.json",
+          "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/3c8940c7-0f42-4702-b0d5-e36606d16d5f/mlst.json",
           "--novel",
-          "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/482968b6-eb1e-4b18-ba4f-9e5a948021db/43cb4bec-824e-419c-b036-8d79d66d762f/novel_alleles.fasta",
+          "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/3c8940c7-0f42-4702-b0d5-e36606d16d5f/novel_alleles.fasta",
           "--threads",
           "4",
           "--minid",
@@ -1103,7 +1155,7 @@
           "/root/.arva-tools/conda/mlst/db/blast/mlst.fa",
           "--datadir",
           "/root/.arva-tools/conda/mlst/db/pubmlst",
-          "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/482968b6-eb1e-4b18-ba4f-9e5a948021db/43cb4bec-824e-419c-b036-8d79d66d762f/input/genome.fna"
+          "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/3c8940c7-0f42-4702-b0d5-e36606d16d5f/input/genome.fna"
         ]
       ],
       "database_name": "PubMLST schemes bundled with mlst 2.35.0",
@@ -1111,12 +1163,12 @@
       "database_kind": "mlst_schemes",
       "database_checksum": "sha256:eb4d35e1fa4d78d9fae893e5292f53532bc318b305b80991e3fa95e845e29e9f",
       "database_path": "/root/.arva-tools/conda/mlst/db",
-      "duration_seconds": 1.913,
-      "started_at": "2026-11-07T11:09:13.861104Z",
-      "finished_at": "2026-11-07T11:09:15.774104Z",
+      "duration_seconds": 2.254,
+      "started_at": "2026-11-07T15:16:40.332478Z",
+      "finished_at": "2026-11-07T15:16:42.586786Z",
       "error_message": null,
       "result_summary": {
-        "mlst_result_id": "6012b414-4a48-4371-8c43-cbb429156bf8",
+        "mlst_result_id": "0ed43abe-8ac7-46e7-9d4a-2866ad430754",
         "scheme": "saureus",
         "st": "3028",
         "status": "PERFECT",
@@ -1139,10 +1191,10 @@
         "host": "unknown computer",
         "nice_executable": "/usr/bin/nice"
       },
-      "wall_seconds": 10.4
+      "wall_seconds": 10.6
     },
     "typing_sccmec": {
-      "id": "c22d938f-0065-4927-8d30-05da78ba891e",
+      "id": "bc0e1263-e7a9-466a-ad54-59c90ac9a6c5",
       "job_type": "species_typing",
       "tool_name": "sccmec",
       "tool_version": "1.2.0",
@@ -1158,13 +1210,13 @@
           "min_regions_coverage": 83
         },
         "assembly": {
-          "assembly_id": "3190e442-8ea9-40a8-b92f-d476afdea3a1",
+          "assembly_id": "d07b52e9-660d-433a-903e-6178f0c0d55f",
           "kind": "polished",
-          "assembler": "Racon",
-          "assembler_version": "1.5.0",
-          "parent_assembly_id": "aa2a25f8-fd4c-4249-b947-4ee87f7cfe0c",
-          "job_id": "268b822e-2e25-4dd0-ad6b-fa0f67949d00",
-          "contigs_sha256": "869b2d56f0f8f5182c240d26dabb682fad0b684f5794823d1ebff95cc78c4c53"
+          "assembler": "Medaka",
+          "assembler_version": "2.1.1",
+          "parent_assembly_id": "8a627965-93cf-4cab-9df4-b2e660210abf",
+          "job_id": "7f5840b8-07b8-471e-a563-48587f663eba",
+          "contigs_sha256": "97abd8858d290d6cc56ad6de756bbc72b05cf9764e6e9d8443ce538cf75fb660"
         },
         "synthetic_evidence": [],
         "applicability": {
@@ -1184,8 +1236,8 @@
               "tool": "mlst",
               "tool_version": "2.35.0",
               "status": "PERFECT",
-              "result_id": "6012b414-4a48-4371-8c43-cbb429156bf8",
-              "created_at": "2026-11-07T11:09:15.769778+00:00"
+              "result_id": "0ed43abe-8ac7-46e7-9d4a-2866ad430754",
+              "created_at": "2026-11-07T15:16:42.574145+00:00"
             }
           }
         },
@@ -1195,7 +1247,7 @@
         [
           "/root/.arva-tools/conda/sccmec/bin/sccmec",
           "--input",
-          "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/482968b6-eb1e-4b18-ba4f-9e5a948021db/c22d938f-0065-4927-8d30-05da78ba891e/input/contigs.fasta",
+          "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/bc0e1263-e7a9-466a-ad54-59c90ac9a6c5/input/contigs.fasta",
           "--yaml-targets",
           "/root/.arva-tools/conda/sccmec/share/sccmec/sccmec-targets.yaml",
           "--yaml-regions",
@@ -1215,7 +1267,7 @@
           "--prefix",
           "sccmec",
           "--outdir",
-          "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/482968b6-eb1e-4b18-ba4f-9e5a948021db/c22d938f-0065-4927-8d30-05da78ba891e/sccmec"
+          "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/bc0e1263-e7a9-466a-ad54-59c90ac9a6c5/sccmec"
         ]
       ],
       "database_name": "sccmec schemas (sccmec_targets, sccmec_regions)",
@@ -1223,12 +1275,12 @@
       "database_kind": "sccmec_schemas",
       "database_checksum": "sha256:404844b7c08e717a71240547b9c5175343d1e3091e9b6cf239416bed29794cca",
       "database_path": "/root/.arva-tools/conda/sccmec/share/sccmec",
-      "duration_seconds": 2.063,
-      "started_at": "2026-11-07T11:09:25.463928Z",
-      "finished_at": "2026-11-07T11:09:27.526481Z",
+      "duration_seconds": 1.991,
+      "started_at": "2026-11-07T15:16:52.275402Z",
+      "finished_at": "2026-11-07T15:16:54.266737Z",
       "error_message": null,
       "result_summary": {
-        "typing_result_id": "e1e5326a-37e2-436a-9958-1075999a3164",
+        "typing_result_id": "f718faa1-ec73-49e6-8351-60c32f939b04",
         "method": "sccmec",
         "status": "not_typeable",
         "call": null,
@@ -1237,39 +1289,39 @@
         ],
         "files": {
           "sccmec/sccmec.tsv": {
-            "path": "results/46ed071e-92a2-4161-8f71-63744648ea11/482968b6-eb1e-4b18-ba4f-9e5a948021db/c22d938f-0065-4927-8d30-05da78ba891e/sccmec/sccmec.tsv",
+            "path": "results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/bc0e1263-e7a9-466a-ad54-59c90ac9a6c5/sccmec/sccmec.tsv",
             "sha256": "0607fa3f9fdbf7b602f5d8390d40d73a4d7826d0074a2a623ef4bd58e2bf686a",
             "size_bytes": 489
           },
           "sccmec/sccmec.targets.details.tsv": {
-            "path": "results/46ed071e-92a2-4161-8f71-63744648ea11/482968b6-eb1e-4b18-ba4f-9e5a948021db/c22d938f-0065-4927-8d30-05da78ba891e/sccmec/sccmec.targets.details.tsv",
+            "path": "results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/bc0e1263-e7a9-466a-ad54-59c90ac9a6c5/sccmec/sccmec.targets.details.tsv",
             "sha256": "4a50b834c619fa8e13fa2821f464c7e5850ada18091f96bb041bb6a1750f82e1",
             "size_bytes": 1753
           },
           "sccmec/sccmec.regions.details.tsv": {
-            "path": "results/46ed071e-92a2-4161-8f71-63744648ea11/482968b6-eb1e-4b18-ba4f-9e5a948021db/c22d938f-0065-4927-8d30-05da78ba891e/sccmec/sccmec.regions.details.tsv",
+            "path": "results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/bc0e1263-e7a9-466a-ad54-59c90ac9a6c5/sccmec/sccmec.regions.details.tsv",
             "sha256": "06c3a135ecf5f651416a3146180e73607995526c256848f1154039235badebc6",
             "size_bytes": 3250
           },
           "sccmec/sccmec.targets.blastn.tsv": {
-            "path": "results/46ed071e-92a2-4161-8f71-63744648ea11/482968b6-eb1e-4b18-ba4f-9e5a948021db/c22d938f-0065-4927-8d30-05da78ba891e/sccmec/sccmec.targets.blastn.tsv",
+            "path": "results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/bc0e1263-e7a9-466a-ad54-59c90ac9a6c5/sccmec/sccmec.targets.blastn.tsv",
             "sha256": "6e6f87a14938bf362bf9ff6b7d177e5ba291ced48e664107559576f6b78fc0c7",
             "size_bytes": 109
           },
           "sccmec/sccmec.regions.blastn.tsv": {
-            "path": "results/46ed071e-92a2-4161-8f71-63744648ea11/482968b6-eb1e-4b18-ba4f-9e5a948021db/c22d938f-0065-4927-8d30-05da78ba891e/sccmec/sccmec.regions.blastn.tsv",
-            "sha256": "2125526734595dc71e667eedd0be764ec33604b219c6e42a8a97e9635ff92425",
+            "path": "results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/bc0e1263-e7a9-466a-ad54-59c90ac9a6c5/sccmec/sccmec.regions.blastn.tsv",
+            "sha256": "f8b27493233951f20b6379662003e85a12c1689831bf0a6248ae6c49a66042c9",
             "size_bytes": 16826
           },
           "sccmec.stderr.log": {
-            "path": "results/46ed071e-92a2-4161-8f71-63744648ea11/482968b6-eb1e-4b18-ba4f-9e5a948021db/c22d938f-0065-4927-8d30-05da78ba891e/sccmec.stderr.log",
-            "sha256": "d29d791c2518f73a67957a315cc94bb0429152ab2e6d08a5cd14ae66df569a38",
+            "path": "results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/bc0e1263-e7a9-466a-ad54-59c90ac9a6c5/sccmec.stderr.log",
+            "sha256": "d5c85b963b4b7edd78a352ad6a49fa72bb97089f511b2370d8f52e1fe626656d",
             "size_bytes": 4847
           },
           "input": {
-            "path": "results/46ed071e-92a2-4161-8f71-63744648ea11/482968b6-eb1e-4b18-ba4f-9e5a948021db/c22d938f-0065-4927-8d30-05da78ba891e/input/contigs.fasta",
-            "sha256": "79c007320f47be957f09dc2cfea9bbe241b939026d58b43ba7c5f41bca721a66",
-            "size_bytes": 2785885
+            "path": "results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/bc0e1263-e7a9-466a-ad54-59c90ac9a6c5/input/contigs.fasta",
+            "sha256": "35ac142ec457e31fd693e8af4973f0d614e339d608beb37e06adee1461b25423",
+            "size_bytes": 2786262
           }
         }
       },
@@ -1287,10 +1339,10 @@
         "host": "unknown computer",
         "nice_executable": "/usr/bin/nice"
       },
-      "wall_seconds": 11.6
+      "wall_seconds": 11.9
     },
     "typing_spa": {
-      "id": "f2d41dbc-a84c-4c7e-85ac-dc7d2efbb857",
+      "id": "7b4fd4b5-6262-4362-accd-d8e3efae9196",
       "job_type": "species_typing",
       "tool_name": "spaTyper",
       "tool_version": "0.3.3",
@@ -1303,13 +1355,13 @@
           "do_enrich": false
         },
         "assembly": {
-          "assembly_id": "3190e442-8ea9-40a8-b92f-d476afdea3a1",
+          "assembly_id": "d07b52e9-660d-433a-903e-6178f0c0d55f",
           "kind": "polished",
-          "assembler": "Racon",
-          "assembler_version": "1.5.0",
-          "parent_assembly_id": "aa2a25f8-fd4c-4249-b947-4ee87f7cfe0c",
-          "job_id": "268b822e-2e25-4dd0-ad6b-fa0f67949d00",
-          "contigs_sha256": "869b2d56f0f8f5182c240d26dabb682fad0b684f5794823d1ebff95cc78c4c53"
+          "assembler": "Medaka",
+          "assembler_version": "2.1.1",
+          "parent_assembly_id": "8a627965-93cf-4cab-9df4-b2e660210abf",
+          "job_id": "7f5840b8-07b8-471e-a563-48587f663eba",
+          "contigs_sha256": "97abd8858d290d6cc56ad6de756bbc72b05cf9764e6e9d8443ce538cf75fb660"
         },
         "synthetic_evidence": [],
         "applicability": {
@@ -1329,8 +1381,8 @@
               "tool": "mlst",
               "tool_version": "2.35.0",
               "status": "PERFECT",
-              "result_id": "6012b414-4a48-4371-8c43-cbb429156bf8",
-              "created_at": "2026-11-07T11:09:15.769778+00:00"
+              "result_id": "0ed43abe-8ac7-46e7-9d4a-2866ad430754",
+              "created_at": "2026-11-07T15:16:42.574145+00:00"
             }
           }
         },
@@ -1349,9 +1401,9 @@
           "--repeat_order_file",
           "/root/.arva-db/spa-ridom/2026-11-07/spatypes.txt",
           "--fasta",
-          "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/482968b6-eb1e-4b18-ba4f-9e5a948021db/f2d41dbc-a84c-4c7e-85ac-dc7d2efbb857/input/contigs.fasta",
+          "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/7b4fd4b5-6262-4362-accd-d8e3efae9196/input/contigs.fasta",
           "--output",
-          "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/482968b6-eb1e-4b18-ba4f-9e5a948021db/f2d41dbc-a84c-4c7e-85ac-dc7d2efbb857/spatyper.tsv"
+          "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/7b4fd4b5-6262-4362-accd-d8e3efae9196/spatyper.tsv"
         ]
       ],
       "database_name": "spa types (Ridom SpaServer)",
@@ -1359,12 +1411,12 @@
       "database_kind": "spa_types",
       "database_checksum": null,
       "database_path": "/root/.arva-db/spa-ridom/2026-11-07",
-      "duration_seconds": 2.853,
-      "started_at": "2026-11-07T11:09:36.268710Z",
-      "finished_at": "2026-11-07T11:09:39.121948Z",
+      "duration_seconds": 3.224,
+      "started_at": "2026-11-07T15:17:03.153316Z",
+      "finished_at": "2026-11-07T15:17:06.376803Z",
       "error_message": null,
       "result_summary": {
-        "typing_result_id": "1f8c7158-e04b-4135-8efb-556f2b078e18",
+        "typing_result_id": "06c6b2d4-ffac-4cf8-8598-8c3308fa86a9",
         "method": "spa",
         "status": "typed",
         "call": "t9432",
@@ -1373,24 +1425,24 @@
         ],
         "files": {
           "spatyper.tsv": {
-            "path": "results/46ed071e-92a2-4161-8f71-63744648ea11/482968b6-eb1e-4b18-ba4f-9e5a948021db/f2d41dbc-a84c-4c7e-85ac-dc7d2efbb857/spatyper.tsv",
+            "path": "results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/7b4fd4b5-6262-4362-accd-d8e3efae9196/spatyper.tsv",
             "sha256": "6a9f34cd537a1ab3624cfc9fb1acd7ce7662b0c7f8e4ae205615a8684b4ed5c7",
             "size_bytes": 69
           },
           "spatyper.stdout.log": {
-            "path": "results/46ed071e-92a2-4161-8f71-63744648ea11/482968b6-eb1e-4b18-ba4f-9e5a948021db/f2d41dbc-a84c-4c7e-85ac-dc7d2efbb857/spatyper.stdout.log",
-            "sha256": "de5a861eb368ff8eabcb99e1e5b6bb18789cb7030cce1493fb688c9bc0e473ed",
+            "path": "results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/7b4fd4b5-6262-4362-accd-d8e3efae9196/spatyper.stdout.log",
+            "sha256": "903db71d3c45bb8fe0a2457c980474df3326268203e28aeb25b52421ecd5ef6e",
             "size_bytes": 443
           },
           "spatyper.stderr.log": {
-            "path": "results/46ed071e-92a2-4161-8f71-63744648ea11/482968b6-eb1e-4b18-ba4f-9e5a948021db/f2d41dbc-a84c-4c7e-85ac-dc7d2efbb857/spatyper.stderr.log",
+            "path": "results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/7b4fd4b5-6262-4362-accd-d8e3efae9196/spatyper.stderr.log",
             "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
             "size_bytes": 0
           },
           "input": {
-            "path": "results/46ed071e-92a2-4161-8f71-63744648ea11/482968b6-eb1e-4b18-ba4f-9e5a948021db/f2d41dbc-a84c-4c7e-85ac-dc7d2efbb857/input/contigs.fasta",
-            "sha256": "79c007320f47be957f09dc2cfea9bbe241b939026d58b43ba7c5f41bca721a66",
-            "size_bytes": 2785885
+            "path": "results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/7b4fd4b5-6262-4362-accd-d8e3efae9196/input/contigs.fasta",
+            "sha256": "35ac142ec457e31fd693e8af4973f0d614e339d608beb37e06adee1461b25423",
+            "size_bytes": 2786262
           }
         }
       },
@@ -1411,7 +1463,7 @@
       "wall_seconds": 10.3
     },
     "typing_agr": {
-      "id": "bed7aec7-1966-4253-988c-ec15355e6d60",
+      "id": "d52e4f57-8c21-44b4-9e89-0fd11ddcbefb",
       "job_type": "species_typing",
       "tool_name": "AgrVATE",
       "tool_version": "1.0.2",
@@ -1425,13 +1477,13 @@
           "typing_only": false
         },
         "assembly": {
-          "assembly_id": "3190e442-8ea9-40a8-b92f-d476afdea3a1",
+          "assembly_id": "d07b52e9-660d-433a-903e-6178f0c0d55f",
           "kind": "polished",
-          "assembler": "Racon",
-          "assembler_version": "1.5.0",
-          "parent_assembly_id": "aa2a25f8-fd4c-4249-b947-4ee87f7cfe0c",
-          "job_id": "268b822e-2e25-4dd0-ad6b-fa0f67949d00",
-          "contigs_sha256": "869b2d56f0f8f5182c240d26dabb682fad0b684f5794823d1ebff95cc78c4c53"
+          "assembler": "Medaka",
+          "assembler_version": "2.1.1",
+          "parent_assembly_id": "8a627965-93cf-4cab-9df4-b2e660210abf",
+          "job_id": "7f5840b8-07b8-471e-a563-48587f663eba",
+          "contigs_sha256": "97abd8858d290d6cc56ad6de756bbc72b05cf9764e6e9d8443ce538cf75fb660"
         },
         "synthetic_evidence": [],
         "applicability": {
@@ -1451,8 +1503,8 @@
               "tool": "mlst",
               "tool_version": "2.35.0",
               "status": "PERFECT",
-              "result_id": "6012b414-4a48-4371-8c43-cbb429156bf8",
-              "created_at": "2026-11-07T11:09:15.769778+00:00"
+              "result_id": "0ed43abe-8ac7-46e7-9d4a-2866ad430754",
+              "created_at": "2026-11-07T15:16:42.574145+00:00"
             }
           }
         },
@@ -1473,12 +1525,12 @@
       "database_kind": "agrvate_databases",
       "database_checksum": "sha256:10b5e29f8d0774a557bebb3d26662240476443eb495eea9dd9084a14e5fba642",
       "database_path": "/root/.arva-tools/conda/agrvate/bin/agrvate_databases",
-      "duration_seconds": 4.956,
-      "started_at": "2026-11-07T11:09:46.798737Z",
-      "finished_at": "2026-11-07T11:09:51.754949Z",
+      "duration_seconds": 6.134,
+      "started_at": "2026-11-07T15:17:13.718964Z",
+      "finished_at": "2026-11-07T15:17:19.852438Z",
       "error_message": null,
       "result_summary": {
-        "typing_result_id": "853b00ac-924c-4ae8-8ff3-65652848bdc6",
+        "typing_result_id": "578e9b9a-c764-4635-91c5-4221a102dd82",
         "method": "agr",
         "status": "typed",
         "call": "I",
@@ -1488,54 +1540,54 @@
         ],
         "files": {
           "agrvate/contigs-results/contigs-summary.tab": {
-            "path": "results/46ed071e-92a2-4161-8f71-63744648ea11/482968b6-eb1e-4b18-ba4f-9e5a948021db/bed7aec7-1966-4253-988c-ec15355e6d60/agrvate/contigs-results/contigs-summary.tab",
-            "sha256": "44cdc2db28f6da5ce604480ebd2ac66188b6bf56fb64bf502d5b0fbd655cec17",
+            "path": "results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/d52e4f57-8c21-44b4-9e89-0fd11ddcbefb/agrvate/contigs-results/contigs-summary.tab",
+            "sha256": "6fb8d172f06974eb7c1d0dd2f0e9825e2681d250c1204757d2dbc6eb233c3138",
             "size_bytes": 93
           },
           "agrvate/contigs-results/contigs-agr_gp.tab": {
-            "path": "results/46ed071e-92a2-4161-8f71-63744648ea11/482968b6-eb1e-4b18-ba4f-9e5a948021db/bed7aec7-1966-4253-988c-ec15355e6d60/agrvate/contigs-results/contigs-agr_gp.tab",
-            "sha256": "c3533202de3e553fb0af97d8a1976230955ac6124b3ea9ed326cadd322b244b5",
+            "path": "results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/d52e4f57-8c21-44b4-9e89-0fd11ddcbefb/agrvate/contigs-results/contigs-agr_gp.tab",
+            "sha256": "f6b8701ffc49da2aefca290d8d923c33492106c5a1ba9a89fbe1725b7e3f50b8",
             "size_bytes": 598
           },
           "agrvate/contigs-results/contigs-agr_operon.fna": {
-            "path": "results/46ed071e-92a2-4161-8f71-63744648ea11/482968b6-eb1e-4b18-ba4f-9e5a948021db/bed7aec7-1966-4253-988c-ec15355e6d60/agrvate/contigs-results/contigs-agr_operon.fna",
-            "sha256": "e37804b31b684bac0799bdf60dfd1f767303d64a99f6cce20922898aac0e84a4",
-            "size_bytes": 3550
+            "path": "results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/d52e4f57-8c21-44b4-9e89-0fd11ddcbefb/agrvate/contigs-results/contigs-agr_operon.fna",
+            "sha256": "bee63382d0b78679c94f2c35c5196a083484afdcc230a2e39c237325f01d8760",
+            "size_bytes": 3551
           },
           "agrvate/contigs-results/contigs-agr_operon_frameshifts.tab": {
-            "path": "results/46ed071e-92a2-4161-8f71-63744648ea11/482968b6-eb1e-4b18-ba4f-9e5a948021db/bed7aec7-1966-4253-988c-ec15355e6d60/agrvate/contigs-results/contigs-agr_operon_frameshifts.tab",
-            "sha256": "69f937a2c599c72d3b11eb86f391c769a37b570936b535e39bda12de6a23e82b",
-            "size_bytes": 159
+            "path": "results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/d52e4f57-8c21-44b4-9e89-0fd11ddcbefb/agrvate/contigs-results/contigs-agr_operon_frameshifts.tab",
+            "sha256": "d6f7eb036a655592d1209bd25d721dcedb19edbbc426eeb1fb551848b7abf44d",
+            "size_bytes": 98
           },
           "agrvate/contigs-results/contigs-mummer/out.1coords": {
-            "path": "results/46ed071e-92a2-4161-8f71-63744648ea11/482968b6-eb1e-4b18-ba4f-9e5a948021db/bed7aec7-1966-4253-988c-ec15355e6d60/agrvate/contigs-results/contigs-mummer/out.1coords",
-            "sha256": "1b0b7256b71c8a13c650ed810cb8ab5592e1276ba54bc1fdfe42152896348f13",
+            "path": "results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/d52e4f57-8c21-44b4-9e89-0fd11ddcbefb/agrvate/contigs-results/contigs-mummer/out.1coords",
+            "sha256": "f49120d12fcf40896effff10ed9f21045c2b784868d7aa9dddb0fbbdd7b38152",
             "size_bytes": 81
           },
           "agrvate/contigs-results/contigs-snippy/snps.tab": {
-            "path": "results/46ed071e-92a2-4161-8f71-63744648ea11/482968b6-eb1e-4b18-ba4f-9e5a948021db/bed7aec7-1966-4253-988c-ec15355e6d60/agrvate/contigs-results/contigs-snippy/snps.tab",
-            "sha256": "6ed4fabd5e2d1234a5458ebb3779442052650585fc8fe38d3d9db91fe4d4c97d",
-            "size_bytes": 3222
+            "path": "results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/d52e4f57-8c21-44b4-9e89-0fd11ddcbefb/agrvate/contigs-results/contigs-snippy/snps.tab",
+            "sha256": "234cd9598de441b3ef6b7f3b7563cbdfa5fea43a64f60ac61e80d77ea1325aee",
+            "size_bytes": 3046
           },
           "agrvate/contigs.fasta-error-report.tab": {
-            "path": "results/46ed071e-92a2-4161-8f71-63744648ea11/482968b6-eb1e-4b18-ba4f-9e5a948021db/bed7aec7-1966-4253-988c-ec15355e6d60/agrvate/contigs.fasta-error-report.tab",
+            "path": "results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/d52e4f57-8c21-44b4-9e89-0fd11ddcbefb/agrvate/contigs.fasta-error-report.tab",
             "sha256": "c72bafbebfd5171e215d925a2fa0278ec4d4fa97576115faba6bc6bb68761179",
             "size_bytes": 134
           },
           "agrvate/agrvate.log": {
-            "path": "results/46ed071e-92a2-4161-8f71-63744648ea11/482968b6-eb1e-4b18-ba4f-9e5a948021db/bed7aec7-1966-4253-988c-ec15355e6d60/agrvate/agrvate.log",
+            "path": "results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/d52e4f57-8c21-44b4-9e89-0fd11ddcbefb/agrvate/agrvate.log",
             "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
             "size_bytes": 0
           },
           "agrvate/agrvate.stdout.log": {
-            "path": "results/46ed071e-92a2-4161-8f71-63744648ea11/482968b6-eb1e-4b18-ba4f-9e5a948021db/bed7aec7-1966-4253-988c-ec15355e6d60/agrvate/agrvate.stdout.log",
+            "path": "results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/d52e4f57-8c21-44b4-9e89-0fd11ddcbefb/agrvate/agrvate.stdout.log",
             "sha256": "e16eeab527f49a9474990d4ecfd2ebeca31c1d50702bf1710a8a73e2a0821d3e",
             "size_bytes": 351
           },
           "input": {
-            "path": "results/46ed071e-92a2-4161-8f71-63744648ea11/482968b6-eb1e-4b18-ba4f-9e5a948021db/bed7aec7-1966-4253-988c-ec15355e6d60/input/contigs.fasta",
-            "sha256": "79c007320f47be957f09dc2cfea9bbe241b939026d58b43ba7c5f41bca721a66",
-            "size_bytes": 2785885
+            "path": "results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/d52e4f57-8c21-44b4-9e89-0fd11ddcbefb/input/contigs.fasta",
+            "sha256": "35ac142ec457e31fd693e8af4973f0d614e339d608beb37e06adee1461b25423",
+            "size_bytes": 2786262
           }
         }
       },
@@ -1556,7 +1608,7 @@
       "wall_seconds": 10.1
     },
     "amrfinderplus": {
-      "id": "3a09eadc-1f05-47bf-989b-70483895643a",
+      "id": "9e652572-6264-43ef-a530-a4f2542590e6",
       "job_type": "amr_detection",
       "tool_name": "AMRFinderPlus",
       "tool_version": "4.2.7",
@@ -1572,13 +1624,13 @@
         "annotation_format": null,
         "threads": 4,
         "assembly": {
-          "assembly_id": "3190e442-8ea9-40a8-b92f-d476afdea3a1",
+          "assembly_id": "d07b52e9-660d-433a-903e-6178f0c0d55f",
           "kind": "polished",
-          "assembler": "Racon",
-          "assembler_version": "1.5.0",
-          "parent_assembly_id": "aa2a25f8-fd4c-4249-b947-4ee87f7cfe0c",
-          "job_id": "268b822e-2e25-4dd0-ad6b-fa0f67949d00",
-          "contigs_sha256": "869b2d56f0f8f5182c240d26dabb682fad0b684f5794823d1ebff95cc78c4c53"
+          "assembler": "Medaka",
+          "assembler_version": "2.1.1",
+          "parent_assembly_id": "8a627965-93cf-4cab-9df4-b2e660210abf",
+          "job_id": "7f5840b8-07b8-471e-a563-48587f663eba",
+          "contigs_sha256": "97abd8858d290d6cc56ad6de756bbc72b05cf9764e6e9d8443ce538cf75fb660"
         },
         "annotation_id": null,
         "annotation": null,
@@ -1595,13 +1647,13 @@
         [
           "/root/.arva-tools/conda/amrfinderplus/bin/amrfinder",
           "--nucleotide",
-          "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/482968b6-eb1e-4b18-ba4f-9e5a948021db/3a09eadc-1f05-47bf-989b-70483895643a/input/genome.fna",
+          "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/9e652572-6264-43ef-a530-a4f2542590e6/input/genome.fna",
           "--database",
           "/root/.arva-db/amrfinderplus/2026-08-07.1",
           "--output",
-          "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/482968b6-eb1e-4b18-ba4f-9e5a948021db/3a09eadc-1f05-47bf-989b-70483895643a/amrfinder.tsv",
+          "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/9e652572-6264-43ef-a530-a4f2542590e6/amrfinder.tsv",
           "--nucleotide_output",
-          "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/482968b6-eb1e-4b18-ba4f-9e5a948021db/3a09eadc-1f05-47bf-989b-70483895643a/nucleotide_hits.fna",
+          "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/9e652572-6264-43ef-a530-a4f2542590e6/nucleotide_hits.fna",
           "--ident_min",
           "-1",
           "--coverage_min",
@@ -1618,7 +1670,7 @@
           "--organism",
           "Staphylococcus_aureus",
           "--mutation_all",
-          "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/482968b6-eb1e-4b18-ba4f-9e5a948021db/3a09eadc-1f05-47bf-989b-70483895643a/mutation_all.tsv",
+          "/home/user/ARVA/apps/api/data/results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/9e652572-6264-43ef-a530-a4f2542590e6/mutation_all.tsv",
           "--plus"
         ]
       ],
@@ -1627,18 +1679,18 @@
       "database_kind": "amrfinderplus",
       "database_checksum": "sha256:fd4acf1ddabfa16ea437e763092a2236412a8e4e542266e932ed42bd5669ff35",
       "database_path": "/root/.arva-db/amrfinderplus/2026-08-07.1",
-      "duration_seconds": 26.721,
-      "started_at": "2026-11-07T11:09:57.623281Z",
-      "finished_at": "2026-11-07T11:10:24.343883Z",
+      "duration_seconds": 25.627,
+      "started_at": "2026-11-07T15:17:24.309766Z",
+      "finished_at": "2026-11-07T15:17:49.936528Z",
       "error_message": null,
       "result_summary": {
         "counts": {
-          "total": 15,
+          "total": 16,
           "AMR": 2,
-          "VIRULENCE": 12,
+          "VIRULENCE": 13,
           "STRESS": 1,
           "point_mutations": 0,
-          "incomplete": 3
+          "incomplete": 2
         },
         "warnings": [
           {
@@ -1648,8 +1700,8 @@
           {
             "code": "hits_partial",
             "params": {
-              "count": 2,
-              "genes": "hlgB, sasG"
+              "count": 1,
+              "genes": "sasG"
             }
           },
           {
@@ -1665,7 +1717,7 @@
           }
         ],
         "point_mutation_screen": {
-          "rows": 297,
+          "rows": 305,
           "genes": [
             "23S ribosomal RNA",
             "30S ribosomal protein S10",
@@ -1693,10 +1745,11 @@
             "isoleucine--tRNA ligase IleS",
             "multidrug efflux RND transporter permease subunit AcrB",
             "multidrug efflux transporter transcriptional repressor MepR",
-            "penicillin-binding protein PBP2"
+            "penicillin-binding protein PBP2",
+            "sensor histidine kinase VraS"
           ],
-          "wildtype_positions": 250,
-          "unknown_changes": 47,
+          "wildtype_positions": 255,
+          "unknown_changes": 50,
           "mutations": 0
         },
         "log": {
@@ -1711,31 +1764,31 @@
         },
         "files": {
           "report": {
-            "path": "results/46ed071e-92a2-4161-8f71-63744648ea11/482968b6-eb1e-4b18-ba4f-9e5a948021db/3a09eadc-1f05-47bf-989b-70483895643a/amrfinder.tsv",
-            "sha256": "cbde7deb9899f62c91de06c960b42caa48aec06a94fd176213180a1f0dfa8693",
-            "size_bytes": 3323
+            "path": "results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/9e652572-6264-43ef-a530-a4f2542590e6/amrfinder.tsv",
+            "sha256": "224c40fc12a004d94cc1c62e2259763b79815b57d24f8847ea6dbb10d6b15b5a",
+            "size_bytes": 3523
           },
           "mutation_all": {
-            "path": "results/46ed071e-92a2-4161-8f71-63744648ea11/482968b6-eb1e-4b18-ba4f-9e5a948021db/3a09eadc-1f05-47bf-989b-70483895643a/mutation_all.tsv",
-            "sha256": "24f191ad712a2c2ed69faceea9d9579187d6312b704cef02793c9787403345da",
-            "size_bytes": 66025
+            "path": "results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/9e652572-6264-43ef-a530-a4f2542590e6/mutation_all.tsv",
+            "sha256": "4635ca3f61494c10d49124893bc3e3c98527940558e9279a0cbcd94ebfd29cd4",
+            "size_bytes": 67944
           },
           "nucleotide_hits": {
-            "path": "results/46ed071e-92a2-4161-8f71-63744648ea11/482968b6-eb1e-4b18-ba4f-9e5a948021db/3a09eadc-1f05-47bf-989b-70483895643a/nucleotide_hits.fna",
-            "sha256": "1dd88415f3fa2aab2eb875e2662fc7f7838630419dcbd7263a0f868356b800ae",
-            "size_bytes": 16558
+            "path": "results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/9e652572-6264-43ef-a530-a4f2542590e6/nucleotide_hits.fna",
+            "sha256": "513a2bf3a94bef59a5859afbdb3ca782d49ed08ed0fbccc7210fb83adffc2f38",
+            "size_bytes": 17927
           },
           "log": {
-            "path": "results/46ed071e-92a2-4161-8f71-63744648ea11/482968b6-eb1e-4b18-ba4f-9e5a948021db/3a09eadc-1f05-47bf-989b-70483895643a/amrfinder.stderr.log",
-            "sha256": "c7b3b5f40b06dde5516b676abc18f64814a586551c0dfdf3c3f7328ca0ce3faf",
+            "path": "results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/9e652572-6264-43ef-a530-a4f2542590e6/amrfinder.stderr.log",
+            "sha256": "04f2f639b2c2601085bab07708fb0ef0d30a1994534c7ffd195eec5b06d8b099",
             "size_bytes": 1572
           }
         },
         "inputs": {
           "input": {
-            "path": "results/46ed071e-92a2-4161-8f71-63744648ea11/482968b6-eb1e-4b18-ba4f-9e5a948021db/3a09eadc-1f05-47bf-989b-70483895643a/input/genome.fna",
-            "sha256": "79c007320f47be957f09dc2cfea9bbe241b939026d58b43ba7c5f41bca721a66",
-            "size_bytes": 2785885
+            "path": "results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/9e652572-6264-43ef-a530-a4f2542590e6/input/genome.fna",
+            "sha256": "35ac142ec457e31fd693e8af4973f0d614e339d608beb37e06adee1461b25423",
+            "size_bytes": 2786262
           }
         },
         "linked_annotation_id": null,
@@ -1764,13 +1817,6 @@
     }
   },
   "skipped": {
-    "medaka": {
-      "model_requested": "r941_min_hac_g507",
-      "http_status": 400,
-      "arva_refusal": {
-        "detail": "The Medaka model r941_min_hac_g507 is not one of the models Medaka's package ships (r1041_e82_400bps_hac_v5.2.0, r1041_e82_400bps_sup_v5.2.0); ARVA does not let Medaka download models"
-      }
-    },
     "species_skani": {
       "reason": "no usable skani reference collection registered in ARVA",
       "problems": [
@@ -1786,7 +1832,7 @@
     }
   },
   "deviations": [
-    "Medaka with r941_min_hac_g507 was refused by ARVA (HTTP 400); the assembly was polished with Racon (minimap2 map-ont, ARVA's Racon defaults) instead. The paper used Rebaler then Medaka v1.0.3 (model not stated)."
+    "Paper: Rebaler then Medaka v1.0.3 (model not stated). ARVA polished the Flye draft once with Medaka 2.1.1 and r941_min_hac_g507 (R9.4.1 MinION, HAC, trained for Guppy 5.0.7), registered in ARVA from the medaka v2.1.1 tag (SHA-256 6e87607808bfe7884fc701ded596931afeeb8a59e69bdcb268ef07ac7680ac26); medaka 1.0.3's models (r941_min_high_g360 and older) cannot be loaded by medaka 2, and no Rebaler step was run."
   ],
   "notes": [
     "Paper: NanoFilt v2.7.1 -l 1000 -q 10. Filtlong --min_length 1000 --min_mean_q 90 applies the same two thresholds (NanoFilt's ave_qual is -10*log10 of the mean per-base error probability; Filtlong's mean quality is 100 * mean per-base accuracy; Q10 = 90 %)."
@@ -1798,27 +1844,35 @@
     "md5_expected": "042cc1e1e2ea5a11aca18eafd9f91c4d",
     "md5_ok": true,
     "sha256": "8df0c3d6157de77ef1bbf3494778ee694219931703277cc160486dc958e73119",
-    "seconds": 65.1,
+    "seconds": 146.6,
     "attempts": 1,
     "errors": [],
     "ena_file_name": "SRR25741643_1.fastq.gz",
-    "local_file_name": "SRR25741643.fastq.gz",
+    "local_file_name": "SRR25741643_1.fastq.gz",
     "deleted_after_import": true
   },
-  "sample_id": "482968b6-eb1e-4b18-ba4f-9e5a948021db",
+  "sample_id": "acac92e3-03b2-4495-bd45-4a43d32ac4a2",
   "imported_file": {
-    "id": "ef724ed2-619a-4fc0-9199-baa23a8b9b6d",
-    "original_filename": "SRR25741643.fastq.gz",
+    "id": "705011f7-d410-47ae-8e01-746669ec8203",
+    "original_filename": "SRR25741643_1.fastq.gz",
     "size_bytes": 238015105,
     "checksum_sha256": "8df0c3d6157de77ef1bbf3494778ee694219931703277cc160486dc958e73119",
     "is_valid": true,
     "validation_message": "FASTQ structure verified on the first 1000 record(s); the whole file is validated when statistics are computed.",
+    "read_mate": null,
+    "mate_note": {
+      "from_name": "R1",
+      "set_by": "content",
+      "reason": "long_reads",
+      "max_length": 48892,
+      "platform": null
+    },
     "sha256_matches_download": true
   },
   "filtered_file": {
-    "id": "19995517-9967-4bbc-9e39-4d68f56ad5a4",
-    "original_filename": "SRR25741643.filtlong.fastq.gz",
-    "size_bytes": 196567127
+    "id": "b2a6b575-1a07-47bb-b754-173aff429d20",
+    "original_filename": "SRR25741643_1.filtlong.fastq.gz",
+    "size_bytes": 196567129
   },
   "flye_plan": {
     "read_type_suggestion": {
@@ -1871,7 +1925,7 @@
     }
   },
   "assembly_flye": {
-    "id": "aa2a25f8-fd4c-4249-b947-4ee87f7cfe0c",
+    "id": "8a627965-93cf-4cab-9df4-b2e660210abf",
     "assembler": "Flye",
     "assembler_version": "2.9.6",
     "kind": "assembly",
@@ -1995,17 +2049,17 @@
       ],
       "files": {
         "contigs": {
-          "path": "results/46ed071e-92a2-4161-8f71-63744648ea11/482968b6-eb1e-4b18-ba4f-9e5a948021db/d6b8b8dd-782b-455e-ab38-6a82f5d8a856/assembly.fasta",
+          "path": "results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/5a9f6a5f-d74f-4307-b1d8-5993341af362/assembly.fasta",
           "sha256": "b33d392d44c6a89467bf3f63e3cc417429a7b833c3067dc8dd50428868914323",
           "size_bytes": 2797279
         },
         "graph": {
-          "path": "results/46ed071e-92a2-4161-8f71-63744648ea11/482968b6-eb1e-4b18-ba4f-9e5a948021db/d6b8b8dd-782b-455e-ab38-6a82f5d8a856/assembly_graph.gfa",
+          "path": "results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/5a9f6a5f-d74f-4307-b1d8-5993341af362/assembly_graph.gfa",
           "sha256": "12009ed135636594d901ca3efb48045850b5109922627d27ef689bf858ebc27c",
           "size_bytes": 2751522
         },
         "info": {
-          "path": "results/46ed071e-92a2-4161-8f71-63744648ea11/482968b6-eb1e-4b18-ba4f-9e5a948021db/d6b8b8dd-782b-455e-ab38-6a82f5d8a856/assembly_info.txt",
+          "path": "results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/5a9f6a5f-d74f-4307-b1d8-5993341af362/assembly_info.txt",
           "sha256": "79b6010df20264acf6923fec2538d00e519ea1ee687e7bec11a598a4caa7316a",
           "size_bytes": 92
         }
@@ -2038,6 +2092,23 @@
           "checksum": "matches_package"
         }
       ],
+      "registered": [
+        {
+          "database_id": "c2f14a26-3429-4385-850e-7245e6ded1b8",
+          "model": "r941_min_hac_g507",
+          "name": "Medaka model r941_min_hac_g507",
+          "path": "/root/.arva-db/medaka-models/r941_min_hac_g507/r941_min_hac_g507_model_pt.tar.gz",
+          "sha256": "6e87607808bfe7884fc701ded596931afeeb8a59e69bdcb268ef07ac7680ac26",
+          "url": "https://media.githubusercontent.com/media/nanoporetech/medaka/v2.1.1/medaka/data/r941_min_hac_g507_model_pt.tar.gz",
+          "origin": "download",
+          "status": "installed",
+          "chemistry": "R9.4.1",
+          "device": "MinION/GridION",
+          "accuracy": "hac",
+          "basecaller": "Guppy 5.0.7",
+          "notes": []
+        }
+      ],
       "default_model": "r1041_e82_400bps_sup_v5.2.0",
       "suggestion": {
         "status": "no_basecall_model",
@@ -2058,12 +2129,35 @@
     ],
     "problem": null
   },
+  "medaka_model": {
+    "model": "r941_min_hac_g507",
+    "source": "registered",
+    "sha256": "6e87607808bfe7884fc701ded596931afeeb8a59e69bdcb268ef07ac7680ac26",
+    "expected_sha256": "6e87607808bfe7884fc701ded596931afeeb8a59e69bdcb268ef07ac7680ac26",
+    "sha256_ok": true,
+    "database_id": "c2f14a26-3429-4385-850e-7245e6ded1b8",
+    "path": "/root/.arva-db/medaka-models/r941_min_hac_g507/r941_min_hac_g507_model_pt.tar.gz",
+    "url": "https://media.githubusercontent.com/media/nanoporetech/medaka/v2.1.1/medaka/data/r941_min_hac_g507_model_pt.tar.gz",
+    "origin": "download",
+    "chemistry": "R9.4.1",
+    "basecaller": "Guppy 5.0.7",
+    "choice": "user",
+    "suggestion": {
+      "basecall_model": null,
+      "basecall_models": [],
+      "model": null,
+      "source": "medaka.options.basecaller_models",
+      "status": "no_basecall_model"
+    },
+    "medaka_version": "2.1.1",
+    "registration": "downloaded by ARVA (POST /databases/medaka-models/download, confirmed)"
+  },
   "assembly_polished": {
-    "id": "3190e442-8ea9-40a8-b92f-d476afdea3a1",
-    "assembler": "Racon",
-    "assembler_version": "1.5.0",
+    "id": "d07b52e9-660d-433a-903e-6178f0c0d55f",
+    "assembler": "Medaka",
+    "assembler_version": "2.1.1",
     "kind": "polished",
-    "parent_assembly_id": "aa2a25f8-fd4c-4249-b947-4ee87f7cfe0c",
+    "parent_assembly_id": "8a627965-93cf-4cab-9df4-b2e660210abf",
     "mode": "long",
     "read_type": "map-ont",
     "stats": {
@@ -2078,14 +2172,14 @@
         ]
       },
       "contig_count": 1,
-      "total_length": 2751481,
-      "largest_contig": 2751481,
-      "smallest_contig": 2751481,
-      "n50": 2751481,
+      "total_length": 2751853,
+      "largest_contig": 2751853,
+      "smallest_contig": 2751853,
+      "n50": 2751853,
       "l50": 1,
-      "n90": 2751481,
+      "n90": 2751853,
       "l90": 1,
-      "gc_percent": 32.88018343575696,
+      "gc_percent": 32.87900916218999,
       "n_count": 0,
       "n_per_100kb": 0.0,
       "other_iupac_count": 0,
@@ -2094,7 +2188,7 @@
           "min_length": 2000000,
           "max_length": 5000000,
           "contigs": 1,
-          "total_length": 2751481
+          "total_length": 2751853
         }
       ],
       "cumulative": {
@@ -2102,10 +2196,10 @@
           1
         ],
         "length": [
-          2751481
+          2751853
         ],
         "cumulative_length": [
-          2751481
+          2751853
         ],
         "downsampled": false
       },
@@ -2113,19 +2207,19 @@
         {
           "min_length": 1000,
           "contigs": 1,
-          "total_length": 2751481,
+          "total_length": 2751853,
           "total_length_percent": 100.0
         },
         {
           "min_length": 10000,
           "contigs": 1,
-          "total_length": 2751481,
+          "total_length": 2751853,
           "total_length_percent": 100.0
         }
       ],
       "coverage": {
         "contigs_with_coverage": 1,
-        "length_weighted_median": 65.5322
+        "length_weighted_median": 65.5288
       },
       "circularity": {
         "contigs_with_circularity": 1,
@@ -2183,9 +2277,9 @@
       ],
       "files": {
         "contigs": {
-          "path": "results/46ed071e-92a2-4161-8f71-63744648ea11/482968b6-eb1e-4b18-ba4f-9e5a948021db/268b822e-2e25-4dd0-ad6b-fa0f67949d00/polished.fasta",
-          "sha256": "869b2d56f0f8f5182c240d26dabb682fad0b684f5794823d1ebff95cc78c4c53",
-          "size_bytes": 2751530
+          "path": "results/46ed071e-92a2-4161-8f71-63744648ea11/acac92e3-03b2-4495-bd45-4a43d32ac4a2/7f5840b8-07b8-471e-a563-48587f663eba/polished.fasta",
+          "sha256": "97abd8858d290d6cc56ad6de756bbc72b05cf9764e6e9d8443ce538cf75fb660",
+          "size_bytes": 2751864
         },
         "graph": null,
         "info": null
@@ -2294,13 +2388,13 @@
       ],
       "threads": 4,
       "assembly": {
-        "assembly_id": "3190e442-8ea9-40a8-b92f-d476afdea3a1",
+        "assembly_id": "d07b52e9-660d-433a-903e-6178f0c0d55f",
         "kind": "polished",
-        "assembler": "Racon",
-        "assembler_version": "1.5.0",
-        "parent_assembly_id": "aa2a25f8-fd4c-4249-b947-4ee87f7cfe0c",
-        "job_id": "268b822e-2e25-4dd0-ad6b-fa0f67949d00",
-        "contigs_sha256": "869b2d56f0f8f5182c240d26dabb682fad0b684f5794823d1ebff95cc78c4c53"
+        "assembler": "Medaka",
+        "assembler_version": "2.1.1",
+        "parent_assembly_id": "8a627965-93cf-4cab-9df4-b2e660210abf",
+        "job_id": "7f5840b8-07b8-471e-a563-48587f663eba",
+        "contigs_sha256": "97abd8858d290d6cc56ad6de756bbc72b05cf9764e6e9d8443ce538cf75fb660"
       },
       "synthetic_evidence": [],
       "scheme_mode": "detected"
@@ -2657,8 +2751,8 @@
               "tool": "mlst",
               "tool_version": "2.35.0",
               "status": "PERFECT",
-              "result_id": "6012b414-4a48-4371-8c43-cbb429156bf8",
-              "created_at": "2026-11-07T11:09:15.769778+00:00"
+              "result_id": "0ed43abe-8ac7-46e7-9d4a-2866ad430754",
+              "created_at": "2026-11-07T15:16:42.574145+00:00"
             }
           }
         }
@@ -2723,8 +2817,8 @@
               "tool": "mlst",
               "tool_version": "2.35.0",
               "status": "PERFECT",
-              "result_id": "6012b414-4a48-4371-8c43-cbb429156bf8",
-              "created_at": "2026-11-07T11:09:15.769778+00:00"
+              "result_id": "0ed43abe-8ac7-46e7-9d4a-2866ad430754",
+              "created_at": "2026-11-07T15:16:42.574145+00:00"
             }
           }
         }
@@ -2741,14 +2835,8 @@
           "match_score": 13,
           "canonical_agrD": "canonical",
           "multiple_agr": "single",
-          "frameshifts": 2,
+          "frameshifts": 1,
           "variants": [
-            {
-              "position": 231,
-              "type": "del",
-              "effect": "frameshift_variant c.486delT p.Phe162fs",
-              "gene": "agrA"
-            },
             {
               "position": 1613,
               "type": "del",
@@ -2762,9 +2850,9 @@
                 "ref_start": 1,
                 "ref_end": 3482,
                 "contig": "contig_1",
-                "start": 1521285,
-                "end": 1524764,
-                "identity": 99.34
+                "start": 1521488,
+                "end": 1524968,
+                "identity": 99.37
               }
             ],
             "reference_length": 3482,
@@ -2827,8 +2915,8 @@
               "tool": "mlst",
               "tool_version": "2.35.0",
               "status": "PERFECT",
-              "result_id": "6012b414-4a48-4371-8c43-cbb429156bf8",
-              "created_at": "2026-11-07T11:09:15.769778+00:00"
+              "result_id": "0ed43abe-8ac7-46e7-9d4a-2866ad430754",
+              "created_at": "2026-11-07T15:16:42.574145+00:00"
             }
           }
         }
@@ -2856,12 +2944,12 @@
       "changed_by_user": true
     },
     "counts": {
-      "total": 15,
+      "total": 16,
       "AMR": 2,
-      "VIRULENCE": 12,
+      "VIRULENCE": 13,
       "STRESS": 1,
       "point_mutations": 0,
-      "incomplete": 3
+      "incomplete": 2
     },
     "warnings": [
       {
@@ -2871,8 +2959,8 @@
       {
         "code": "hits_partial",
         "params": {
-          "count": 2,
-          "genes": "hlgB, sasG"
+          "count": 1,
+          "genes": "sasG"
         }
       },
       {
@@ -2888,7 +2976,7 @@
       }
     ],
     "point_mutation_screen": {
-      "rows": 297,
+      "rows": 305,
       "genes": [
         "23S ribosomal RNA",
         "30S ribosomal protein S10",
@@ -2916,10 +3004,11 @@
         "isoleucine--tRNA ligase IleS",
         "multidrug efflux RND transporter permease subunit AcrB",
         "multidrug efflux transporter transcriptional repressor MepR",
-        "penicillin-binding protein PBP2"
+        "penicillin-binding protein PBP2",
+        "sensor histidine kinase VraS"
       ],
-      "wildtype_positions": 250,
-      "unknown_changes": 47,
+      "wildtype_positions": 255,
+      "unknown_changes": 50,
       "mutations": 0
     },
     "hits": [
@@ -2935,8 +3024,8 @@
         "identity": 94.0,
         "coverage": 100.0,
         "contig": "contig_1",
-        "start": 1075693,
-        "stop": 1076442,
+        "start": 1075836,
+        "stop": 1076585,
         "strand": "-",
         "closest_accession": "KAG18833.1"
       },
@@ -2952,8 +3041,8 @@
         "identity": 99.17,
         "coverage": 100.0,
         "contig": "contig_1",
-        "start": 1304783,
-        "stop": 1305502,
+        "start": 1304927,
+        "stop": 1305646,
         "strand": "-",
         "closest_accession": "ABD31003.1"
       },
@@ -2969,10 +3058,27 @@
         "identity": 99.57,
         "coverage": 100.0,
         "contig": "contig_1",
-        "start": 1305630,
-        "stop": 1306334,
+        "start": 1305774,
+        "stop": 1306478,
         "strand": "-",
         "closest_accession": "ABD31004.1"
+      },
+      {
+        "element_symbol": "lukD",
+        "element_name": "bi-component leukocidin LukED subunit D",
+        "scope": "plus",
+        "type": "VIRULENCE",
+        "subtype": "VIRULENCE",
+        "amr_class": null,
+        "amr_subclass": null,
+        "method": "BLASTX",
+        "identity": 94.19,
+        "coverage": 100.0,
+        "contig": "contig_1",
+        "start": 1310600,
+        "stop": 1311580,
+        "strand": "-",
+        "closest_accession": "CAA73668.1"
       },
       {
         "element_symbol": "lukE",
@@ -2986,8 +3092,8 @@
         "identity": 99.68,
         "coverage": 99.04,
         "contig": "contig_1",
-        "start": 1311438,
-        "stop": 1312361,
+        "start": 1311585,
+        "stop": 1312508,
         "strand": "-",
         "closest_accession": "RCV70079.1"
       },
@@ -3003,8 +3109,8 @@
         "identity": 100.0,
         "coverage": 100.0,
         "contig": "contig_1",
-        "start": 1521641,
-        "stop": 1521718,
+        "start": 1521844,
+        "stop": 1521921,
         "strand": "-",
         "closest_accession": "AGU62139.1"
       },
@@ -3020,8 +3126,8 @@
         "identity": 99.17,
         "coverage": 100.0,
         "contig": "contig_1",
-        "start": 1675468,
-        "stop": 1676907,
+        "start": 1675691,
+        "stop": 1677130,
         "strand": "-",
         "closest_accession": "AAW38464.1"
       },
@@ -3033,12 +3139,12 @@
         "subtype": "VIRULENCE",
         "amr_class": null,
         "amr_subclass": null,
-        "method": "BLASTX",
+        "method": "EXACTX",
         "identity": 100.0,
-        "coverage": 90.29,
+        "coverage": 100.0,
         "contig": "contig_1",
-        "start": 1910725,
-        "stop": 1911561,
+        "start": 1910978,
+        "stop": 1911904,
         "strand": "+",
         "closest_accession": "AUU54669.1"
       },
@@ -3054,8 +3160,8 @@
         "identity": 96.83,
         "coverage": 100.0,
         "contig": "contig_1",
-        "start": 1912221,
-        "stop": 1913165,
+        "start": 1912474,
+        "stop": 1913418,
         "strand": "+",
         "closest_accession": "CAA57277.1"
       },
@@ -3067,12 +3173,12 @@
         "subtype": "VIRULENCE",
         "amr_class": null,
         "amr_subclass": null,
-        "method": "PARTIALX",
-        "identity": 97.59,
-        "coverage": 89.23,
+        "method": "BLASTX",
+        "identity": 97.23,
+        "coverage": 100.0,
         "contig": "contig_1",
-        "start": 1913274,
-        "stop": 1914143,
+        "start": 1913423,
+        "stop": 1914397,
         "strand": "+",
         "closest_accession": "CAA57278.1"
       },
@@ -3085,11 +3191,11 @@
         "amr_class": null,
         "amr_subclass": null,
         "method": "PARTIALX",
-        "identity": 98.17,
-        "coverage": 58.74,
+        "identity": 98.98,
+        "coverage": 61.43,
         "contig": "contig_1",
-        "start": 1988182,
-        "stop": 1990146,
+        "start": 1988355,
+        "stop": 1990409,
         "strand": "-",
         "closest_accession": "BAF79363.1"
       },
@@ -3105,8 +3211,8 @@
         "identity": 99.21,
         "coverage": 100.0,
         "contig": "contig_1",
-        "start": 2150170,
-        "stop": 2151696,
+        "start": 2150463,
+        "stop": 2151989,
         "strand": "-",
         "closest_accession": "EHO93748.1"
       },
@@ -3122,8 +3228,8 @@
         "identity": 99.71,
         "coverage": 100.0,
         "contig": "contig_1",
-        "start": 2195037,
-        "stop": 2196086,
+        "start": 2195335,
+        "stop": 2196384,
         "strand": "+",
         "closest_accession": "AUU58561.1"
       },
@@ -3139,8 +3245,8 @@
         "identity": 100.0,
         "coverage": 100.0,
         "contig": "contig_1",
-        "start": 2340894,
-        "stop": 2342243,
+        "start": 2341212,
+        "stop": 2342561,
         "strand": "+",
         "closest_accession": "ABX28186.1"
       },
@@ -3156,8 +3262,8 @@
         "identity": 99.78,
         "coverage": 100.0,
         "contig": "contig_1",
-        "start": 2577866,
-        "stop": 2579218,
+        "start": 2578204,
+        "stop": 2579556,
         "strand": "+",
         "closest_accession": "AAU95768.1"
       },
@@ -3173,34 +3279,34 @@
         "identity": 96.06,
         "coverage": 100.0,
         "contig": "contig_1",
-        "start": 2612462,
-        "stop": 2613070,
+        "start": 2612808,
+        "stop": 2613416,
         "strand": "+",
         "closest_accession": "AEI60187.1"
       }
     ]
   },
   "status": "completed",
-  "finished_at": "2026-11-07T11:10:27+00:00",
-  "wall_seconds": 901.0,
+  "finished_at": "2026-11-07T15:17:54+00:00",
+  "wall_seconds": 4929.5,
   "resources": {
     "sampling_seconds": 5.0,
     "filesystem": "/home/user/ARVA/apps/api/data",
-    "disk_used_at_start_bytes": 36081221632,
-    "peak_disk_used_bytes": 36809662464,
-    "peak_disk_increase_bytes": 728440832,
-    "min_disk_free_bytes": 4512845824,
-    "memory_used_at_start_bytes": 1042677760,
-    "peak_memory_used_bytes": 10482122752,
-    "peak_memory_increase_bytes": 9439444992,
-    "largest_process_rss_bytes": 9411813376,
+    "disk_used_at_start_bytes": 36240883712,
+    "peak_disk_used_bytes": 37024960512,
+    "peak_disk_increase_bytes": 784076800,
+    "min_disk_free_bytes": 4297547776,
+    "memory_used_at_start_bytes": 1348075520,
+    "peak_memory_used_bytes": 10664144896,
+    "peak_memory_increase_bytes": 9316069376,
+    "largest_process_rss_bytes": 9411887104,
     "largest_process_name": "flye-modules",
     "note": "system-wide samples (MemTotal - MemAvailable; statvfs used) every few seconds, so short peaks can be missed"
   },
   "arva_storage_bytes_before_cleanup": {
     "raw": 238015105,
-    "processed": 196567127,
-    "results": 103798457,
+    "processed": 196567129,
+    "results": 103799154,
     "checkpoints": 0
   },
   "summary": {
@@ -3230,6 +3336,7 @@
       "hlgC",
       "icaC",
       "lmrS",
+      "lukD",
       "lukE",
       "mepA",
       "sasG",
@@ -3239,17 +3346,20 @@
       "splB",
       "tet(38)"
     ],
-    "polisher": "racon",
+    "polisher": "medaka",
+    "medaka_model": "r941_min_hac_g507",
+    "medaka_model_source": "registered",
+    "medaka_model_sha256": "6e87607808bfe7884fc701ded596931afeeb8a59e69bdcb268ef07ac7680ac26",
     "contigs": 1,
-    "total_length": 2751481,
-    "n50": 2751481,
+    "total_length": 2751853,
+    "n50": 2751853,
     "step_seconds": {
       "import": 10.0,
       "filtlong": 40.1,
-      "flye": 480.6,
-      "polishing_racon": 220.3,
-      "mlst": 10.4,
-      "typing_sccmec": 11.6,
+      "flye": 450.6,
+      "polishing_medaka": 4200.7,
+      "mlst": 10.6,
+      "typing_sccmec": 11.9,
       "typing_spa": 10.3,
       "typing_agr": 10.1,
       "amrfinderplus": 30.1

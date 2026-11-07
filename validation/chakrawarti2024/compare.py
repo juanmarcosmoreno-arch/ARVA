@@ -12,6 +12,10 @@ Comparisons:
   oxacillin and cefoxitin (all S: mecA is expected absent).
 - Soft checks from the paper's text: tet(K) / tetracycline, erm(A|B|C|T) / erythromycin, lnu(G) / lincomycin.
 
+Only results/<isolate>.json is read for the concordance. results/racon-pilot/ holds the pilot's results (AC05-54,
+AC15-06), polished with Racon before ARVA could register an R9.4.1 Medaka model; they never enter the counts and are
+shown only in a separate Racon-vs-Medaka section for the isolates that have both.
+
 Run: apps/api/.venv/bin/python -I validation/chakrawarti2024/compare.py
 """
 from __future__ import annotations
@@ -60,6 +64,8 @@ def main() -> None:
     ap.add_argument("--results", type=Path, default=HERE / "results")
     ap.add_argument("--expected", type=Path, default=HERE / "expected.tsv")
     ap.add_argument("--isolates", type=Path, default=HERE / "isolates.tsv")
+    ap.add_argument("--racon-pilot", type=Path, default=None, help="the pilot's Racon results (default: "
+                    "<results>/racon-pilot); compared with the Medaka results, never counted")
     ap.add_argument("--mlst-profiles", type=Path, default=Path.home() / ".arva-tools/conda/mlst/db/pubmlst/saureus/"
                     "saureus.txt", help="mlst's S. aureus profile table, to name the loci that differ from Sanger")
     args = ap.parse_args()
@@ -123,7 +129,9 @@ def main() -> None:
         })
 
     out_tsv = args.results / "concordance.tsv"
-    if rows:
+    if not rows:
+        out_tsv.unlink(missing_ok=True)
+    else:
         with open(out_tsv, "w", newline="") as fh:
             w = csv.DictWriter(fh, fieldnames=list(rows[0]), delimiter="\t")
             w.writeheader()
@@ -171,10 +179,39 @@ def main() -> None:
         lines.append(f"| {r['isolate']} | {r['tetracycline']} / {r['arva_tetK']} | {r['erythromycin']} / "
                      f"{r['arva_erm']} | {r['lincomycin']} / {r['arva_lnuG']} | {r['arva_sccmec'] or '-'} | "
                      f"{r['arva_agr'] or '-'} | {r['arva_amr_genes'] or '-'} |")
+    lines += racon_vs_medaka(args.racon_pilot or args.results / "racon-pilot", args.results, expected)
     lines += ["", "Values from the paper: expected.tsv (Tables S3, S5, S7 of the supplement; CC BY 4.0). "
               "blaZ_inferred and the mecA expectation are inferences, see README.md.", ""]
     (args.results / "concordance.md").write_text("\n".join(lines))
     print("\n".join(lines))
+
+
+def racon_vs_medaka(pilot: Path, results: Path, expected: list[dict[str, str]]) -> list[str]:
+    """The pilot's Racon-polished results beside the Medaka-polished ones of the same isolates (not counted above)."""
+    if not pilot.is_dir():
+        return []
+    by_name = {e["isolate"]: e for e in expected}
+    out = ["", "## Racon (pilot) vs Medaka, same isolates (not part of the counts above)", "",
+           "| Isolate | Sanger ST | Polisher | ST (status) | Alleles | spa | AMR genes | Contigs | Total length |",
+           "|---|---|---|---|---|---|---|---|---|"]
+    n = 0
+    for path in sorted(pilot.glob("*.json")):
+        name = path.stem
+        main = results / f"{name}.json"
+        for label, f in (("pilot", path), ("main", main)):
+            if not f.exists():
+                out.append(f"| {name} | {by_name.get(name, {}).get('sanger_st', '?')} | ({label} result missing) "
+                           "| | | | | | |")
+                continue
+            s = json.loads(f.read_text()).get("summary") or {}
+            model = f" {s['medaka_model']}" if s.get("medaka_model") else ""
+            out.append(f"| {name} | {by_name.get(name, {}).get('sanger_st', '?')} | {s.get('polisher') or '-'}{model} "
+                       f"| {s.get('st') or '-'} ({s.get('mlst_status') or '-'}) | "
+                       f"{' '.join(f'{k}({v})' for k, v in (s.get('alleles') or {}).items())} | {s.get('spa') or '-'} "
+                       f"| {','.join(s.get('amr_genes') or []) or '-'} | {s.get('contigs') or '-'} | "
+                       f"{s.get('total_length') or '-'} |")
+        n += 1
+    return out if n else []
 
 
 if __name__ == "__main__":

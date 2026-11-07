@@ -11,8 +11,10 @@ For each isolate of isolates.tsv (one at a time, because the disk is small):
       FILTER_NOTE);
     - Flye --nano-raw (Guppy 4.0.11 HAC, R9.4.1: pre-Guppy5 reads, Flye's help) with --genome-size 2.8m, the size
       the paper gave Flye;
-    - Medaka with r941_min_hac_g507 (README "Medaka model decision"); if ARVA refuses that model, Racon (map-ont)
-      through ARVA instead, with ARVA's refusal recorded;
+    - Medaka with r941_min_hac_g507 (README "Medaka model decision"), a model medaka 2.1.1 can load but does not
+      ship, registered in ARVA's Database Manager through ARVA's own API before the first isolate (setup(): the
+      confirmed download from the medaka v2.1.1 tag, checked by ARVA against the published SHA-256); there is no
+      fallback: if ARVA refuses Medaka or Medaka fails, the isolate is recorded as failed with the reason;
     - mlst, then S. aureus typing (sccmec, spa, agr), AMRFinderPlus (--organism Staphylococcus_aureus) and species
       identification with skani when a reference collection is registered (otherwise skipped and recorded);
  4. write results/<isolate>.json (ARVA version and commit, tool versions, parameters, commands, ST, alleles, spa,
@@ -73,7 +75,14 @@ FILTER_NOTE = ("Paper: NanoFilt v2.7.1 -l 1000 -q 10. Filtlong --min_length 1000
 # (<3% error). For R9 Guppy5+, increase --read-error slightly". Guppy 4.0.11 is pre-Guppy5: --nano-raw.
 FLYE = {"read_type": "nano-raw", "genome_size_bp": 2_800_000, "genome_size_basis": "entered"}
 MEDAKA_MODEL = "r941_min_hac_g507"
-RACON = {"read_type": "map-ont"}
+# medaka v2.1.1, medaka/data/r941_min_hac_g507_model_pt.tar.gz (Git LFS pointer of the tag; the same values are in
+# workflows/tool-adapters/arva_tools/medaka_models.py PUBLISHED). The runner refuses a model with any other checksum.
+MEDAKA_MODEL_SHA256 = "6e87607808bfe7884fc701ded596931afeeb8a59e69bdcb268ef07ac7680ac26"
+MEDAKA_MODEL_BYTES = 1_502_971
+MEDAKA_NOTE = ("Paper: Rebaler then Medaka v1.0.3 (model not stated). ARVA polished the Flye draft once with Medaka "
+               "2.1.1 and r941_min_hac_g507 (R9.4.1 MinION, HAC, trained for Guppy 5.0.7), registered in ARVA from the "
+               "medaka v2.1.1 tag (SHA-256 " + MEDAKA_MODEL_SHA256 + "); medaka 1.0.3's models (r941_min_high_g360 "
+               "and older) cannot be loaded by medaka 2, and no Rebaler step was run.")
 AMR_SETTINGS = {"organism": "Staphylococcus_aureus"}
 TYPING_MODULE = "staphylococcus_aureus"
 TYPING_METHODS = ("sccmec", "spa", "agr")
@@ -321,6 +330,7 @@ class Runner:
         self.api, self.args = api, args
         self.root_index: int | None = None
         self.project_id: str | None = None
+        self.medaka_model: dict[str, Any] | None = None
 
     # generic -------------------------------------------------------------------------------------------------------
     def wait(self, job_id: str, label: str) -> dict:
@@ -373,6 +383,76 @@ class Runner:
             log(f"created project {self.project_id}")
         else:
             log(f"reusing project {self.project_id}")
+        self.medaka_model = self.ensure_medaka_model()
+
+    def wait_database(self, record_id: str, label: str, timeout: float = 3600) -> dict:
+        t0, last = time.monotonic(), None
+        while True:
+            rec = self.api.get(f"/databases/{record_id}")
+            if rec["status"] != last:
+                log(f"  {label}: {rec['status']}")
+                last = rec["status"]
+            if rec["status"] not in ("downloading", "extracting", "verifying"):
+                return rec
+            if time.monotonic() - t0 > timeout:
+                raise SystemExit(f"{label}: still {rec['status']} after {timeout:.0f} s")
+            time.sleep(5)
+
+    def ensure_medaka_model(self) -> dict[str, Any]:
+        """r941_min_hac_g507 registered in ARVA through its API, the way a user would: the listing first; if ARVA has
+        no usable record, the download plan and the confirmed download (SHA-256, size and Medaka's licence repeated
+        from the plan, after checking them against the values medaka v2.1.1 publishes); or, with
+        --medaka-model-file, the registration of a copy already on disk. Stops the run if none of that works."""
+        def registered() -> dict | None:
+            for r in self.api.get("/databases/medaka-models")["registered"]:
+                if r["model"] == MEDAKA_MODEL:
+                    return r
+            return None
+
+        how = "already registered"
+        found = registered()
+        if found is None:
+            entry = next((m for m in self.api.get("/databases/medaka-models")["available"]
+                          if m["name"] == MEDAKA_MODEL), None)
+            if entry is None:
+                raise SystemExit(f"ARVA does not offer {MEDAKA_MODEL} in GET /databases/medaka-models")
+            if entry.get("database_id") and entry.get("status") in ("downloading", "verifying"):
+                self.wait_database(entry["database_id"], f"Medaka model {MEDAKA_MODEL}")
+                how = "downloaded by ARVA (download already in progress)"
+            elif self.args.medaka_model_file:
+                path = str(self.args.medaka_model_file.resolve())
+                if hashlib.sha256(self.args.medaka_model_file.read_bytes()).hexdigest() != MEDAKA_MODEL_SHA256:
+                    raise SystemExit(f"{path} is not medaka v2.1.1's {MEDAKA_MODEL} (SHA-256 differs)")
+                rec = self.api.post("/databases/register", {"path": path, "kind": "medaka_model"})
+                log(f"registered {path} as {rec['name']} ({rec['status']})")
+                how = "existing file registered (POST /databases/register)"
+            else:
+                plan = self.api.post("/databases/medaka-models/plan", {"model": MEDAKA_MODEL})
+                if (plan["sha256"], plan["bytes"]) != (MEDAKA_MODEL_SHA256, MEDAKA_MODEL_BYTES):
+                    raise SystemExit(f"ARVA's plan offers {MEDAKA_MODEL} with SHA-256 {plan['sha256']} and "
+                                     f"{plan['bytes']} bytes, not medaka v2.1.1's {MEDAKA_MODEL_SHA256} "
+                                     f"({MEDAKA_MODEL_BYTES} bytes)")
+                if plan.get("blocked_by"):
+                    raise SystemExit(f"ARVA cannot download {MEDAKA_MODEL}: {plan['blocked_by']} "
+                                     f"({plan.get('blocked_code')})")
+                log(f"downloading {MEDAKA_MODEL} through ARVA: {plan['url']} ({plan['bytes']:,} bytes, SHA-256 "
+                    f"{plan['sha256']}, licence {plan['licence']}) into {plan['target_path']}")
+                rec = self.api.post("/databases/medaka-models/download", {
+                    "model": MEDAKA_MODEL, "confirm_sha256": plan["sha256"], "confirm_bytes": plan["bytes"],
+                    "accept_licence": True})
+                rec = self.wait_database(rec["id"], f"Medaka model {MEDAKA_MODEL}")
+                if rec["status"] not in ("installed", "registered"):
+                    raise SystemExit(f"ARVA's download of {MEDAKA_MODEL} ended {rec['status']}: "
+                                     f"{rec.get('error_message')}")
+                how = "downloaded by ARVA (POST /databases/medaka-models/download, confirmed)"
+            found = registered()
+        if found is None:
+            raise SystemExit(f"{MEDAKA_MODEL} is not among ARVA's registered Medaka models")
+        if found.get("sha256") != MEDAKA_MODEL_SHA256:
+            raise SystemExit(f"ARVA's registered {MEDAKA_MODEL} has SHA-256 {found.get('sha256')}, not "
+                             f"{MEDAKA_MODEL_SHA256}")
+        log(f"Medaka model {MEDAKA_MODEL}: {how}; {found['path']} (SHA-256 {found['sha256']})")
+        return {**found, "how": how, "expected_sha256": MEDAKA_MODEL_SHA256}
 
     def provenance(self) -> dict[str, Any]:
         def git(*argv: str) -> str:
@@ -408,21 +488,25 @@ class Runner:
             "source", "farm", "biosample", "ont_experiment", "ont_run", "ont_fastq_url", "ont_fastq_md5",
             "ont_fastq_bytes", "ont_read_count", "ont_base_count", "ont_instrument")},
             "expected_from_paper": expected, "provenance": self.provenance(), "steps": {}, "skipped": {},
-            "deviations": [], "notes": [FILTER_NOTE]}
+            "deviations": [MEDAKA_NOTE], "notes": [FILTER_NOTE]}
         steps = res["steps"]
         folder = self.args.downloads / name
-        # ENA names single-end ONT runs <run>_1.fastq.gz; ARVA reads "_1" as mate R1 of a pair (Illumina naming,
-        # app/services/imports.py detect_read_mate) and Flye then refuses the file, with no API to correct it. The
-        # local copy is therefore saved as <run>.fastq.gz (same bytes, md5 checked).
+        # ENA names single-end ONT runs <run>_1.fastq.gz. The file keeps ENA's name, as a user would download it:
+        # ARVA no longer takes a lone long-read "_1" file as mate R1 of a pair (app/services/imports.py
+        # mate_from_content); the import records read_mate and mate_note, and an isolate whose file is still marked
+        # as a mate fails with that reason (see below) rather than being renamed silently.
         if not re.fullmatch(r"[SED]RR\d+", row["ont_run"]):
             raise RuntimeError(f"Unexpected run accession {row['ont_run']!r}")
-        fastq = folder / f"{row['ont_run']}.fastq.gz"
+        ena_name = Path(urllib.parse.urlsplit(row["ont_fastq_url"]).path).name
+        if ena_name not in (f"{row['ont_run']}_1.fastq.gz", f"{row['ont_run']}.fastq.gz"):
+            raise RuntimeError(f"Unexpected ENA file name {ena_name!r}")
+        fastq = folder / ena_name
         sample_id = None
         try:
             folder.mkdir(parents=True, exist_ok=True)
             log(f"{name}: downloading {size / 1e6:.0f} MB")
             res["download"] = download(row["ont_fastq_url"], fastq, row["ont_fastq_md5"], size)
-            res["download"]["ena_file_name"] = Path(urllib.parse.urlsplit(row["ont_fastq_url"]).path).name
+            res["download"]["ena_file_name"] = ena_name
             res["download"]["local_file_name"] = fastq.name
             log(f"{name}: md5 ok ({res['download']['seconds']} s)")
 
@@ -450,10 +534,14 @@ class Runner:
                 raise RuntimeError(f"expected one imported file, found {len(imported)}")
             raw = imported[0]
             res["imported_file"] = {k: raw.get(k) for k in ("id", "original_filename", "size_bytes", "checksum_sha256",
-                                                            "is_valid", "validation_message")}
+                                                            "is_valid", "validation_message", "read_mate",
+                                                            "mate_note")}
             res["imported_file"]["sha256_matches_download"] = raw.get("checksum_sha256") == res["download"]["sha256"]
             if not raw["is_valid"]:
                 raise RuntimeError(f"ARVA marked the FASTQ invalid: {raw.get('validation_message')}")
+            if raw.get("read_mate"):
+                raise RuntimeError(f"ARVA registered the single ONT FASTQ {raw['original_filename']} as pair mate "
+                                   f"{raw['read_mate']} ({raw.get('mate_note')})")
             if not self.args.keep_download:
                 fastq.unlink()
                 res["download"]["deleted_after_import"] = True
@@ -482,30 +570,31 @@ class Runner:
                                   {"inputs": inputs, "read_type": "map-ont"})
             res["polishing_plan"] = {"medaka": pplan.get("medaka"), "strategies_available":
                                      pplan.get("strategies_available"), "problem": pplan.get("problem")}
-            polished_job = None
+            offered = [r for r in (pplan.get("medaka") or {}).get("registered") or [] if r["model"] == MEDAKA_MODEL]
+            if not offered:
+                raise RuntimeError(f"ARVA's polishing plan does not offer the registered {MEDAKA_MODEL} "
+                                   f"(problem: {pplan.get('problem') or (pplan.get('medaka') or {}).get('problem')})")
             try:
-                started = self.api.post(f"/assemblies/{draft['id']}/polishing", {
+                polished_job = self.run_job("polishing_medaka", f"/assemblies/{draft['id']}/polishing", {
                     "strategy": "medaka", "inputs": inputs, "medaka": {"model": MEDAKA_MODEL},
-                    "threads": self.args.threads})
+                    "threads": self.args.threads}, steps)
             except ApiError as exc:
-                if exc.status not in (400, 409, 422):
-                    raise
-                res["skipped"]["medaka"] = {"model_requested": MEDAKA_MODEL, "http_status": exc.status,
-                                            "arva_refusal": exc.payload}
-                res["deviations"].append(
-                    f"Medaka with {MEDAKA_MODEL} was refused by ARVA (HTTP {exc.status}); the assembly was polished "
-                    "with Racon (minimap2 map-ont, ARVA's Racon defaults) instead. The paper used Rebaler then Medaka "
-                    "v1.0.3 (model not stated).")
-                log(f"{name}: Medaka refused by ARVA ({exc.status}); polishing with Racon")
-            else:
-                t0 = time.monotonic()
-                polished_job = self.wait(started["id"], "polishing_medaka")
-                steps["polishing_medaka"] = job_record(polished_job, time.monotonic() - t0)
-                if polished_job["status"] != "completed":
-                    raise RuntimeError(f"Medaka {polished_job['status']}: {polished_job.get('error_message')}")
-            if polished_job is None:
-                polished_job = self.run_job("polishing_racon", f"/assemblies/{draft['id']}/polishing", {
-                    "strategy": "racon", "inputs": inputs, "racon": RACON, "threads": self.args.threads}, steps)
+                res["medaka_refusal"] = {"model_requested": MEDAKA_MODEL, "http_status": exc.status,
+                                         "arva_refusal": exc.payload}
+                raise
+            used = (polished_job.get("parameters") or {}).get("medaka_model") or {}
+            res["medaka_model"] = {
+                "model": used.get("model"), "source": used.get("model_source"), "sha256": used.get("sha256"),
+                "expected_sha256": MEDAKA_MODEL_SHA256, "sha256_ok": used.get("sha256") == MEDAKA_MODEL_SHA256,
+                "database_id": used.get("database_id"), "path": used.get("path"), "url": used.get("url"),
+                "origin": used.get("origin"), "chemistry": used.get("chemistry"), "basecaller": used.get("basecaller"),
+                "choice": used.get("source"), "suggestion": used.get("suggestion"),
+                "medaka_version": used.get("medaka_version"),
+                "registration": (self.medaka_model or {}).get("how")}
+            if used.get("model") != MEDAKA_MODEL or used.get("model_source") != "registered" or \
+                    used.get("sha256") != MEDAKA_MODEL_SHA256:
+                raise RuntimeError(f"Medaka ran with {used.get('model')} ({used.get('model_source')}, SHA-256 "
+                                   f"{used.get('sha256')}), not the registered {MEDAKA_MODEL}")
             polished = self.assembly(sample_id, polished_job["id"])
             res["assembly_polished"] = polished
             target = polished["id"]
@@ -642,6 +731,9 @@ def summary(res: dict) -> dict[str, Any]:
         "all_elements": sorted({h["element_symbol"] for h in hits}),
         "polisher": "medaka" if "polishing_medaka" in res.get("steps", {}) else
         "racon" if "polishing_racon" in res.get("steps", {}) else None,
+        "medaka_model": (res.get("medaka_model") or {}).get("model"),
+        "medaka_model_source": (res.get("medaka_model") or {}).get("source"),
+        "medaka_model_sha256": (res.get("medaka_model") or {}).get("sha256"),
         "contigs": stats.get("contig_count"), "total_length": stats.get("total_length"), "n50": stats.get("n50"),
         "step_seconds": {k: v.get("wall_seconds") for k, v in res.get("steps", {}).items()},
     }
@@ -665,6 +757,8 @@ def main() -> None:
     ap.add_argument("--keep-on-failure", action="store_true", help="keep the sample and FASTQ of a failed isolate")
     ap.add_argument("--start-arva", action="store_true", help="start the API and the worker, stop them at the end")
     ap.add_argument("--db-dir", type=Path, default=Path.home() / ".arva-db", help="ARVA_DB_DIR with --start-arva")
+    ap.add_argument("--medaka-model-file", type=Path, help=f"register this copy of {MEDAKA_MODEL}_model_pt.tar.gz "
+                    "(in a folder ARVA may register from) instead of letting ARVA download it, when ARVA has none")
     ap.add_argument("--logs", type=Path, default=DEFAULT_LOGS, help="API and worker logs with --start-arva")
     args = ap.parse_args()
     args.results.mkdir(parents=True, exist_ok=True)
