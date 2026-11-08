@@ -1,0 +1,19 @@
+cff-version: 1.2.0
+message: "If you use ARVA, please cite it as below."
+title: "ARVA: a local, graphical platform for bacterial genome analysis with full provenance"
+type: software
+authors:
+  - family-names: Moreno
+    given-names: Juan M.
+    orcid: "https://orcid.org/0009-0002-8116-2871"
+    affiliation: "Conaprole, Uruguay"
+license: MIT
+repository-code: "https://github.com/juanmarcosmoreno-arch/ARVA"
+version: 0.2.0
+keywords:
+  - bacterial genomics
+  - Oxford Nanopore
+  - Staphylococcus aureus
+  - antimicrobial resistance
+  - provenance
+  - reproducibility

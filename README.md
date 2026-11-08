@@ -184,3 +184,12 @@ anywhere. Details: [installation guide](docs/installation.md#reporting-a-problem
 ## Privacy
 
 ARVA runs entirely locally. Sequence data are never sent to external services.
+
+## License and citation
+
+ARVA is released under the [MIT License](LICENSE). The bioinformatics tools and databases it runs keep their own
+licences, which ARVA shows in Tools & Databases and in the Database Manager before any download.
+
+If you use ARVA, please cite it as described in [CITATION.cff](CITATION.cff). A validation against published
+data is in [validation/chakrawarti2024](validation/chakrawarti2024/README.md); the software paper draft is in
+[paper/](paper/paper.md).
