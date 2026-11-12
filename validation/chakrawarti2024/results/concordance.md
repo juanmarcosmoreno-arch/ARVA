@@ -15,7 +15,7 @@ Isolates with ARVA results: 15 of 15.
 
 | Isolate | Sanger ST | Paper ONT ST | ARVA ST | Loci differing from the Sanger profile | spa paper / ARVA | Pen / blaZ | Oxa / mecA | Polisher |
 |---|---|---|---|---|---|---|---|---|
-| AC06-110 | 398 | 753 | NOVEL (MISMATCH) | arcC 90 (Sanger ST: 3); aroE 1216 (Sanger ST: 35) | t571 / t571 (match) | S / absent | S/S / absent | medaka |
+| AC06-110 | 398 | 753 | no ST (novel combination of existing alleles) (MISMATCH) | arcC 90 (Sanger ST: 3); aroE 1216 (Sanger ST: 35) | t571 / t571 (match) | S / absent | S/S / absent | medaka |
 | OF01-07 | 2187 | Undetermined | 2187 (match) | - | t267 / t267 (match) | S / absent | S/S / absent | medaka |
 | AC12-45 | 7 | Undetermined | 7 (match) | - | t091 / t091 (match) | R / present | S/S / absent | medaka |
 | OF10-16 | 8 | Undetermined | 8 (match) | - | t008 / t008 (match) | R / present | S/S / absent | medaka |
@@ -26,10 +26,10 @@ Isolates with ARVA results: 15 of 15.
 | OF20-25 | 30 | 30 | 30 (match) | - | t012 / t012 (match) | R / present | S/S / absent | medaka |
 | CP18 | 3021 | 3021 | 3021 (match) | - | t359 / t359 (match) | S / absent | S/S / absent | medaka |
 | OF39-02 | 352 | 352 | 352 (match) | - | t3380 / t3380 (match) | S / absent | S/S / absent | medaka |
-| V14 | 151 | Undetermined | OK (MISMATCH) | pta 421? (Sanger ST: 49); yqiL 370? (Sanger ST: 59) | t2211 / t2211 (match) | S / absent | S/S / absent | medaka |
+| V14 | 151 | Undetermined | no ST (partial allele matches) (MISMATCH) | pta 421? (Sanger ST: 49); yqiL 370? (Sanger ST: 59) | t2211 / t2211 (match) | S / absent | S/S / absent | medaka |
 | OF21-07 | 97 | 97 | 97 (match) | - | t359 / t359 (match) | R / present | S/S / absent | medaka |
 | OF21-04 | 87 | 87 | 87 (match) | - | t216 / t216 (match) | S / absent | S/S / absent | medaka |
-| CR92 | 7083 | 7083 | OK (MISMATCH) | pta 421? (Sanger ST: 49); yqiL 370? (Sanger ST: 59) | t529 / t529 (match) | S / absent | S/S / absent | medaka |
+| CR92 | 7083 | 7083 | no ST (partial allele matches) (MISMATCH) | pta 421? (Sanger ST: 49); yqiL 370? (Sanger ST: 59) | t529 / t529 (match) | S / absent | S/S / absent | medaka |
 
 ## Soft checks (genes named in the paper's text)
 

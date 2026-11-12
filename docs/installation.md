@@ -78,7 +78,8 @@ Rosetta was on** in the window. A readable file without the key is therefore rep
 launcher asks to check the setting, because Docker's documentation does not agree on what that default is.
 
 The trade-off, honestly: translated programs run slower than native ones, and ARVA has not measured how much on a
-real Mac (nor has it run on one). Rosetta translates ahead of time, so the cost is mostly CPU time in tools such as
+real Mac (it has been used on a MacBook Air M2 with 8 GB, see `docs/registro-prueba-mac.md`, without timing the
+two images against each other). Rosetta translates ahead of time, so the cost is mostly CPU time in tools such as
 Flye, SPAdes, BLAST+ or DIAMOND; the native arm64 image is faster for what it has, but for *S. aureus* work it
 loses Bakta's full annotation, Prokka, AgrVATE (agr typing), MOB-suite and the short-read assemblers. Choose
 yourself with `scripts/start.sh --platform linux/arm64` (or `linux/amd64`); the choice is saved in

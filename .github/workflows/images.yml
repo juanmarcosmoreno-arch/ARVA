@@ -14,7 +14,7 @@ on:
     # A push that only changes documentation or the validation harness (validation/ and validation.yml are not in the
     # images; editing validation/chakrawarti2024/RUN starts validation.yml) builds nothing, so it never cancels the
     # build of the code before it.
-    paths-ignore: ["docs/**", "**/*.md", "validation/**", ".github/workflows/validation.yml"]
+    paths-ignore: ["docs/**", "**/*.md", "validation/**", ".github/workflows/validation.yml", "paper/**", "CITATION.cff", "LICENSE", ".github/workflows/paper.yml"]
   workflow_dispatch:
 
 permissions:

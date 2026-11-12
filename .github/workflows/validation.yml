@@ -32,7 +32,7 @@ on:
         default: ""
         type: string
   push:
-    branches: [claude/affectionate-darwin-oknu0k]
+    branches: [main, claude/affectionate-darwin-oknu0k]
     paths: [validation/chakrawarti2024/RUN]
 
 permissions:

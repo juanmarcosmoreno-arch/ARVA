@@ -59,6 +59,12 @@ def verdict(ok: bool | None) -> str:
     return "NA" if ok is None else "match" if ok else "MISMATCH"
 
 
+def no_st_label(status: str) -> str:
+    """What mlst said when it gave no ST number (its own status word alone reads like a result)."""
+    return {"NOVEL": "no ST (novel combination of existing alleles)",
+            "OK": "no ST (partial allele matches)"}.get(status, f"no ST ({status})" if status else "-")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--results", type=Path, default=HERE / "results")
@@ -169,7 +175,7 @@ def main() -> None:
         "|---|---|---|---|---|---|---|---|---|",
     ]
     for r in rows:
-        lines.append(f"| {r['isolate']} | {r['sanger_st']} | {r['paper_ont_st']} | {r['arva_st'] or r['arva_mlst_status'] or '-'} "
+        lines.append(f"| {r['isolate']} | {r['sanger_st']} | {r['paper_ont_st']} | {r['arva_st'] or no_st_label(r['arva_mlst_status'])} "
                      f"({r['st_vs_sanger']}) | {r['loci_differing_from_sanger_profile'] or '-'} | {r['spa_paper_hyb']} / {r['arva_spa'] or '-'} ({r['spa_vs_paper']}) | "
                      f"{r['penicillin']} / {r['arva_blaZ']} | {r['oxacillin_cefoxitin']} / {r['arva_mecA']} | "
                      f"{r['polisher']} |")

@@ -7,8 +7,9 @@ ARVA para liberar memoria. No hace falta usar la terminal ni un navegador.
 Sirve igual para pasarle ARVA a otra persona: le basta con instalar **Docker Desktop**; la aplicación hace el resto,
 incluidas las preguntas del primer inicio.
 
-> **Estado.** La aplicación se compila y se prueba automáticamente en una Mac de GitHub (con su autoprueba), pero
-> **todavía no se probó en uso real** con Docker Desktop. Si algo no coincide con esta guía, ver
+> **Estado.** La aplicación se compila y se prueba automáticamente en una Mac de GitHub (con su autoprueba) y se
+> usó en una MacBook Air M2 de 8 GB con Docker Desktop (ver `docs/registro-prueba-mac.md`). El modo nativo de Flye y
+> Bakta **todavía no se validó** en esa Mac. Si algo no coincide con esta guía, ver
 > [Qué hacer cuando algo falla](#qué-hacer-cuando-algo-falla).
 
 ## Contenido

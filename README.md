@@ -144,7 +144,6 @@ apps/
 scientific-core/    arva_core: pure-Python validation & statistics (no web/DB dependencies)
 workflows/
   tool-adapters/    arva_tools: adapters for SeqKit, FastQC, fastp, Filtlong (+ conda environment)
-  nextflow/         multi-step pipelines — Phase 3+
 visualizations/     shared visualisation specs — planned
 databases/          reference database kinds, versions and their sources (README)
 docker/             Dockerfiles and nginx configuration
@@ -172,9 +171,12 @@ ARVA_E2E=1 scripts/test-all.sh    # also the browser golden path (stack must be 
 - [Roadmap & current limitations](docs/roadmap.md)
 - API reference: interactive OpenAPI at `/docs` on the running API
 
-## Reporting a problem
+## Getting help, reporting problems and contributing
 
-Settings → Diagnostics → **Copy diagnostic report** copies a Markdown report to paste into a chat: ARVA's version,
+Questions, problems and ideas go to the [issue tracker](https://github.com/juanmarcosmoreno-arch/ARVA/issues), in
+English or Spanish; [CONTRIBUTING.md](CONTRIBUTING.md) says what to include and how to propose a change.
+
+Settings → Diagnostics → **Copy diagnostic report** copies a Markdown report to paste into an issue: ARVA's version,
 the computer, the performance profile, storage, tools, databases and the recent errors (each with a short ID). A failed
 job and the error screen have **Copy error details** for that job or error alone. When the interface does not open,
 `scripts/diagnostics.sh` prints a similar report from the terminal. The reports never contain sequences, reads, file

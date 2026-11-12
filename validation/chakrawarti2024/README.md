@@ -46,7 +46,7 @@ comparison to Illumina-only and R9.4.1 nanopore-only assemblies.
 | Article metadata (Europe PMC) | `https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=DOI:10.1099/acmi.0.000766.v3&format=json&resultType=core` | – |
 | Full text JATS XML (Methods, Table 1) | `https://www.ebi.ac.uk/europepmc/webservices/rest/PMC11077346/fullTextXML` | `e8a86e06d1a3357a43ac6a661cbadff661cc5c1fa7dfc484edf93b5d1a19f161` |
 | Licence metadata (Crossref) | `https://api.crossref.org/works/10.1099/acmi.0.000766.v3` | – |
-| Supplementary files zip (Europe PMC) | `https://www.ebi.ac.uk/europepmc/webservices/rest/PMC11077346/supplementaryFiles` | `5fec17949e5b0a846be52337a5d2f04d1c5572619fdf2db304754dd6f4499a10` |
+| Supplementary files zip (Europe PMC) | `https://www.ebi.ac.uk/europepmc/webservices/rest/PMC11077346/supplementaryFiles` | – (the zip is generated on request and its checksum changes; the xlsx checksum below is the stable one) |
 | `acmi-6-00766-s001.xlsx` (inside that zip; 418,772 bytes, the same size the PMC XML records) | as above | `7b94ea7f2d7cd0868bb639367fdb1a5c31f499dea1a97187723e5011ac5b79a9` |
 | ENA run report | `https://www.ebi.ac.uk/ena/portal/api/filereport?accession=PRJNA983748&result=read_run&fields=run_accession,experiment_accession,sample_accession,sample_alias,library_name,instrument_platform,instrument_model,library_layout,read_count,base_count,fastq_ftp,fastq_bytes,fastq_md5&format=tsv` | `075b8ebd687dc5f2870c28d044374c4665f32ef66eb6a4a27a808156b624d2d1` (this report is generated on request and may change) |
 
@@ -363,11 +363,18 @@ All 15 isolates ran end to end (Filtlong, Flye 2.9.6 `--nano-raw`, Medaka 2.1.1 
 `r941_min_hac_g507`, mlst, spaTyper, sccmec, AgrVATE, AMRFinderPlus with `--organism Staphylococcus_aureus`).
 Full table: `results/concordance.md`.
 
-- **MLST vs Sanger: 12/15 exact.** Of the three others, two are *no call* rather than a wrong call (V14, ST151;
-  CR92, ST7083: same lineage, partial matches `pta 421?` and `yqiL 370?`, so mlst gives no ST) and one is a wrong
-  call (AC06-110, ST398: arcC and aroE alleles off, reported as a novel ST; the paper's ONT-only pipeline also
-  got this isolate wrong, ST753). On these 15 isolates the paper's ONT-only calls match Sanger 9/15; the set
-  deliberately includes 6 isolates the paper's ONT-only assembly got wrong, of which ARVA calls 4 correctly.
+- **MLST vs Sanger: 12/15 exact.** None of the three others received a wrong ST number; mlst assigned no ST.
+  V14 (ST151) and CR92 (ST7083) are one lineage and share partial matches `pta 421?` and `yqiL 370?`; the paper's
+  ONT-only pipeline typed CR92 correctly. AC06-110 (ST398) is a novel combination of existing alleles: arcC 90
+  instead of 3 and aroE 1216 instead of 35, both exact matches (the paper's ONT-only pipeline also got this isolate
+  wrong, ST753). On these 15 isolates the paper's ONT-only calls match Sanger 9/15; the set deliberately includes
+  6 isolates the paper's ONT-only assembly got wrong (5 undetermined, 1 wrong ST), of which ARVA calls 4
+  correctly. The set was enriched for that pipeline's failures and the tool versions differ, so 12/15 against 9/15
+  is not an accuracy comparison.
+- **What the wrong alleles are** (PubMLST `pubmlst_saureus_seqdef`, retrieved 2026-11-12): arcC 90 (455 bp) is
+  arcC 3 (456 bp) without one A of the run of seven A's at positions 423-429; aroE 1216 (457 bp) is aroE 35
+  (456 bp) with one more A in the run of seven A's that starts at position 87. These are homopolymer-length errors
+  left after Medaka.
 - **spa: 15/15** against the hybrid-assembly spa types (Table S5).
 - **Penicillinase vs penicillin phenotype: 15/15** (blaZ, or blaPC1 — AMRFinderPlus' other symbol for the same
   S. aureus PC1 penicillinase — present exactly in the resistant isolates).
@@ -375,5 +382,16 @@ Full table: `results/concordance.md`.
 - Soft checks from the paper's text: tet(K) only in the tetracycline-resistant isolate, erm(T) in the
   erythromycin-resistant AC06-110, lnu(G) in the lincomycin-resistant V14; erm(A) in OF20-25 (CC30), which
   Table S7 lists as erythromycin susceptible (the paper's text and S7 disagree on this point, see above).
-- **Racon vs Medaka:** with Racon only, AC05-54 got a homopolymer error in arcC (novel ST); Medaka with the
-  matching R9.4.1 model gives ST5957 like Sanger.
+- **Racon vs Medaka:** with Racon only, AC05-54 has arcC 484 instead of 1 (no ST). arcC 484 is arcC 1 without
+  one A of the same run of seven A's, the deletion seen in AC06-110. Medaka with the closest R9.4.1 model
+  (`r941_min_hac_g507`, trained for a later basecaller than the data's Guppy 4.0.11) gives ST5957 like Sanger. The
+  pilot ran before the full run, on its own Flye draft. Medaka therefore reduced, but did not remove, these errors.
+
+### Limits
+
+15 isolates of one species from one study, R9.4.1 chemistry, a Medaka model trained for a later basecaller. All
+isolates are methicillin-susceptible, so the run shows that ARVA calls no false mecA but does not test mecA
+detection or SCCmec typing. Species identification, annotation, virulence and plasmid steps were not run, and the
+paper gives no reference for agr groups. The Ridom spa files are fetched at run time and carry a declared version
+(the download date) and no checksum; the AMRFinderPlus database is the newest release ARVA lists as compatible on
+the day of the run (2026-10-29.1 in these results).
