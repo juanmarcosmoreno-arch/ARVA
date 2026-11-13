@@ -53,11 +53,11 @@ def row(root: Path, isolate: str, expected: dict) -> dict:
         "t_medaka": steps["polishing_medaka"]["duration_seconds"],
         "t_typing": sum(steps[k]["duration_seconds"] for k in STEPS_TYPING),
         "wall_s": d["wall_seconds"],
-        "peak_mem_gb": round(d["resources"]["peak_memory_used_bytes"] / 2**30, 1),
-        "largest_rss_gb": round(d["resources"]["largest_process_rss_bytes"] / 2**30, 1),
+        "peak_mem_gib": round(d["resources"]["peak_memory_used_bytes"] / 2**30, 1),
+        "largest_rss_gib": round(d["resources"]["largest_process_rss_bytes"] / 2**30, 1),
         "largest_proc": d["resources"]["largest_process_name"],
         "threads": profile["usable_cpus"],
-        "mem_host": round(profile["usable_memory_gb"], 1),
+        "usable_mem_gib": round(profile["usable_memory_gb"], 1),
         "image": d["provenance"]["arva_image"],
         "amr_db": amr["database_version"],
         "mlst_db": d["mlst"]["database_version"],
@@ -76,7 +76,7 @@ def main() -> None:
         writer.writeheader()
         writer.writerows(rows)
     print("isolates", len(rows))
-    for key in ("reads", "bases_mb", "depth_x", "contigs", "length_bp", "wall_s", "t_flye", "t_medaka", "peak_mem_gb"):
+    for key in ("reads", "bases_mb", "depth_x", "contigs", "length_bp", "wall_s", "t_flye", "t_medaka", "peak_mem_gib"):
         values = [r[key] for r in rows]
         print(f"{key}: median {statistics.median(values)}, range {min(values)}-{max(values)}")
 
